@@ -1,0 +1,16 @@
+.git
+.github
+.DS_Store
+node_modules
+.expo
+.expo-shared
+dist
+web-build
+coverage
+*.log
+.env
+.env.*
+android/.gradle
+android/app/build
+ios/Pods
+ios/build

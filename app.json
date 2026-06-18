@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "FaithLog",
+    "slug": "faithlog-frontend",
+    "scheme": "faithlog",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.faithlog.frontend"
+    },
+    "android": {
+      "package": "com.faithlog.frontend",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "apiBaseUrl": "https://api.example.com"
+    }
+  }
+}
