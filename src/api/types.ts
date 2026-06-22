@@ -219,6 +219,7 @@ export type ChargeCategorySummary = {
 export type PaymentCategory = 'PENALTY' | 'COFFEE';
 
 export type ChargeStatus = 'UNPAID' | 'PAID' | 'WAIVED' | 'CANCELED';
+export type AdminWritableChargeStatus = Exclude<ChargeStatus, 'PAID'>;
 
 export type ChargeSummary = {
   campusId: number;
@@ -272,6 +273,35 @@ export type ChargeList = {
   region: string;
   summary: ChargeAmountSummary;
   items: ChargeItem[];
+};
+
+export type AdminChargeMemberSummary = ChargeAmountSummary & {
+  userId: number;
+  name: string;
+  email: string;
+};
+
+export type AdminCampusChargeSummary = {
+  campusId: number;
+  campusName: string;
+  region: string;
+  summary: ChargeAmountSummary;
+  members: AdminChargeMemberSummary[];
+};
+
+export type AdminMemberChargeList = ChargeList & {
+  userId: number;
+  name: string;
+  email: string;
+};
+
+export type AdminChargeStatusChangeRequest = {
+  status: AdminWritableChargeStatus;
+};
+
+export type AdminChargeStatusChangeResponse = Omit<ChargeItem, 'account' | 'dueDate' | 'source'> & {
+  campusId: number;
+  userId: number;
 };
 
 export type PaymentAccount = {
