@@ -28,6 +28,35 @@ export type TokenPair = {
   tokenType: 'Bearer' | string;
 };
 
+export type SignupRequest = {
+  name: string;
+  email: string;
+  password: string;
+};
+
+export type SignupResponse = {
+  id: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type LoginResponse = TokenPair & {
+  user: CurrentUser;
+};
+
+export type LogoutRequest = {
+  refreshToken?: string;
+  clientInstanceId?: string;
+  fcmToken?: string;
+};
+
 export type UserRole = 'USER' | 'MANAGER' | 'ADMIN';
 
 export type CampusRole =

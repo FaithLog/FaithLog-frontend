@@ -1,6 +1,7 @@
-import {fetchCurrentUser, fetchMyCampuses, refreshAuthToken, FaithLogApiError} from '../api/client';
-import {clearTokens, getStoredTokens, saveTokens} from '../api/tokenStorage';
+import {FaithLogApiError} from '../api/client';
+import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
+import {refreshAndEstablishSession} from './session';
 
 export type AuthGateState =
   | {status: 'loading'; message: string}
@@ -43,25 +44,7 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
   }
 
   try {
-    const tokens = await refreshAuthToken(refreshToken);
-    await saveTokens(tokens);
-
-    const [user, campuses] = await Promise.all([
-      fetchCurrentUser(tokens.accessToken),
-      fetchMyCampuses(tokens.accessToken),
-    ]);
-    const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
-
-    if (activeCampuses.length === 0) {
-      return {status: 'noCampus', user};
-    }
-
-    return {
-      status: 'authenticated',
-      user,
-      activeCampuses,
-      selectedCampus: activeCampuses[0]!,
-    };
+    return await refreshAndEstablishSession(refreshToken);
   } catch (error) {
     if (error instanceof FaithLogApiError) {
       if (error.detail.kind === 'sessionExpired') {

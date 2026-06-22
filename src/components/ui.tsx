@@ -1,11 +1,15 @@
 import type {PropsWithChildren, ReactNode} from 'react';
 import {
   ActivityIndicator,
+  type KeyboardTypeOptions,
   Pressable,
+  type ReturnKeyTypeOptions,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputSubmitEditingEventData,
   View,
+  type NativeSyntheticEvent,
 } from 'react-native';
 
 import {colors, radius, spacing} from '../theme';
@@ -132,19 +136,33 @@ export function IconButton({
 
 export function TextField({
   accessibilityLabel,
+  autoCapitalize = 'none',
   error,
   helper,
+  keyboardType = 'default',
   label,
   onChangeText,
+  onSubmitEditing,
   placeholder,
+  returnKeyType,
+  secureTextEntry = false,
+  textContentType,
   value,
 }: {
-  accessibilityLabel?: string;
-  error?: string;
-  helper?: string;
+  accessibilityLabel?: string | undefined;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  error?: string | undefined;
+  helper?: string | undefined;
+  keyboardType?: KeyboardTypeOptions;
   label: string;
   onChangeText: (value: string) => void;
-  placeholder?: string;
+  onSubmitEditing?:
+    | ((event: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => void)
+    | undefined;
+  placeholder?: string | undefined;
+  returnKeyType?: ReturnKeyTypeOptions;
+  secureTextEntry?: boolean;
+  textContentType?: 'emailAddress' | 'name' | 'newPassword' | 'password' | 'none' | undefined;
   value: string;
 }) {
   return (
@@ -152,10 +170,16 @@ export function TextField({
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         accessibilityLabel={accessibilityLabel ?? label}
+        autoCapitalize={autoCapitalize}
+        keyboardType={keyboardType}
         onChangeText={onChangeText}
+        onSubmitEditing={onSubmitEditing}
         placeholder={placeholder}
         placeholderTextColor={colors.subtleText}
+        returnKeyType={returnKeyType}
+        secureTextEntry={secureTextEntry}
         style={[styles.textField, error ? styles.textFieldError : null]}
+        textContentType={textContentType}
         value={value}
       />
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
