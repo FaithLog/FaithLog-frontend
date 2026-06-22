@@ -26,6 +26,7 @@ import type {
   UserRole,
   WeeklyDevotionSummary,
 } from '../api/types';
+import {AdminScreen} from '../admin/AdminScreen';
 import {
   type AuthFieldErrors,
   type LoginFormValues,
@@ -1247,6 +1248,12 @@ function AuthenticatedShell({
           setNotice={setNotice}
           state={state}
         />
+      ) : route === 'campusAdmin' ? (
+        <AdminScreen
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
       ) : (
         <RoutePlaceholder
           activeCampusCount={state.activeCampuses.length}
@@ -1263,7 +1270,8 @@ function AuthenticatedShell({
       route === 'userHome' ||
       route === 'devotion' ||
       route === 'payments' ||
-      route === 'polls' ? null : (
+      route === 'polls' ||
+      route === 'campusAdmin' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
           <Title>{getRouteTitle(route)}</Title>

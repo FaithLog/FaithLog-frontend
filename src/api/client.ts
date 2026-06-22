@@ -1,6 +1,9 @@
 import type {
   ApiEnvelope,
   ApiError,
+  AdminCampusMember,
+  AdminCampusRoleChangeRequest,
+  AdminDashboardSummary,
   CampusCreateRequest,
   CampusCreateResponse,
   CampusDetail,
@@ -10,11 +13,13 @@ import type {
   ChargeList,
   ChargeStatus,
   ChargeSummary,
+  CoffeeDutyAssignRequest,
   CoffeeBrand,
   CoffeeMenu,
   CurrentUser,
   DevotionDailyCheckRequest,
   DevotionDailyCheckSaveResponse,
+  DutyAssignment,
   DevotionMonthlySummary,
   PollComment,
   PollCommentRequest,
@@ -119,6 +124,15 @@ export function buildApiPath(...segments: PathSegment[]) {
 
 export function buildCampusPath(campusId: unknown, ...segments: PathSegment[]) {
   return buildApiPath('campuses', toPositiveIntegerPathSegment(campusId, 'campusId'), ...segments);
+}
+
+export function buildAdminCampusPath(campusId: unknown, ...segments: PathSegment[]) {
+  return buildApiPath(
+    'admin',
+    'campuses',
+    toPositiveIntegerPathSegment(campusId, 'campusId'),
+    ...segments,
+  );
 }
 
 export function toDatePathSegment(value: unknown, label: string) {
@@ -267,6 +281,19 @@ function toDevotionSummaryYearMonthQuery(year: unknown, month: unknown) {
   params.set('month', String(month));
 
   return params.toString();
+}
+
+function toAdminDashboardSummaryQuery(params: {weekStartDate?: string} = {}) {
+  const query = new URLSearchParams();
+
+  if (params.weekStartDate) {
+    query.set(
+      'weekStartDate',
+      toMondayDatePathSegment(params.weekStartDate, 'weekStartDate'),
+    );
+  }
+
+  return query.toString();
 }
 
 function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnvelope<unknown>>): ApiError {
@@ -743,5 +770,102 @@ export function fetchPrayerWeek(
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
     {accessToken},
+  );
+}
+
+export function fetchAdminDashboardSummary(
+  accessToken: string,
+  campusId: unknown,
+  params: {weekStartDate?: string} = {},
+) {
+  const query = toAdminDashboardSummaryQuery(params);
+  const path = buildAdminCampusPath(campusId, 'dashboard', 'summary');
+
+  return apiRequest<AdminDashboardSummary>(query ? `${path}?${query}` : path, {accessToken});
+}
+
+export function fetchAdminCampusMembers(accessToken: string, campusId: unknown) {
+  return apiRequest<AdminCampusMember[]>(buildAdminCampusPath(campusId, 'members'), {
+    accessToken,
+  });
+}
+
+export function changeAdminCampusMemberRole(
+  accessToken: string,
+  campusId: unknown,
+  campusMemberId: unknown,
+  body: AdminCampusRoleChangeRequest,
+) {
+  return apiRequest<AdminCampusMember>(
+    buildAdminCampusPath(
+      campusId,
+      'members',
+      toPositiveIntegerPathSegment(campusMemberId, 'campusMemberId'),
+      'campus-role',
+    ),
+    {
+      accessToken,
+      body,
+      method: 'PATCH',
+    },
+  );
+}
+
+export function fetchDutyAssignments(accessToken: string, campusId: unknown) {
+  return apiRequest<DutyAssignment[]>(
+    buildAdminCampusPath(campusId, 'duty-assignments'),
+    {accessToken},
+  );
+}
+
+export function assignCoffeeDuty(
+  accessToken: string,
+  campusId: unknown,
+  body: CoffeeDutyAssignRequest,
+) {
+  return apiRequest<DutyAssignment>(
+    buildAdminCampusPath(campusId, 'duty-assignments', 'coffee'),
+    {
+      accessToken,
+      body,
+      method: 'PUT',
+    },
+  );
+}
+
+export function revokeCoffeeDuty(
+  accessToken: string,
+  campusId: unknown,
+  assignmentId: unknown,
+) {
+  return apiRequest<null>(
+    buildAdminCampusPath(
+      campusId,
+      'duty-assignments',
+      'coffee',
+      toPositiveIntegerPathSegment(assignmentId, 'assignmentId'),
+    ),
+    {
+      accessToken,
+      method: 'DELETE',
+    },
+  );
+}
+
+export function deleteCampusMember(
+  accessToken: string,
+  campusId: unknown,
+  membershipId: unknown,
+) {
+  return apiRequest<null>(
+    buildCampusPath(
+      campusId,
+      'members',
+      toPositiveIntegerPathSegment(membershipId, 'membershipId'),
+    ),
+    {
+      accessToken,
+      method: 'DELETE',
+    },
   );
 }
