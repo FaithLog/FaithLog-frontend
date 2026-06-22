@@ -1971,7 +1971,7 @@ function renderAdminPrayerBoard({
                             ? `version ${member.version} · ${formatDateTime(member.submittedAt)}`
                             : `version ${member.version} · 미작성`
                         }
-                        value={member.content ? '작성' : '미작성'}
+                        value={hasPrayerMemberSubmitted(member) ? '작성' : '미작성'}
                       />
                     ))
                   )}
@@ -3802,8 +3802,13 @@ function formatDateTime(value: string) {
 }
 
 function countSubmittedMembers(group: PrayerWeekSummary['groups'][number]) {
-  return group.members.filter((member) => member.submittedAt !== null || member.content !== null)
-    .length;
+  return group.members.filter(hasPrayerMemberSubmitted).length;
+}
+
+function hasPrayerMemberSubmitted(
+  member: PrayerWeekSummary['groups'][number]['members'][number],
+) {
+  return member.submittedAt !== null || member.content !== null;
 }
 
 function parseOptionalPositiveInt(value: string, label: string) {
