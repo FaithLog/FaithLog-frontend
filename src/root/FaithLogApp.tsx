@@ -27,6 +27,7 @@ import type {
   WeeklyDevotionSummary,
 } from '../api/types';
 import {AdminScreen} from '../admin/AdminScreen';
+import {ServiceAdminScreen} from '../admin/ServiceAdminScreen';
 import {
   type AuthFieldErrors,
   type LoginFormValues,
@@ -1282,6 +1283,12 @@ function AuthenticatedShell({
           setNotice={setNotice}
           state={state}
         />
+      ) : route === 'serviceAdmin' ? (
+        <ServiceAdminScreen
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
       ) : (
         <RoutePlaceholder
           activeCampusCount={state.activeCampuses.length}
@@ -1300,7 +1307,8 @@ function AuthenticatedShell({
       route === 'payments' ||
       route === 'polls' ||
       route === 'prayers' ||
-      route === 'campusAdmin' ? null : (
+      route === 'campusAdmin' ||
+      route === 'serviceAdmin' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
           <Title>{getRouteTitle(route)}</Title>

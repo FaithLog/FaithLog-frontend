@@ -138,6 +138,45 @@ export type CurrentUser = {
   campusMemberships: CampusMembershipSummary[];
 };
 
+export type ServiceAdminUserCampusSummary = {
+  membershipId: number;
+  campusId: number;
+  campusName: string;
+  region: string;
+  campusRole: CampusRole;
+  status: CampusStatus;
+};
+
+export type ServiceAdminUserListItem = {
+  userId: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  campusCount: number;
+  campuses: ServiceAdminUserCampusSummary[];
+};
+
+export type ServiceAdminUserList = {
+  content: ServiceAdminUserListItem[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export type ServiceAdminUserDetail = {
+  userId: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+  campuses: ServiceAdminUserCampusSummary[];
+};
+
+export type ServiceAdminUserRoleChangeRequest = {
+  role: UserRole;
+};
+
 export type DevotionDailyCheck = {
   id: number | null;
   recordDate: string;
