@@ -403,3 +403,65 @@ export type PrayerWeekSummary = {
   targetMemberCount: number;
   groups: PrayerGroupSummary[];
 };
+
+export type AdminDashboardSummary = {
+  campus: {
+    campusId: number;
+    campusName: string;
+    region: string;
+  };
+  members: {
+    activeCount: number;
+    inactiveCount: number;
+    adminCount: number;
+  };
+  devotion: {
+    weekStartDate: string;
+    submittedCount: number;
+    missingCount: number;
+    submitRate: number;
+  };
+  charges: {
+    unpaidAmount: number;
+    unpaidMemberCount: number;
+    byCategory: Array<{
+      paymentCategory: PaymentCategory;
+      unpaidAmount: number;
+    }>;
+  };
+  polls: {
+    openCount: number;
+    recentlyClosedCount: number;
+    missingResponseCount: number;
+    recentlyClosedDays: number;
+  };
+};
+
+export type AdminCampusMember = {
+  membershipId: number;
+  campusId: number;
+  userId: number;
+  name: string;
+  email: string;
+  campusRole: CampusRole;
+  status: CampusStatus;
+};
+
+export type AdminCampusRoleChangeRequest = {
+  campusRole: CampusRole;
+};
+
+export type DutyAssignment = {
+  assignmentId: number;
+  campusId: number;
+  userId: number;
+  name: string;
+  email: string;
+  dutyType: 'COFFEE' | string;
+  isActive: boolean;
+  assignedAt: string;
+};
+
+export type CoffeeDutyAssignRequest = {
+  userId: number;
+};
