@@ -7,8 +7,11 @@ import type {
   AdminDashboardSummary,
   AdminMemberChargeList,
   AdminMissingDevotionMember,
+  AdminNotificationLogList,
   AdminNotificationRequest,
   AdminNotificationResponse,
+  AdminNotificationSendStatus,
+  AdminNotificationType,
   AdminPaymentAccount,
   AdminPrayerGroup,
   AdminPrayerGroupCreateRequest,
@@ -227,12 +230,16 @@ function toSummaryYearMonthQuery(year: unknown, month: unknown) {
 
 type ChargeSortKey = 'createdAt' | 'dueDate' | 'amount';
 type SortDirection = 'asc' | 'desc';
+type NotificationLogSortKey = 'createdAt' | 'sentAt' | 'sendStatus';
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
 const paymentCategories = ['PENALTY', 'COFFEE'] as const;
 const penaltyRuleTypes = ['QUIET_TIME', 'PRAYER', 'BIBLE_READING', 'SATURDAY_LATE'] as const;
 const penaltyCalculationTypes = ['MISSING_COUNT', 'LATE_MINUTE'] as const;
 const chargeSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
+const notificationTypes = ['CUSTOM'] as const;
+const notificationSendStatuses = ['PENDING', 'SENT', 'FAILED', 'SKIPPED'] as const;
+const notificationLogSortKeys = ['createdAt', 'sentAt', 'sendStatus'] as const;
 const sortDirections = ['asc', 'desc'] as const;
 
 function isPaymentCategory(value: unknown): value is PaymentCategory {
@@ -253,6 +260,18 @@ function isPenaltyCalculationType(value: unknown): value is PenaltyCalculationTy
 
 function isChargeSortKey(value: unknown): value is ChargeSortKey {
   return chargeSortKeys.includes(value as ChargeSortKey);
+}
+
+function isNotificationType(value: unknown): value is AdminNotificationType {
+  return notificationTypes.includes(value as AdminNotificationType);
+}
+
+function isNotificationSendStatus(value: unknown): value is AdminNotificationSendStatus {
+  return notificationSendStatuses.includes(value as AdminNotificationSendStatus);
+}
+
+function isNotificationLogSortKey(value: unknown): value is NotificationLogSortKey {
+  return notificationLogSortKeys.includes(value as NotificationLogSortKey);
 }
 
 function isSortDirection(value: unknown): value is SortDirection {
@@ -526,6 +545,102 @@ function toAdminMissingDevotionQuery(weekStartDate: string) {
   return query.toString();
 }
 
+function toOptionalRequestIdQueryValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: 'requestId 값이 올바르지 않습니다.',
+    });
+  }
+
+  const requestId = value.trim();
+
+  if (!requestId) {
+    return undefined;
+  }
+
+  if (requestId.length > 120 || !/^[0-9A-Za-z_-]+(?:-[0-9A-Za-z_-]+)*$/.test(requestId)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: 'requestId 값이 올바르지 않습니다.',
+    });
+  }
+
+  return requestId;
+}
+
+function toSafeAdminNotificationLogQuery(params: {
+  endDate?: string;
+  notificationType?: AdminNotificationType | 'ALL';
+  page?: number;
+  requestId?: string;
+  sendStatus?: AdminNotificationSendStatus | 'ALL';
+  size?: number;
+  sort?: {direction: SortDirection; key: NotificationLogSortKey};
+  startDate?: string;
+  targetId?: number;
+  targetWeekStartDate?: string;
+} = {}) {
+  const query = new URLSearchParams();
+  const page =
+    typeof params.page === 'number' && Number.isInteger(params.page) && params.page >= 0
+      ? Math.min(params.page, 9999)
+      : 0;
+  const size =
+    typeof params.size === 'number' && Number.isInteger(params.size)
+      ? Math.min(Math.max(params.size, 1), 100)
+      : 20;
+  const sortKey = isNotificationLogSortKey(params.sort?.key)
+    ? params.sort.key
+    : 'createdAt';
+  const sortDirection = isSortDirection(params.sort?.direction)
+    ? params.sort.direction
+    : 'desc';
+
+  query.set('page', String(page));
+  query.set('size', String(size));
+  query.set('sort', `${sortKey},${sortDirection}`);
+
+  if (isNotificationType(params.notificationType)) {
+    query.set('notificationType', params.notificationType);
+  }
+
+  if (isNotificationSendStatus(params.sendStatus)) {
+    query.set('sendStatus', params.sendStatus);
+  }
+
+  if (params.targetWeekStartDate) {
+    query.set(
+      'targetWeekStartDate',
+      toDatePathSegment(params.targetWeekStartDate, 'targetWeekStartDate'),
+    );
+  }
+
+  if (params.targetId !== undefined) {
+    query.set('targetId', toPositiveIntegerPathSegment(params.targetId, 'targetId'));
+  }
+
+  const requestId = toOptionalRequestIdQueryValue(params.requestId);
+
+  if (requestId) {
+    query.set('requestId', requestId);
+  }
+
+  if (params.startDate) {
+    query.set('startDate', toDatePathSegment(params.startDate, 'startDate'));
+  }
+
+  if (params.endDate) {
+    query.set('endDate', toDatePathSegment(params.endDate, 'endDate'));
+  }
+
+  return query.toString();
+}
+
 function toAdminNotificationRequest(body: AdminNotificationRequest): AdminNotificationRequest {
   const targetUserIds = body.targetUserIds.map((userId) =>
     Number(toPositiveIntegerPathSegment(userId, 'targetUserIds')),
@@ -548,7 +663,7 @@ function toAdminNotificationRequest(body: AdminNotificationRequest): AdminNotifi
     });
   }
 
-  if (!notificationType) {
+  if (!isNotificationType(notificationType)) {
     throw new FaithLogApiError({
       kind: 'error',
       message: '알림 유형이 올바르지 않습니다.',
@@ -1344,6 +1459,30 @@ export function fetchAdminMissingDevotionMembers(
 
   return apiRequest<AdminMissingDevotionMember[]>(
     `${buildAdminCampusPath(campusId, 'devotions', 'missing')}?${query}`,
+    {accessToken},
+  );
+}
+
+export function fetchAdminNotificationLogs(
+  accessToken: string,
+  campusId: unknown,
+  params: {
+    endDate?: string;
+    notificationType?: AdminNotificationType | 'ALL';
+    page?: number;
+    requestId?: string;
+    sendStatus?: AdminNotificationSendStatus | 'ALL';
+    size?: number;
+    sort?: {direction: SortDirection; key: NotificationLogSortKey};
+    startDate?: string;
+    targetId?: number;
+    targetWeekStartDate?: string;
+  } = {},
+) {
+  const query = toSafeAdminNotificationLogQuery(params);
+
+  return apiRequest<AdminNotificationLogList>(
+    `${buildAdminCampusPath(campusId, 'notification-logs')}?${query}`,
     {accessToken},
   );
 }
