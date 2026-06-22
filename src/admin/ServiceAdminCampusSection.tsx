@@ -8,6 +8,7 @@ import {
   getServiceAdminCampuses,
   updateCampus,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -602,13 +603,21 @@ function SegmentButton({
 }
 
 function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '캠퍼스 상태와 충돌했습니다',
+    conflictMessage: '이미 ACTIVE 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다. 최신 정보를 다시 불러와 주세요.',
+    permissionTitle: 'Service ADMIN 권한이 필요합니다',
+    permissionMessage: 'USER 또는 MANAGER는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.',
+    defaultTitle: '캠퍼스 정보를 처리하지 못했습니다',
+  });
+
   switch (error.kind) {
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="Service ADMIN 권한이 필요합니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 권한 오류 후 다시 확인"
           onActionPress={onRetry}
         />
@@ -616,9 +625,9 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
     case 'conflict':
       return (
         <Conflict
-          title="캠퍼스 상태와 충돌했습니다"
-          message={error.message}
-          actionLabel="다시 불러오기"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 충돌 오류 후 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -626,9 +635,9 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 불안정합니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 네트워크 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -636,9 +645,9 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
     case 'sessionExpired':
       return (
         <ErrorState
-          title="세션이 만료되었습니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 세션 만료 후 다시 확인"
           onActionPress={onRetry}
         />
@@ -646,9 +655,9 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
     case 'error':
       return (
         <ErrorState
-          title="캠퍼스 정보를 처리하지 못했습니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -705,20 +714,10 @@ function toApiError(error: unknown, fallback: string): ApiError {
 }
 
 function getActionErrorMessage(error: ApiError) {
-  switch (error.kind) {
-    case 'permissionDenied':
-      return '전역 ADMIN 권한이 없습니다. USER 또는 MANAGER는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.';
-    case 'conflict':
-      return error.message || '이미 ACTIVE 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'error':
-      return error.message;
-    default:
-      return assertNever(error.kind);
-  }
+  return getApiErrorPresentation(error, {
+    conflictMessage: '이미 ACTIVE 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다.',
+    permissionMessage: '전역 ADMIN 권한이 없습니다. USER 또는 MANAGER는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.',
+  }).message;
 }
 
 function toOptionalPositiveInteger(value: string) {

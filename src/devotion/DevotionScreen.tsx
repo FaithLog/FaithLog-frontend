@@ -8,6 +8,7 @@ import {
   saveDevotionDailyCheck,
   saveWeeklyDevotion,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -597,13 +598,21 @@ function CheckPill({
 }
 
 function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '최신 경건 기록 확인이 필요합니다',
+    conflictMessage: '서버의 최신 경건생활 상태와 충돌했습니다. 다시 불러와 주세요.',
+    permissionTitle: '경건생활 접근 권한이 없습니다',
+    permissionMessage: 'ACTIVE 캠퍼스 멤버에게만 경건생활 화면이 열립니다.',
+    defaultTitle: '경건생활을 불러오지 못했습니다',
+  });
+
   switch (error.kind) {
     case 'sessionExpired':
       return (
         <ErrorState
-          title="세션이 만료되었습니다"
-          message="다시 로그인한 뒤 경건생활을 확인해 주세요."
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 세션 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -611,9 +620,9 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="경건생활 접근 권한이 없습니다"
-          message="ACTIVE 캠퍼스 멤버에게만 경건생활 화면이 열립니다."
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 권한 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -621,9 +630,9 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
     case 'conflict':
       return (
         <Conflict
-          title="최신 경건 기록 확인이 필요합니다"
-          message="서버의 최신 상태와 충돌했습니다. 다시 불러와 주세요."
-          actionLabel="다시 불러오기"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 충돌 후 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -631,9 +640,9 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 불안정합니다"
-          message="연결을 확인한 뒤 경건생활을 다시 불러와 주세요."
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 오프라인 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -641,9 +650,9 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
     case 'error':
       return (
         <ErrorState
-          title="경건생활을 불러오지 못했습니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 일반 오류 후 다시 시도"
           onActionPress={onRetry}
         />

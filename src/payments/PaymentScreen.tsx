@@ -8,6 +8,7 @@ import {
   fetchPaymentAccounts,
   markMyChargePaid,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -532,13 +533,21 @@ function ChargeCard({
 }
 
 function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '청구 상태가 바뀌었습니다',
+    conflictMessage: '청구 또는 납부 상태가 최신 정보와 충돌했습니다. 최신 정보를 다시 불러와 주세요.',
+    permissionTitle: '납부 정보를 볼 권한이 없습니다',
+    permissionMessage: '현재 계정으로는 이 납부 정보를 확인하거나 처리할 수 없습니다.',
+    defaultTitle: '납부 처리 중 문제가 발생했습니다',
+  });
+
   switch (error.kind) {
     case 'sessionExpired':
       return (
         <ErrorState
-          title="다시 로그인이 필요합니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 납부 정보 다시 시도"
           onActionPress={onRetry}
         />
@@ -546,9 +555,9 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="납부 정보를 볼 권한이 없습니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="권한 오류 후 납부 정보 다시 확인"
           onActionPress={onRetry}
         />
@@ -556,8 +565,8 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
     case 'conflict':
       return (
         <Conflict
-          title="청구 상태가 바뀌었습니다"
-          message={error.message}
+          title={presentation.title}
+          message={presentation.message}
           actionLabel="최신 정보 불러오기"
           actionAccessibilityLabel="청구 충돌 후 최신 정보 다시 불러오기"
           onActionPress={onRetry}
@@ -566,9 +575,9 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 필요합니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="오프라인 후 납부 정보 다시 시도"
           onActionPress={onRetry}
         />
@@ -576,9 +585,9 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
     case 'error':
       return (
         <ErrorState
-          title="납부 처리 중 문제가 발생했습니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="납부 오류 후 다시 시도"
           onActionPress={onRetry}
         />
