@@ -27,6 +27,7 @@ import type {
   CampusDetail,
   CampusJoinRequest,
   CampusJoinResponse,
+  CampusUpdateRequest,
   CampusMembershipSummary,
   ChargeList,
   ChargeStatus,
@@ -66,6 +67,10 @@ import type {
   ServiceAdminUserDetail,
   ServiceAdminUserList,
   ServiceAdminUserRoleChangeRequest,
+  ServiceAdminCampusList,
+  ServiceAdminCampusMemberAddRequest,
+  ServiceAdminCampusMemberAddResponse,
+  ServiceAdminCampusOperationStatus,
   SignupRequest,
   SignupResponse,
   TokenPair,
@@ -236,6 +241,7 @@ type ChargeSortKey = 'createdAt' | 'dueDate' | 'amount';
 type SortDirection = 'asc' | 'desc';
 type NotificationLogSortKey = 'createdAt' | 'sentAt' | 'sendStatus';
 type ServiceAdminUserSortKey = 'id' | 'name' | 'email' | 'role' | 'createdAt';
+type ServiceAdminCampusSortKey = 'id' | 'name' | 'region' | 'createdAt';
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
 const paymentCategories = ['PENALTY', 'COFFEE'] as const;
@@ -246,6 +252,8 @@ const notificationTypes = ['CUSTOM'] as const;
 const notificationSendStatuses = ['PENDING', 'SENT', 'FAILED', 'SKIPPED'] as const;
 const notificationLogSortKeys = ['createdAt', 'sentAt', 'sendStatus'] as const;
 const serviceAdminUserSortKeys = ['id', 'name', 'email', 'role', 'createdAt'] as const;
+const serviceAdminCampusSortKeys = ['id', 'name', 'region', 'createdAt'] as const;
+const serviceAdminCampusStatuses = ['ACTIVE', 'PAUSED'] as const;
 const sortDirections = ['asc', 'desc'] as const;
 const userRoles = ['USER', 'MANAGER', 'ADMIN'] as const;
 
@@ -283,6 +291,16 @@ function isNotificationLogSortKey(value: unknown): value is NotificationLogSortK
 
 function isServiceAdminUserSortKey(value: unknown): value is ServiceAdminUserSortKey {
   return serviceAdminUserSortKeys.includes(value as ServiceAdminUserSortKey);
+}
+
+function isServiceAdminCampusSortKey(value: unknown): value is ServiceAdminCampusSortKey {
+  return serviceAdminCampusSortKeys.includes(value as ServiceAdminCampusSortKey);
+}
+
+function isServiceAdminCampusStatus(
+  value: unknown,
+): value is ServiceAdminCampusOperationStatus {
+  return serviceAdminCampusStatuses.includes(value as ServiceAdminCampusOperationStatus);
 }
 
 function isSortDirection(value: unknown): value is SortDirection {
@@ -407,6 +425,23 @@ function toServiceAdminUserRoleChangeRequest(
   }
 
   return {role: body.role};
+}
+
+function toCampusUpdateRequest(body: CampusUpdateRequest): CampusUpdateRequest {
+  return {
+    name: toRequiredString(body.name, '캠퍼스 이름'),
+    region: toRequiredString(body.region, '지역'),
+    description: toRequiredString(body.description, '설명'),
+    isActive: Boolean(body.isActive),
+  };
+}
+
+function toServiceAdminCampusMemberAddRequest(
+  body: ServiceAdminCampusMemberAddRequest,
+): ServiceAdminCampusMemberAddRequest {
+  return {
+    userId: Number(toPositiveIntegerPathSegment(body.userId, 'userId')),
+  };
 }
 
 function toNonNegativeInteger(value: unknown, label: string) {
@@ -726,6 +761,45 @@ function toSafeServiceAdminUserQuery(params: {
 
   if (isUserRole(params.role)) {
     query.set('role', params.role);
+  }
+
+  return query.toString();
+}
+
+function toSafeServiceAdminCampusQuery(params: {
+  name?: string;
+  page?: number;
+  region?: string;
+  size?: number;
+  sort?: {direction: SortDirection; key: ServiceAdminCampusSortKey};
+  status?: ServiceAdminCampusOperationStatus | 'ALL';
+} = {}) {
+  const query = new URLSearchParams();
+  const page = toSafePage(params.page);
+  const size = toSafePageSize(params.size);
+  const sortKey = isServiceAdminCampusSortKey(params.sort?.key)
+    ? params.sort.key
+    : 'id';
+  const sortDirection = isSortDirection(params.sort?.direction)
+    ? params.sort.direction
+    : 'asc';
+  const name = toOptionalSearchQueryValue(params.name);
+  const region = toOptionalSearchQueryValue(params.region);
+
+  query.set('page', String(page));
+  query.set('size', String(size));
+  query.set('sort', `${sortKey},${sortDirection}`);
+
+  if (name) {
+    query.set('name', name);
+  }
+
+  if (region) {
+    query.set('region', region);
+  }
+
+  if (isServiceAdminCampusStatus(params.status)) {
+    query.set('status', params.status);
   }
 
   return query.toString();
@@ -1658,6 +1732,51 @@ export function updateServiceAdminUserRole(
       accessToken,
       body: toServiceAdminUserRoleChangeRequest(body),
       method: 'PATCH',
+    },
+  );
+}
+
+export function getServiceAdminCampuses(
+  accessToken: string,
+  params: {
+    name?: string;
+    page?: number;
+    region?: string;
+    size?: number;
+    sort?: {direction: SortDirection; key: ServiceAdminCampusSortKey};
+    status?: ServiceAdminCampusOperationStatus | 'ALL';
+  } = {},
+): Promise<ServiceAdminCampusList> {
+  const query = toSafeServiceAdminCampusQuery(params);
+
+  return apiRequest<ServiceAdminCampusList>(`${buildApiPath('admin', 'campuses')}?${query}`, {
+    accessToken,
+  });
+}
+
+export function updateCampus(
+  accessToken: string,
+  campusId: unknown,
+  body: CampusUpdateRequest,
+): Promise<CampusDetail> {
+  return apiRequest<CampusDetail>(buildCampusPath(campusId), {
+    accessToken,
+    body: toCampusUpdateRequest(body),
+    method: 'PATCH',
+  });
+}
+
+export function addServiceAdminCampusMember(
+  accessToken: string,
+  campusId: unknown,
+  body: ServiceAdminCampusMemberAddRequest,
+): Promise<ServiceAdminCampusMemberAddResponse> {
+  return apiRequest<ServiceAdminCampusMemberAddResponse>(
+    buildAdminCampusPath(campusId, 'members'),
+    {
+      accessToken,
+      body: toServiceAdminCampusMemberAddRequest(body),
+      method: 'POST',
     },
   );
 }

@@ -35,6 +35,7 @@ import {
   Title,
 } from '../components/ui';
 import {colors, radius, spacing} from '../theme';
+import {ServiceAdminCampusSection} from './ServiceAdminCampusSection';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -52,6 +53,7 @@ type ServiceAdminScreenProps = {
 
 type RoleFilter = UserRole | 'ALL';
 type RoleOption = UserRole;
+type ServiceAdminSection = 'campuses' | 'users';
 
 type UserListState =
   | {status: 'loading'}
@@ -73,8 +75,13 @@ type RoleChangeState =
 
 const ROLE_OPTIONS: RoleOption[] = ['USER', 'MANAGER', 'ADMIN'];
 const ROLE_FILTERS: RoleFilter[] = ['ALL', ...ROLE_OPTIONS];
+const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = [
+  {id: 'campuses', label: '캠퍼스'},
+  {id: 'users', label: '사용자'},
+];
 
 export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdminScreenProps) {
+  const [activeSection, setActiveSection] = useState<ServiceAdminSection>('campuses');
   const [nameFilter, setNameFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [userIdFilter, setUserIdFilter] = useState('');
@@ -216,67 +223,88 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
     <Screen>
       <ScreenHeader
         eyebrow="Service ADMIN"
-        subtitle="전역 사용자 조회, 필터, 상세 확인, 역할 변경을 관리합니다."
-        title="유저 관리"
+        subtitle="전역 사용자와 캠퍼스 관리를 분리해 운영합니다."
+        title="Service ADMIN 관리"
       />
       <ScrollView contentContainerStyle={styles.content}>
-        <Card>
-          <Eyebrow>사용자 필터</Eyebrow>
-          <TextField
-            label="이름"
-            onChangeText={setNameFilter}
-            placeholder="이름 검색"
-            returnKeyType="search"
-            value={nameFilter}
+        <View style={styles.segmentRow}>
+          {SERVICE_ADMIN_SECTIONS.map((section) => (
+            <FilterButton
+              active={activeSection === section.id}
+              key={section.id}
+              label={section.label}
+              onPress={() => setActiveSection(section.id)}
+            />
+          ))}
+        </View>
+
+        {activeSection === 'campuses' ? (
+          <ServiceAdminCampusSection
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
           />
-          <TextField
-            label="이메일"
-            onChangeText={setEmailFilter}
-            placeholder="email@example.com"
-            returnKeyType="search"
-            textContentType="emailAddress"
-            value={emailFilter}
-          />
-          <TextField
-            error={formError ?? undefined}
-            keyboardType="number-pad"
-            label="userId"
-            onChangeText={setUserIdFilter}
-            placeholder="정확한 사용자 ID"
-            returnKeyType="search"
-            value={userIdFilter}
-          />
-          <View style={styles.segmentRow}>
-            {ROLE_FILTERS.map((role) => (
-              <FilterButton
-                active={roleFilter === role}
-                key={role}
-                label={role === 'ALL' ? '전체' : role}
-                onPress={() => setRoleFilter(role)}
+        ) : (
+          <>
+            <Card>
+              <Eyebrow>사용자 필터</Eyebrow>
+              <TextField
+                label="이름"
+                onChangeText={setNameFilter}
+                placeholder="이름 검색"
+                returnKeyType="search"
+                value={nameFilter}
               />
-            ))}
-          </View>
-          <Button accessibilityLabel="Service ADMIN 사용자 목록 조회" onPress={loadUsers}>
-            조회
-          </Button>
-        </Card>
+              <TextField
+                label="이메일"
+                onChangeText={setEmailFilter}
+                placeholder="email@example.com"
+                returnKeyType="search"
+                textContentType="emailAddress"
+                value={emailFilter}
+              />
+              <TextField
+                error={formError ?? undefined}
+                keyboardType="number-pad"
+                label="userId"
+                onChangeText={setUserIdFilter}
+                placeholder="정확한 사용자 ID"
+                returnKeyType="search"
+                value={userIdFilter}
+              />
+              <View style={styles.segmentRow}>
+                {ROLE_FILTERS.map((role) => (
+                  <FilterButton
+                    active={roleFilter === role}
+                    key={role}
+                    label={role === 'ALL' ? '전체' : role}
+                    onPress={() => setRoleFilter(role)}
+                  />
+                ))}
+              </View>
+              <Button accessibilityLabel="Service ADMIN 사용자 목록 조회" onPress={loadUsers}>
+                조회
+              </Button>
+            </Card>
 
-        <UserListSection
-          listState={listState}
-          onRetry={loadUsers}
-          onSelectUser={(user) => void loadUserDetail(user.userId)}
-        />
+            <UserListSection
+              listState={listState}
+              onRetry={loadUsers}
+              onSelectUser={(user) => void loadUserDetail(user.userId)}
+            />
 
-        <UserDetailSection
-          detailState={detailState}
-          onRetry={(userId) => void loadUserDetail(userId)}
-          onRoleSelect={openRoleConfirm}
-          selectedRole={selectedRole}
-        />
+            <UserDetailSection
+              detailState={detailState}
+              onRetry={(userId) => void loadUserDetail(userId)}
+              onRoleSelect={openRoleConfirm}
+              selectedRole={selectedRole}
+            />
 
-        {roleChangeState.status === 'error' ? (
-          <InlineError error={roleChangeState.error} />
-        ) : null}
+            {roleChangeState.status === 'error' ? (
+              <InlineError error={roleChangeState.error} />
+            ) : null}
+          </>
+        )}
       </ScrollView>
 
       <Modal
