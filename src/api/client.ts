@@ -9,6 +9,7 @@ import type {
   AdminMissingDevotionMember,
   AdminNotificationRequest,
   AdminNotificationResponse,
+  AdminPaymentAccount,
   AdminWritableChargeStatus,
   AdminChargeStatusChangeResponse,
   CampusCreateRequest,
@@ -45,7 +46,13 @@ import type {
   MarkChargePaidRequest,
   MarkChargePaidResponse,
   PaymentAccount,
+  PaymentAccountCreateRequest,
   PaymentCategory,
+  PenaltyCalculationType,
+  PenaltyRule,
+  PenaltyRuleCreateRequest,
+  PenaltyRuleType,
+  PenaltyRuleUpdateRequest,
   SignupRequest,
   SignupResponse,
   TokenPair,
@@ -216,6 +223,8 @@ type SortDirection = 'asc' | 'desc';
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
 const paymentCategories = ['PENALTY', 'COFFEE'] as const;
+const penaltyRuleTypes = ['QUIET_TIME', 'PRAYER', 'BIBLE_READING', 'SATURDAY_LATE'] as const;
+const penaltyCalculationTypes = ['MISSING_COUNT', 'LATE_MINUTE'] as const;
 const chargeSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
 const sortDirections = ['asc', 'desc'] as const;
 
@@ -225,6 +234,14 @@ function isPaymentCategory(value: unknown): value is PaymentCategory {
 
 function isChargeStatus(value: unknown): value is ChargeStatus {
   return chargeStatuses.includes(value as ChargeStatus);
+}
+
+function isPenaltyRuleType(value: unknown): value is PenaltyRuleType {
+  return penaltyRuleTypes.includes(value as PenaltyRuleType);
+}
+
+function isPenaltyCalculationType(value: unknown): value is PenaltyCalculationType {
+  return penaltyCalculationTypes.includes(value as PenaltyCalculationType);
 }
 
 function isChargeSortKey(value: unknown): value is ChargeSortKey {
@@ -301,6 +318,99 @@ function toAdminWritableChargeStatus(value: unknown): AdminWritableChargeStatus 
     kind: 'error',
     message: '관리자는 PAID로 직접 변경할 수 없습니다.',
   });
+}
+
+function toRequiredString(value: unknown, label: string) {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+
+  if (!trimmed) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label}을(를) 입력해 주세요.`,
+    });
+  }
+
+  return trimmed;
+}
+
+function toNonNegativeInteger(value: unknown, label: string) {
+  const numericValue =
+    typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+
+  if (
+    typeof numericValue !== 'number' ||
+    !Number.isInteger(numericValue) ||
+    numericValue < 0 ||
+    !Number.isSafeInteger(numericValue)
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label}은(는) 0 이상의 정수여야 합니다.`,
+    });
+  }
+
+  return numericValue;
+}
+
+function toNullablePositiveInteger(value: unknown, label: string) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  return Number(toPositiveIntegerPathSegment(value, label));
+}
+
+function toPaymentAccountCreateRequest(
+  body: PaymentAccountCreateRequest,
+): PaymentAccountCreateRequest {
+  if (!isPaymentCategory(body.accountType)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '계좌 유형이 올바르지 않습니다.',
+    });
+  }
+
+  return {
+    accountType: body.accountType,
+    nickname: toRequiredString(body.nickname, '계좌 별칭'),
+    bankName: toRequiredString(body.bankName, '은행명'),
+    accountNumber: toRequiredString(body.accountNumber, '계좌번호'),
+    accountHolder: toRequiredString(body.accountHolder, '예금주'),
+    ownerUserId: toNullablePositiveInteger(body.ownerUserId, 'ownerUserId'),
+  };
+}
+
+function toPenaltyRuleCreateRequest(body: PenaltyRuleCreateRequest): PenaltyRuleCreateRequest {
+  if (!isPenaltyRuleType(body.ruleType)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '벌금 규칙 타입이 올바르지 않습니다.',
+    });
+  }
+
+  if (!isPenaltyCalculationType(body.calculationType)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '벌금 계산 타입이 올바르지 않습니다.',
+    });
+  }
+
+  return {
+    ruleType: body.ruleType,
+    calculationType: body.calculationType,
+    requiredCount: toNonNegativeInteger(body.requiredCount, '필수 기준 횟수'),
+    baseAmount: toNonNegativeInteger(body.baseAmount, '기본 금액'),
+    amountPerUnit: toNonNegativeInteger(body.amountPerUnit, '단위당 금액'),
+  };
+}
+
+function toPenaltyRuleUpdateRequest(body: PenaltyRuleUpdateRequest): PenaltyRuleUpdateRequest {
+  return {
+    requiredCount: toNonNegativeInteger(body.requiredCount, '필수 기준 횟수'),
+    baseAmount: toNonNegativeInteger(body.baseAmount, '기본 금액'),
+    amountPerUnit: toNonNegativeInteger(body.amountPerUnit, '단위당 금액'),
+    isActive: Boolean(body.isActive),
+  };
 }
 
 function toDevotionSummaryYearMonthQuery(year: unknown, month: unknown) {
@@ -708,6 +818,76 @@ export function fetchPaymentAccounts(accessToken: string, campusId: unknown) {
   return apiRequest<PaymentAccount[]>(buildCampusPath(campusId, 'payment-accounts'), {
     accessToken,
   });
+}
+
+export function createAdminPaymentAccount(
+  accessToken: string,
+  campusId: unknown,
+  body: PaymentAccountCreateRequest,
+) {
+  return apiRequest<AdminPaymentAccount>(
+    buildAdminCampusPath(campusId, 'payment-accounts'),
+    {
+      accessToken,
+      body: toPaymentAccountCreateRequest(body),
+      method: 'POST',
+    },
+  );
+}
+
+export function deactivateAdminPaymentAccount(accessToken: string, accountId: unknown) {
+  return apiRequest<AdminPaymentAccount>(
+    buildApiPath(
+      'admin',
+      'payment-accounts',
+      toPositiveIntegerPathSegment(accountId, 'accountId'),
+      'deactivate',
+    ),
+    {
+      accessToken,
+      method: 'PATCH',
+    },
+  );
+}
+
+export function fetchPenaltyRules(accessToken: string, campusId: unknown) {
+  return apiRequest<PenaltyRule[]>(buildCampusPath(campusId, 'penalty-rules'), {
+    accessToken,
+  });
+}
+
+export function createAdminPenaltyRule(
+  accessToken: string,
+  campusId: unknown,
+  body: PenaltyRuleCreateRequest,
+) {
+  return apiRequest<PenaltyRule>(
+    buildAdminCampusPath(campusId, 'penalty-rules'),
+    {
+      accessToken,
+      body: toPenaltyRuleCreateRequest(body),
+      method: 'POST',
+    },
+  );
+}
+
+export function updateAdminPenaltyRule(
+  accessToken: string,
+  ruleId: unknown,
+  body: PenaltyRuleUpdateRequest,
+) {
+  return apiRequest<PenaltyRule>(
+    buildApiPath(
+      'admin',
+      'penalty-rules',
+      toPositiveIntegerPathSegment(ruleId, 'ruleId'),
+    ),
+    {
+      accessToken,
+      body: toPenaltyRuleUpdateRequest(body),
+      method: 'PATCH',
+    },
+  );
 }
 
 export function markMyChargePaid(

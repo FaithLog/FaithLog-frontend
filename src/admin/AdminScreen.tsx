@@ -5,6 +5,9 @@ import {
   assignCoffeeDuty,
   changeAdminCampusMemberRole,
   changeAdminChargeStatus,
+  createAdminPaymentAccount,
+  createAdminPenaltyRule,
+  deactivateAdminPaymentAccount,
   deleteCampusMember,
   FaithLogApiError,
   fetchAdminCampusCharges,
@@ -13,8 +16,11 @@ import {
   fetchAdminMemberCharges,
   fetchAdminMissingDevotionMembers,
   fetchDutyAssignments,
+  fetchPaymentAccounts,
+  fetchPenaltyRules,
   revokeCoffeeDuty,
   sendAdminNotification,
+  updateAdminPenaltyRule,
 } from '../api/client';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
@@ -30,7 +36,11 @@ import type {
   ChargeItem,
   ChargeStatus,
   DutyAssignment,
+  PaymentAccount,
   PaymentCategory,
+  PenaltyCalculationType,
+  PenaltyRule,
+  PenaltyRuleType,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
@@ -70,6 +80,7 @@ type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
 type ChargeStatusFilter = ChargeStatus | 'ALL';
 type PaymentCategoryFilter = PaymentCategory | 'ALL';
+type AdminSettlementSection = 'charges' | 'accounts' | 'penaltyRules';
 
 type AdminLoadState =
   | {status: 'loading'}
@@ -88,7 +99,10 @@ type AdminActionState =
   | {status: 'assigningCoffee'; userId: number}
   | {status: 'revokingCoffee'; assignmentId: number}
   | {status: 'deletingMember'; membershipId: number}
-  | {status: 'changingChargeStatus'; chargeItemId: number};
+  | {status: 'changingChargeStatus'; chargeItemId: number}
+  | {status: 'savingPaymentAccount'}
+  | {status: 'deactivatingPaymentAccount'; accountId: number}
+  | {status: 'savingPenaltyRule'; ruleId: number | null};
 
 type MissingDevotionState =
   | {status: 'idle'}
@@ -136,6 +150,39 @@ type ChargeStatusConfirm = {
   status: AdminWritableChargeStatus;
 } | null;
 
+type PaymentAccountState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; accounts: PaymentAccount[]}
+  | {status: 'empty'}
+  | {status: 'error'; error: ApiError};
+
+type PaymentAccountForm = {
+  accountHolder: string;
+  accountNumber: string;
+  accountType: PaymentCategory;
+  bankName: string;
+  nickname: string;
+  ownerUserId: string;
+};
+
+type PenaltyRuleState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; rules: PenaltyRule[]}
+  | {status: 'empty'}
+  | {status: 'error'; error: ApiError};
+
+type PenaltyRuleForm = {
+  amountPerUnit: string;
+  baseAmount: string;
+  calculationType: PenaltyCalculationType;
+  isActive: boolean;
+  requiredCount: string;
+  ruleId: number | null;
+  ruleType: PenaltyRuleType;
+};
+
 const adminTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
   {id: 'devotion', label: '경건'},
@@ -164,6 +211,34 @@ const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> 
   {id: 'COFFEE', label: '커피'},
 ];
 
+const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
+  {id: 'charges', label: '청구'},
+  {id: 'accounts', label: '계좌'},
+  {id: 'penaltyRules', label: '벌금'},
+];
+
+const paymentAccountTypeOptions: Array<{id: PaymentCategory; label: string}> = [
+  {id: 'PENALTY', label: '벌금'},
+  {id: 'COFFEE', label: '커피'},
+];
+
+const penaltyRuleTypeOptions: Array<{id: PenaltyRuleType; label: string}> = [
+  {id: 'QUIET_TIME', label: 'QT'},
+  {id: 'PRAYER', label: '기도'},
+  {id: 'BIBLE_READING', label: '성경'},
+  {id: 'SATURDAY_LATE', label: '토요지각'},
+];
+
+const penaltyCalculationTypeOptions: Array<{id: PenaltyCalculationType; label: string}> = [
+  {id: 'MISSING_COUNT', label: '미달 횟수'},
+  {id: 'LATE_MINUTE', label: '지각 분'},
+];
+
+const penaltyRuleActiveOptions: Array<{id: 'active' | 'inactive'; label: string}> = [
+  {id: 'active', label: '활성'},
+  {id: 'inactive', label: '비활성'},
+];
+
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
@@ -171,6 +246,25 @@ const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
   'WAIVED',
   'CANCELED',
 ];
+
+const emptyPaymentAccountForm: PaymentAccountForm = {
+  accountHolder: '',
+  accountNumber: '',
+  accountType: 'PENALTY',
+  bankName: '',
+  nickname: '',
+  ownerUserId: '',
+};
+
+const emptyPenaltyRuleForm: PenaltyRuleForm = {
+  amountPerUnit: '',
+  baseAmount: '',
+  calculationType: 'MISSING_COUNT',
+  isActive: true,
+  requiredCount: '',
+  ruleId: null,
+  ruleType: 'QUIET_TIME',
+};
 
 export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
@@ -192,12 +286,26 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     status: 'ALL',
     userId: '',
   });
+  const [settlementSection, setSettlementSection] =
+    useState<AdminSettlementSection>('charges');
   const [settlementState, setSettlementState] = useState<AdminSettlementState>({
     status: 'idle',
   });
   const [chargeDetailState, setChargeDetailState] = useState<AdminChargeDetailState>({
     status: 'idle',
   });
+  const [paymentAccountState, setPaymentAccountState] = useState<PaymentAccountState>({
+    status: 'idle',
+  });
+  const [paymentAccountForm, setPaymentAccountForm] =
+    useState<PaymentAccountForm>(emptyPaymentAccountForm);
+  const [paymentAccountDeactivateTarget, setPaymentAccountDeactivateTarget] =
+    useState<PaymentAccount | null>(null);
+  const [penaltyRuleState, setPenaltyRuleState] = useState<PenaltyRuleState>({
+    status: 'idle',
+  });
+  const [penaltyRuleForm, setPenaltyRuleForm] =
+    useState<PenaltyRuleForm>(emptyPenaltyRuleForm);
   const [chargeStatusConfirm, setChargeStatusConfirm] = useState<ChargeStatusConfirm>(null);
   const [paidBlockedTarget, setPaidBlockedTarget] = useState<ChargeItem | null>(null);
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
@@ -239,8 +347,14 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     setWeekStartDate(getWeekStartDate(new Date()));
     setMissingDevotionState({status: 'idle'});
     setNotificationState({status: 'idle'});
+    setSettlementSection('charges');
     setSettlementState({status: 'idle'});
     setChargeDetailState({status: 'idle'});
+    setPaymentAccountState({status: 'idle'});
+    setPaymentAccountForm(emptyPaymentAccountForm);
+    setPaymentAccountDeactivateTarget(null);
+    setPenaltyRuleState({status: 'idle'});
+    setPenaltyRuleForm(emptyPenaltyRuleForm);
     setChargeStatusConfirm(null);
     setPaidBlockedTarget(null);
     void loadAdmin();
@@ -253,10 +367,34 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
   }, [tab, missingDevotionState.status]);
 
   useEffect(() => {
-    if (tab === 'settlement' && settlementState.status === 'idle') {
+    if (
+      tab === 'settlement' &&
+      settlementSection === 'charges' &&
+      settlementState.status === 'idle'
+    ) {
       void loadSettlement();
     }
-  }, [tab, settlementState.status]);
+  }, [tab, settlementSection, settlementState.status]);
+
+  useEffect(() => {
+    if (
+      tab === 'settlement' &&
+      settlementSection === 'accounts' &&
+      paymentAccountState.status === 'idle'
+    ) {
+      void loadPaymentAccounts();
+    }
+  }, [tab, settlementSection, paymentAccountState.status]);
+
+  useEffect(() => {
+    if (
+      tab === 'settlement' &&
+      settlementSection === 'penaltyRules' &&
+      penaltyRuleState.status === 'idle'
+    ) {
+      void loadPenaltyRules();
+    }
+  }, [tab, settlementSection, penaltyRuleState.status]);
 
   const loadMissingDevotions = async () => {
     setMissingDevotionState({status: 'loading'});
@@ -316,6 +454,188 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       setSettlementState({status: 'error', error: apiError});
       void handleAuthError(apiError, setAuthState);
     }
+  };
+
+  const loadPaymentAccounts = async () => {
+    setPaymentAccountState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const accounts = await fetchPaymentAccounts(accessToken, campusId);
+      setPaymentAccountState(
+        accounts.length === 0 ? {status: 'empty'} : {status: 'success', accounts},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 불러오지 못했습니다.');
+      setPaymentAccountState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const savePaymentAccount = async () => {
+    if (actionState.status !== 'idle') {
+      return;
+    }
+
+    setActionState({status: 'savingPaymentAccount'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const account = await createAdminPaymentAccount(accessToken, campusId, {
+        accountType: paymentAccountForm.accountType,
+        nickname: paymentAccountForm.nickname,
+        bankName: paymentAccountForm.bankName,
+        accountNumber: paymentAccountForm.accountNumber,
+        accountHolder: paymentAccountForm.accountHolder,
+        ownerUserId: paymentAccountForm.ownerUserId.trim()
+          ? Number(paymentAccountForm.ownerUserId)
+          : null,
+      });
+
+      setPaymentAccountForm(emptyPaymentAccountForm);
+      setPaymentAccountState({status: 'idle'});
+      setNotice({
+        tone: 'success',
+        title: '납부 계좌 등록',
+        message: `${account.nickname} 계좌가 활성화되었습니다. 같은 유형의 기존 활성 계좌는 서버 정책에 따라 비활성화됩니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 등록하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmDeactivatePaymentAccount = async () => {
+    if (!paymentAccountDeactivateTarget || actionState.status !== 'idle') {
+      return;
+    }
+
+    const target = paymentAccountDeactivateTarget;
+    setActionState({status: 'deactivatingPaymentAccount', accountId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      await deactivateAdminPaymentAccount(accessToken, target.id);
+      setPaymentAccountDeactivateTarget(null);
+      setPaymentAccountState({status: 'idle'});
+      setNotice({
+        tone: 'warning',
+        title: '납부 계좌 비활성화',
+        message: `${target.nickname} 계좌를 비활성화했습니다. 새 활성 계좌 등록 전까지 다음 정산 연결을 확인해 주세요.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 비활성화하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const loadPenaltyRules = async () => {
+    setPenaltyRuleState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const rules = await fetchPenaltyRules(accessToken, campusId);
+      setPenaltyRuleState(
+        rules.length === 0 ? {status: 'empty'} : {status: 'success', rules},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '벌금 규칙을 불러오지 못했습니다.');
+      setPenaltyRuleState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const savePenaltyRule = async () => {
+    if (actionState.status !== 'idle') {
+      return;
+    }
+
+    const editingRuleId = penaltyRuleForm.ruleId;
+    setActionState({status: 'savingPenaltyRule', ruleId: editingRuleId});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const requestAmounts = {
+        requiredCount: parseRequiredNonNegativeInt(penaltyRuleForm.requiredCount, 'requiredCount'),
+        baseAmount: parseRequiredNonNegativeInt(penaltyRuleForm.baseAmount, 'baseAmount'),
+        amountPerUnit: parseRequiredNonNegativeInt(penaltyRuleForm.amountPerUnit, 'amountPerUnit'),
+      };
+
+      const rule =
+        editingRuleId === null
+          ? await createAdminPenaltyRule(accessToken, campusId, {
+              ruleType: penaltyRuleForm.ruleType,
+              calculationType: penaltyRuleForm.calculationType,
+              ...requestAmounts,
+            })
+          : await updateAdminPenaltyRule(accessToken, editingRuleId, {
+              ...requestAmounts,
+              isActive: penaltyRuleForm.isActive,
+            });
+
+      setPenaltyRuleForm(emptyPenaltyRuleForm);
+      setPenaltyRuleState({status: 'idle'});
+      setNotice({
+        tone: rule.isActive ? 'success' : 'warning',
+        title: editingRuleId === null ? '벌금 규칙 등록' : '벌금 규칙 수정',
+        message: `${getPenaltyRuleTypeLabel(rule.ruleType)} 규칙을 저장했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '벌금 규칙을 저장하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const editPenaltyRule = (rule: PenaltyRule) => {
+    setPenaltyRuleForm({
+      amountPerUnit: String(rule.amountPerUnit),
+      baseAmount: String(rule.baseAmount),
+      calculationType: rule.calculationType,
+      isActive: rule.isActive,
+      requiredCount: String(rule.requiredCount),
+      ruleId: rule.id,
+      ruleType: rule.ruleType,
+    });
+    setActionError(null);
   };
 
   const updateChargeFilter = <Key extends keyof AdminChargeFilters>(
@@ -737,18 +1057,40 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           actionState={actionState}
           detailState={chargeDetailState}
           filters={chargeFilters}
+          onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
+          onChangePaymentAccountForm={(patch) =>
+            setPaymentAccountForm((current) => ({...current, ...patch}))
+          }
+          onChangePenaltyRuleForm={(patch) =>
+            setPenaltyRuleForm((current) => ({...current, ...patch}))
+          }
+          onChangeSection={(section) => {
+            setSettlementSection(section);
+            setActionError(null);
+          }}
           onBackToSummary={() => setChargeDetailState({status: 'idle'})}
           onBlockedPaid={setPaidBlockedTarget}
+          onEditPenaltyRule={editPenaltyRule}
           onOpenMemberCharges={openMemberCharges}
+          onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
           onRequestStatusChange={requestChargeStatusChange}
+          onRetryPaymentAccounts={() => void loadPaymentAccounts()}
+          onRetryPenaltyRules={() => void loadPenaltyRules()}
           onResetFilters={resetChargeFilters}
           onRetryDetail={(member) => void openMemberCharges(member)}
           onRetrySummary={() => void loadSettlement()}
+          onSavePaymentAccount={() => void savePaymentAccount()}
+          onSavePenaltyRule={() => void savePenaltyRule()}
           onSearch={() => {
             setChargeDetailState({status: 'idle'});
             void loadSettlement();
           }}
           onUpdateFilter={updateChargeFilter}
+          paymentAccountForm={paymentAccountForm}
+          paymentAccountState={paymentAccountState}
+          penaltyRuleForm={penaltyRuleForm}
+          penaltyRuleState={penaltyRuleState}
+          section={settlementSection}
           settlementState={settlementState}
         />
       ) : tab === 'members' ? (
@@ -797,6 +1139,13 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       <PaidNotAllowedSheet
         charge={paidBlockedTarget}
         onClose={() => setPaidBlockedTarget(null)}
+      />
+      <DeactivatePaymentAccountSheet
+        account={paymentAccountDeactivateTarget}
+        error={actionError}
+        loading={actionState.status === 'deactivatingPaymentAccount'}
+        onCancel={() => setPaymentAccountDeactivateTarget(null)}
+        onConfirm={confirmDeactivatePaymentAccount}
       />
     </>
   );
@@ -1083,6 +1432,126 @@ function AdminSettlement({
   actionState,
   detailState,
   filters,
+  onCancelPenaltyRuleEdit,
+  onChangePaymentAccountForm,
+  onChangePenaltyRuleForm,
+  onChangeSection,
+  onBackToSummary,
+  onBlockedPaid,
+  onEditPenaltyRule,
+  onOpenMemberCharges,
+  onRequestDeactivatePaymentAccount,
+  onRequestStatusChange,
+  onRetryPaymentAccounts,
+  onRetryPenaltyRules,
+  onResetFilters,
+  onRetryDetail,
+  onRetrySummary,
+  onSavePaymentAccount,
+  onSavePenaltyRule,
+  onSearch,
+  onUpdateFilter,
+  paymentAccountForm,
+  paymentAccountState,
+  penaltyRuleForm,
+  penaltyRuleState,
+  section,
+  settlementState,
+}: {
+  actionState: AdminActionState;
+  detailState: AdminChargeDetailState;
+  filters: AdminChargeFilters;
+  onCancelPenaltyRuleEdit: () => void;
+  onChangePaymentAccountForm: (patch: Partial<PaymentAccountForm>) => void;
+  onChangePenaltyRuleForm: (patch: Partial<PenaltyRuleForm>) => void;
+  onChangeSection: (section: AdminSettlementSection) => void;
+  onBackToSummary: () => void;
+  onBlockedPaid: (charge: ChargeItem) => void;
+  onEditPenaltyRule: (rule: PenaltyRule) => void;
+  onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onRetryPaymentAccounts: () => void;
+  onRetryPenaltyRules: () => void;
+  onResetFilters: () => void;
+  onRetryDetail: (member: AdminChargeMemberRef) => void;
+  onRetrySummary: () => void;
+  onSavePaymentAccount: () => void;
+  onSavePenaltyRule: () => void;
+  onSearch: () => void;
+  onUpdateFilter: <Key extends keyof AdminChargeFilters>(
+    key: Key,
+    value: AdminChargeFilters[Key],
+  ) => void;
+  paymentAccountForm: PaymentAccountForm;
+  paymentAccountState: PaymentAccountState;
+  penaltyRuleForm: PenaltyRuleForm;
+  penaltyRuleState: PenaltyRuleState;
+  section: AdminSettlementSection;
+  settlementState: AdminSettlementState;
+}) {
+  const busy = actionState.status !== 'idle';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 10, 22-25 Settlement</Eyebrow>
+        <Title>정산/계좌/벌금 관리</Title>
+        <Body>
+          청구 상태, 활성 납부 계좌, 벌금 규칙을 관리자 화면에서 분리해 관리합니다.
+        </Body>
+        <SegmentedControl
+          items={settlementSections}
+          selectedId={section}
+          onSelect={onChangeSection}
+        />
+      </Card>
+      {section === 'charges' ? (
+        <AdminChargeSettlement
+          actionState={actionState}
+          detailState={detailState}
+          filters={filters}
+          onBackToSummary={onBackToSummary}
+          onBlockedPaid={onBlockedPaid}
+          onOpenMemberCharges={onOpenMemberCharges}
+          onRequestStatusChange={onRequestStatusChange}
+          onResetFilters={onResetFilters}
+          onRetryDetail={onRetryDetail}
+          onRetrySummary={onRetrySummary}
+          onSearch={onSearch}
+          onUpdateFilter={onUpdateFilter}
+          settlementState={settlementState}
+        />
+      ) : section === 'accounts' ? (
+        <AdminPaymentAccounts
+          busy={busy}
+          form={paymentAccountForm}
+          onChangeForm={onChangePaymentAccountForm}
+          onRequestDeactivate={onRequestDeactivatePaymentAccount}
+          onRetry={onRetryPaymentAccounts}
+          onSave={onSavePaymentAccount}
+          state={paymentAccountState}
+        />
+      ) : (
+        <AdminPenaltyRules
+          busy={busy}
+          form={penaltyRuleForm}
+          onCancelEdit={onCancelPenaltyRuleEdit}
+          onChangeForm={onChangePenaltyRuleForm}
+          onEdit={onEditPenaltyRule}
+          onRetry={onRetryPenaltyRules}
+          onSave={onSavePenaltyRule}
+          state={penaltyRuleState}
+        />
+      )}
+    </>
+  );
+}
+
+function AdminChargeSettlement({
+  actionState,
+  detailState,
+  filters,
   onBackToSummary,
   onBlockedPaid,
   onOpenMemberCharges,
@@ -1115,7 +1584,7 @@ function AdminSettlement({
     <>
       <Card>
         <Eyebrow>Admin 10 Settlement</Eyebrow>
-        <Title>정산/청구 상태 관리</Title>
+        <Title>청구 상태 관리</Title>
         <Body>
           REST Docs 기준 전체 청구 집계는 summary와 members만 포함하고, 개별 청구는 회원 상세에서 조회합니다.
         </Body>
@@ -1181,6 +1650,328 @@ function AdminSettlement({
       })}
     </>
   );
+}
+
+function AdminPaymentAccounts({
+  busy,
+  form,
+  onChangeForm,
+  onRequestDeactivate,
+  onRetry,
+  onSave,
+  state,
+}: {
+  busy: boolean;
+  form: PaymentAccountForm;
+  onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
+  onRequestDeactivate: (account: PaymentAccount) => void;
+  onRetry: () => void;
+  onSave: () => void;
+  state: PaymentAccountState;
+}) {
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 22 Payment Accounts</Eyebrow>
+        <Title>활성 납부 계좌</Title>
+        <Body>
+          같은 계좌 유형으로 새 계좌를 등록하면 REST Docs 정책에 따라 기존 활성 계좌는 자동 비활성화됩니다.
+        </Body>
+        {renderPaymentAccountList({busy, onRequestDeactivate, onRetry, state})}
+      </Card>
+      <Card>
+        <Eyebrow>Admin 23 Payment Account Create Edit</Eyebrow>
+        <Title>계좌 등록</Title>
+        <SegmentedControl
+          items={paymentAccountTypeOptions}
+          selectedId={form.accountType}
+          onSelect={(accountType) => onChangeForm({accountType})}
+        />
+        <View style={styles.filterGrid}>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="납부 계좌 별칭"
+              label="별칭"
+              onChangeText={(nickname) => onChangeForm({nickname})}
+              placeholder="48캠 벌금 계좌"
+              value={form.nickname}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="납부 계좌 은행명"
+              label="은행"
+              onChangeText={(bankName) => onChangeForm({bankName})}
+              placeholder="카카오뱅크"
+              value={form.bankName}
+            />
+          </View>
+        </View>
+        <TextField
+          accessibilityLabel="납부 계좌번호"
+          label="계좌번호"
+          onChangeText={(accountNumber) => onChangeForm({accountNumber})}
+          placeholder="3333-00-7777777"
+          value={form.accountNumber}
+        />
+        <View style={styles.filterGrid}>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="납부 계좌 예금주"
+              label="예금주"
+              onChangeText={(accountHolder) => onChangeForm({accountHolder})}
+              placeholder="회계"
+              value={form.accountHolder}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="납부 계좌 ownerUserId"
+              keyboardType="number-pad"
+              label="ownerUserId"
+              onChangeText={(ownerUserId) => onChangeForm({ownerUserId: ownerUserId.replace(/\D/g, '')})}
+              placeholder="없으면 비워두기"
+              value={form.ownerUserId}
+            />
+          </View>
+        </View>
+        <Button
+          accessibilityLabel="관리자 납부 계좌 등록"
+          disabled={busy}
+          onPress={onSave}>
+          {busy ? '저장 중...' : '계좌 저장'}
+        </Button>
+      </Card>
+    </>
+  );
+}
+
+function renderPaymentAccountList({
+  busy,
+  onRequestDeactivate,
+  onRetry,
+  state,
+}: {
+  busy: boolean;
+  onRequestDeactivate: (account: PaymentAccount) => void;
+  onRetry: () => void;
+  state: PaymentAccountState;
+}) {
+  switch (state.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="활성 납부 계좌를 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={state.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <Empty
+          title="활성 납부 계좌가 없습니다"
+          message="정산 전에 벌금 또는 커피 계좌를 등록해 주세요."
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="납부 계좌 empty state에서 다시 조회"
+          onActionPress={onRetry}
+        />
+      );
+    case 'success':
+      return (
+        <>
+          {state.accounts.map((account) => (
+            <View key={account.id} style={styles.roleRow}>
+              <View style={styles.headerRow}>
+                <View style={styles.headerText}>
+                  <Text style={styles.memberName}>{account.nickname}</Text>
+                  <Text style={styles.memberMeta}>
+                    {account.bankName} · {account.accountHolder}
+                  </Text>
+                  <Text style={styles.memberMeta}>{account.accountNumber}</Text>
+                </View>
+                <Chip label={account.accountType} tone="info" />
+              </View>
+              <Button
+                accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
+                disabled={busy}
+                onPress={() => onRequestDeactivate(account)}
+                variant="danger">
+                비활성화
+              </Button>
+            </View>
+          ))}
+        </>
+      );
+    default:
+      return assertNever(state);
+  }
+}
+
+function AdminPenaltyRules({
+  busy,
+  form,
+  onCancelEdit,
+  onChangeForm,
+  onEdit,
+  onRetry,
+  onSave,
+  state,
+}: {
+  busy: boolean;
+  form: PenaltyRuleForm;
+  onCancelEdit: () => void;
+  onChangeForm: (patch: Partial<PenaltyRuleForm>) => void;
+  onEdit: (rule: PenaltyRule) => void;
+  onRetry: () => void;
+  onSave: () => void;
+  state: PenaltyRuleState;
+}) {
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 24 Penalty Rules</Eyebrow>
+        <Title>벌금 규칙</Title>
+        <Body>같은 규칙 타입의 새 ACTIVE 규칙이 생성되면 기존 ACTIVE 규칙은 비활성화됩니다.</Body>
+        {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
+      </Card>
+      <Card>
+        <Eyebrow>Admin 25 Penalty Rule Edit</Eyebrow>
+        <Title>{form.ruleId === null ? '규칙 등록' : '규칙 수정'}</Title>
+        {form.ruleId === null ? (
+          <>
+            <SegmentedControl
+              items={penaltyRuleTypeOptions}
+              selectedId={form.ruleType}
+              onSelect={(ruleType) => onChangeForm({ruleType})}
+            />
+            <SegmentedControl
+              items={penaltyCalculationTypeOptions}
+              selectedId={form.calculationType}
+              onSelect={(calculationType) => onChangeForm({calculationType})}
+            />
+          </>
+        ) : (
+          <>
+            <ListRow label="규칙 타입" value={getPenaltyRuleTypeLabel(form.ruleType)} />
+            <ListRow label="계산 타입" value={getPenaltyCalculationTypeLabel(form.calculationType)} />
+          </>
+        )}
+        <View style={styles.filterGrid}>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="벌금 규칙 필수 기준 횟수"
+              keyboardType="number-pad"
+              label="requiredCount"
+              onChangeText={(requiredCount) => onChangeForm({requiredCount: requiredCount.replace(/\D/g, '')})}
+              placeholder="0 이상"
+              value={form.requiredCount}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="벌금 규칙 기본 금액"
+              keyboardType="number-pad"
+              label="baseAmount"
+              onChangeText={(baseAmount) => onChangeForm({baseAmount: baseAmount.replace(/\D/g, '')})}
+              placeholder="0 이상"
+              value={form.baseAmount}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="벌금 규칙 단위당 금액"
+              keyboardType="number-pad"
+              label="amountPerUnit"
+              onChangeText={(amountPerUnit) => onChangeForm({amountPerUnit: amountPerUnit.replace(/\D/g, '')})}
+              placeholder="0 이상"
+              value={form.amountPerUnit}
+            />
+          </View>
+        </View>
+        {form.ruleId !== null ? (
+          <SegmentedControl
+            items={penaltyRuleActiveOptions}
+            selectedId={form.isActive ? 'active' : 'inactive'}
+            onSelect={(value) => onChangeForm({isActive: value === 'active'})}
+          />
+        ) : null}
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="벌금 규칙 저장"
+            disabled={busy}
+            onPress={onSave}>
+            {busy ? '저장 중...' : '규칙 저장'}
+          </Button>
+          {form.ruleId !== null ? (
+            <Button
+              accessibilityLabel="벌금 규칙 수정 취소"
+              disabled={busy}
+              onPress={onCancelEdit}
+              variant="secondary">
+              취소
+            </Button>
+          ) : null}
+        </View>
+      </Card>
+    </>
+  );
+}
+
+function renderPenaltyRuleList({
+  busy,
+  onEdit,
+  onRetry,
+  state,
+}: {
+  busy: boolean;
+  onEdit: (rule: PenaltyRule) => void;
+  onRetry: () => void;
+  state: PenaltyRuleState;
+}) {
+  switch (state.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="벌금 규칙을 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={state.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <Empty
+          title="벌금 규칙이 없습니다"
+          message="QT, 기도, 성경, 토요지각 규칙을 필요한 순서대로 등록해 주세요."
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="벌금 규칙 empty state에서 다시 조회"
+          onActionPress={onRetry}
+        />
+      );
+    case 'success':
+      return (
+        <>
+          {state.rules.map((rule) => (
+            <View key={rule.id} style={styles.roleRow}>
+              <View style={styles.headerRow}>
+                <View style={styles.headerText}>
+                  <Text style={styles.memberName}>{getPenaltyRuleTypeLabel(rule.ruleType)}</Text>
+                  <Text style={styles.memberMeta}>
+                    {getPenaltyCalculationTypeLabel(rule.calculationType)} · 기준 {rule.requiredCount}
+                  </Text>
+                  <Text style={styles.memberMeta}>
+                    기본 {formatWon(rule.baseAmount)} · 단위 {formatWon(rule.amountPerUnit)}
+                  </Text>
+                </View>
+                <Chip label={rule.isActive ? 'ACTIVE' : 'INACTIVE'} tone={rule.isActive ? 'success' : 'warning'} />
+              </View>
+              <Button
+                accessibilityLabel={`${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙 수정`}
+                disabled={busy}
+                onPress={() => onEdit(rule)}
+                variant="secondary">
+                수정
+              </Button>
+            </View>
+          ))}
+        </>
+      );
+    default:
+      return assertNever(state);
+  }
 }
 
 function renderSettlementSummary({
@@ -1872,6 +2663,61 @@ function PaidNotAllowedSheet({
   );
 }
 
+function DeactivatePaymentAccountSheet({
+  account,
+  error,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  account: PaymentAccount | null;
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Eyebrow>Admin 22-1 Payment Account Deactivate Confirm</Eyebrow>
+          <Title>{account ? `${account.nickname} 계좌를 비활성화할까요?` : '계좌 비활성화'}</Title>
+          <Body>
+            기존 UNPAID 청구가 있어도 비활성화할 수 있습니다. 새 활성 계좌를 등록하면 미납 청구는 새 계좌로 재연결되고, 다음 정산 전에 계좌 연결 상태를 확인해야 합니다.
+          </Body>
+          {account ? (
+            <>
+              <ListRow label="계좌 유형" value={account.accountType} />
+              <ListRow
+                label={account.bankName}
+                supportingText={account.accountHolder}
+                value={account.accountNumber}
+              />
+            </>
+          ) : null}
+          {error ? <AdminInlineError error={error} /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="납부 계좌 비활성화 실행"
+              disabled={loading}
+              onPress={onConfirm}
+              variant="danger">
+              {loading ? '처리 중...' : '비활성화'}
+            </Button>
+            <Button
+              accessibilityLabel="납부 계좌 비활성화 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function SegmentedControl<T extends string>({
   items,
   onSelect,
@@ -2120,6 +2966,58 @@ function parseOptionalPositiveInt(value: string, label: string) {
   }
 
   return numericValue;
+}
+
+function parseRequiredNonNegativeInt(value: string, label: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값을 입력해 주세요.`,
+    });
+  }
+
+  const numericValue = Number(trimmed);
+
+  if (
+    !Number.isInteger(numericValue) ||
+    numericValue < 0 ||
+    !Number.isSafeInteger(numericValue)
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값은 0 이상의 정수여야 합니다.`,
+    });
+  }
+
+  return numericValue;
+}
+
+function getPenaltyRuleTypeLabel(ruleType: PenaltyRuleType) {
+  switch (ruleType) {
+    case 'QUIET_TIME':
+      return 'QT';
+    case 'PRAYER':
+      return '기도';
+    case 'BIBLE_READING':
+      return '성경';
+    case 'SATURDAY_LATE':
+      return '토요지각';
+    default:
+      return assertNever(ruleType);
+  }
+}
+
+function getPenaltyCalculationTypeLabel(calculationType: PenaltyCalculationType) {
+  switch (calculationType) {
+    case 'MISSING_COUNT':
+      return '미달 횟수';
+    case 'LATE_MINUTE':
+      return '지각 분';
+    default:
+      return assertNever(calculationType);
+  }
 }
 
 function getChargeStatusLabel(status: AdminWritableChargeStatus) {
