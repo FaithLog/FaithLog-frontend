@@ -73,6 +73,7 @@ import {
 import {openNotificationSettings} from '../notifications/notificationAdapter';
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
+import {PrayerScreen} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
 
 const initialState: AuthGateState = {
@@ -1236,6 +1237,7 @@ function AuthenticatedShell({
           onOpenDevotion={() => setRoute('devotion')}
           onOpenPayments={() => setRoute('payments')}
           onOpenPolls={() => setRoute('polls')}
+          onOpenPrayers={() => setRoute('prayers')}
           onCampusSwitchPress={openCampusSwitch}
           setAuthState={setAuthState}
           setNotice={setNotice}
@@ -1256,6 +1258,12 @@ function AuthenticatedShell({
         />
       ) : route === 'polls' ? (
         <PollScreen
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
+      ) : route === 'prayers' ? (
+        <PrayerScreen
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1291,6 +1299,7 @@ function AuthenticatedShell({
       route === 'devotion' ||
       route === 'payments' ||
       route === 'polls' ||
+      route === 'prayers' ||
       route === 'campusAdmin' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
@@ -1324,6 +1333,7 @@ function UserHomeDashboard({
   onOpenDevotion,
   onOpenPayments,
   onOpenPolls,
+  onOpenPrayers,
   setAuthState,
   setNotice,
   state,
@@ -1332,6 +1342,7 @@ function UserHomeDashboard({
   onOpenDevotion: () => void;
   onOpenPayments: () => void;
   onOpenPolls: () => void;
+  onOpenPrayers: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -1436,6 +1447,16 @@ function UserHomeDashboard({
 
     if (target === '투표') {
       onOpenPolls();
+      return;
+    }
+
+    if (target === '기도제목') {
+      onOpenPrayers();
+      return;
+    }
+
+    if (target === '납부') {
+      onOpenPayments();
       return;
     }
 
@@ -1608,6 +1629,12 @@ function UserHomeDashboard({
               />
               <ListRow label="기도조" supportingText="활성 조 목록" value={`${prayers.groups.length}개`} />
               {prayers.groups.length === 0 ? <Body>이번 주 활성 기도조가 없습니다.</Body> : null}
+              <Button
+                accessibilityLabel="기도제목 화면으로 이동"
+                onPress={onOpenPrayers}
+                variant="secondary">
+                기도제목 작성/확인
+              </Button>
             </View>
           );
         }}
@@ -1705,7 +1732,7 @@ function RoutePlaceholder({
 }: {
   activeCampusCount: number;
   onCampusSwitchPress: () => void;
-  route: Exclude<ShellRoute, 'devotion' | 'payments' | 'polls' | 'profile' | 'userHome'>;
+  route: Exclude<ShellRoute, 'devotion' | 'payments' | 'polls' | 'prayers' | 'profile' | 'userHome'>;
   selectedCampusDetail: CampusDetail | null;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -2556,6 +2583,8 @@ function getRouteTitle(route: ShellRoute) {
       return '사용자 납부';
     case 'polls':
       return '투표';
+    case 'prayers':
+      return '기도제목';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -2577,6 +2606,8 @@ function getRouteIcon(route: ShellRoute) {
       return 'W';
     case 'polls':
       return 'V';
+    case 'prayers':
+      return 'R';
     case 'profile':
       return 'P';
     case 'campusAdmin':
@@ -2598,6 +2629,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return '사용자 청구 목록, 납부 요약, 계좌 없음 상태, 납부했어요 처리를 다루는 일반 사용자 화면입니다.';
     case 'polls':
       return '사용자 투표 목록, 상세, 응답, 댓글, 결과 조회를 다루는 일반 사용자 화면입니다.';
+    case 'prayers':
+      return '사용자 조별 기도제목 조회, 사람별 입력, version 충돌 복구를 다루는 일반 사용자 화면입니다.';
     case 'profile':
       return '내 정보 조회, GET /users/me 새로고침, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':
