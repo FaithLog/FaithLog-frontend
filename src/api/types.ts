@@ -313,6 +313,54 @@ export type PaymentAccount = {
   accountHolder: string;
 };
 
+export type AdminPaymentAccount = PaymentAccount & {
+  campusId: number;
+  ownerUserId: number | null;
+  isActive: boolean;
+};
+
+export type PaymentAccountCreateRequest = {
+  accountType: PaymentCategory;
+  nickname: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  ownerUserId: number | null;
+};
+
+export type PenaltyRuleType =
+  | 'QUIET_TIME'
+  | 'PRAYER'
+  | 'BIBLE_READING'
+  | 'SATURDAY_LATE';
+
+export type PenaltyCalculationType = 'MISSING_COUNT' | 'LATE_MINUTE';
+
+export type PenaltyRule = {
+  id: number;
+  ruleType: PenaltyRuleType;
+  calculationType: PenaltyCalculationType;
+  requiredCount: number;
+  baseAmount: number;
+  amountPerUnit: number;
+  isActive: boolean;
+};
+
+export type PenaltyRuleCreateRequest = {
+  ruleType: PenaltyRuleType;
+  calculationType: PenaltyCalculationType;
+  requiredCount: number;
+  baseAmount: number;
+  amountPerUnit: number;
+};
+
+export type PenaltyRuleUpdateRequest = {
+  requiredCount: number;
+  baseAmount: number;
+  amountPerUnit: number;
+  isActive: boolean;
+};
+
 export type MarkChargePaidRequest = {
   paidAt?: string;
 };
