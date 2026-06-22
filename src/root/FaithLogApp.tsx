@@ -1,17 +1,31 @@
-import {useEffect, useMemo, useState} from 'react';
+import {type ReactNode, useEffect, useMemo, useState} from 'react';
 import {Modal, SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {
   createCampus,
   FaithLogApiError,
   fetchCampusDetail,
+  fetchChargeSummary,
   fetchCurrentUser,
   fetchMyCampuses,
+  fetchPolls,
+  fetchPrayerWeek,
+  fetchWeeklyDevotionSummary,
   joinCampus,
   signupUser,
 } from '../api/client';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
-import type {ApiError, CampusDetail, CampusMembershipSummary, UserRole} from '../api/types';
+import type {
+  ApiError,
+  CampusDetail,
+  CampusMembershipSummary,
+  ChargeSummary,
+  CurrentUser,
+  PollSummary,
+  PrayerWeekSummary,
+  UserRole,
+  WeeklyDevotionSummary,
+} from '../api/types';
 import {
   type AuthFieldErrors,
   type LoginFormValues,
@@ -62,6 +76,16 @@ type SessionNotice = {
   title: string;
   message: string;
 } | null;
+
+type CardState<T> =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; data: T}
+  | {status: 'error'; error: ApiError};
+
+type HomeCardKey = 'overview' | 'devotion' | 'charges' | 'polls' | 'prayers';
+
+const HOME_TODAY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 export function FaithLogApp() {
   const [authState, setAuthState] = useState<AuthGateState>(initialState);
@@ -1183,7 +1207,14 @@ function AuthenticatedShell({
 
   return (
     <View style={styles.shell}>
-      {route === 'profile' ? (
+      {route === 'userHome' ? (
+        <UserHomeDashboard
+          onCampusSwitchPress={openCampusSwitch}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
+      ) : route === 'profile' ? (
         <ProfileScreen
           onCampusSwitchPress={openCampusSwitch}
           onLogoutPress={() => setLogoutConfirmVisible(true)}
@@ -1192,42 +1223,18 @@ function AuthenticatedShell({
           state={state}
         />
       ) : (
-        <Card>
-          <Eyebrow>앱 시작 완료</Eyebrow>
-          <Title>{state.selectedCampus.campusName}</Title>
-          <Body>
-            {state.user.name}님 세션을 복구했고, ACTIVE 캠퍼스로 진입했습니다.
-          </Body>
-          <View style={styles.metaGrid}>
-            <ListRow label="사용자" supportingText="전역 역할" value={state.user.role} />
-            <ListRow
-              label="캠퍼스 역할"
-              supportingText="현재 선택된 ACTIVE 캠퍼스 권한"
-              value={state.selectedCampus.campusRole}
-            />
-            <ListRow label="지역" supportingText="캠퍼스 프로필" value={state.selectedCampus.region} />
-            {selectedCampusDetail ? (
-              <ListRow
-                label="상세 조회"
-                supportingText="GET /api/v1/campuses/{campusId}"
-                value={selectedCampusDetail.isActive ? 'ACTIVE' : 'PAUSED'}
-              />
-            ) : null}
-          </View>
-          {state.activeCampuses.length > 1 ? (
-            <Button
-              accessibilityLabel="캠퍼스 변경 시트 열기"
-              onPress={openCampusSwitch}
-              variant="secondary">
-              캠퍼스 변경
-            </Button>
-          ) : null}
-        </Card>
+        <RoutePlaceholder
+          activeCampusCount={state.activeCampuses.length}
+          route={route}
+          selectedCampusDetail={selectedCampusDetail}
+          state={state}
+          onCampusSwitchPress={openCampusSwitch}
+        />
       )}
 
       <BottomNav activeId={route} items={navItems} onSelect={setRoute} />
 
-      {route === 'profile' ? null : (
+      {route === 'profile' || route === 'userHome' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
           <Title>{getRouteTitle(route)}</Title>
@@ -1253,6 +1260,553 @@ function AuthenticatedShell({
       />
     </View>
   );
+}
+
+function UserHomeDashboard({
+  onCampusSwitchPress,
+  setAuthState,
+  setNotice,
+  state,
+}: {
+  onCampusSwitchPress: () => void;
+  setAuthState: (state: AuthGateState) => void;
+  setNotice: (notice: SessionNotice) => void;
+  state: Extract<AuthGateState, {status: 'authenticated'}>;
+}) {
+  const [today, setToday] = useState(() => new Date());
+  const weekStartDate = useMemo(() => getWeekStartDate(today), [today]);
+  const {month, year} = useMemo(() => getYearMonth(today), [today]);
+  const campusId = state.selectedCampus.campusId;
+  const [overviewState, setOverviewState] = useState<
+    CardState<{user: CurrentUser; campuses: CampusMembershipSummary[]}>
+  >({status: 'idle'});
+  const [devotionState, setDevotionState] = useState<CardState<WeeklyDevotionSummary>>({
+    status: 'idle',
+  });
+  const [chargeState, setChargeState] = useState<CardState<ChargeSummary>>({status: 'idle'});
+  const [pollState, setPollState] = useState<CardState<PollSummary[]>>({status: 'idle'});
+  const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
+
+  const runCardRequest = async <T,>(
+    key: HomeCardKey,
+    setCardState: (cardState: CardState<T>) => void,
+    request: (accessToken: string) => Promise<T>,
+  ) => {
+    setCardState({status: 'loading'});
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        const error: ApiError = {
+          kind: 'sessionExpired',
+          message: '저장된 access token이 없습니다.',
+        };
+        setCardState({status: 'error', error});
+        setAuthState({status: 'sessionExpired', message: error.message});
+        return;
+      }
+
+      const data = await request(accessToken);
+      setCardState({status: 'success', data});
+    } catch (error) {
+      const apiError = toApiError(error, getHomeCardFallbackMessage(key));
+      setCardState({status: 'error', error: apiError});
+
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+      }
+    }
+  };
+
+  const loadOverview = () =>
+    runCardRequest('overview', setOverviewState, async (accessToken) => {
+      const [user, campuses] = await Promise.all([
+        fetchCurrentUser(accessToken),
+        fetchMyCampuses(accessToken),
+      ]);
+
+      return {user, campuses};
+    });
+  const loadDevotion = () =>
+    runCardRequest('devotion', setDevotionState, (accessToken) =>
+      fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
+    );
+  const loadCharges = () =>
+    runCardRequest('charges', setChargeState, (accessToken) =>
+      fetchChargeSummary(accessToken, campusId, {month, year}),
+    );
+  const loadPolls = () =>
+    runCardRequest('polls', setPollState, (accessToken) => fetchPolls(accessToken, campusId));
+  const loadPrayers = () =>
+    runCardRequest('prayers', setPrayerState, (accessToken) =>
+      fetchPrayerWeek(accessToken, campusId, weekStartDate),
+    );
+
+  useEffect(() => {
+    const refreshToday = () => {
+      const nextToday = new Date();
+
+      setToday((currentToday) =>
+        formatLocalDate(currentToday) === formatLocalDate(nextToday) ? currentToday : nextToday,
+      );
+    };
+    const intervalId = setInterval(refreshToday, HOME_TODAY_REFRESH_INTERVAL_MS);
+
+    refreshToday();
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    void loadOverview();
+    void loadDevotion();
+    void loadCharges();
+    void loadPolls();
+    void loadPrayers();
+  }, [campusId, month, weekStartDate, year]);
+
+  const announcePreparedRoute = (target: string) => {
+    setNotice({
+      tone: 'info',
+      title: '화면 준비 중',
+      message: `${target} 상세 화면은 후속 이슈에서 연결됩니다. 홈 CTA 상태는 API 응답 기준으로 먼저 표시합니다.`,
+    });
+  };
+
+  return (
+    <>
+      <Card>
+        <View style={styles.homeHeaderRow}>
+          <View style={styles.homeHeaderText}>
+            <Chip label={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`} tone="info" />
+            <Title>{state.user.name}님, 오늘 할 일을 확인해요</Title>
+            <Body>경건, 투표, 납부, 기도제목을 카드별로 따로 불러옵니다.</Body>
+          </View>
+          {state.activeCampuses.length > 1 ? (
+            <Button
+              accessibilityLabel="홈에서 캠퍼스 변경 시트 열기"
+              onPress={onCampusSwitchPress}
+              variant="secondary">
+              캠퍼스 변경
+            </Button>
+          ) : null}
+        </View>
+      </Card>
+
+      <TodayActionCard
+        chargeState={chargeState}
+        devotionState={devotionState}
+        onActionPress={announcePreparedRoute}
+        pollState={pollState}
+        prayerState={prayerState}
+        today={today}
+      />
+
+      <HomeDataCard
+        actionLabel="내 정보 다시 불러오기"
+        loadingMessage="내 정보와 캠퍼스 목록을 불러오고 있어요."
+        onRetry={loadOverview}
+        state={overviewState}
+        title="내 캠퍼스">
+        {(overview) => (
+          <View style={styles.metaGrid}>
+            <ListRow label="이름" supportingText="GET /api/v1/users/me" value={overview.user.name} />
+            <ListRow label="전역 역할" supportingText="사용자 화면 기준" value={overview.user.role} />
+            <ListRow
+              label="ACTIVE 캠퍼스"
+              supportingText="GET /api/v1/campuses/me"
+              value={`${overview.campuses.filter((campus) => campus.status === 'ACTIVE').length}개`}
+            />
+          </View>
+        )}
+      </HomeDataCard>
+
+      <HomeDataCard
+        actionLabel="경건 카드 다시 불러오기"
+        loadingMessage="이번 주 경건생활을 확인하고 있어요."
+        onRetry={loadDevotion}
+        state={devotionState}
+        title="이번 주 경건생활">
+        {(devotion) => {
+          const todayCheck = getTodayDevotionCheck(devotion, today);
+          const completedToday = todayCheck ? isDevotionDayComplete(todayCheck) : false;
+
+          return (
+            <View style={styles.metaGrid}>
+              <ListRow label="큐티" supportingText="주간 체크 수" value={`${devotion.quietTimeCount}/7`} />
+              <ListRow label="기도" supportingText="주간 체크 수" value={`${devotion.prayerCount}/7`} />
+              <ListRow
+                label="성경읽기"
+                supportingText={devotion.submittedAt ? '제출 완료 주차' : '아직 제출 전'}
+                value={`${devotion.bibleReadingCount}/7`}
+              />
+              <ListRow
+                label="오늘 상태"
+                supportingText={todayCheck ? todayCheck.recordDate : '오늘 날짜가 주차 범위 밖입니다'}
+                value={completedToday ? '완료' : '입력 필요'}
+              />
+            </View>
+          );
+        }}
+      </HomeDataCard>
+
+      <HomeDataCard
+        actionLabel="납부 카드 다시 불러오기"
+        loadingMessage="이번 달 납부 요약을 확인하고 있어요."
+        onRetry={loadCharges}
+        state={chargeState}
+        title="이번 달 납부">
+        {(charges) => (
+          <View style={styles.metaGrid}>
+            <ListRow
+              label="미납"
+              supportingText={`${year}년 ${month}월 청구 기준`}
+              value={formatWon(charges.monthlyUnpaidAmount)}
+            />
+            <ListRow label="납부 완료" supportingText="paidAt 기준" value={formatWon(charges.monthlyPaidAmount)} />
+            <ListRow
+              label="총 청구"
+              supportingText="createdAt 기준"
+              value={formatWon(charges.monthlyTotalChargeAmount)}
+            />
+          </View>
+        )}
+      </HomeDataCard>
+
+      <HomeDataCard
+        actionLabel="투표 카드 다시 불러오기"
+        loadingMessage="열려 있는 투표를 불러오고 있어요."
+        onRetry={loadPolls}
+        state={pollState}
+        title="참여할 투표">
+        {(polls) => {
+          const openPolls = polls.filter((poll) => poll.status === 'OPEN');
+          const unansweredPolls = openPolls.filter((poll) => !poll.responded);
+
+          if (polls.length === 0) {
+            return <Body>현재 조회 가능한 투표가 없습니다.</Body>;
+          }
+
+          return (
+            <View style={styles.metaGrid}>
+              <ListRow label="열린 투표" supportingText="GET /api/v1/campuses/{campusId}/polls" value={`${openPolls.length}개`} />
+              <ListRow label="응답 필요" supportingText="responded=false" value={`${unansweredPolls.length}개`} />
+              {openPolls.slice(0, 2).map((poll) => (
+                <ListRow
+                  key={poll.id}
+                  label={poll.title}
+                  supportingText={`${poll.pollType} · ${poll.selectionType}`}
+                  value={poll.responded ? '응답됨' : '응답하기'}
+                />
+              ))}
+            </View>
+          );
+        }}
+      </HomeDataCard>
+
+      <HomeDataCard
+        actionLabel="기도제목 카드 다시 불러오기"
+        loadingMessage="이번 주 기도제목 게시판을 확인하고 있어요."
+        onRetry={loadPrayers}
+        state={prayerState}
+        title="기도제목">
+        {(prayers) => {
+          const entryPolicy = getPrayerEntryPolicy(prayers);
+
+          return (
+            <View style={styles.metaGrid}>
+              <ListRow label="진입 정책" supportingText="User 04-1 Home" value={entryPolicy} />
+              <ListRow
+                label="작성 현황"
+                supportingText={prayers.status}
+                value={`${prayers.submittedCount}/${prayers.targetMemberCount}`}
+              />
+              <ListRow label="기도조" supportingText="활성 조 목록" value={`${prayers.groups.length}개`} />
+              {prayers.groups.length === 0 ? <Body>이번 주 활성 기도조가 없습니다.</Body> : null}
+            </View>
+          );
+        }}
+      </HomeDataCard>
+    </>
+  );
+}
+
+function TodayActionCard({
+  chargeState,
+  devotionState,
+  onActionPress,
+  pollState,
+  prayerState,
+  today,
+}: {
+  chargeState: CardState<ChargeSummary>;
+  devotionState: CardState<WeeklyDevotionSummary>;
+  onActionPress: (target: string) => void;
+  pollState: CardState<PollSummary[]>;
+  prayerState: CardState<PrayerWeekSummary>;
+  today: Date;
+}) {
+  const actions = getTodayActions({chargeState, devotionState, pollState, prayerState, today});
+
+  return (
+    <Card>
+      <Eyebrow>오늘 해야 할 액션 CTA</Eyebrow>
+      <Title>{actions.length > 0 ? '바로 이어서 할 일' : '오늘은 큰 흐름이 정리됐어요'}</Title>
+      <Body>
+        {actions.length > 0
+          ? 'API 응답 기준으로 아직 남은 작업을 먼저 보여줍니다.'
+          : '카드가 모두 로드되면 추가 액션이 생길 수 있어요.'}
+      </Body>
+      <View style={styles.metaGrid}>
+        {actions.length > 0 ? (
+          actions.map((action) => (
+            <ListRow
+              accessibilityLabel={`${action.title} 상세 화면 안내`}
+              key={action.title}
+              label={action.title}
+              onPress={() => onActionPress(action.target)}
+              supportingText={action.description}
+              value="열기"
+            />
+          ))
+        ) : (
+          <Body>응답 필요 투표, 오늘 경건 입력, 미납, 열린 기도제목을 찾으면 여기에 표시합니다.</Body>
+        )}
+      </View>
+    </Card>
+  );
+}
+
+function HomeDataCard<T>({
+  actionLabel,
+  children,
+  loadingMessage,
+  onRetry,
+  state,
+  title,
+}: {
+  actionLabel: string;
+  children: (data: T) => ReactNode;
+  loadingMessage: string;
+  onRetry: () => void;
+  state: CardState<T>;
+  title: string;
+}) {
+  return (
+    <Card>
+      <Eyebrow>{title}</Eyebrow>
+      {state.status === 'loading' || state.status === 'idle' ? (
+        <Body>{loadingMessage}</Body>
+      ) : null}
+      {state.status === 'error' ? (
+        <>
+          <InlineError message={getHomeCardErrorMessage(state.error)} />
+          <Button accessibilityLabel={actionLabel} onPress={onRetry} variant="secondary">
+            다시 시도
+          </Button>
+        </>
+      ) : null}
+      {state.status === 'success' ? children(state.data) : null}
+    </Card>
+  );
+}
+
+function RoutePlaceholder({
+  activeCampusCount,
+  onCampusSwitchPress,
+  route,
+  selectedCampusDetail,
+  state,
+}: {
+  activeCampusCount: number;
+  onCampusSwitchPress: () => void;
+  route: Exclude<ShellRoute, 'profile' | 'userHome'>;
+  selectedCampusDetail: CampusDetail | null;
+  state: Extract<AuthGateState, {status: 'authenticated'}>;
+}) {
+  return (
+    <Card>
+      <Eyebrow>앱 시작 완료</Eyebrow>
+      <Title>{state.selectedCampus.campusName}</Title>
+      <Body>{state.user.name}님 세션을 복구했고, ACTIVE 캠퍼스로 진입했습니다.</Body>
+      <View style={styles.metaGrid}>
+        <ListRow label="사용자" supportingText="전역 역할" value={state.user.role} />
+        <ListRow
+          label="캠퍼스 역할"
+          supportingText={`${getRouteLabel(route)} 접근 기준`}
+          value={state.selectedCampus.campusRole}
+        />
+        <ListRow label="지역" supportingText="캠퍼스 프로필" value={state.selectedCampus.region} />
+        {selectedCampusDetail ? (
+          <ListRow
+            label="상세 조회"
+            supportingText="GET /api/v1/campuses/{campusId}"
+            value={selectedCampusDetail.isActive ? 'ACTIVE' : 'PAUSED'}
+          />
+        ) : null}
+      </View>
+      {activeCampusCount > 1 ? (
+        <Button
+          accessibilityLabel="캠퍼스 변경 시트 열기"
+          onPress={onCampusSwitchPress}
+          variant="secondary">
+          캠퍼스 변경
+        </Button>
+      ) : null}
+    </Card>
+  );
+}
+
+function getTodayActions({
+  chargeState,
+  devotionState,
+  pollState,
+  prayerState,
+  today,
+}: {
+  chargeState: CardState<ChargeSummary>;
+  devotionState: CardState<WeeklyDevotionSummary>;
+  pollState: CardState<PollSummary[]>;
+  prayerState: CardState<PrayerWeekSummary>;
+  today: Date;
+}) {
+  const actions: Array<{title: string; description: string; target: string}> = [];
+
+  if (devotionState.status === 'success') {
+    const todayCheck = getTodayDevotionCheck(devotionState.data, today);
+
+    if (!devotionState.data.submittedAt && (!todayCheck || !isDevotionDayComplete(todayCheck))) {
+      actions.push({
+        title: '오늘 경건생활 입력',
+        description: '큐티, 기도, 성경읽기 체크가 아직 남아 있어요.',
+        target: '경건생활',
+      });
+    }
+  }
+
+  if (pollState.status === 'success') {
+    const unansweredOpenPolls = pollState.data.filter(
+      (poll) => poll.status === 'OPEN' && !poll.responded,
+    );
+
+    if (unansweredOpenPolls.length > 0) {
+      actions.push({
+        title: '응답하지 않은 투표',
+        description: `${unansweredOpenPolls.length}개 투표가 응답을 기다리고 있어요.`,
+        target: '투표',
+      });
+    }
+  }
+
+  if (chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0) {
+    actions.push({
+      title: '이번 달 미납 확인',
+      description: `${formatWon(chargeState.data.monthlyUnpaidAmount)} 미납이 있어요.`,
+      target: '납부',
+    });
+  }
+
+  if (
+    prayerState.status === 'success' &&
+    prayerState.data.status === 'OPEN' &&
+    prayerState.data.targetMemberCount > 0
+  ) {
+    actions.push({
+      title: '기도제목 작성/확인',
+      description: getPrayerEntryPolicy(prayerState.data),
+      target: '기도제목',
+    });
+  }
+
+  return actions;
+}
+
+function getTodayDevotionCheck(devotion: WeeklyDevotionSummary, today: Date) {
+  const todayKey = formatLocalDate(today);
+
+  return devotion.dailyChecks.find((check) => check.recordDate === todayKey);
+}
+
+function isDevotionDayComplete(check: WeeklyDevotionSummary['dailyChecks'][number]) {
+  return check.quietTimeChecked && check.prayerChecked && check.bibleReadingChecked;
+}
+
+function getPrayerEntryPolicy(prayers: PrayerWeekSummary) {
+  if (prayers.status === 'OPEN' && prayers.targetMemberCount > 0) {
+    return '기도제목 진입 제안';
+  }
+
+  return '기도제목 상시 진입';
+}
+
+function getWeekStartDate(date: Date) {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+
+  return formatLocalDate(start);
+}
+
+function getYearMonth(date: Date) {
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+  };
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatWon(amount: number) {
+  return `${Math.max(0, amount).toLocaleString('ko-KR')}원`;
+}
+
+function toApiError(error: unknown, fallback: string): ApiError {
+  if (error instanceof FaithLogApiError) {
+    return error.detail;
+  }
+
+  return {kind: 'error', message: fallback};
+}
+
+function getHomeCardFallbackMessage(key: HomeCardKey) {
+  switch (key) {
+    case 'overview':
+      return '내 정보와 캠퍼스 목록을 불러오지 못했습니다.';
+    case 'devotion':
+      return '이번 주 경건생활을 불러오지 못했습니다.';
+    case 'charges':
+      return '납부 요약을 불러오지 못했습니다.';
+    case 'polls':
+      return '투표 목록을 불러오지 못했습니다.';
+    case 'prayers':
+      return '기도제목을 불러오지 못했습니다.';
+    default:
+      return assertNever(key);
+  }
+}
+
+function getHomeCardErrorMessage(error: ApiError) {
+  switch (error.kind) {
+    case 'sessionExpired':
+      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
+    case 'permissionDenied':
+      return '이 카드의 데이터를 조회할 권한이 없습니다.';
+    case 'conflict':
+      return '최신 데이터와 충돌했습니다. 다시 불러와 주세요.';
+    case 'offline':
+      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+    case 'error':
+      return error.message;
+    default:
+      return assertNever(error.kind);
+  }
 }
 
 function ProfileScreen({
@@ -1594,6 +2148,13 @@ const styles = StyleSheet.create({
   },
   shell: {
     gap: 16,
+  },
+  homeHeaderRow: {
+    alignItems: 'flex-start',
+    gap: spacing.gap,
+  },
+  homeHeaderText: {
+    gap: spacing.gap,
   },
   metaGrid: {
     gap: 8,
