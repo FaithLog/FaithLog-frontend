@@ -64,6 +64,13 @@ import {
 } from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
+import {
+  deactivateCurrentFcmToken,
+  inspectFcmRegistrationStatus,
+  registerCurrentFcmToken,
+  type FcmRegistrationStatus,
+} from '../notifications/fcmRegistration';
+import {openNotificationSettings} from '../notifications/notificationAdapter';
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
 import {colors, spacing} from '../theme';
@@ -88,6 +95,14 @@ type CardState<T> =
   | {status: 'error'; error: ApiError};
 
 type HomeCardKey = 'overview' | 'devotion' | 'charges' | 'polls' | 'prayers';
+
+type NotificationUiState =
+  | {status: 'checking'}
+  | {status: 'registering'}
+  | {status: 'deactivating'}
+  | {status: 'error'; error: ApiError}
+  | {status: 'dismissed'}
+  | FcmRegistrationStatus;
 
 const HOME_TODAY_REFRESH_INTERVAL_MS = 60 * 1000;
 
@@ -1211,6 +1226,11 @@ function AuthenticatedShell({
 
   return (
     <View style={styles.shell}>
+      <NotificationPermissionFlow
+        setAuthState={setAuthState}
+        setNotice={setNotice}
+        userId={state.user.id}
+      />
       {route === 'userHome' ? (
         <UserHomeDashboard
           onOpenDevotion={() => setRoute('devotion')}
@@ -1874,6 +1894,411 @@ function getHomeCardErrorMessage(error: ApiError) {
   }
 }
 
+function NotificationPermissionFlow({
+  setAuthState,
+  setNotice,
+  userId,
+}: {
+  setAuthState: (state: AuthGateState) => void;
+  setNotice: (notice: SessionNotice) => void;
+  userId: number;
+}) {
+  const [state, setState] = useState<NotificationUiState>({status: 'checking'});
+
+  const inspect = async (silent = false) => {
+    if (!silent) {
+      setState({status: 'checking'});
+    }
+
+    try {
+      setState(await inspectFcmRegistrationStatus());
+    } catch {
+      setState({
+        status: 'error',
+        error: {kind: 'error', message: '알림 권한 상태를 확인하지 못했습니다.'},
+      });
+    }
+  };
+
+  const register = async () => {
+    if (state.status === 'registering') {
+      return;
+    }
+
+    setState({status: 'registering'});
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        return;
+      }
+
+      const result = await registerCurrentFcmToken(accessToken);
+      setState(result);
+
+      if (result.status === 'registered') {
+        setNotice({
+          tone: 'success',
+          title: '알림 설정 완료',
+          message: '이 기기의 알림 토큰을 서버에 등록했습니다.',
+        });
+      }
+    } catch (error) {
+      const apiError = toApiError(error, '알림 토큰을 등록하지 못했습니다.');
+      setState({status: 'error', error: apiError});
+
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+      }
+    }
+  };
+
+  useEffect(() => {
+    void inspect(true);
+  }, [userId]);
+
+  if (
+    state.status === 'checking' ||
+    state.status === 'dismissed' ||
+    state.status === 'registered' ||
+    state.status === 'registeredLocal'
+  ) {
+    return null;
+  }
+
+  if (state.status === 'permissionPrompt') {
+    return (
+      <Card>
+        <Eyebrow>App 01 Notification Permission Request</Eyebrow>
+        <Title>알림을 켜둘까요?</Title>
+        <Body>중요한 공동체 알림을 받을 수 있어요.</Body>
+        <View style={styles.metaGrid}>
+          <ListRow label="기도제목" supportingText="새 기도제목과 조별 업데이트" value="알림" />
+          <ListRow label="투표" supportingText="수요예배, 토요모임, 커피 투표" value="알림" />
+          <ListRow label="납부" supportingText="미납 또는 납부 확인 안내" value="알림" />
+        </View>
+        <View style={styles.actionRow}>
+          <Button accessibilityLabel="알림 권한 요청 후 토큰 등록" onPress={register}>
+            알림 켜기
+          </Button>
+          <Button
+            accessibilityLabel="알림 권한 요청 나중에 하기"
+            onPress={() => setState({status: 'dismissed'})}
+            variant="secondary">
+            나중에
+          </Button>
+        </View>
+      </Card>
+    );
+  }
+
+  if (state.status === 'permissionDenied') {
+    const blocked = state.permission === 'blocked' || state.permission === 'unavailable';
+
+    return (
+      <Card>
+        <Eyebrow>App 01-1 Notification Disabled</Eyebrow>
+        <Title>{blocked ? '알림이 꺼져 있어요' : '알림 권한이 거절됐어요'}</Title>
+        <Body>
+          {blocked
+            ? '설정에서 다시 켤 수 있어요.'
+            : '권한 요청을 다시 시도하거나 설정에서 알림을 허용해 주세요.'}
+        </Body>
+        <InlineError message={getNotificationPermissionMessage(state.permission)} />
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel={blocked ? 'OS 알림 설정 열기' : '알림 권한 다시 요청'}
+            onPress={blocked ? () => void openNotificationSettings() : register}
+            variant="secondary">
+            {blocked ? '설정 열기' : '다시 요청'}
+          </Button>
+          <Button
+            accessibilityLabel="알림 비활성 안내 닫기"
+            onPress={() => setState({status: 'dismissed'})}
+            variant="ghost">
+            닫기
+          </Button>
+        </View>
+      </Card>
+    );
+  }
+
+  return (
+    <FcmTokenFailedCard
+      busy={state.status === 'registering'}
+      message={
+        state.status === 'error'
+          ? getNotificationApiErrorMessage(state.error)
+          : '권한은 켜져 있지만 토큰 등록에 실패했어요.'
+      }
+      onDismiss={() => setState({status: 'dismissed'})}
+      onRetry={state.status === 'error' ? () => void inspect() : register}
+    />
+  );
+}
+
+function NotificationSettingsDetail({
+  setAuthState,
+  setNotice,
+}: {
+  setAuthState: (state: AuthGateState) => void;
+  setNotice: (notice: SessionNotice) => void;
+}) {
+  const [state, setState] = useState<NotificationUiState>({status: 'checking'});
+
+  const inspect = async () => {
+    setState({status: 'checking'});
+    try {
+      setState(await inspectFcmRegistrationStatus());
+    } catch {
+      setState({
+        status: 'error',
+        error: {kind: 'error', message: '알림 설정을 확인하지 못했습니다.'},
+      });
+    }
+  };
+
+  const register = async () => {
+    if (state.status === 'registering') {
+      return;
+    }
+
+    setState({status: 'registering'});
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        return;
+      }
+
+      const result = await registerCurrentFcmToken(accessToken);
+      setState(result);
+
+      if (result.status === 'registered') {
+        setNotice({
+          tone: 'success',
+          title: '알림 등록 완료',
+          message: '이 기기의 알림 토큰을 서버에 등록했습니다.',
+        });
+      }
+    } catch (error) {
+      const apiError = toApiError(error, '알림 토큰을 등록하지 못했습니다.');
+      setState({status: 'error', error: apiError});
+
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+      }
+    }
+  };
+
+  const deactivate = async () => {
+    if (state.status === 'deactivating') {
+      return;
+    }
+
+    setState({status: 'deactivating'});
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        return;
+      }
+
+      await deactivateCurrentFcmToken(accessToken);
+      setNotice({
+        tone: 'success',
+        title: '알림 비활성화',
+        message: '이 기기의 알림 토큰을 비활성화했습니다.',
+      });
+      await inspect();
+    } catch (error) {
+      const apiError = toApiError(error, '알림 토큰을 비활성화하지 못했습니다.');
+      setState({status: 'error', error: apiError});
+
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+      }
+    }
+  };
+
+  useEffect(() => {
+    void inspect();
+  }, []);
+
+  return (
+    <Card>
+      <Eyebrow>알림 설정 상세</Eyebrow>
+      <Title>알림 상세</Title>
+      <Body>권한 상태와 이 기기의 FCM token 등록 상태를 분리해서 확인합니다.</Body>
+      <View style={styles.metaGrid}>
+        {renderNotificationSettingRows(state)}
+      </View>
+      {state.status === 'error' ? (
+        <InlineError message={getNotificationApiErrorMessage(state.error)} />
+      ) : null}
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel="알림 설정 다시 확인"
+          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          onPress={inspect}
+          variant="secondary">
+          {state.status === 'checking' ? '확인 중...' : '다시 확인'}
+        </Button>
+        <Button
+          accessibilityLabel="알림 토큰 등록 재시도"
+          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          onPress={register}>
+          {state.status === 'registering' ? '등록 중...' : '알림 켜기'}
+        </Button>
+        <Button
+          accessibilityLabel="이 기기 알림 토큰 비활성화"
+          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          onPress={deactivate}
+          variant="danger">
+          {state.status === 'deactivating' ? '비활성화 중...' : '비활성화'}
+        </Button>
+      </View>
+    </Card>
+  );
+}
+
+function FcmTokenFailedCard({
+  busy,
+  message,
+  onDismiss,
+  onRetry,
+}: {
+  busy: boolean;
+  message: string;
+  onDismiss: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <Card>
+      <Eyebrow>App 01-2 FCM Token Register Failed</Eyebrow>
+      <Title>알림 등록 실패</Title>
+      <Body>기기 알림을 다시 연결해요.</Body>
+      <InlineError message={message} />
+      <View style={styles.metaGrid}>
+        <ListRow label="재시도" supportingText="네트워크가 안정적일 때 다시 등록" value="권장" />
+        <ListRow label="나중에 하기" supportingText="앱 사용은 계속할 수 있어요" value="선택" />
+      </View>
+      <View style={styles.actionRow}>
+        <Button accessibilityLabel="FCM 토큰 등록 다시 시도" disabled={busy} onPress={onRetry}>
+          {busy ? '다시 시도 중...' : '다시 시도'}
+        </Button>
+        <Button
+          accessibilityLabel="FCM 토큰 등록 실패 안내 닫기"
+          disabled={busy}
+          onPress={onDismiss}
+          variant="secondary">
+          나중에
+        </Button>
+      </View>
+    </Card>
+  );
+}
+
+function renderNotificationSettingRows(state: NotificationUiState) {
+  switch (state.status) {
+    case 'checking':
+      return <ListRow label="상태" supportingText="앱 시작 시 권한과 등록 상태 확인" value="확인 중" />;
+    case 'registering':
+      return <ListRow label="토큰 등록" supportingText="POST /api/v1/users/me/fcm-tokens" value="진행 중" />;
+    case 'deactivating':
+      return <ListRow label="토큰 비활성화" supportingText="DELETE /api/v1/users/me/fcm-tokens/{tokenId}" value="진행 중" />;
+    case 'registered':
+      return (
+        <>
+          <ListRow label="권한" supportingText="OS notification permission" value="허용됨" />
+          <ListRow label="등록 ID" supportingText="서버 FCM tokenId" value={String(state.registration.tokenId)} />
+          <ListRow label="기기 유형" supportingText="REST Docs deviceType" value={state.registration.deviceType} />
+          <ListRow label="앱 버전" supportingText="REST Docs appVersion" value={state.registration.appVersion} />
+        </>
+      );
+    case 'registeredLocal':
+      return (
+        <>
+          <ListRow label="권한" supportingText="OS notification permission" value="허용됨" />
+          <ListRow label="등록 ID" supportingText="secure storage tokenId" value={String(state.tokenId)} />
+        </>
+      );
+    case 'permissionPrompt':
+      return (
+        <>
+          <ListRow label="권한" supportingText="알림 권한 요청 전 안내 필요" value="미승인" />
+          <ListRow label="등록" supportingText="권한 승인 후 토큰 등록 가능" value="대기" />
+        </>
+      );
+    case 'permissionDenied':
+      return (
+        <>
+          <ListRow label="권한" supportingText="OS notification permission" value={getPermissionValue(state.permission)} />
+          <ListRow label="복구" supportingText={getNotificationPermissionMessage(state.permission)} value="필요" />
+        </>
+      );
+    case 'tokenUnavailable':
+      return (
+        <>
+          <ListRow label="권한" supportingText="OS notification permission" value="허용됨" />
+          <ListRow label="토큰" supportingText="Firebase/FCM native SDK adapter 필요" value="없음" />
+        </>
+      );
+    case 'error':
+      return <ListRow label="상태" supportingText="알림 설정 확인 또는 등록 실패" value="오류" />;
+    case 'dismissed':
+      return <ListRow label="상태" supportingText="이번 세션에서 안내를 닫았습니다" value="나중에" />;
+    default:
+      return assertNever(state);
+  }
+}
+
+function getPermissionValue(permission: 'denied' | 'blocked' | 'unavailable') {
+  switch (permission) {
+    case 'denied':
+      return '거부됨';
+    case 'blocked':
+      return '차단됨';
+    case 'unavailable':
+      return '확인 제한';
+    default:
+      return assertNever(permission);
+  }
+}
+
+function getNotificationPermissionMessage(permission: 'denied' | 'blocked' | 'unavailable') {
+  switch (permission) {
+    case 'denied':
+      return '알림 권한이 거부되었습니다. 다시 요청할 수 있어요.';
+    case 'blocked':
+      return 'OS 설정에서 알림을 허용해주세요.';
+    case 'unavailable':
+      return '현재 앱에는 iOS/Firebase 알림 권한 SDK가 없어 OS 권한을 직접 확인하지 못합니다.';
+    default:
+      return assertNever(permission);
+  }
+}
+
+function getNotificationApiErrorMessage(error: ApiError) {
+  switch (error.kind) {
+    case 'sessionExpired':
+      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
+    case 'permissionDenied':
+      return '알림 토큰을 등록하거나 비활성화할 권한이 없습니다.';
+    case 'conflict':
+      return '서버의 토큰 상태와 충돌했습니다. 알림 설정을 다시 확인해 주세요.';
+    case 'offline':
+      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+    case 'error':
+      return error.message;
+    default:
+      return assertNever(error.kind);
+  }
+}
+
 function ProfileScreen({
   onCampusSwitchPress,
   onLogoutPress,
@@ -1927,48 +2352,51 @@ function ProfileScreen({
   };
 
   return (
-    <Card>
-      <Eyebrow>User 10 Profile</Eyebrow>
-      <Title>내정보</Title>
-      <Body>{state.selectedCampus.campusName}에서 사용 중인 계정 정보입니다.</Body>
-      <View style={styles.metaGrid}>
-        <ListRow label="이름" supportingText="GET /api/v1/users/me" value={state.user.name} />
-        <ListRow label="이메일" supportingText="로그인 계정" value={state.user.email} />
-        <ListRow label="전역 역할" supportingText="Service ADMIN 분리 기준" value={state.user.role} />
-        <ListRow
-          label="캠퍼스 역할"
-          supportingText="일반/관리자 화면 분리 기준"
-          value={state.selectedCampus.campusRole}
-        />
-      </View>
-      {refreshError ? (
-        <InlineError message={getProfileRefreshMessage(refreshError)} />
-      ) : null}
-      <View style={styles.actionRow}>
-        <Button
-          accessibilityLabel="내 정보 다시 불러오기"
-          disabled={refreshing}
-          onPress={refreshProfile}
-          variant="secondary">
-          {refreshing ? '불러오는 중...' : '다시 불러오기'}
-        </Button>
-        {state.activeCampuses.length > 1 ? (
-          <Button
-            accessibilityLabel="프로필에서 캠퍼스 변경 시트 열기"
-            disabled={refreshing}
-            onPress={onCampusSwitchPress}
-            variant="secondary">
-            캠퍼스 변경
-          </Button>
+    <>
+      <Card>
+        <Eyebrow>User 10 Profile</Eyebrow>
+        <Title>내정보</Title>
+        <Body>{state.selectedCampus.campusName}에서 사용 중인 계정 정보입니다.</Body>
+        <View style={styles.metaGrid}>
+          <ListRow label="이름" supportingText="GET /api/v1/users/me" value={state.user.name} />
+          <ListRow label="이메일" supportingText="로그인 계정" value={state.user.email} />
+          <ListRow label="전역 역할" supportingText="Service ADMIN 분리 기준" value={state.user.role} />
+          <ListRow
+            label="캠퍼스 역할"
+            supportingText="일반/관리자 화면 분리 기준"
+            value={state.selectedCampus.campusRole}
+          />
+        </View>
+        {refreshError ? (
+          <InlineError message={getProfileRefreshMessage(refreshError)} />
         ) : null}
-        <Button
-          accessibilityLabel="로그아웃 확인 열기"
-          onPress={onLogoutPress}
-          variant="danger">
-          로그아웃
-        </Button>
-      </View>
-    </Card>
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="내 정보 다시 불러오기"
+            disabled={refreshing}
+            onPress={refreshProfile}
+            variant="secondary">
+            {refreshing ? '불러오는 중...' : '다시 불러오기'}
+          </Button>
+          {state.activeCampuses.length > 1 ? (
+            <Button
+              accessibilityLabel="프로필에서 캠퍼스 변경 시트 열기"
+              disabled={refreshing}
+              onPress={onCampusSwitchPress}
+              variant="secondary">
+              캠퍼스 변경
+            </Button>
+          ) : null}
+          <Button
+            accessibilityLabel="로그아웃 확인 열기"
+            onPress={onLogoutPress}
+            variant="danger">
+            로그아웃
+          </Button>
+        </View>
+      </Card>
+      <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
+    </>
   );
 }
 

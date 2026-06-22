@@ -57,6 +57,25 @@ export type LogoutRequest = {
   fcmToken?: string;
 };
 
+export type FcmDeviceType = 'ANDROID' | 'IOS' | 'WEB';
+
+export type FcmTokenRegisterRequest = {
+  token: string;
+  clientInstanceId: string;
+  deviceType: FcmDeviceType;
+  appVersion: string;
+};
+
+export type FcmTokenRegisterResponse = {
+  tokenId: number;
+  deviceType: FcmDeviceType;
+  clientInstanceId: string;
+  appVersion: string;
+  isActive: boolean;
+  lastSeenAt: string;
+  lastRefreshedAt: string;
+};
+
 export type UserRole = 'USER' | 'MANAGER' | 'ADMIN';
 
 export type CampusRole =

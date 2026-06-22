@@ -21,6 +21,8 @@ import type {
   DevotionDailyCheckSaveResponse,
   DutyAssignment,
   DevotionMonthlySummary,
+  FcmTokenRegisterRequest,
+  FcmTokenRegisterResponse,
   PollComment,
   PollCommentRequest,
   PollDetail,
@@ -454,6 +456,24 @@ export function logoutUser(accessToken: string, body: LogoutRequest) {
     method: 'POST',
     body,
   });
+}
+
+export function registerMyFcmToken(accessToken: string, body: FcmTokenRegisterRequest) {
+  return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
+    accessToken,
+    method: 'POST',
+    body,
+  });
+}
+
+export function deactivateMyFcmToken(accessToken: string, tokenId: unknown) {
+  return apiRequest<null>(
+    buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
+    {
+      accessToken,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchCurrentUser(accessToken: string) {
