@@ -8,6 +8,63 @@ export type NotificationPermissionStatus =
   | 'blocked'
   | 'unavailable';
 
+export type DeviceFcmTokenResult =
+  | {status: 'available'; token: string}
+  | {
+      status: 'unavailable';
+      reason: 'nativeModuleMissing' | 'permissionUnavailable';
+      message: string;
+    }
+  | {status: 'error'; message: string};
+
+export type DeviceFcmTokenProvider = () => Promise<string | null>;
+
+let deviceFcmTokenProvider: DeviceFcmTokenProvider | null = null;
+
+export function setDeviceFcmTokenProvider(provider: DeviceFcmTokenProvider | null) {
+  deviceFcmTokenProvider = provider;
+}
+
+export async function getDeviceFcmToken(
+  permissionStatus?: NotificationPermissionStatus,
+): Promise<DeviceFcmTokenResult> {
+  if (permissionStatus && permissionStatus !== 'authorized') {
+    return {
+      status: 'unavailable',
+      reason: 'permissionUnavailable',
+      message: '알림 권한이 허용되지 않아 FCM token을 조회할 수 없습니다.',
+    };
+  }
+
+  if (!deviceFcmTokenProvider) {
+    return {
+      status: 'unavailable',
+      reason: 'nativeModuleMissing',
+      message: 'Firebase/FCM native SDK provider가 아직 연결되지 않았습니다.',
+    };
+  }
+
+  try {
+    const token = await deviceFcmTokenProvider();
+    const normalizedToken = typeof token === 'string' ? token.trim() : '';
+
+    if (!normalizedToken) {
+      return {
+        status: 'unavailable',
+        reason: 'nativeModuleMissing',
+        message: '기기 FCM token을 가져오지 못했습니다.',
+      };
+    }
+
+    return {status: 'available', token: normalizedToken};
+  } catch {
+    return {
+      status: 'error',
+      message: '기기 FCM token 조회 중 문제가 발생했습니다.',
+    };
+  }
+}
+
 export function getDeviceType(): FcmDeviceType {
   if (Platform.OS === 'android') {
     return 'ANDROID';

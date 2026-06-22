@@ -7,12 +7,14 @@ import {
   clearFcmRegistration,
   getOrCreateClientInstanceId,
   getStoredFcmRegistration,
+  saveFcmToken,
   saveFcmTokenId,
 } from '../api/tokenStorage';
 import type {FcmTokenRegisterResponse} from '../api/types';
 import {APP_VERSION} from './appInfo';
 import {
   checkNotificationPermission,
+  getDeviceFcmToken,
   getDeviceType,
   requestNotificationPermission,
   type NotificationPermissionStatus,
@@ -40,6 +42,7 @@ export type FcmRegistrationStatus =
   | {
       status: 'tokenUnavailable';
       permission: 'authorized';
+      message: string;
     };
 
 export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationStatus> {
@@ -56,7 +59,11 @@ export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationSta
     return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
   }
 
-  return {status: 'tokenUnavailable', permission};
+  return {
+    status: 'tokenUnavailable',
+    permission,
+    message: '저장된 FCM token이 없어 등록을 시작해야 합니다.',
+  };
 }
 
 export async function registerCurrentFcmToken(
@@ -69,21 +76,38 @@ export async function registerCurrentFcmToken(
   }
 
   const stored = await getStoredFcmRegistration();
+  const token = stored.token ?? (await loadAndPersistDeviceFcmToken(permission));
 
-  if (!stored.token) {
-    return {status: 'tokenUnavailable', permission};
+  if (!token) {
+    return {
+      status: 'tokenUnavailable',
+      permission,
+      message: '권한은 켜져 있지만 기기 FCM token을 가져오지 못했습니다.',
+    };
   }
 
   const registration = await registerMyFcmToken(accessToken, {
     appVersion: APP_VERSION,
     clientInstanceId: await getOrCreateClientInstanceId(),
     deviceType: getDeviceType(),
-    token: stored.token,
+    token,
   });
 
   await saveFcmTokenId(registration.tokenId);
 
   return {status: 'registered', permission, registration};
+}
+
+async function loadAndPersistDeviceFcmToken(permission: NotificationPermissionStatus) {
+  const result = await getDeviceFcmToken(permission);
+
+  if (result.status !== 'available') {
+    return null;
+  }
+
+  await saveFcmToken(result.token);
+
+  return result.token;
 }
 
 export async function deactivateCurrentFcmToken(accessToken: string) {
