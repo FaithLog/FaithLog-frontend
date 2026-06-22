@@ -3,7 +3,24 @@ import {SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import type {AuthGateState} from '../auth/authGate';
 import {bootstrapAuthGate} from '../auth/authGate';
-import {Body, Button, Card, Eyebrow, LoadingState, Pill, Screen, Title} from '../components/ui';
+import {
+  Body,
+  BottomNav,
+  Button,
+  Card,
+  Chip,
+  Conflict,
+  Empty,
+  ErrorState,
+  Eyebrow,
+  ListRow,
+  Loading,
+  Offline,
+  PermissionDenied,
+  Screen,
+  ScreenHeader,
+  Title,
+} from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
 import {colors, spacing} from '../theme';
 
@@ -57,13 +74,11 @@ export function FaithLogApp() {
 
 function AppHeader() {
   return (
-    <View style={styles.header}>
-      <View>
-        <Text style={styles.brand}>FaithLog</Text>
-        <Text style={styles.subtitle}>공동체 생활을 한 흐름으로</Text>
-      </View>
-      <Pill>M1 Foundation</Pill>
-    </View>
+    <ScreenHeader
+      action={<Chip label="M1 Foundation" tone="info" />}
+      subtitle="공동체 생활을 한 흐름으로"
+      title="FaithLog"
+    />
   );
 }
 
@@ -76,7 +91,7 @@ function renderAuthState(
 ) {
   switch (state.status) {
     case 'loading':
-      return <LoadingState message={state.message} />;
+      return <Loading message={state.message} />;
     case 'signedOut':
       return (
         <StatusCard
@@ -102,60 +117,55 @@ function renderAuthState(
       );
     case 'noCampus':
       return (
-        <StatusCard
-          eyebrow="캠퍼스 없음"
+        <Empty
           title={`${state.user.name}님, 참여 중인 캠퍼스가 없어요`}
           message="ACTIVE 캠퍼스가 없어 초대코드 입력 또는 캠퍼스 생성 흐름으로 안내합니다."
-          primaryLabel="초대코드 입력"
-          primaryAccessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
-          onPrimaryPress={() => openEntryTarget('inviteCode')}
-          secondaryLabel="캠퍼스 생성"
-          secondaryAccessibilityLabel="캠퍼스 생성 화면으로 이동"
-          onSecondaryPress={() => openEntryTarget('campusCreate')}
+          actionLabel="초대코드 입력"
+          actionAccessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
+          onActionPress={() => openEntryTarget('inviteCode')}
+          secondaryActionLabel="캠퍼스 생성"
+          secondaryActionAccessibilityLabel="캠퍼스 생성 화면으로 이동"
+          onSecondaryActionPress={() => openEntryTarget('campusCreate')}
         />
       );
     case 'permissionDenied':
       return (
-        <StatusCard
-          eyebrow="권한 부족"
+        <PermissionDenied
           title="접근 권한이 필요합니다"
           message={state.message}
-          primaryLabel="이전 화면으로"
-          primaryAccessibilityLabel="권한 부족 안내 후 이전 화면으로 이동"
-          onPrimaryPress={retry}
+          actionLabel="이전 화면으로"
+          actionAccessibilityLabel="권한 부족 안내 후 이전 화면으로 이동"
+          onActionPress={retry}
         />
       );
     case 'conflict':
       return (
-        <StatusCard
-          eyebrow="충돌"
+        <Conflict
           title="최신 상태 확인이 필요합니다"
           message={state.message}
-          primaryLabel="다시 불러오기"
-          primaryAccessibilityLabel="충돌 상태에서 최신 데이터 다시 불러오기"
-          onPrimaryPress={retry}
+          actionLabel="다시 불러오기"
+          actionAccessibilityLabel="충돌 상태에서 최신 데이터 다시 불러오기"
+          onActionPress={retry}
         />
       );
     case 'offline':
       return (
-        <StatusCard
-          eyebrow="오프라인"
+        <Offline
           title="네트워크 연결이 불안정합니다"
           message={state.message}
-          primaryLabel="다시 시도"
-          primaryAccessibilityLabel="오프라인 상태에서 다시 시도"
-          onPrimaryPress={retry}
+          actionLabel="다시 시도"
+          actionAccessibilityLabel="오프라인 상태에서 다시 시도"
+          onActionPress={retry}
         />
       );
     case 'error':
       return (
-        <StatusCard
-          eyebrow="오류"
+        <ErrorState
           title="앱 시작 중 문제가 발생했습니다"
           message={state.message}
-          primaryLabel="다시 시도"
-          primaryAccessibilityLabel="앱 시작 오류 후 다시 시도"
-          onPrimaryPress={retry}
+          actionLabel="다시 시도"
+          actionAccessibilityLabel="앱 시작 오류 후 다시 시도"
+          onActionPress={retry}
         />
       );
     case 'authenticated':
@@ -238,6 +248,16 @@ function AuthenticatedShell({
     () => getAvailableRoutes(state.user, state.selectedCampus),
     [state.selectedCampus, state.user],
   );
+  const navItems = useMemo(
+    () =>
+      routes.map((availableRoute) => ({
+        accessibilityLabel: `${getRouteLabel(availableRoute)} 탭으로 이동`,
+        icon: getRouteIcon(availableRoute),
+        id: availableRoute,
+        label: getRouteLabel(availableRoute),
+      })),
+    [routes],
+  );
 
   return (
     <View style={styles.shell}>
@@ -248,38 +268,23 @@ function AuthenticatedShell({
           {state.user.name}님 세션을 복구했고, ACTIVE 캠퍼스로 진입했습니다.
         </Body>
         <View style={styles.metaGrid}>
-          <Meta label="사용자" value={state.user.role} />
-          <Meta label="캠퍼스 역할" value={state.selectedCampus.campusRole} />
-          <Meta label="지역" value={state.selectedCampus.region} />
+          <ListRow label="사용자" supportingText="전역 역할" value={state.user.role} />
+          <ListRow
+            label="캠퍼스 역할"
+            supportingText="현재 선택된 ACTIVE 캠퍼스 권한"
+            value={state.selectedCampus.campusRole}
+          />
+          <ListRow label="지역" supportingText="캠퍼스 프로필" value={state.selectedCampus.region} />
         </View>
       </Card>
 
-      <View style={styles.nav}>
-        {routes.map((availableRoute) => (
-          <Button
-            accessibilityLabel={`${getRouteLabel(availableRoute)} 탭으로 이동`}
-            key={availableRoute}
-            onPress={() => setRoute(availableRoute)}
-            variant={route === availableRoute ? 'primary' : 'secondary'}>
-            {getRouteLabel(availableRoute)}
-          </Button>
-        ))}
-      </View>
+      <BottomNav activeId={route} items={navItems} onSelect={setRoute} />
 
       <Card>
         <Eyebrow>{getRouteLabel(route)}</Eyebrow>
         <Title>{getRouteTitle(route)}</Title>
         <Body>{getRouteDescription(route, state.activeCampuses.length)}</Body>
       </Card>
-    </View>
-  );
-}
-
-function Meta({label, value}: {label: string; value: string}) {
-  return (
-    <View style={styles.metaItem}>
-      <Text style={styles.metaLabel}>{label}</Text>
-      <Text style={styles.metaValue}>{value}</Text>
     </View>
   );
 }
@@ -292,6 +297,19 @@ function getRouteTitle(route: ShellRoute) {
       return '캠퍼스 관리자 탭';
     case 'serviceAdmin':
       return 'Service ADMIN 진입';
+    default:
+      return assertNever(route);
+  }
+}
+
+function getRouteIcon(route: ShellRoute) {
+  switch (route) {
+    case 'userHome':
+      return 'H';
+    case 'campusAdmin':
+      return 'A';
+    case 'serviceAdmin':
+      return 'S';
     default:
       return assertNever(route);
   }
@@ -348,23 +366,7 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     gap: 18,
-    paddingBottom: 20,
-  },
-  header: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.gap,
-  },
-  brand: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  subtitle: {
-    color: colors.mutedText,
-    fontSize: 14,
-    marginTop: 2,
+    paddingBottom: 28,
   },
   actionRow: {
     gap: 10,
@@ -373,29 +375,7 @@ const styles = StyleSheet.create({
   shell: {
     gap: 16,
   },
-  nav: {
-    backgroundColor: colors.surface,
-    borderRadius: 999,
-    gap: 8,
-    padding: 8,
-  },
   metaGrid: {
     gap: 8,
-  },
-  metaItem: {
-    backgroundColor: colors.background,
-    borderRadius: 12,
-    padding: 12,
-  },
-  metaLabel: {
-    color: colors.mutedText,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  metaValue: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '800',
-    marginTop: 3,
   },
 });
