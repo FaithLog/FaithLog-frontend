@@ -4,6 +4,9 @@ import type {
   AdminCampusMember,
   AdminCampusRoleChangeRequest,
   AdminDashboardSummary,
+  AdminMissingDevotionMember,
+  AdminNotificationRequest,
+  AdminNotificationResponse,
   CampusCreateRequest,
   CampusCreateResponse,
   CampusDetail,
@@ -297,6 +300,58 @@ function toAdminDashboardSummaryQuery(params: {weekStartDate?: string} = {}) {
   }
 
   return query.toString();
+}
+
+function toAdminMissingDevotionQuery(weekStartDate: string) {
+  const query = new URLSearchParams();
+  query.set('weekStartDate', toMondayDatePathSegment(weekStartDate, 'weekStartDate'));
+
+  return query.toString();
+}
+
+function toAdminNotificationRequest(body: AdminNotificationRequest): AdminNotificationRequest {
+  const targetUserIds = body.targetUserIds.map((userId) =>
+    Number(toPositiveIntegerPathSegment(userId, 'targetUserIds')),
+  );
+  const notificationType = body.notificationType.trim();
+  const title = body.title.trim();
+  const messageBody = body.body.trim();
+
+  if (targetUserIds.length === 0) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '알림 발송 대상이 없습니다.',
+    });
+  }
+
+  if (!title || !messageBody) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '알림 제목과 본문을 입력해 주세요.',
+    });
+  }
+
+  if (!notificationType) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '알림 유형이 올바르지 않습니다.',
+    });
+  }
+
+  return {
+    notificationType,
+    targetUserIds,
+    targetWeekStartDate:
+      body.targetWeekStartDate === null
+        ? null
+        : toMondayDatePathSegment(body.targetWeekStartDate, 'targetWeekStartDate'),
+    targetId:
+      body.targetId === null
+        ? null
+        : Number(toPositiveIntegerPathSegment(body.targetId, 'targetId')),
+    title,
+    body: messageBody,
+  };
 }
 
 function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnvelope<unknown>>): ApiError {
@@ -831,6 +886,34 @@ export function fetchAdminCampusMembers(accessToken: string, campusId: unknown) 
   return apiRequest<AdminCampusMember[]>(buildAdminCampusPath(campusId, 'members'), {
     accessToken,
   });
+}
+
+export function fetchAdminMissingDevotionMembers(
+  accessToken: string,
+  campusId: unknown,
+  weekStartDate: string,
+) {
+  const query = toAdminMissingDevotionQuery(weekStartDate);
+
+  return apiRequest<AdminMissingDevotionMember[]>(
+    `${buildAdminCampusPath(campusId, 'devotions', 'missing')}?${query}`,
+    {accessToken},
+  );
+}
+
+export function sendAdminNotification(
+  accessToken: string,
+  campusId: unknown,
+  body: AdminNotificationRequest,
+) {
+  return apiRequest<AdminNotificationResponse>(
+    buildAdminCampusPath(campusId, 'notifications'),
+    {
+      accessToken,
+      body: toAdminNotificationRequest(body),
+      method: 'POST',
+    },
+  );
 }
 
 export function changeAdminCampusMemberRole(
