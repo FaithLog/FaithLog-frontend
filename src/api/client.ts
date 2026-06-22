@@ -1,6 +1,11 @@
 import type {
   ApiEnvelope,
   ApiError,
+  CampusCreateRequest,
+  CampusCreateResponse,
+  CampusDetail,
+  CampusJoinRequest,
+  CampusJoinResponse,
   CampusMembershipSummary,
   CurrentUser,
   LoginRequest,
@@ -59,6 +64,39 @@ export function buildApiUrl(path: string) {
     : `/api/v1/${path.replace(/^\/+/, '')}`;
 
   return `${baseUrl}${normalizedPath}`;
+}
+
+type PathSegment = string | number;
+
+export function toPositiveIntegerPathSegment(value: unknown, label: string) {
+  const numericValue =
+    typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+
+  if (
+    typeof numericValue !== 'number' ||
+    !Number.isInteger(numericValue) ||
+    numericValue <= 0 ||
+    !Number.isSafeInteger(numericValue)
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값이 올바르지 않습니다.`,
+    });
+  }
+
+  return String(numericValue);
+}
+
+function encodePathSegment(segment: PathSegment) {
+  return encodeURIComponent(String(segment));
+}
+
+export function buildApiPath(...segments: PathSegment[]) {
+  return `/api/v1/${segments.map(encodePathSegment).join('/')}`;
+}
+
+export function buildCampusPath(campusId: unknown, ...segments: PathSegment[]) {
+  return buildApiPath('campuses', toPositiveIntegerPathSegment(campusId, 'campusId'), ...segments);
 }
 
 function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnvelope<unknown>>): ApiError {
@@ -217,4 +255,24 @@ export function fetchCurrentUser(accessToken: string) {
 
 export function fetchMyCampuses(accessToken: string) {
   return apiRequest<CampusMembershipSummary[]>('/api/v1/campuses/me', {accessToken});
+}
+
+export function createCampus(accessToken: string, body: CampusCreateRequest) {
+  return apiRequest<CampusCreateResponse>('/api/v1/campuses', {
+    accessToken,
+    method: 'POST',
+    body,
+  });
+}
+
+export function joinCampus(accessToken: string, body: CampusJoinRequest) {
+  return apiRequest<CampusJoinResponse>('/api/v1/campuses/join', {
+    accessToken,
+    method: 'POST',
+    body,
+  });
+}
+
+export function fetchCampusDetail(accessToken: string, campusId: unknown) {
+  return apiRequest<CampusDetail>(buildCampusPath(campusId), {accessToken});
 }

@@ -76,6 +76,39 @@ export type CampusMembershipSummary = {
   status: CampusStatus;
 };
 
+export type CampusCreateRequest = {
+  name: string;
+  region: string;
+  description: string;
+};
+
+export type CampusCreateResponse = {
+  campusId: number;
+  name: string;
+  region: string;
+  description: string;
+  inviteCode: string;
+  myCampusRole: CampusRole;
+  membershipStatus: CampusStatus;
+};
+
+export type CampusJoinRequest = {
+  inviteCode: string;
+};
+
+export type CampusJoinResponse = CampusMembershipSummary;
+
+export type CampusDetail = {
+  campusId: number;
+  name: string;
+  region: string;
+  description: string;
+  isActive: boolean;
+  myCampusRole: CampusRole | null;
+  membershipStatus: CampusStatus | null;
+  inviteCode?: string;
+};
+
 export type CurrentUser = {
   id: number;
   name: string;
