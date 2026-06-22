@@ -62,6 +62,7 @@ import {
   Title,
 } from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
+import {DevotionScreen} from '../devotion/DevotionScreen';
 import {colors, spacing} from '../theme';
 
 const initialState: AuthGateState = {
@@ -1209,7 +1210,15 @@ function AuthenticatedShell({
     <View style={styles.shell}>
       {route === 'userHome' ? (
         <UserHomeDashboard
+          onOpenDevotion={() => setRoute('devotion')}
           onCampusSwitchPress={openCampusSwitch}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
+      ) : route === 'devotion' ? (
+        <DevotionScreen
+          onBackToHome={() => setRoute('userHome')}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1234,7 +1243,7 @@ function AuthenticatedShell({
 
       <BottomNav activeId={route} items={navItems} onSelect={setRoute} />
 
-      {route === 'profile' || route === 'userHome' ? null : (
+      {route === 'profile' || route === 'userHome' || route === 'devotion' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
           <Title>{getRouteTitle(route)}</Title>
@@ -1264,11 +1273,13 @@ function AuthenticatedShell({
 
 function UserHomeDashboard({
   onCampusSwitchPress,
+  onOpenDevotion,
   setAuthState,
   setNotice,
   state,
 }: {
   onCampusSwitchPress: () => void;
+  onOpenDevotion: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -1365,7 +1376,12 @@ function UserHomeDashboard({
     void loadPrayers();
   }, [campusId, month, weekStartDate, year]);
 
-  const announcePreparedRoute = (target: string) => {
+  const openHomeTarget = (target: string) => {
+    if (target === '경건생활') {
+      onOpenDevotion();
+      return;
+    }
+
     setNotice({
       tone: 'info',
       title: '화면 준비 중',
@@ -1396,7 +1412,7 @@ function UserHomeDashboard({
       <TodayActionCard
         chargeState={chargeState}
         devotionState={devotionState}
-        onActionPress={announcePreparedRoute}
+        onActionPress={openHomeTarget}
         pollState={pollState}
         prayerState={prayerState}
         today={today}
@@ -1445,6 +1461,12 @@ function UserHomeDashboard({
                 supportingText={todayCheck ? todayCheck.recordDate : '오늘 날짜가 주차 범위 밖입니다'}
                 value={completedToday ? '완료' : '입력 필요'}
               />
+              <Button
+                accessibilityLabel="경건생활 주간 입력 화면으로 이동"
+                onPress={onOpenDevotion}
+                variant="secondary">
+                경건생활 관리
+              </Button>
             </View>
           );
         }}
@@ -1620,7 +1642,7 @@ function RoutePlaceholder({
 }: {
   activeCampusCount: number;
   onCampusSwitchPress: () => void;
-  route: Exclude<ShellRoute, 'profile' | 'userHome'>;
+  route: Exclude<ShellRoute, 'devotion' | 'profile' | 'userHome'>;
   selectedCampusDetail: CampusDetail | null;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -2057,6 +2079,8 @@ function getRouteTitle(route: ShellRoute) {
   switch (route) {
     case 'userHome':
       return '일반 사용자 홈';
+    case 'devotion':
+      return '경건생활';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -2072,6 +2096,8 @@ function getRouteIcon(route: ShellRoute) {
   switch (route) {
     case 'userHome':
       return 'H';
+    case 'devotion':
+      return 'D';
     case 'profile':
       return 'P';
     case 'campusAdmin':
@@ -2087,6 +2113,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
   switch (route) {
     case 'userHome':
       return `경건, 투표, 납부, 기도제목으로 이어지는 사용자 탭 shell입니다. ACTIVE 캠퍼스 ${campusCount}개를 확인했습니다.`;
+    case 'devotion':
+      return '경건생활 주간 체크, 제출, 월간 통계를 다루는 일반 사용자 화면입니다.';
     case 'profile':
       return '내 정보 조회, GET /users/me 새로고침, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':
