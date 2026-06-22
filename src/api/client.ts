@@ -7,13 +7,17 @@ import type {
   CampusJoinRequest,
   CampusJoinResponse,
   CampusMembershipSummary,
+  ChargeSummary,
   CurrentUser,
+  PollSummary,
+  PrayerWeekSummary,
   LoginRequest,
   LoginResponse,
   LogoutRequest,
   SignupRequest,
   SignupResponse,
   TokenPair,
+  WeeklyDevotionSummary,
 } from './types';
 
 type RequestOptions = {
@@ -97,6 +101,58 @@ export function buildApiPath(...segments: PathSegment[]) {
 
 export function buildCampusPath(campusId: unknown, ...segments: PathSegment[]) {
   return buildApiPath('campuses', toPositiveIntegerPathSegment(campusId, 'campusId'), ...segments);
+}
+
+function toMondayDatePathSegment(value: unknown, label: string) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값이 올바르지 않습니다.`,
+    });
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime()) || date.getDay() !== 1 || formatLocalDate(date) !== value) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label}는 월요일이어야 합니다.`,
+    });
+  }
+
+  return value;
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function toSummaryYearMonthQuery(year: unknown, month: unknown) {
+  if (
+    typeof year !== 'number' ||
+    !Number.isInteger(year) ||
+    year < 2000 ||
+    year > 2100 ||
+    typeof month !== 'number' ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '납부 요약 조회 연월이 올바르지 않습니다.',
+    });
+  }
+
+  const params = new URLSearchParams();
+  params.set('year', String(year));
+  params.set('month', String(month));
+
+  return params.toString();
 }
 
 function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnvelope<unknown>>): ApiError {
@@ -275,4 +331,54 @@ export function joinCampus(accessToken: string, body: CampusJoinRequest) {
 
 export function fetchCampusDetail(accessToken: string, campusId: unknown) {
   return apiRequest<CampusDetail>(buildCampusPath(campusId), {accessToken});
+}
+
+export function fetchWeeklyDevotionSummary(
+  accessToken: string,
+  campusId: unknown,
+  weekStartDate: string,
+) {
+  return apiRequest<WeeklyDevotionSummary>(
+    buildCampusPath(
+      campusId,
+      'devotions',
+      'me',
+      'weeks',
+      toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
+    ),
+    {accessToken},
+  );
+}
+
+export function fetchChargeSummary(
+  accessToken: string,
+  campusId: unknown,
+  params: {year: number; month: number},
+) {
+  const query = toSummaryYearMonthQuery(params.year, params.month);
+
+  return apiRequest<ChargeSummary>(
+    `${buildCampusPath(campusId, 'charges', 'me', 'summary')}?${query}`,
+    {accessToken},
+  );
+}
+
+export function fetchPolls(accessToken: string, campusId: unknown) {
+  return apiRequest<PollSummary[]>(buildCampusPath(campusId, 'polls'), {accessToken});
+}
+
+export function fetchPrayerWeek(
+  accessToken: string,
+  campusId: unknown,
+  weekStartDate: string,
+) {
+  return apiRequest<PrayerWeekSummary>(
+    buildCampusPath(
+      campusId,
+      'prayers',
+      'weeks',
+      toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
+    ),
+    {accessToken},
+  );
 }

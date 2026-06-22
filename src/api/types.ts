@@ -118,3 +118,86 @@ export type CurrentUser = {
   lastLoginAt: string | null;
   campusMemberships: CampusMembershipSummary[];
 };
+
+export type DevotionDailyCheck = {
+  id: number | null;
+  recordDate: string;
+  quietTimeChecked: boolean;
+  prayerChecked: boolean;
+  bibleReadingChecked: boolean;
+};
+
+export type WeeklyDevotionSummary = {
+  weeklyRecordId: number | null;
+  campusId: number;
+  campusName: string;
+  region: string;
+  userId: number;
+  weekStartDate: string;
+  weekEndDate: string;
+  quietTimeCount: number;
+  prayerCount: number;
+  bibleReadingCount: number;
+  saturdayLateMinutes: number;
+  submittedAt: string | null;
+  dailyChecks: DevotionDailyCheck[];
+};
+
+export type ChargeCategorySummary = {
+  paymentCategory: string;
+  paidAmount: number;
+  unpaidAmount: number;
+  totalAmount: number;
+};
+
+export type ChargeSummary = {
+  campusId: number;
+  campusName: string;
+  region: string;
+  userId: number;
+  name: string;
+  totalPaidAmount: number;
+  monthlyPaidAmount: number;
+  monthlyUnpaidAmount: number;
+  monthlyTotalChargeAmount: number;
+  monthlyByCategory: ChargeCategorySummary[];
+};
+
+export type PollSummary = {
+  id: number;
+  campusId: number;
+  title: string;
+  pollType: string;
+  selectionType: string;
+  isAnonymous: boolean;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  responded: boolean;
+};
+
+export type PrayerMemberSummary = {
+  userId: number;
+  name: string;
+  submissionId: number | null;
+  content: string | null;
+  version: number;
+  submittedAt: string | null;
+};
+
+export type PrayerGroupSummary = {
+  groupId: number;
+  groupName: string;
+  sortOrder: number;
+  members: PrayerMemberSummary[];
+};
+
+export type PrayerWeekSummary = {
+  campusId: number;
+  weekStartDate: string;
+  weekEndDate: string;
+  status: string;
+  submittedCount: number;
+  targetMemberCount: number;
+  groups: PrayerGroupSummary[];
+};
