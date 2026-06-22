@@ -14,6 +14,7 @@ import {
   joinCampus,
   signupUser,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -779,7 +780,7 @@ function SignupForm({
       if (error instanceof FaithLogApiError && error.detail.kind === 'conflict') {
         setFieldErrors((current) => ({
           ...current,
-          email: error.detail.message || '이미 가입된 이메일입니다.',
+          email: '이미 가입된 이메일입니다.',
         }));
         setFormError(null);
       } else {
@@ -971,24 +972,15 @@ async function applyCampusFormError(
 }
 
 function getCampusActionErrorMessage(error: ApiError, fallback: string) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'permissionDenied':
-      return '캠퍼스 생성 또는 참여 권한이 없습니다.';
-    case 'conflict':
-      if (error.code === 'CAMPUS_ALREADY_JOINED') {
-        return '이미 참여 중인 캠퍼스입니다.';
-      }
-
-      return error.message || '이미 처리된 요청입니다. 캠퍼스 목록을 다시 확인해 주세요.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'error':
-      return error.message || fallback;
-    default:
-      return assertNever(error.kind);
+  if (error.kind === 'conflict' && error.code === 'CAMPUS_ALREADY_JOINED') {
+    return '이미 참여 중인 캠퍼스입니다.';
   }
+
+  return getApiErrorPresentation(error, {
+    conflictMessage: '이미 처리된 요청입니다. 캠퍼스 목록을 다시 확인해 주세요.',
+    defaultMessage: fallback,
+    permissionMessage: '캠퍼스 생성 또는 참여 권한이 없습니다.',
+  }).message;
 }
 
 function canCreateCampusWithRole(role: UserRole) {
@@ -1012,11 +1004,13 @@ function getApiErrorMessage(error: ApiError, context: 'login' | 'signup') {
     case 'permissionDenied':
       return '권한이 없어 요청을 완료하지 못했습니다.';
     case 'conflict':
-      return error.message;
+      return context === 'signup'
+        ? '이미 사용 중인 회원 정보가 있습니다.'
+        : getApiErrorPresentation(error).message;
     case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+      return getApiErrorPresentation(error).message;
     case 'error':
-      return error.message;
+      return getApiErrorPresentation(error).message;
     default:
       return assertNever(error.kind);
   }
@@ -1913,20 +1907,10 @@ function getHomeCardFallbackMessage(key: HomeCardKey) {
 }
 
 function getHomeCardErrorMessage(error: ApiError) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'permissionDenied':
-      return '이 카드의 데이터를 조회할 권한이 없습니다.';
-    case 'conflict':
-      return '최신 데이터와 충돌했습니다. 다시 불러와 주세요.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'error':
-      return error.message;
-    default:
-      return assertNever(error.kind);
-  }
+  return getApiErrorPresentation(error, {
+    conflictMessage: '최신 데이터와 충돌했습니다. 다시 불러와 주세요.',
+    permissionMessage: '이 카드의 데이터를 조회할 권한이 없습니다.',
+  }).message;
 }
 
 function NotificationPermissionFlow({
@@ -2318,20 +2302,10 @@ function getNotificationPermissionMessage(permission: 'denied' | 'blocked' | 'un
 }
 
 function getNotificationApiErrorMessage(error: ApiError) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'permissionDenied':
-      return '알림 토큰을 등록하거나 비활성화할 권한이 없습니다.';
-    case 'conflict':
-      return '서버의 토큰 상태와 충돌했습니다. 알림 설정을 다시 확인해 주세요.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'error':
-      return error.message;
-    default:
-      return assertNever(error.kind);
-  }
+  return getApiErrorPresentation(error, {
+    conflictMessage: '서버의 토큰 상태와 충돌했습니다. 알림 설정을 다시 확인해 주세요.',
+    permissionMessage: '알림 토큰을 등록하거나 비활성화할 권한이 없습니다.',
+  }).message;
 }
 
 function ProfileScreen({
@@ -2548,37 +2522,17 @@ function LogoutConfirmSheet({
 }
 
 function getProfileRefreshMessage(error: ApiError) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'permissionDenied':
-      return '내 정보를 조회할 권한이 없습니다.';
-    case 'conflict':
-      return '내 정보가 최신 상태와 충돌했습니다. 다시 시도해 주세요.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'error':
-      return error.message;
-    default:
-      return assertNever(error.kind);
-  }
+  return getApiErrorPresentation(error, {
+    conflictMessage: '내 정보가 최신 상태와 충돌했습니다. 다시 시도해 주세요.',
+    permissionMessage: '내 정보를 조회할 권한이 없습니다.',
+  }).message;
 }
 
 function getCampusSwitchErrorMessage(error: ApiError) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'permissionDenied':
-      return '선택한 캠퍼스 상세를 조회할 권한이 없습니다.';
-    case 'conflict':
-      return '캠퍼스 상태가 최신 목록과 충돌했습니다. 목록을 다시 불러와 주세요.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'error':
-      return error.message;
-    default:
-      return assertNever(error.kind);
-  }
+  return getApiErrorPresentation(error, {
+    conflictMessage: '캠퍼스 상태가 최신 목록과 충돌했습니다. 목록을 다시 불러와 주세요.',
+    permissionMessage: '선택한 캠퍼스 상세를 조회할 권한이 없습니다.',
+  }).message;
 }
 
 function getRouteTitle(route: ShellRoute) {

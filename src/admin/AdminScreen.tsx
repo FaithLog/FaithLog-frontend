@@ -29,6 +29,7 @@ import {
   updateAdminPrayerGroup,
   updateAdminPenaltyRule,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   AdminCampusChargeSummary,
@@ -4132,13 +4133,21 @@ function Avatar({name, role}: {name: string; role: CampusRole}) {
 }
 
 function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '최신 상태 확인이 필요합니다',
+    conflictMessage: '관리자 작업 대상의 최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.',
+    permissionTitle: '관리자 권한이 필요합니다',
+    permissionMessage: '현재 계정 권한으로는 이 관리자 작업을 진행할 수 없습니다.',
+    defaultTitle: '관리자 정보를 불러오지 못했습니다',
+  });
+
   switch (error.kind) {
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="관리자 권한이 필요합니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 권한 오류 후 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -4146,9 +4155,9 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
     case 'conflict':
       return (
         <Conflict
-          title="최신 상태 확인이 필요합니다"
-          message={error.message}
-          actionLabel="다시 불러오기"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 충돌 오류 후 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -4156,9 +4165,9 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 불안정합니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 네트워크 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -4166,9 +4175,9 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
     case 'sessionExpired':
       return (
         <ErrorState
-          title="세션이 만료되었습니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 앱 상태 다시 확인"
           onActionPress={onRetry}
         />
@@ -4176,9 +4185,9 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
     case 'error':
       return (
         <ErrorState
-          title="관리자 정보를 불러오지 못했습니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 정보 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -4230,13 +4239,13 @@ function getAdminActionErrorMessage(error: ApiError) {
     case 'permissionDenied':
       return '권한이 부족합니다. 같은 단계 이상의 campus role 변경이나 멤버 비활성화는 서버가 403으로 거부할 수 있습니다.';
     case 'conflict':
-      return error.message || '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
+      return '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
     case 'offline':
       return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
     case 'sessionExpired':
       return '세션이 만료되었습니다. 다시 로그인해 주세요.';
     case 'error':
-      return error.message;
+      return getApiErrorPresentation(error).message;
     default:
       return assertNever(error.kind);
   }

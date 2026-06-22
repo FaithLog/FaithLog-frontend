@@ -6,6 +6,7 @@ import {
   fetchPrayerWeek,
   savePrayerSubmissions,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -473,13 +474,21 @@ function PrayerActionErrorCard({
 }
 
 function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '최신 기도제목 상태가 필요합니다',
+    conflictMessage: '다른 사용자가 먼저 수정한 기도제목이 있을 수 있습니다. 다시 불러온 뒤 저장해 주세요.',
+    permissionTitle: '기도제목 접근 권한이 없습니다',
+    permissionMessage: '기도제목을 보거나 저장할 권한이 없습니다.',
+    defaultTitle: '기도제목을 불러오지 못했습니다',
+  });
+
   switch (error.kind) {
     case 'sessionExpired':
       return (
         <ErrorState
-          title="세션이 만료되었습니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 기도제목 다시 시도"
           onActionPress={onRetry}
         />
@@ -487,9 +496,9 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="기도제목 접근 권한이 없습니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="권한 오류 후 기도제목 다시 시도"
           onActionPress={onRetry}
         />
@@ -497,9 +506,9 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
     case 'conflict':
       return (
         <Conflict
-          title="최신 기도제목 상태가 필요합니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 불러오기"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="충돌 후 기도제목 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -507,9 +516,9 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 필요합니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="오프라인 후 기도제목 다시 시도"
           onActionPress={onRetry}
         />
@@ -517,9 +526,9 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
     case 'error':
       return (
         <ErrorState
-          title="기도제목을 불러오지 못했습니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="기도제목 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -618,7 +627,7 @@ function toApiError(error: unknown, fallback: string): ApiError {
 }
 
 function getErrorMessage(error: ApiError) {
-  return error.code ? `[${error.code}] ${error.message}` : error.message;
+  return getApiErrorPresentation(error).message;
 }
 
 function getActionErrorTitle(kind: ApiError['kind']) {

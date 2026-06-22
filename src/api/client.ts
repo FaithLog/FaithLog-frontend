@@ -78,6 +78,7 @@ import type {
   WeeklyDevotionSaveRequest,
   WeeklyDevotionSummary,
 } from './types';
+import {getSafeApiErrorMessage} from './errorPolicy';
 
 type RequestOptions = {
   accessToken?: string;
@@ -851,11 +852,14 @@ function toAdminNotificationRequest(body: AdminNotificationRequest): AdminNotifi
 }
 
 function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnvelope<unknown>>): ApiError {
-  const message =
-    typeof envelope?.message === 'string' && envelope.message.length > 0
-      ? envelope.message
-      : '요청을 처리하지 못했습니다.';
   const code = typeof envelope?.code === 'string' ? envelope.code : undefined;
+  const unsafeError = compactApiError({
+    kind: status === 401 ? 'sessionExpired' : status === 403 ? 'permissionDenied' : status === 409 ? 'conflict' : 'error',
+    status,
+    code,
+    message: '요청을 처리하지 못했습니다.',
+  });
+  const message = getSafeApiErrorMessage(unsafeError);
 
   if (status === 401) {
     return compactApiError({kind: 'sessionExpired', status, code, message});

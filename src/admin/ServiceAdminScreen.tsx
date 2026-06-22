@@ -7,6 +7,7 @@ import {
   getServiceAdminUsers,
   updateServiceAdminUserRole,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -481,13 +482,21 @@ function UserDetailSection({
 }
 
 function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '역할 변경 정책과 충돌했습니다',
+    conflictMessage: '마지막 활성 ADMIN 정책과 충돌했습니다. 목록을 다시 불러온 뒤 진행해 주세요.',
+    permissionTitle: 'Service ADMIN 권한이 필요합니다',
+    permissionMessage: 'USER 또는 MANAGER는 Service ADMIN 사용자 관리를 사용할 수 없습니다.',
+    defaultTitle: 'Service ADMIN 정보를 처리하지 못했습니다',
+  });
+
   switch (error.kind) {
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="Service ADMIN 권한이 필요합니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 권한 오류 후 다시 확인"
           onActionPress={onRetry}
         />
@@ -495,9 +504,9 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
     case 'conflict':
       return (
         <Conflict
-          title="역할 변경 정책과 충돌했습니다"
-          message={error.message}
-          actionLabel="다시 불러오기"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 충돌 오류 후 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -505,9 +514,9 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 불안정합니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 네트워크 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -515,9 +524,9 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
     case 'sessionExpired':
       return (
         <ErrorState
-          title="세션이 만료되었습니다"
-          message={error.message}
-          actionLabel="다시 확인"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 세션 만료 후 다시 확인"
           onActionPress={onRetry}
         />
@@ -525,9 +534,9 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
     case 'error':
       return (
         <ErrorState
-          title="Service ADMIN 정보를 처리하지 못했습니다"
-          message={error.message}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -602,20 +611,10 @@ function toApiError(error: unknown, fallback: string): ApiError {
 }
 
 function getActionErrorMessage(error: ApiError) {
-  switch (error.kind) {
-    case 'permissionDenied':
-      return '전역 ADMIN 권한이 없습니다. USER 또는 MANAGER는 Service ADMIN 사용자 관리를 사용할 수 없습니다.';
-    case 'conflict':
-      return error.message || '마지막 활성 ADMIN 강등 정책과 충돌했습니다. 목록을 다시 불러오세요.';
-    case 'offline':
-      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
-    case 'sessionExpired':
-      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
-    case 'error':
-      return error.message;
-    default:
-      return assertNever(error.kind);
-  }
+  return getApiErrorPresentation(error, {
+    conflictMessage: '마지막 활성 ADMIN 강등 정책과 충돌했습니다. 목록을 다시 불러오세요.',
+    permissionMessage: '전역 ADMIN 권한이 없습니다. USER 또는 MANAGER는 Service ADMIN 사용자 관리를 사용할 수 없습니다.',
+  }).message;
 }
 
 function toOptionalPositiveInteger(value: string) {

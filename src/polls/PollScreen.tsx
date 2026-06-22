@@ -14,6 +14,7 @@ import {
   savePollResponse,
   updatePollComment,
 } from '../api/client';
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -849,13 +850,21 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
 }
 
 function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '최신 투표 상태가 필요합니다',
+    conflictMessage: '투표 상태가 변경되었습니다. 다시 불러온 뒤 응답해 주세요.',
+    permissionTitle: '투표 접근 권한이 없습니다',
+    permissionMessage: '현재 계정 또는 캠퍼스로는 이 투표에 접근할 수 없습니다.',
+    defaultTitle: '투표를 불러오지 못했습니다',
+  });
+
   switch (error.kind) {
     case 'sessionExpired':
       return (
         <ErrorState
-          title="세션이 만료되었습니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 투표 다시 시도"
           onActionPress={onRetry}
         />
@@ -863,9 +872,9 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
     case 'permissionDenied':
       return (
         <PermissionDenied
-          title="투표 접근 권한이 없습니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="권한 오류 후 투표 다시 시도"
           onActionPress={onRetry}
         />
@@ -873,9 +882,9 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
     case 'conflict':
       return (
         <Conflict
-          title="최신 투표 상태가 필요합니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 불러오기"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="충돌 후 투표 다시 불러오기"
           onActionPress={onRetry}
         />
@@ -883,9 +892,9 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
     case 'offline':
       return (
         <Offline
-          title="네트워크 연결이 필요합니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="오프라인 후 투표 다시 시도"
           onActionPress={onRetry}
         />
@@ -893,9 +902,9 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
     case 'error':
       return (
         <ErrorState
-          title="투표를 불러오지 못했습니다"
-          message={getErrorMessage(error)}
-          actionLabel="다시 시도"
+          title={presentation.title}
+          message={presentation.message}
+          actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="투표 오류 후 다시 시도"
           onActionPress={onRetry}
         />
@@ -906,15 +915,18 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
 }
 
 function ActionErrorCard({error}: {error: ApiError}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictMessage: '투표 상태가 변경되었습니다. 다시 불러온 뒤 응답해 주세요.',
+  });
   const title = RESPONSE_ERROR_CODES.has(error.code ?? '')
     ? '선택을 다시 확인해 주세요'
-    : getActionErrorTitle(error.kind);
+    : presentation.title;
 
   return (
     <Card>
-      <Eyebrow>{error.code ?? error.kind}</Eyebrow>
+      <Eyebrow>{getActionErrorTitle(error.kind)}</Eyebrow>
       <Title>{title}</Title>
-      <Body>{getErrorMessage(error)}</Body>
+      <Body>{presentation.message}</Body>
     </Card>
   );
 }
@@ -1036,7 +1048,7 @@ function toApiError(error: unknown, fallback: string): ApiError {
 }
 
 function getErrorMessage(error: ApiError) {
-  return error.code ? `[${error.code}] ${error.message}` : error.message;
+  return getApiErrorPresentation(error).message;
 }
 
 function getActionErrorTitle(kind: ApiError['kind']) {
