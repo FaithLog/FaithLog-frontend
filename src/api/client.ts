@@ -3,6 +3,11 @@ import type {
   ApiError,
   CampusMembershipSummary,
   CurrentUser,
+  LoginRequest,
+  LoginResponse,
+  LogoutRequest,
+  SignupRequest,
+  SignupResponse,
   TokenPair,
 } from './types';
 
@@ -181,6 +186,28 @@ export function refreshAuthToken(refreshToken: string) {
   return apiRequest<TokenPair>('/api/v1/auth/refresh', {
     method: 'POST',
     body: {refreshToken},
+  });
+}
+
+export function signupUser(body: SignupRequest) {
+  return apiRequest<SignupResponse>('/api/v1/auth/signup', {
+    method: 'POST',
+    body,
+  });
+}
+
+export function loginUser(body: LoginRequest) {
+  return apiRequest<LoginResponse>('/api/v1/auth/login', {
+    method: 'POST',
+    body,
+  });
+}
+
+export function logoutUser(accessToken: string, body: LogoutRequest) {
+  return apiRequest<null>('/api/v1/auth/logout', {
+    accessToken,
+    method: 'POST',
+    body,
   });
 }
 
