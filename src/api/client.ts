@@ -8,10 +8,18 @@ import type {
   CampusJoinResponse,
   CampusMembershipSummary,
   ChargeSummary,
+  CoffeeBrand,
+  CoffeeMenu,
   CurrentUser,
   DevotionDailyCheckRequest,
   DevotionDailyCheckSaveResponse,
   DevotionMonthlySummary,
+  PollComment,
+  PollCommentRequest,
+  PollDetail,
+  PollResponse,
+  PollResponseSaveRequest,
+  PollResults,
   PollSummary,
   PrayerWeekSummary,
   LoginRequest,
@@ -276,6 +284,16 @@ async function parseJson(response: Response): Promise<unknown> {
 async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   const payload = await parseJson(response);
 
+  if (response.ok && response.status === 204 && payload === null) {
+    return {
+      success: true,
+      code: 'SUCCESS',
+      message: '요청이 성공했습니다.',
+      data: null,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   if (!isApiEnvelope<T>(payload)) {
     if (!response.ok) {
       throw new FaithLogApiError(normalizeApiError(response.status));
@@ -462,8 +480,137 @@ export function fetchChargeSummary(
   );
 }
 
+export function fetchCoffeeBrands(accessToken: string) {
+  return apiRequest<CoffeeBrand[]>(buildApiPath('coffee-brands'), {accessToken});
+}
+
+export function fetchCoffeeMenus(accessToken: string, brandId: unknown) {
+  return apiRequest<CoffeeMenu[]>(
+    buildApiPath('coffee-brands', toPositiveIntegerPathSegment(brandId, 'brandId'), 'menus'),
+    {accessToken},
+  );
+}
+
 export function fetchPolls(accessToken: string, campusId: unknown) {
   return apiRequest<PollSummary[]>(buildCampusPath(campusId, 'polls'), {accessToken});
+}
+
+export function fetchPollDetail(accessToken: string, campusId: unknown, pollId: unknown) {
+  return apiRequest<PollDetail>(
+    buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId')),
+    {accessToken},
+  );
+}
+
+export function savePollResponse(
+  accessToken: string,
+  campusId: unknown,
+  pollId: unknown,
+  body: PollResponseSaveRequest,
+) {
+  return apiRequest<PollResponse>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'responses',
+      'me',
+    ),
+    {
+      accessToken,
+      method: 'PUT',
+      body,
+    },
+  );
+}
+
+export function fetchPollResults(accessToken: string, campusId: unknown, pollId: unknown) {
+  return apiRequest<PollResults>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'results',
+    ),
+    {accessToken},
+  );
+}
+
+export function fetchPollComments(accessToken: string, campusId: unknown, pollId: unknown) {
+  return apiRequest<PollComment[]>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'comments',
+    ),
+    {accessToken},
+  );
+}
+
+export function createPollComment(
+  accessToken: string,
+  campusId: unknown,
+  pollId: unknown,
+  body: PollCommentRequest,
+) {
+  return apiRequest<PollComment>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'comments',
+    ),
+    {
+      accessToken,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export function updatePollComment(
+  accessToken: string,
+  campusId: unknown,
+  pollId: unknown,
+  commentId: unknown,
+  body: PollCommentRequest,
+) {
+  return apiRequest<PollComment>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'comments',
+      toPositiveIntegerPathSegment(commentId, 'commentId'),
+    ),
+    {
+      accessToken,
+      method: 'PATCH',
+      body,
+    },
+  );
+}
+
+export function deletePollComment(
+  accessToken: string,
+  campusId: unknown,
+  pollId: unknown,
+  commentId: unknown,
+) {
+  return apiRequest<null>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'comments',
+      toPositiveIntegerPathSegment(commentId, 'commentId'),
+    ),
+    {
+      accessToken,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchPrayerWeek(

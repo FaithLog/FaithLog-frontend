@@ -63,6 +63,7 @@ import {
 } from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
+import {PollScreen} from '../polls/PollScreen';
 import {colors, spacing} from '../theme';
 
 const initialState: AuthGateState = {
@@ -1211,6 +1212,7 @@ function AuthenticatedShell({
       {route === 'userHome' ? (
         <UserHomeDashboard
           onOpenDevotion={() => setRoute('devotion')}
+          onOpenPolls={() => setRoute('polls')}
           onCampusSwitchPress={openCampusSwitch}
           setAuthState={setAuthState}
           setNotice={setNotice}
@@ -1219,6 +1221,12 @@ function AuthenticatedShell({
       ) : route === 'devotion' ? (
         <DevotionScreen
           onBackToHome={() => setRoute('userHome')}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
+      ) : route === 'polls' ? (
+        <PollScreen
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1243,7 +1251,7 @@ function AuthenticatedShell({
 
       <BottomNav activeId={route} items={navItems} onSelect={setRoute} />
 
-      {route === 'profile' || route === 'userHome' || route === 'devotion' ? null : (
+      {route === 'profile' || route === 'userHome' || route === 'devotion' || route === 'polls' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
           <Title>{getRouteTitle(route)}</Title>
@@ -1274,12 +1282,14 @@ function AuthenticatedShell({
 function UserHomeDashboard({
   onCampusSwitchPress,
   onOpenDevotion,
+  onOpenPolls,
   setAuthState,
   setNotice,
   state,
 }: {
   onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
+  onOpenPolls: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -1379,6 +1389,11 @@ function UserHomeDashboard({
   const openHomeTarget = (target: string) => {
     if (target === '경건생활') {
       onOpenDevotion();
+      return;
+    }
+
+    if (target === '투표') {
+      onOpenPolls();
       return;
     }
 
@@ -2081,6 +2096,8 @@ function getRouteTitle(route: ShellRoute) {
       return '일반 사용자 홈';
     case 'devotion':
       return '경건생활';
+    case 'polls':
+      return '투표';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -2098,6 +2115,8 @@ function getRouteIcon(route: ShellRoute) {
       return 'H';
     case 'devotion':
       return 'D';
+    case 'polls':
+      return 'V';
     case 'profile':
       return 'P';
     case 'campusAdmin':
@@ -2115,6 +2134,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return `경건, 투표, 납부, 기도제목으로 이어지는 사용자 탭 shell입니다. ACTIVE 캠퍼스 ${campusCount}개를 확인했습니다.`;
     case 'devotion':
       return '경건생활 주간 체크, 제출, 월간 통계를 다루는 일반 사용자 화면입니다.';
+    case 'polls':
+      return '사용자 투표 목록, 상세, 응답, 댓글, 결과 조회를 다루는 일반 사용자 화면입니다.';
     case 'profile':
       return '내 정보 조회, GET /users/me 새로고침, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':

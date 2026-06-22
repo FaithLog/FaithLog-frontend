@@ -210,6 +210,22 @@ export type ChargeSummary = {
   monthlyByCategory: ChargeCategorySummary[];
 };
 
+export type CoffeeBrand = {
+  id: number;
+  brandCode: string;
+  name: string;
+  sortOrder: number;
+};
+
+export type CoffeeMenu = {
+  id: number;
+  brandId: number;
+  menuCode: string;
+  name: string;
+  priceAmount: number;
+  category: string;
+};
+
 export type PollSummary = {
   id: number;
   campusId: number;
@@ -221,6 +237,81 @@ export type PollSummary = {
   endsAt: string;
   status: string;
   responded: boolean;
+};
+
+export type PollOption = {
+  id: number;
+  content: string;
+  composeMenuCode: string | null;
+  priceAmount: number;
+  sortOrder: number;
+};
+
+export type PollResponse = {
+  responseId: number;
+  pollId: number;
+  optionIds: number[];
+  memo: string;
+  respondedAt: string;
+};
+
+export type PollDetail = PollSummary & {
+  templateId: number | null;
+  chargeGenerationType: string;
+  paymentCategory: string | null;
+  paymentAccountId: number | null;
+  options: PollOption[];
+  myResponse: PollResponse | null;
+};
+
+export type PollResponseSaveRequest = {
+  optionIds: number[];
+  memo: string;
+};
+
+export type PollResultRespondent = {
+  userId: number;
+  name: string;
+  email: string;
+};
+
+export type PollOptionResult = {
+  id: number;
+  content: string;
+  sortOrder: number;
+  responseCount: number;
+  respondents: PollResultRespondent[];
+};
+
+export type PollResults = {
+  pollId: number;
+  campusId: number;
+  title: string;
+  pollType: string;
+  selectionType: string;
+  anonymous: boolean;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  targetMemberCount: number;
+  respondedCount: number;
+  notRespondedCount: number;
+  optionResults: PollOptionResult[];
+};
+
+export type PollComment = {
+  commentId: number;
+  pollId: number;
+  userId: number;
+  name: string;
+  content: string;
+  deleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PollCommentRequest = {
+  content: string;
 };
 
 export type PrayerMemberSummary = {
