@@ -100,10 +100,12 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   const [status, setStatus] = useState<StatusFilter>('UNPAID');
   const [sort, setSort] = useState<SortOption>('createdAtDesc');
   const [page, setPage] = useState(0);
+  const [lastKnownLastPage, setLastKnownLastPage] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<PaymentLoadState>({status: 'loading'});
   const [actionState, setActionState] = useState<PaymentActionState>({status: 'idle'});
 
   const loadPayments = async (nextPage = page) => {
+    const previousSuccess = loadState.status === 'success' ? loadState : null;
     setLoadState({status: 'loading'});
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -123,6 +125,37 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         }),
         fetchPaymentAccounts(accessToken, campusId),
       ]);
+
+      if (nextPage > 0 && charges.items.length === 0) {
+        const fallbackPage = nextPage - 1;
+        setLastKnownLastPage(fallbackPage);
+        setPage(fallbackPage);
+
+        if (previousSuccess) {
+          setLoadState(previousSuccess);
+          setNotice({
+            tone: 'info',
+            title: '마지막 페이지입니다',
+            message: '더 이상 조회할 청구가 없어 직전 페이지로 돌아왔습니다.',
+          });
+          return;
+        }
+
+        const fallbackCharges = await fetchMyCharges(accessToken, campusId, {
+          page: fallbackPage,
+          paymentCategory: category,
+          size: PAGE_SIZE,
+          sort: toChargeSort(sort),
+          status,
+        });
+        setLoadState({status: 'success', summary, charges: fallbackCharges, accounts});
+        return;
+      }
+
+      if (charges.items.length < PAGE_SIZE) {
+        setLastKnownLastPage(nextPage);
+      }
+
       setPage(nextPage);
       setLoadState({status: 'success', summary, charges, accounts});
     } catch (error) {
@@ -133,6 +166,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   };
 
   useEffect(() => {
+    setLastKnownLastPage(null);
     void loadPayments(0);
   }, [campusId, category, status, sort]);
 
@@ -184,7 +218,9 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   }
 
   const {accounts, charges, summary} = loadState;
-  const hasNextPage = charges.items.length >= PAGE_SIZE;
+  const hasNextPage =
+    charges.items.length >= PAGE_SIZE &&
+    (lastKnownLastPage === null || page < lastKnownLastPage);
   const accountMissing = getAccountMissingState(accounts, charges.items, category);
 
   return (
@@ -281,6 +317,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           items={categoryFilters}
           onSelect={(value) => {
             setCategory(value);
+            setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
           }}
@@ -291,6 +328,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           items={statusFilters}
           onSelect={(value) => {
             setStatus(value);
+            setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
           }}
@@ -301,6 +339,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           items={sortOptions}
           onSelect={(value) => {
             setSort(value);
+            setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
           }}
@@ -317,6 +356,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           onActionPress={() => {
             setCategory('ALL');
             setStatus('ALL');
+            setLastKnownLastPage(null);
             setPage(0);
           }}
         />
