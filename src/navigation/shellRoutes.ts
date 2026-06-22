@@ -5,6 +5,7 @@ export type ShellRoute =
   | 'devotion'
   | 'payments'
   | 'polls'
+  | 'prayers'
   | 'profile'
   | 'campusAdmin'
   | 'serviceAdmin';
@@ -15,7 +16,7 @@ export function getAvailableRoutes(
   user: CurrentUser,
   campus: CampusMembershipSummary,
 ): ShellRoute[] {
-  const routes: ShellRoute[] = ['userHome', 'devotion', 'payments', 'polls', 'profile'];
+  const routes: ShellRoute[] = ['userHome', 'devotion', 'payments', 'polls', 'prayers', 'profile'];
 
   if (user.role === 'ADMIN' || CAMPUS_ADMIN_ROLES.has(campus.campusRole)) {
     routes.push('campusAdmin');
@@ -38,6 +39,8 @@ export function getRouteLabel(route: ShellRoute) {
       return '납부';
     case 'polls':
       return '투표';
+    case 'prayers':
+      return '기도';
     case 'profile':
       return '내정보';
     case 'campusAdmin':

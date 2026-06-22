@@ -30,6 +30,7 @@ import type {
   PollResponseSaveRequest,
   PollResults,
   PollSummary,
+  PrayerSubmissionSaveRequest,
   PrayerWeekSummary,
   LoginRequest,
   LoginResponse,
@@ -790,6 +791,28 @@ export function fetchPrayerWeek(
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
     {accessToken},
+  );
+}
+
+export function savePrayerSubmissions(
+  accessToken: string,
+  campusId: unknown,
+  weekStartDate: string,
+  body: PrayerSubmissionSaveRequest,
+) {
+  return apiRequest<PrayerWeekSummary>(
+    buildCampusPath(
+      campusId,
+      'prayers',
+      'weeks',
+      toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
+      'submissions',
+    ),
+    {
+      accessToken,
+      method: 'PUT',
+      body,
+    },
   );
 }
 

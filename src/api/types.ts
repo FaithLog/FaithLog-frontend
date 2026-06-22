@@ -423,6 +423,16 @@ export type PrayerWeekSummary = {
   groups: PrayerGroupSummary[];
 };
 
+export type PrayerSubmissionSaveItem = {
+  userId: number;
+  content: string | null;
+  version: number;
+};
+
+export type PrayerSubmissionSaveRequest = {
+  submissions: PrayerSubmissionSaveItem[];
+};
+
 export type AdminDashboardSummary = {
   campus: {
     campusId: number;
