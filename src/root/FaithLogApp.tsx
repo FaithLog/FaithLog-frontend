@@ -1,9 +1,17 @@
 import {useEffect, useMemo, useState} from 'react';
 import {Modal, SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
 
-import {FaithLogApiError, fetchCurrentUser, signupUser} from '../api/client';
-import {getStoredTokens} from '../api/tokenStorage';
-import type {ApiError} from '../api/types';
+import {
+  createCampus,
+  FaithLogApiError,
+  fetchCampusDetail,
+  fetchCurrentUser,
+  fetchMyCampuses,
+  joinCampus,
+  signupUser,
+} from '../api/client';
+import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import type {ApiError, CampusDetail, CampusMembershipSummary, UserRole} from '../api/types';
 import {
   type AuthFieldErrors,
   type LoginFormValues,
@@ -14,6 +22,12 @@ import {
 import type {AuthGateState} from '../auth/authGate';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {loginAndEstablishSession, logoutCurrentSession} from '../auth/session';
+import {
+  type CampusCreateFormValues,
+  type InviteCodeFormValues,
+  validateCampusCreateForm,
+  validateInviteCodeForm,
+} from '../campus/campusForms';
 import {
   Body,
   BottomNav,
@@ -170,21 +184,14 @@ function renderAuthState({
       );
     case 'noCampus':
       return (
-        <>
-          <Empty
-            title={`${state.user.name}님, 참여 중인 캠퍼스가 없어요`}
-            message="ACTIVE 캠퍼스가 없어 초대코드 입력 또는 캠퍼스 생성 흐름으로 안내합니다."
-            actionLabel="초대코드 입력"
-            actionAccessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
-            onActionPress={() => openEntryTarget('inviteCode')}
-            secondaryActionLabel="캠퍼스 생성"
-            secondaryActionAccessibilityLabel="캠퍼스 생성 화면으로 이동"
-            onSecondaryActionPress={() => openEntryTarget('campusCreate')}
-          />
-          {entryTarget === 'inviteCode' || entryTarget === 'campusCreate' ? (
-            <EntryTargetCard target={entryTarget} />
-          ) : null}
-        </>
+        <NoCampusOnboarding
+          clearNotice={clearNotice}
+          entryTarget={entryTarget}
+          openEntryTarget={openEntryTarget}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          user={state.user}
+        />
       );
     case 'permissionDenied':
       return (
@@ -293,6 +300,310 @@ function renderPublicAuthEntry({
       }}
       switchToSignup={() => openEntryTarget('signup')}
     />
+  );
+}
+
+function NoCampusOnboarding({
+  clearNotice,
+  entryTarget,
+  openEntryTarget,
+  setAuthState,
+  setNotice,
+  user,
+}: {
+  clearNotice: () => void;
+  entryTarget: EntryTarget | null;
+  openEntryTarget: (target: EntryTarget | null) => void;
+  setAuthState: (state: AuthGateState) => void;
+  setNotice: (notice: SessionNotice) => void;
+  user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
+}) {
+  const canCreateCampus = canCreateCampusWithRole(user.role);
+
+  return (
+    <>
+      <Empty
+        title={`${user.name}님, 참여 중인 캠퍼스가 없어요`}
+        message="ACTIVE 캠퍼스가 없어 초대코드 입력 또는 캠퍼스 생성 흐름으로 안내합니다."
+        actionLabel="초대코드 입력"
+        actionAccessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
+        onActionPress={() => openEntryTarget('inviteCode')}
+        {...(canCreateCampus
+          ? {
+              secondaryActionLabel: '캠퍼스 생성',
+              secondaryActionAccessibilityLabel: '캠퍼스 생성 화면으로 이동',
+              onSecondaryActionPress: () => openEntryTarget('campusCreate'),
+            }
+          : {})}
+      />
+      {canCreateCampus ? null : (
+        <PermissionDenied
+          title="캠퍼스 생성 권한이 없습니다"
+          message="일반 USER는 초대코드로 참여할 수 있고, 캠퍼스 생성은 MANAGER 또는 ADMIN에게만 열립니다."
+        />
+      )}
+      {entryTarget === 'inviteCode' ? (
+        <InviteCodeForm
+          clearNotice={clearNotice}
+          onCancel={() => openEntryTarget(null)}
+          onComplete={(nextState, campusName) => {
+            setAuthState(nextState);
+            setNotice({
+              tone: 'success',
+              title: '캠퍼스 참여 완료',
+              message: `${campusName} 캠퍼스로 진입했습니다.`,
+            });
+          }}
+          onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
+          user={user}
+        />
+      ) : null}
+      {entryTarget === 'campusCreate' && canCreateCampus ? (
+        <CampusCreateForm
+          clearNotice={clearNotice}
+          onCancel={() => openEntryTarget(null)}
+          onComplete={(nextState, campusName) => {
+            setAuthState(nextState);
+            setNotice({
+              tone: 'success',
+              title: '캠퍼스 생성 완료',
+              message: `${campusName} 캠퍼스로 진입했습니다.`,
+            });
+          }}
+          onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
+          user={user}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function InviteCodeForm({
+  clearNotice,
+  onCancel,
+  onComplete,
+  onSessionExpired,
+  user,
+}: {
+  clearNotice: () => void;
+  onCancel: () => void;
+  onComplete: (
+    state: Extract<AuthGateState, {status: 'authenticated'}>,
+    campusName: string,
+  ) => void;
+  onSessionExpired: (message: string) => void;
+  user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
+}) {
+  const [values, setValues] = useState<InviteCodeFormValues>({inviteCode: ''});
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors<keyof InviteCodeFormValues>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (submitting) {
+      return;
+    }
+
+    clearNotice();
+    setFormError(null);
+    const result = validateInviteCodeForm(values);
+    setFieldErrors(result.fieldErrors);
+
+    if (!result.valid) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        onSessionExpired('저장된 access token이 없습니다.');
+        return;
+      }
+
+      const joined = await joinCampus(accessToken, result.payload);
+      const nextState = await resolveAuthenticatedCampusState(
+        accessToken,
+        user,
+        joined.campusId,
+      );
+      onComplete(nextState, joined.campusName);
+    } catch (error) {
+      await applyCampusFormError(error, {
+        fallback: '초대코드로 캠퍼스에 참여하지 못했습니다.',
+        onSessionExpired,
+        setFieldErrors: (message) =>
+          setFieldErrors((current) => ({...current, inviteCode: message})),
+        setFormError,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <Eyebrow>User 03 Invite Code</Eyebrow>
+      <Title>초대코드를 입력해주세요</Title>
+      <Body>관리자에게 받은 초대코드로 캠퍼스에 참여할 수 있어요.</Body>
+      <TextField
+        accessibilityLabel="캠퍼스 초대코드 입력"
+        autoCapitalize="characters"
+        error={fieldErrors.inviteCode}
+        helper="영문 대문자, 숫자, 하이픈 형식으로 입력해 주세요."
+        label="초대코드"
+        onChangeText={(inviteCode) => setValues({inviteCode})}
+        onSubmitEditing={submit}
+        placeholder="FL-5BLKUSSH"
+        returnKeyType="done"
+        textContentType="none"
+        value={values.inviteCode}
+      />
+      {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel="초대코드로 캠퍼스 참여"
+          disabled={submitting}
+          onPress={submit}>
+          {submitting ? '참여 중...' : '참여하기'}
+        </Button>
+        <Button
+          accessibilityLabel="초대코드 입력 취소"
+          disabled={submitting}
+          onPress={onCancel}
+          variant="secondary">
+          나중에
+        </Button>
+      </View>
+    </Card>
+  );
+}
+
+function CampusCreateForm({
+  clearNotice,
+  onCancel,
+  onComplete,
+  onSessionExpired,
+  user,
+}: {
+  clearNotice: () => void;
+  onCancel: () => void;
+  onComplete: (
+    state: Extract<AuthGateState, {status: 'authenticated'}>,
+    campusName: string,
+  ) => void;
+  onSessionExpired: (message: string) => void;
+  user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
+}) {
+  const [values, setValues] = useState<CampusCreateFormValues>({
+    description: '',
+    name: '',
+    region: '',
+  });
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors<keyof CampusCreateFormValues>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (submitting) {
+      return;
+    }
+
+    clearNotice();
+    setFormError(null);
+    const result = validateCampusCreateForm(values);
+    setFieldErrors(result.fieldErrors);
+
+    if (!result.valid) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        onSessionExpired('저장된 access token이 없습니다.');
+        return;
+      }
+
+      const created = await createCampus(accessToken, result.payload);
+      const nextState = await resolveAuthenticatedCampusState(
+        accessToken,
+        user,
+        created.campusId,
+      );
+      onComplete(nextState, created.name);
+    } catch (error) {
+      await applyCampusFormError(error, {
+        fallback: '캠퍼스를 생성하지 못했습니다.',
+        onSessionExpired,
+        setFormError,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <Eyebrow>User 03-1 Campus Create</Eyebrow>
+      <Title>새 캠퍼스 정보</Title>
+      <Body>MANAGER 또는 ADMIN 권한만 캠퍼스를 만들 수 있어요.</Body>
+      <TextField
+        accessibilityLabel="캠퍼스 이름 입력"
+        autoCapitalize="words"
+        error={fieldErrors.name}
+        label="캠퍼스 이름"
+        onChangeText={(name) => setValues((current) => ({...current, name}))}
+        placeholder="분당 1캠"
+        returnKeyType="next"
+        textContentType="none"
+        value={values.name}
+      />
+      <TextField
+        accessibilityLabel="캠퍼스 지역 입력"
+        autoCapitalize="words"
+        error={fieldErrors.region}
+        label="지역"
+        onChangeText={(region) => setValues((current) => ({...current, region}))}
+        placeholder="분당"
+        returnKeyType="next"
+        textContentType="none"
+        value={values.region}
+      />
+      <TextField
+        accessibilityLabel="캠퍼스 설명 입력"
+        autoCapitalize="sentences"
+        error={fieldErrors.description}
+        label="설명"
+        onChangeText={(description) =>
+          setValues((current) => ({...current, description}))
+        }
+        onSubmitEditing={submit}
+        placeholder="분당 대학부 1캠퍼스"
+        returnKeyType="done"
+        textContentType="none"
+        value={values.description}
+      />
+      {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel="캠퍼스 생성 제출"
+          disabled={submitting}
+          onPress={submit}>
+          {submitting ? '생성 중...' : '생성하기'}
+        </Button>
+        <Button
+          accessibilityLabel="캠퍼스 생성 취소"
+          disabled={submitting}
+          onPress={onCancel}
+          variant="secondary">
+          취소
+        </Button>
+      </View>
+    </Card>
   );
 }
 
@@ -522,6 +833,123 @@ function InlineError({message}: {message: string}) {
   );
 }
 
+async function resolveAuthenticatedCampusState(
+  accessToken: string,
+  fallbackUser: Extract<AuthGateState, {status: 'noCampus'}>['user'],
+  preferredCampusId: number,
+): Promise<Extract<AuthGateState, {status: 'authenticated'}>> {
+  const [user, campuses] = await Promise.all([
+    fetchCurrentUser(accessToken).catch(() => fallbackUser),
+    fetchMyCampuses(accessToken),
+  ]);
+  const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
+  const selectedCampus =
+    activeCampuses.find((campus) => campus.campusId === preferredCampusId) ??
+    activeCampuses[0];
+
+  if (!selectedCampus) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '캠퍼스 참여 후 ACTIVE 캠퍼스 목록을 확인하지 못했습니다.',
+    });
+  }
+
+  return {
+    status: 'authenticated',
+    user,
+    activeCampuses,
+    selectedCampus,
+  };
+}
+
+async function refreshAuthenticatedCampusState(
+  accessToken: string,
+  current: Extract<AuthGateState, {status: 'authenticated'}>,
+  preferredCampusId = current.selectedCampus.campusId,
+): Promise<Extract<AuthGateState, {status: 'authenticated' | 'noCampus'}>> {
+  const [user, campuses] = await Promise.all([
+    fetchCurrentUser(accessToken).catch(() => current.user),
+    fetchMyCampuses(accessToken),
+  ]);
+  const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
+
+  if (activeCampuses.length === 0) {
+    return {status: 'noCampus', user};
+  }
+
+  const selectedCampus =
+    activeCampuses.find((campus) => campus.campusId === preferredCampusId) ??
+    activeCampuses.find((campus) => campus.campusId === current.selectedCampus.campusId) ??
+    activeCampuses[0]!;
+
+  return {
+    status: 'authenticated',
+    user,
+    activeCampuses,
+    selectedCampus,
+  };
+}
+
+async function applyCampusFormError(
+  error: unknown,
+  options: {
+    fallback: string;
+    onSessionExpired: (message: string) => void;
+    setFieldErrors?: (message: string) => void;
+    setFormError: (message: string | null) => void;
+  },
+) {
+  if (error instanceof FaithLogApiError) {
+    if (error.detail.kind === 'sessionExpired') {
+      await clearTokens();
+      options.setFormError(null);
+      options.onSessionExpired(error.detail.message);
+      return;
+    }
+
+    const message = getCampusActionErrorMessage(error.detail, options.fallback);
+
+    if (
+      options.setFieldErrors &&
+      (error.detail.code === 'CAMPUS_INVALID_INVITE_CODE' || error.detail.status === 404)
+    ) {
+      options.setFieldErrors(message);
+      options.setFormError(null);
+      return;
+    }
+
+    options.setFormError(message);
+    return;
+  }
+
+  options.setFormError(options.fallback);
+}
+
+function getCampusActionErrorMessage(error: ApiError, fallback: string) {
+  switch (error.kind) {
+    case 'sessionExpired':
+      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
+    case 'permissionDenied':
+      return '캠퍼스 생성 또는 참여 권한이 없습니다.';
+    case 'conflict':
+      if (error.code === 'CAMPUS_ALREADY_JOINED') {
+        return '이미 참여 중인 캠퍼스입니다.';
+      }
+
+      return error.message || '이미 처리된 요청입니다. 캠퍼스 목록을 다시 확인해 주세요.';
+    case 'offline':
+      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+    case 'error':
+      return error.message || fallback;
+    default:
+      return assertNever(error.kind);
+  }
+}
+
+function canCreateCampusWithRole(role: UserRole) {
+  return role === 'MANAGER' || role === 'ADMIN';
+}
+
 function getAuthFormErrorMessage(error: unknown, context: 'login' | 'signup') {
   if (error instanceof FaithLogApiError) {
     return getApiErrorMessage(error.detail, context);
@@ -624,6 +1052,10 @@ function AuthenticatedShell({
 }) {
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
+  const [campusSwitchLoading, setCampusSwitchLoading] = useState(false);
+  const [campusSwitchError, setCampusSwitchError] = useState<ApiError | null>(null);
+  const [selectedCampusDetail, setSelectedCampusDetail] = useState<CampusDetail | null>(null);
   const routes = useMemo(
     () => getAvailableRoutes(state.user, state.selectedCampus),
     [state.selectedCampus, state.user],
@@ -638,6 +1070,89 @@ function AuthenticatedShell({
       })),
     [routes],
   );
+
+  const refreshCampuses = async () => {
+    if (campusSwitchLoading) {
+      return;
+    }
+
+    setCampusSwitchLoading(true);
+    setCampusSwitchError(null);
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        return;
+      }
+
+      const nextState = await refreshAuthenticatedCampusState(accessToken, state);
+      setAuthState(nextState);
+    } catch (error) {
+      if (error instanceof FaithLogApiError) {
+        setCampusSwitchError(error.detail);
+        if (error.detail.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: error.detail.message});
+        }
+      } else {
+        setCampusSwitchError({kind: 'error', message: '캠퍼스 목록을 불러오지 못했습니다.'});
+      }
+    } finally {
+      setCampusSwitchLoading(false);
+    }
+  };
+
+  const openCampusSwitch = () => {
+    setCampusSwitchVisible(true);
+    void refreshCampuses();
+  };
+
+  const selectCampus = async (campus: CampusMembershipSummary) => {
+    if (campusSwitchLoading || campus.campusId === state.selectedCampus.campusId) {
+      setCampusSwitchVisible(false);
+      return;
+    }
+
+    setCampusSwitchLoading(true);
+    setCampusSwitchError(null);
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        return;
+      }
+
+      const detail = await fetchCampusDetail(accessToken, campus.campusId);
+      const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
+
+      if (nextState.status === 'noCampus') {
+        setAuthState(nextState);
+        setCampusSwitchVisible(false);
+        return;
+      }
+
+      setSelectedCampusDetail(detail);
+      setAuthState(nextState);
+      setCampusSwitchVisible(false);
+      setNotice({
+        tone: 'success',
+        title: '캠퍼스 변경',
+        message: `${detail.name} 캠퍼스로 전환했습니다.`,
+      });
+    } catch (error) {
+      if (error instanceof FaithLogApiError) {
+        setCampusSwitchError(error.detail);
+        if (error.detail.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: error.detail.message});
+        }
+      } else {
+        setCampusSwitchError({kind: 'error', message: '캠퍼스를 변경하지 못했습니다.'});
+      }
+    } finally {
+      setCampusSwitchLoading(false);
+    }
+  };
 
   const completeLogout = async () => {
     if (loggingOut) {
@@ -670,6 +1185,7 @@ function AuthenticatedShell({
     <View style={styles.shell}>
       {route === 'profile' ? (
         <ProfileScreen
+          onCampusSwitchPress={openCampusSwitch}
           onLogoutPress={() => setLogoutConfirmVisible(true)}
           setAuthState={setAuthState}
           setNotice={setNotice}
@@ -690,7 +1206,22 @@ function AuthenticatedShell({
               value={state.selectedCampus.campusRole}
             />
             <ListRow label="지역" supportingText="캠퍼스 프로필" value={state.selectedCampus.region} />
+            {selectedCampusDetail ? (
+              <ListRow
+                label="상세 조회"
+                supportingText="GET /api/v1/campuses/{campusId}"
+                value={selectedCampusDetail.isActive ? 'ACTIVE' : 'PAUSED'}
+              />
+            ) : null}
           </View>
+          {state.activeCampuses.length > 1 ? (
+            <Button
+              accessibilityLabel="캠퍼스 변경 시트 열기"
+              onPress={openCampusSwitch}
+              variant="secondary">
+              캠퍼스 변경
+            </Button>
+          ) : null}
         </Card>
       )}
 
@@ -710,16 +1241,28 @@ function AuthenticatedShell({
         onConfirm={completeLogout}
         visible={logoutConfirmVisible}
       />
+      <CampusSwitchSheet
+        campuses={state.activeCampuses}
+        currentCampusId={state.selectedCampus.campusId}
+        error={campusSwitchError}
+        loading={campusSwitchLoading}
+        onCancel={() => setCampusSwitchVisible(false)}
+        onRefresh={refreshCampuses}
+        onSelect={selectCampus}
+        visible={campusSwitchVisible}
+      />
     </View>
   );
 }
 
 function ProfileScreen({
+  onCampusSwitchPress,
   onLogoutPress,
   setAuthState,
   setNotice,
   state,
 }: {
+  onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
@@ -743,12 +1286,12 @@ function ProfileScreen({
         return;
       }
 
-      const user = await fetchCurrentUser(accessToken);
-      setAuthState({...state, user});
+      const nextState = await refreshAuthenticatedCampusState(accessToken, state);
+      setAuthState(nextState);
       setNotice({
         tone: 'success',
         title: '프로필 갱신',
-        message: '내 정보를 다시 불러왔습니다.',
+        message: '내 정보와 캠퍼스 목록을 다시 불러왔습니다.',
       });
     } catch (error) {
       if (error instanceof FaithLogApiError) {
@@ -790,6 +1333,15 @@ function ProfileScreen({
           variant="secondary">
           {refreshing ? '불러오는 중...' : '다시 불러오기'}
         </Button>
+        {state.activeCampuses.length > 1 ? (
+          <Button
+            accessibilityLabel="프로필에서 캠퍼스 변경 시트 열기"
+            disabled={refreshing}
+            onPress={onCampusSwitchPress}
+            variant="secondary">
+            캠퍼스 변경
+          </Button>
+        ) : null}
         <Button
           accessibilityLabel="로그아웃 확인 열기"
           onPress={onLogoutPress}
@@ -798,6 +1350,76 @@ function ProfileScreen({
         </Button>
       </View>
     </Card>
+  );
+}
+
+function CampusSwitchSheet({
+  campuses,
+  currentCampusId,
+  error,
+  loading,
+  onCancel,
+  onRefresh,
+  onSelect,
+  visible,
+}: {
+  campuses: CampusMembershipSummary[];
+  currentCampusId: number;
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onRefresh: () => void;
+  onSelect: (campus: CampusMembershipSummary) => void;
+  visible: boolean;
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <Eyebrow>Campus Switch</Eyebrow>
+          <Title>캠퍼스 변경</Title>
+          <Body>소속된 ACTIVE 캠퍼스 중 이동할 캠퍼스를 선택할 수 있어요.</Body>
+          {error ? <InlineError message={getCampusSwitchErrorMessage(error)} /> : null}
+          <View style={styles.metaGrid}>
+            {campuses.length > 0 ? (
+              campuses.map((campus) => {
+                const selected = campus.campusId === currentCampusId;
+
+                return (
+                  <ListRow
+                    accessibilityLabel={`${campus.campusName} 캠퍼스로 변경`}
+                    key={campus.membershipId}
+                    label={campus.campusName}
+                    onPress={() => onSelect(campus)}
+                    supportingText={`${campus.region} · ${campus.campusRole}`}
+                    value={selected ? '현재' : '선택'}
+                  />
+                );
+              })
+            ) : (
+              <Body>ACTIVE 캠퍼스가 없습니다.</Body>
+            )}
+          </View>
+          <Body>선택 후 해당 캠퍼스의 홈 화면으로 이동합니다.</Body>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="캠퍼스 목록 다시 불러오기"
+              disabled={loading}
+              onPress={onRefresh}
+              variant="secondary">
+              {loading ? '불러오는 중...' : '목록 갱신'}
+            </Button>
+            <Button
+              accessibilityLabel="캠퍼스 변경 시트 닫기"
+              disabled={loading}
+              onPress={onCancel}
+              variant="ghost">
+              닫기
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -851,6 +1473,23 @@ function getProfileRefreshMessage(error: ApiError) {
       return '내 정보를 조회할 권한이 없습니다.';
     case 'conflict':
       return '내 정보가 최신 상태와 충돌했습니다. 다시 시도해 주세요.';
+    case 'offline':
+      return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+    case 'error':
+      return error.message;
+    default:
+      return assertNever(error.kind);
+  }
+}
+
+function getCampusSwitchErrorMessage(error: ApiError) {
+  switch (error.kind) {
+    case 'sessionExpired':
+      return '세션이 만료되었습니다. 다시 로그인해 주세요.';
+    case 'permissionDenied':
+      return '선택한 캠퍼스 상세를 조회할 권한이 없습니다.';
+    case 'conflict':
+      return '캠퍼스 상태가 최신 목록과 충돌했습니다. 목록을 다시 불러와 주세요.';
     case 'offline':
       return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
     case 'error':
