@@ -18,6 +18,7 @@ import {
   fetchAdminDashboardSummary,
   fetchAdminMemberCharges,
   fetchAdminMissingDevotionMembers,
+  fetchAdminNotificationLogs,
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
@@ -35,6 +36,10 @@ import type {
   AdminDashboardSummary,
   AdminMemberChargeList,
   AdminMissingDevotionMember,
+  AdminNotificationLog,
+  AdminNotificationLogList,
+  AdminNotificationSendStatus,
+  AdminNotificationType,
   AdminNotificationResponse,
   AdminPrayerGroup,
   AdminWritableChargeStatus,
@@ -83,12 +88,21 @@ type AdminScreenProps = {
   state: AuthenticatedState;
 };
 
-type AdminTab = 'home' | 'devotion' | 'prayer' | 'members' | 'roles' | 'settlement';
+type AdminTab =
+  | 'home'
+  | 'devotion'
+  | 'notificationLogs'
+  | 'prayer'
+  | 'members'
+  | 'roles'
+  | 'settlement';
 type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
 type ChargeStatusFilter = ChargeStatus | 'ALL';
 type PaymentCategoryFilter = PaymentCategory | 'ALL';
 type AdminSettlementSection = 'charges' | 'accounts' | 'penaltyRules';
+type NotificationSendStatusFilter = AdminNotificationSendStatus | 'ALL';
+type NotificationTypeFilter = AdminNotificationType | 'ALL';
 
 type AdminLoadState =
   | {status: 'loading'}
@@ -129,6 +143,24 @@ type NotificationSendState =
   | {status: 'sending'; targets: AdminMissingDevotionMember[]}
   | {status: 'sent'; result: AdminNotificationResponse; targetCount: number}
   | {status: 'failed'; error: ApiError; targetCount: number};
+
+type NotificationLogState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; logs: AdminNotificationLogList}
+  | {status: 'empty'; logs: AdminNotificationLogList}
+  | {status: 'error'; error: ApiError};
+
+type NotificationLogFilters = {
+  endDate: string;
+  notificationType: NotificationTypeFilter;
+  page: number;
+  requestId: string;
+  sendStatus: NotificationSendStatusFilter;
+  startDate: string;
+  targetId: string;
+  targetWeekStartDate: string;
+};
 
 type AdminChargeMemberRef = {
   userId: number;
@@ -230,6 +262,7 @@ type PrayerSeasonCloseTarget = {
 const adminTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
   {id: 'devotion', label: '경건'},
+  {id: 'notificationLogs', label: '알림'},
   {id: 'prayer', label: '기도'},
   {id: 'settlement', label: '정산'},
   {id: 'members', label: '멤버'},
@@ -284,6 +317,19 @@ const penaltyRuleActiveOptions: Array<{id: 'active' | 'inactive'; label: string}
   {id: 'inactive', label: '비활성'},
 ];
 
+const notificationStatusFilters: Array<{id: NotificationSendStatusFilter; label: string}> = [
+  {id: 'ALL', label: '전체'},
+  {id: 'PENDING', label: '대기'},
+  {id: 'SENT', label: '성공'},
+  {id: 'FAILED', label: '실패'},
+  {id: 'SKIPPED', label: '스킵'},
+];
+
+const notificationTypeFilters: Array<{id: NotificationTypeFilter; label: string}> = [
+  {id: 'ALL', label: '전체'},
+  {id: 'CUSTOM', label: 'CUSTOM'},
+];
+
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
@@ -331,6 +377,17 @@ const emptyPrayerGroupMembersForm: PrayerGroupMembersForm = {
   userIds: '',
 };
 
+const emptyNotificationLogFilters: NotificationLogFilters = {
+  endDate: '',
+  notificationType: 'ALL',
+  page: 0,
+  requestId: '',
+  sendStatus: 'ALL',
+  startDate: '',
+  targetId: '',
+  targetWeekStartDate: '',
+};
+
 export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
@@ -345,6 +402,14 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
   const [notificationState, setNotificationState] = useState<NotificationSendState>({
     status: 'idle',
   });
+  const [notificationLogFilters, setNotificationLogFilters] =
+    useState<NotificationLogFilters>(emptyNotificationLogFilters);
+  const [notificationLogState, setNotificationLogState] = useState<NotificationLogState>({
+    status: 'idle',
+  });
+  const [selectedNotificationLogId, setSelectedNotificationLogId] = useState<number | null>(
+    null,
+  );
   const [chargeFilters, setChargeFilters] = useState<AdminChargeFilters>({
     keyword: '',
     paymentCategory: 'ALL',
@@ -421,6 +486,9 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     setWeekStartDate(getWeekStartDate(new Date()));
     setMissingDevotionState({status: 'idle'});
     setNotificationState({status: 'idle'});
+    setNotificationLogFilters(emptyNotificationLogFilters);
+    setNotificationLogState({status: 'idle'});
+    setSelectedNotificationLogId(null);
     setSettlementSection('charges');
     setSettlementState({status: 'idle'});
     setChargeDetailState({status: 'idle'});
@@ -444,6 +512,12 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       void loadMissingDevotions();
     }
   }, [tab, missingDevotionState.status]);
+
+  useEffect(() => {
+    if (tab === 'notificationLogs' && notificationLogState.status === 'idle') {
+      void loadNotificationLogs();
+    }
+  }, [tab, notificationLogState.status]);
 
   useEffect(() => {
     if (tab === 'prayer' && prayerState.status === 'idle') {
@@ -508,6 +582,85 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       setMissingDevotionState({status: 'error', error: apiError});
       void handleAuthError(apiError, setAuthState);
     }
+  };
+
+  const loadNotificationLogs = async (
+    filters: NotificationLogFilters = notificationLogFilters,
+  ) => {
+    setNotificationLogState({status: 'loading'});
+    setSelectedNotificationLogId(null);
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const targetId = parseOptionalPositiveInt(filters.targetId, 'targetId');
+      const endDate = filters.endDate.trim();
+      const startDate = filters.startDate.trim();
+      const targetWeekStartDate = filters.targetWeekStartDate.trim();
+      const logs = await fetchAdminNotificationLogs(accessToken, campusId, {
+        notificationType: filters.notificationType,
+        page: filters.page,
+        requestId: filters.requestId,
+        sendStatus: filters.sendStatus,
+        size: 20,
+        sort: {key: 'createdAt', direction: 'desc'},
+        ...(endDate ? {endDate} : {}),
+        ...(startDate ? {startDate} : {}),
+        ...(targetId === undefined ? {} : {targetId}),
+        ...(targetWeekStartDate ? {targetWeekStartDate} : {}),
+      });
+
+      setNotificationLogState(
+        logs.items.length === 0 ? {status: 'empty', logs} : {status: 'success', logs},
+      );
+      setNotificationLogFilters((current) => ({...current, page: logs.page}));
+    } catch (error) {
+      const apiError = toApiError(error, '알림 로그를 불러오지 못했습니다.');
+      setNotificationLogState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const updateNotificationLogFilter = <K extends keyof NotificationLogFilters>(
+    key: K,
+    value: NotificationLogFilters[K],
+  ) => {
+    setNotificationLogFilters((current) => ({...current, [key]: value, page: 0}));
+  };
+
+  const openNotificationLogsForRequest = (requestId: string) => {
+    const filters = {
+      ...emptyNotificationLogFilters,
+      requestId,
+      page: 0,
+    };
+
+    setSelectedMemberId(null);
+    setSelectedNotificationLogId(null);
+    setNotificationLogFilters(filters);
+    setTab('notificationLogs');
+    void loadNotificationLogs(filters);
+  };
+
+  const changeNotificationLogPage = (direction: -1 | 1) => {
+    const currentPage =
+      notificationLogState.status === 'success' || notificationLogState.status === 'empty'
+        ? notificationLogState.logs.page
+        : notificationLogFilters.page;
+    const totalPages =
+      notificationLogState.status === 'success' || notificationLogState.status === 'empty'
+        ? notificationLogState.logs.totalPages
+        : 0;
+    const nextPage = Math.max(0, Math.min(currentPage + direction, Math.max(totalPages - 1, 0)));
+    const nextFilters = {...notificationLogFilters, page: nextPage};
+
+    setNotificationLogFilters(nextFilters);
+    void loadNotificationLogs(nextFilters);
   };
 
   const loadSettlement = async (filters: AdminChargeFilters = chargeFilters) => {
@@ -1396,9 +1549,30 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           notificationState={notificationState}
           onChangeWeek={changeMissingWeek}
           onOpenNotificationConfirm={openNotificationConfirm}
+          onOpenNotificationLogs={openNotificationLogsForRequest}
           onRetry={loadMissingDevotions}
           summary={loadState.summary}
           weekStartDate={weekStartDate}
+        />
+      ) : tab === 'notificationLogs' ? (
+        <AdminNotificationLogs
+          filters={notificationLogFilters}
+          onChangeFilter={updateNotificationLogFilter}
+          onChangePage={changeNotificationLogPage}
+          onClearFilters={() => {
+            setNotificationLogFilters(emptyNotificationLogFilters);
+            setSelectedNotificationLogId(null);
+            void loadNotificationLogs(emptyNotificationLogFilters);
+          }}
+          onRetry={() => void loadNotificationLogs()}
+          onSearch={() => {
+            const nextFilters = {...notificationLogFilters, page: 0};
+            setNotificationLogFilters(nextFilters);
+            void loadNotificationLogs(nextFilters);
+          }}
+          onSelectLog={setSelectedNotificationLogId}
+          selectedLogId={selectedNotificationLogId}
+          state={notificationLogState}
         />
       ) : tab === 'prayer' ? (
         <AdminPrayerManagement
@@ -1627,6 +1801,7 @@ function AdminDevotionMissing({
   notificationState,
   onChangeWeek,
   onOpenNotificationConfirm,
+  onOpenNotificationLogs,
   onRetry,
   summary,
   weekStartDate,
@@ -1635,6 +1810,7 @@ function AdminDevotionMissing({
   notificationState: NotificationSendState;
   onChangeWeek: (direction: -1 | 1) => void;
   onOpenNotificationConfirm: (targets: AdminMissingDevotionMember[]) => void;
+  onOpenNotificationLogs: (requestId: string) => void;
   onRetry: () => void;
   summary: AdminDashboardSummary;
   weekStartDate: string;
@@ -1695,7 +1871,7 @@ function AdminDevotionMissing({
         onRetry,
         weekStartDate,
       })}
-      {renderNotificationResult(notificationState)}
+      {renderNotificationResult(notificationState, onOpenNotificationLogs)}
     </>
   );
 }
@@ -1771,7 +1947,343 @@ function MissingDevotionMemberRow({member}: {member: AdminMissingDevotionMember}
   );
 }
 
-function renderNotificationResult(notificationState: NotificationSendState) {
+function AdminNotificationLogs({
+  filters,
+  onChangeFilter,
+  onChangePage,
+  onClearFilters,
+  onRetry,
+  onSearch,
+  onSelectLog,
+  selectedLogId,
+  state,
+}: {
+  filters: NotificationLogFilters;
+  onChangeFilter: <K extends keyof NotificationLogFilters>(
+    key: K,
+    value: NotificationLogFilters[K],
+  ) => void;
+  onChangePage: (direction: -1 | 1) => void;
+  onClearFilters: () => void;
+  onRetry: () => void;
+  onSearch: () => void;
+  onSelectLog: (logId: number | null) => void;
+  selectedLogId: number | null;
+  state: NotificationLogState;
+}) {
+  const logs = state.status === 'success' || state.status === 'empty' ? state.logs : null;
+  const selectedLog =
+    selectedLogId && logs
+      ? logs.items.find((log) => log.notificationLogId === selectedLogId) ?? null
+      : null;
+  const counts = getNotificationStatusCounts(logs?.items ?? []);
+  const loading = state.status === 'loading';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 14 Notification Logs</Eyebrow>
+        <Title>알림 로그</Title>
+        <Body>
+          REST Docs의 notification_logs 목록을 requestId와 상태별로 확인합니다. target preview 전용 API는 없어 발송 전 대상 확인과 requestId 로그를 연결합니다.
+        </Body>
+        <View style={styles.metricGrid}>
+          <Metric label="SENT" value={`${counts.SENT}건`} />
+          <Metric label="FAILED" value={`${counts.FAILED}건`} />
+          <Metric label="SKIPPED" value={`${counts.SKIPPED}건`} />
+          <Metric label="PENDING" value={`${counts.PENDING}건`} />
+        </View>
+      </Card>
+      <Card>
+        <Eyebrow>필터</Eyebrow>
+        <SegmentedControl
+          items={notificationStatusFilters}
+          selectedId={filters.sendStatus}
+          onSelect={(sendStatus) => onChangeFilter('sendStatus', sendStatus)}
+        />
+        <SegmentedControl
+          items={notificationTypeFilters}
+          selectedId={filters.notificationType}
+          onSelect={(notificationType) => onChangeFilter('notificationType', notificationType)}
+        />
+        <View style={styles.filterGrid}>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="알림 로그 requestId 필터"
+              label="requestId"
+              onChangeText={(requestId) => onChangeFilter('requestId', requestId)}
+              placeholder="notificationRequestId"
+              returnKeyType="search"
+              value={filters.requestId}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="알림 로그 대상 ID 필터"
+              keyboardType="number-pad"
+              label="targetId"
+              onChangeText={(targetId) => onChangeFilter('targetId', targetId)}
+              placeholder="숫자 ID"
+              value={filters.targetId}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="알림 로그 대상 주차 필터"
+              label="targetWeekStartDate"
+              onChangeText={(targetWeekStartDate) =>
+                onChangeFilter('targetWeekStartDate', targetWeekStartDate)
+              }
+              placeholder="YYYY-MM-DD"
+              value={filters.targetWeekStartDate}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="알림 로그 시작일 필터"
+              label="startDate"
+              onChangeText={(startDate) => onChangeFilter('startDate', startDate)}
+              placeholder="YYYY-MM-DD"
+              value={filters.startDate}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="알림 로그 종료일 필터"
+              label="endDate"
+              onChangeText={(endDate) => onChangeFilter('endDate', endDate)}
+              placeholder="YYYY-MM-DD"
+              value={filters.endDate}
+            />
+          </View>
+        </View>
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="알림 로그 필터로 검색"
+            disabled={loading}
+            onPress={onSearch}>
+            조회
+          </Button>
+          <Button
+            accessibilityLabel="알림 로그 필터 초기화"
+            disabled={loading}
+            onPress={onClearFilters}
+            variant="secondary">
+            초기화
+          </Button>
+        </View>
+      </Card>
+      {selectedLog ? (
+        <AdminNotificationLogDetail log={selectedLog} onBack={() => onSelectLog(null)} />
+      ) : (
+        <>
+          <AdminNotificationSendResultSummary filters={filters} logs={logs} />
+          <AdminNotificationLogBody
+            filters={filters}
+            onChangePage={onChangePage}
+            onRetry={onRetry}
+            onSelectLog={onSelectLog}
+            state={state}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
+function AdminNotificationSendResultSummary({
+  filters,
+  logs,
+}: {
+  filters: NotificationLogFilters;
+  logs: AdminNotificationLogList | null;
+}) {
+  const counts = getNotificationStatusCounts(logs?.items ?? []);
+
+  return (
+    <Card>
+      <Eyebrow>Admin 14-3 Notification Send Result</Eyebrow>
+      <Title>{filters.requestId.trim() ? 'requestId 발송 결과' : '현재 필터 결과'}</Title>
+      <Body>
+        {filters.requestId.trim()
+          ? `${filters.requestId.trim()} 요청 묶음의 현재 페이지 결과입니다.`
+          : 'requestId를 입력하거나 발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
+      </Body>
+      <View style={styles.metricGrid}>
+        <Metric label="SENT" value={`${counts.SENT}건`} />
+        <Metric label="FAILED" value={`${counts.FAILED}건`} />
+        <Metric label="SKIPPED" value={`${counts.SKIPPED}건`} />
+        <Metric label="PENDING" value={`${counts.PENDING}건`} />
+      </View>
+    </Card>
+  );
+}
+
+function AdminNotificationLogBody({
+  filters,
+  onChangePage,
+  onRetry,
+  onSelectLog,
+  state,
+}: {
+  filters: NotificationLogFilters;
+  onChangePage: (direction: -1 | 1) => void;
+  onRetry: () => void;
+  onSelectLog: (logId: number) => void;
+  state: NotificationLogState;
+}) {
+  switch (state.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="알림 로그를 조회하고 있어요." />;
+    case 'empty':
+      return (
+        <Empty
+          title="알림 로그가 없습니다"
+          message="requestId, sendStatus, 날짜 필터를 조정해 주세요."
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="알림 로그 empty state에서 다시 조회"
+          onActionPress={onRetry}
+        />
+      );
+    case 'error':
+      return <AdminErrorState error={state.error} onRetry={onRetry} />;
+    case 'success':
+      return (
+        <Card>
+          <View style={styles.headerRow}>
+            <View style={styles.headerText}>
+              <Eyebrow>Admin 14 Notification Logs</Eyebrow>
+              <Title>
+                {state.logs.totalElements}건 중 {state.logs.items.length}건
+              </Title>
+              <Body>
+                page {state.logs.page + 1}/{Math.max(state.logs.totalPages, 1)} · sort createdAt,desc
+              </Body>
+            </View>
+          </View>
+          {state.logs.items.map((log) => (
+            <AdminNotificationLogRow
+              key={log.notificationLogId}
+              log={log}
+              onPress={() => onSelectLog(log.notificationLogId)}
+            />
+          ))}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="이전 알림 로그 페이지"
+              disabled={state.logs.page <= 0}
+              onPress={() => onChangePage(-1)}
+              variant="secondary">
+              이전
+            </Button>
+            <Button
+              accessibilityLabel="다음 알림 로그 페이지"
+              disabled={state.logs.totalPages === 0 || filters.page >= state.logs.totalPages - 1}
+              onPress={() => onChangePage(1)}
+              variant="secondary">
+              다음
+            </Button>
+          </View>
+        </Card>
+      );
+    default:
+      return assertNever(state);
+  }
+}
+
+function AdminNotificationLogRow({
+  log,
+  onPress,
+}: {
+  log: AdminNotificationLog;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.roleRow}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Text style={styles.memberName}>{log.title}</Text>
+          <Text style={styles.memberMeta}>
+            {log.name} · user {log.userId} · {formatDateTime(log.createdAt)}
+          </Text>
+          <Text style={styles.memberMeta} numberOfLines={2}>
+            {log.body}
+          </Text>
+        </View>
+        <Chip label={getNotificationStatusLabel(log.sendStatus)} tone={getNotificationStatusTone(log.sendStatus)} />
+      </View>
+      {log.failureReason ? (
+        <AdminInlineError
+          error={{
+            kind: log.sendStatus === 'FAILED' ? 'error' : 'conflict',
+            message: log.failureReason,
+          }}
+        />
+      ) : null}
+      <ListRow
+        accessibilityLabel={`알림 로그 ${log.notificationLogId} 상세 보기`}
+        label="요청 ID"
+        onPress={onPress}
+        supportingText={log.requestId}
+        value="상세"
+      />
+    </View>
+  );
+}
+
+function AdminNotificationLogDetail({
+  log,
+  onBack,
+}: {
+  log: AdminNotificationLog;
+  onBack: () => void;
+}) {
+  return (
+    <>
+      <Card>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Eyebrow>Admin 14-1 Notification Log Detail</Eyebrow>
+            <Title>{log.title}</Title>
+            <Body>{formatDateTime(log.createdAt)} 생성된 알림 로그입니다.</Body>
+          </View>
+          <Chip label={getNotificationStatusLabel(log.sendStatus)} tone={getNotificationStatusTone(log.sendStatus)} />
+        </View>
+        <ListRow label="requestId" supportingText={log.requestId} value={`log #${log.notificationLogId}`} />
+        <ListRow label="대상" supportingText={log.email} value={`${log.name} · user ${log.userId}`} />
+        <ListRow label="유형" supportingText={log.notificationType} value={`campus ${log.campusId}`} />
+        <ListRow
+          label="대상 리소스"
+          supportingText={`week ${log.targetWeekStartDate ?? '-'} · target ${log.targetId ?? '-'}`}
+        />
+        <ListRow label="본문" supportingText={log.body} />
+        <ListRow label="sentAt" value={log.sentAt ? formatDateTime(log.sentAt) : '-'} />
+        <ListRow
+          label="failureReason"
+          supportingText={log.failureReason ?? '실패 또는 스킵 사유가 없습니다.'}
+        />
+        <Button accessibilityLabel="알림 로그 상세 닫기" onPress={onBack} variant="secondary">
+          목록으로
+        </Button>
+      </Card>
+      <Card>
+        <Eyebrow>Admin 14-2 Notification Target Preview</Eyebrow>
+        <Title>{log.name}</Title>
+        <Body>
+          target preview 전용 API가 없어 notification_logs의 대상 필드로만 미리보기를 제공합니다.
+        </Body>
+        <ListRow label="대상 이메일" supportingText={log.email} value={`user ${log.userId}`} />
+        <ListRow label="requestId" supportingText={log.requestId} />
+      </Card>
+    </>
+  );
+}
+
+function renderNotificationResult(
+  notificationState: NotificationSendState,
+  onOpenNotificationLogs: (requestId: string) => void,
+) {
   switch (notificationState.status) {
     case 'idle':
     case 'confirming':
@@ -1793,6 +2305,11 @@ function renderNotificationResult(notificationState: NotificationSendState) {
             supportingText="notification_logs.request_id"
             value={notificationState.result.notificationRequestId}
           />
+          <Button
+            accessibilityLabel="발송 요청 ID로 알림 로그 보기"
+            onPress={() => onOpenNotificationLogs(notificationState.result.notificationRequestId)}>
+            로그 보기
+          </Button>
         </Card>
       );
     case 'failed':
@@ -3962,6 +4479,51 @@ function getChargeStatusTone(status: ChargeStatus) {
       return 'info';
     case 'CANCELED':
       return 'danger';
+    default:
+      return assertNever(status);
+  }
+}
+
+function getNotificationStatusCounts(logs: AdminNotificationLog[]) {
+  return logs.reduce(
+    (counts, log) => ({
+      ...counts,
+      [log.sendStatus]: counts[log.sendStatus] + 1,
+    }),
+    {
+      FAILED: 0,
+      PENDING: 0,
+      SENT: 0,
+      SKIPPED: 0,
+    } satisfies Record<AdminNotificationSendStatus, number>,
+  );
+}
+
+function getNotificationStatusLabel(status: AdminNotificationSendStatus) {
+  switch (status) {
+    case 'PENDING':
+      return '대기';
+    case 'SENT':
+      return '성공';
+    case 'FAILED':
+      return '실패';
+    case 'SKIPPED':
+      return '스킵';
+    default:
+      return assertNever(status);
+  }
+}
+
+function getNotificationStatusTone(status: AdminNotificationSendStatus) {
+  switch (status) {
+    case 'PENDING':
+      return 'info';
+    case 'SENT':
+      return 'success';
+    case 'FAILED':
+      return 'danger';
+    case 'SKIPPED':
+      return 'warning';
     default:
       return assertNever(status);
   }

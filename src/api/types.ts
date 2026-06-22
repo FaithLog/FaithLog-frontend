@@ -632,7 +632,7 @@ export type AdminMissingDevotionMember = {
 };
 
 export type AdminNotificationRequest = {
-  notificationType: string;
+  notificationType: AdminNotificationType;
   targetUserIds: number[];
   targetWeekStartDate: string | null;
   targetId: number | null;
@@ -644,4 +644,34 @@ export type AdminNotificationResponse = {
   notificationRequestId: string;
   queuedCount: number;
   skippedCount: number;
+};
+
+export type AdminNotificationType = 'CUSTOM';
+
+export type AdminNotificationSendStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+
+export type AdminNotificationLog = {
+  notificationLogId: number;
+  requestId: string;
+  userId: number;
+  name: string;
+  email: string;
+  campusId: number;
+  notificationType: AdminNotificationType;
+  targetWeekStartDate: string | null;
+  targetId: number | null;
+  title: string;
+  body: string;
+  sendStatus: AdminNotificationSendStatus;
+  failureReason: string | null;
+  sentAt: string | null;
+  createdAt: string;
+};
+
+export type AdminNotificationLogList = {
+  items: AdminNotificationLog[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };
