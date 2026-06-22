@@ -5,6 +5,9 @@ import {
   assignCoffeeDuty,
   changeAdminCampusMemberRole,
   changeAdminChargeStatus,
+  closeAdminPrayerSeason,
+  createAdminPrayerGroup,
+  createAdminPrayerSeason,
   createAdminPaymentAccount,
   createAdminPenaltyRule,
   deactivateAdminPaymentAccount,
@@ -18,8 +21,11 @@ import {
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
+  fetchPrayerWeek,
+  replaceAdminPrayerGroupMembers,
   revokeCoffeeDuty,
   sendAdminNotification,
+  updateAdminPrayerGroup,
   updateAdminPenaltyRule,
 } from '../api/client';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
@@ -30,6 +36,7 @@ import type {
   AdminMemberChargeList,
   AdminMissingDevotionMember,
   AdminNotificationResponse,
+  AdminPrayerGroup,
   AdminWritableChargeStatus,
   ApiError,
   CampusRole,
@@ -41,6 +48,7 @@ import type {
   PenaltyCalculationType,
   PenaltyRule,
   PenaltyRuleType,
+  PrayerWeekSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
@@ -75,7 +83,7 @@ type AdminScreenProps = {
   state: AuthenticatedState;
 };
 
-type AdminTab = 'home' | 'devotion' | 'members' | 'roles' | 'settlement';
+type AdminTab = 'home' | 'devotion' | 'prayer' | 'members' | 'roles' | 'settlement';
 type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
 type ChargeStatusFilter = ChargeStatus | 'ALL';
@@ -102,7 +110,11 @@ type AdminActionState =
   | {status: 'changingChargeStatus'; chargeItemId: number}
   | {status: 'savingPaymentAccount'}
   | {status: 'deactivatingPaymentAccount'; accountId: number}
-  | {status: 'savingPenaltyRule'; ruleId: number | null};
+  | {status: 'savingPenaltyRule'; ruleId: number | null}
+  | {status: 'creatingPrayerSeason'}
+  | {status: 'closingPrayerSeason'; seasonId: number}
+  | {status: 'savingPrayerGroup'; groupId: number | null}
+  | {status: 'savingPrayerMembers'; groupId: number};
 
 type MissingDevotionState =
   | {status: 'idle'}
@@ -183,9 +195,42 @@ type PenaltyRuleForm = {
   ruleType: PenaltyRuleType;
 };
 
+type AdminPrayerState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; board: PrayerWeekSummary}
+  | {status: 'empty'; board: PrayerWeekSummary}
+  | {status: 'error'; error: ApiError};
+
+type PrayerSeasonForm = {
+  endDate: string;
+  name: string;
+  seasonId: string;
+  startDate: string;
+};
+
+type PrayerGroupForm = {
+  groupId: string;
+  isActive: boolean;
+  name: string;
+  seasonId: string;
+  sortOrder: string;
+};
+
+type PrayerGroupMembersForm = {
+  groupId: string;
+  userIds: string;
+};
+
+type PrayerSeasonCloseTarget = {
+  endDate: string;
+  seasonId: number;
+} | null;
+
 const adminTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
   {id: 'devotion', label: '경건'},
+  {id: 'prayer', label: '기도'},
   {id: 'settlement', label: '정산'},
   {id: 'members', label: '멤버'},
   {id: 'roles', label: '역할'},
@@ -266,6 +311,26 @@ const emptyPenaltyRuleForm: PenaltyRuleForm = {
   ruleType: 'QUIET_TIME',
 };
 
+const emptyPrayerSeasonForm: PrayerSeasonForm = {
+  endDate: '',
+  name: '',
+  seasonId: '',
+  startDate: getWeekStartDate(new Date()),
+};
+
+const emptyPrayerGroupForm: PrayerGroupForm = {
+  groupId: '',
+  isActive: true,
+  name: '',
+  seasonId: '',
+  sortOrder: '1',
+};
+
+const emptyPrayerGroupMembersForm: PrayerGroupMembersForm = {
+  groupId: '',
+  userIds: '',
+};
+
 export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
@@ -306,6 +371,15 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
   });
   const [penaltyRuleForm, setPenaltyRuleForm] =
     useState<PenaltyRuleForm>(emptyPenaltyRuleForm);
+  const [prayerState, setPrayerState] = useState<AdminPrayerState>({status: 'idle'});
+  const [prayerSeasonForm, setPrayerSeasonForm] =
+    useState<PrayerSeasonForm>(emptyPrayerSeasonForm);
+  const [prayerGroupForm, setPrayerGroupForm] =
+    useState<PrayerGroupForm>(emptyPrayerGroupForm);
+  const [prayerGroupMembersForm, setPrayerGroupMembersForm] =
+    useState<PrayerGroupMembersForm>(emptyPrayerGroupMembersForm);
+  const [prayerSeasonCloseTarget, setPrayerSeasonCloseTarget] =
+    useState<PrayerSeasonCloseTarget>(null);
   const [chargeStatusConfirm, setChargeStatusConfirm] = useState<ChargeStatusConfirm>(null);
   const [paidBlockedTarget, setPaidBlockedTarget] = useState<ChargeItem | null>(null);
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
@@ -355,6 +429,11 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     setPaymentAccountDeactivateTarget(null);
     setPenaltyRuleState({status: 'idle'});
     setPenaltyRuleForm(emptyPenaltyRuleForm);
+    setPrayerState({status: 'idle'});
+    setPrayerSeasonForm({...emptyPrayerSeasonForm, startDate: getWeekStartDate(new Date())});
+    setPrayerGroupForm(emptyPrayerGroupForm);
+    setPrayerGroupMembersForm(emptyPrayerGroupMembersForm);
+    setPrayerSeasonCloseTarget(null);
     setChargeStatusConfirm(null);
     setPaidBlockedTarget(null);
     void loadAdmin();
@@ -365,6 +444,12 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       void loadMissingDevotions();
     }
   }, [tab, missingDevotionState.status]);
+
+  useEffect(() => {
+    if (tab === 'prayer' && prayerState.status === 'idle') {
+      void loadPrayerBoard();
+    }
+  }, [tab, prayerState.status]);
 
   useEffect(() => {
     if (
@@ -636,6 +721,269 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       ruleType: rule.ruleType,
     });
     setActionError(null);
+  };
+
+  const loadPrayerBoard = async () => {
+    setPrayerState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const board = await fetchPrayerWeek(accessToken, campusId, weekStartDate);
+      setPrayerState(
+        board.groups.length === 0 || board.targetMemberCount === 0
+          ? {status: 'empty', board}
+          : {status: 'success', board},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '기도제목 주간 현황을 불러오지 못했습니다.');
+      setPrayerState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const changePrayerWeek = (direction: -1 | 1) => {
+    if (actionState.status !== 'idle') {
+      return;
+    }
+
+    setWeekStartDate((current) => addDaysToDateString(current, direction * 7));
+    setPrayerState({status: 'idle'});
+    setActionError(null);
+  };
+
+  const savePrayerSeason = async () => {
+    if (actionState.status !== 'idle') {
+      return;
+    }
+
+    setActionState({status: 'creatingPrayerSeason'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const season = await createAdminPrayerSeason(accessToken, campusId, {
+        name: prayerSeasonForm.name,
+        startDate: prayerSeasonForm.startDate,
+      });
+
+      setPrayerSeasonForm((current) => ({
+        ...current,
+        name: '',
+        seasonId: String(season.seasonId),
+        startDate: season.startDate,
+      }));
+      setPrayerGroupForm((current) => ({
+        ...current,
+        seasonId: String(season.seasonId),
+      }));
+      setNotice({
+        tone: 'success',
+        title: '기도 시즌 생성',
+        message: `${season.name} ACTIVE 시즌을 생성했습니다.`,
+      });
+      setPrayerState({status: 'idle'});
+    } catch (error) {
+      const apiError = toApiError(error, '기도 시즌을 생성하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const openPrayerSeasonCloseConfirm = () => {
+    try {
+      const seasonId = parseRequiredPositiveInt(prayerSeasonForm.seasonId, 'seasonId');
+
+      if (!prayerSeasonForm.endDate.trim()) {
+        throw new FaithLogApiError({
+          kind: 'error',
+          message: 'endDate 값을 입력해 주세요.',
+        });
+      }
+
+      setPrayerSeasonCloseTarget({
+        seasonId,
+        endDate: prayerSeasonForm.endDate.trim(),
+      });
+      setActionError(null);
+    } catch (error) {
+      setActionError(toApiError(error, '기도 시즌 종료 입력값이 올바르지 않습니다.'));
+    }
+  };
+
+  const confirmClosePrayerSeason = async () => {
+    if (!prayerSeasonCloseTarget || actionState.status !== 'idle') {
+      return;
+    }
+
+    const target = prayerSeasonCloseTarget;
+    setActionState({status: 'closingPrayerSeason', seasonId: target.seasonId});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const season = await closeAdminPrayerSeason(accessToken, target.seasonId, {
+        endDate: target.endDate,
+      });
+
+      setPrayerSeasonCloseTarget(null);
+      setPrayerSeasonForm((current) => ({
+        ...current,
+        endDate: season.endDate ?? current.endDate,
+        seasonId: String(season.seasonId),
+      }));
+      setNotice({
+        tone: 'warning',
+        title: '기도 시즌 종료',
+        message: `${season.name} 시즌을 ${season.endDate ?? target.endDate}에 종료했습니다.`,
+      });
+      setPrayerState({status: 'idle'});
+    } catch (error) {
+      const apiError = toApiError(error, '기도 시즌을 종료하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const savePrayerGroup = async () => {
+    if (actionState.status !== 'idle') {
+      return;
+    }
+
+    setActionState({status: 'savingPrayerGroup', groupId: null});
+    setActionError(null);
+
+    try {
+      const editingGroupId = prayerGroupForm.groupId.trim()
+        ? parseRequiredPositiveInt(prayerGroupForm.groupId, 'groupId')
+        : null;
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      setActionState({status: 'savingPrayerGroup', groupId: editingGroupId});
+
+      const request = {
+        name: prayerGroupForm.name,
+        sortOrder: parseRequiredPositiveInt(prayerGroupForm.sortOrder, 'sortOrder'),
+      };
+      const group =
+        editingGroupId === null
+          ? await createAdminPrayerGroup(
+              accessToken,
+              parseRequiredPositiveInt(prayerGroupForm.seasonId, 'seasonId'),
+              request,
+            )
+          : await updateAdminPrayerGroup(accessToken, editingGroupId, {
+              ...request,
+              isActive: prayerGroupForm.isActive,
+            });
+
+      setPrayerGroupForm({
+        ...emptyPrayerGroupForm,
+        groupId: String(group.groupId),
+        name: group.name,
+        seasonId: String(group.seasonId),
+        sortOrder: String(group.sortOrder),
+        isActive: group.active,
+      });
+      setPrayerGroupMembersForm((current) => ({
+        ...current,
+        groupId: String(group.groupId),
+      }));
+      setNotice({
+        tone: group.active ? 'success' : 'warning',
+        title: editingGroupId === null ? '기도조 생성' : '기도조 수정',
+        message: `${group.name} 조 정보를 저장했습니다.`,
+      });
+      setPrayerState({status: 'idle'});
+    } catch (error) {
+      const apiError = toApiError(error, '기도조를 저장하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const editPrayerGroup = (group: AdminPrayerGroup | PrayerWeekSummary['groups'][number]) => {
+    const groupName = 'name' in group ? group.name : group.groupName;
+
+    setPrayerGroupForm({
+      groupId: String(group.groupId),
+      isActive: 'active' in group ? group.active : true,
+      name: groupName,
+      seasonId: 'seasonId' in group ? String(group.seasonId) : prayerGroupForm.seasonId,
+      sortOrder: String(group.sortOrder),
+    });
+    setPrayerGroupMembersForm({
+      groupId: String(group.groupId),
+      userIds: group.members.map((member) => String(member.userId)).join(', '),
+    });
+    setActionError(null);
+  };
+
+  const savePrayerGroupMembers = async () => {
+    if (actionState.status !== 'idle') {
+      return;
+    }
+
+    setActionState({status: 'savingPrayerMembers', groupId: 0});
+    setActionError(null);
+
+    try {
+      const groupId = parseRequiredPositiveInt(prayerGroupMembersForm.groupId, 'groupId');
+      const userIds = parseUserIdList(prayerGroupMembersForm.userIds);
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      setActionState({status: 'savingPrayerMembers', groupId});
+
+      const group = await replaceAdminPrayerGroupMembers(accessToken, groupId, {userIds});
+      setPrayerGroupMembersForm({
+        groupId: String(group.groupId),
+        userIds: group.members.map((member) => String(member.userId)).join(', '),
+      });
+      setNotice({
+        tone: group.members.length === 0 ? 'warning' : 'success',
+        title: '기도조 멤버 저장',
+        message:
+          group.members.length === 0
+            ? `${group.name} 조를 빈 조로 저장했습니다.`
+            : `${group.name} 조에 ${group.members.length}명을 배정했습니다.`,
+      });
+      setPrayerState({status: 'idle'});
+    } catch (error) {
+      const apiError = toApiError(error, '기도조 멤버를 저장하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
   };
 
   const updateChargeFilter = <Key extends keyof AdminChargeFilters>(
@@ -1052,6 +1400,32 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           summary={loadState.summary}
           weekStartDate={weekStartDate}
         />
+      ) : tab === 'prayer' ? (
+        <AdminPrayerManagement
+          actionState={actionState}
+          boardState={prayerState}
+          groupForm={prayerGroupForm}
+          members={loadState.members}
+          membersForm={prayerGroupMembersForm}
+          onChangeGroupForm={(patch) =>
+            setPrayerGroupForm((current) => ({...current, ...patch}))
+          }
+          onChangeMembersForm={(patch) =>
+            setPrayerGroupMembersForm((current) => ({...current, ...patch}))
+          }
+          onChangeSeasonForm={(patch) =>
+            setPrayerSeasonForm((current) => ({...current, ...patch}))
+          }
+          onChangeWeek={changePrayerWeek}
+          onEditGroup={editPrayerGroup}
+          onOpenCloseSeason={openPrayerSeasonCloseConfirm}
+          onRetry={loadPrayerBoard}
+          onSaveGroup={savePrayerGroup}
+          onSaveMembers={savePrayerGroupMembers}
+          onSaveSeason={savePrayerSeason}
+          seasonForm={prayerSeasonForm}
+          weekStartDate={weekStartDate}
+        />
       ) : tab === 'settlement' ? (
         <AdminSettlement
           actionState={actionState}
@@ -1146,6 +1520,13 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         loading={actionState.status === 'deactivatingPaymentAccount'}
         onCancel={() => setPaymentAccountDeactivateTarget(null)}
         onConfirm={confirmDeactivatePaymentAccount}
+      />
+      <PrayerSeasonCloseSheet
+        error={actionError}
+        loading={actionState.status === 'closingPrayerSeason'}
+        onCancel={() => setPrayerSeasonCloseTarget(null)}
+        onConfirm={confirmClosePrayerSeason}
+        target={prayerSeasonCloseTarget}
       />
     </>
   );
@@ -1426,6 +1807,415 @@ function renderNotificationResult(notificationState: NotificationSendState) {
     default:
       return assertNever(notificationState);
   }
+}
+
+function AdminPrayerManagement({
+  actionState,
+  boardState,
+  groupForm,
+  members,
+  membersForm,
+  onChangeGroupForm,
+  onChangeMembersForm,
+  onChangeSeasonForm,
+  onChangeWeek,
+  onEditGroup,
+  onOpenCloseSeason,
+  onRetry,
+  onSaveGroup,
+  onSaveMembers,
+  onSaveSeason,
+  seasonForm,
+  weekStartDate,
+}: {
+  actionState: AdminActionState;
+  boardState: AdminPrayerState;
+  groupForm: PrayerGroupForm;
+  members: AdminCampusMember[];
+  membersForm: PrayerGroupMembersForm;
+  onChangeGroupForm: (patch: Partial<PrayerGroupForm>) => void;
+  onChangeMembersForm: (patch: Partial<PrayerGroupMembersForm>) => void;
+  onChangeSeasonForm: (patch: Partial<PrayerSeasonForm>) => void;
+  onChangeWeek: (direction: -1 | 1) => void;
+  onEditGroup: (group: AdminPrayerGroup | PrayerWeekSummary['groups'][number]) => void;
+  onOpenCloseSeason: () => void;
+  onRetry: () => void;
+  onSaveGroup: () => void;
+  onSaveMembers: () => void;
+  onSaveSeason: () => void;
+  seasonForm: PrayerSeasonForm;
+  weekStartDate: string;
+}) {
+  const busy = actionState.status !== 'idle';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 15-21 Prayer</Eyebrow>
+        <Title>기도제목 시즌/조 관리</Title>
+        <Body>
+          시즌 생성, 조 생성/수정, 조원 전체 교체, 주간 제출 현황을 REST Docs prayer 계약으로 관리합니다.
+        </Body>
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="이전 주 기도제목 관리자 현황 조회"
+            disabled={busy || boardState.status === 'loading'}
+            onPress={() => onChangeWeek(-1)}
+            variant="secondary">
+            이전 주
+          </Button>
+          <Button
+            accessibilityLabel="다음 주 기도제목 관리자 현황 조회"
+            disabled={busy || boardState.status === 'loading'}
+            onPress={() => onChangeWeek(1)}
+            variant="secondary">
+            다음 주
+          </Button>
+          <Button
+            accessibilityLabel="기도제목 관리자 현황 다시 조회"
+            disabled={busy || boardState.status === 'loading'}
+            onPress={onRetry}
+            variant="ghost">
+            다시 조회
+          </Button>
+        </View>
+      </Card>
+      {renderAdminPrayerBoard({boardState, onEditGroup, onRetry, weekStartDate})}
+      <AdminPrayerSeasonForm
+        busy={busy}
+        form={seasonForm}
+        onChangeForm={onChangeSeasonForm}
+        onOpenCloseSeason={onOpenCloseSeason}
+        onSave={onSaveSeason}
+      />
+      <AdminPrayerGroupForm
+        busy={busy}
+        form={groupForm}
+        onChangeForm={onChangeGroupForm}
+        onSave={onSaveGroup}
+      />
+      <AdminPrayerMembersForm
+        busy={busy}
+        form={membersForm}
+        members={members}
+        onChangeForm={onChangeMembersForm}
+        onSave={onSaveMembers}
+      />
+    </>
+  );
+}
+
+function renderAdminPrayerBoard({
+  boardState,
+  onEditGroup,
+  onRetry,
+  weekStartDate,
+}: {
+  boardState: AdminPrayerState;
+  onEditGroup: (group: PrayerWeekSummary['groups'][number]) => void;
+  onRetry: () => void;
+  weekStartDate: string;
+}) {
+  switch (boardState.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="Admin 20 Prayer Weekly Status를 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={boardState.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <>
+          <PrayerBoardSummaryCard board={boardState.board} />
+          <Empty
+            title="활성 기도조 또는 조원이 없습니다"
+            message={`${weekStartDate} 주차 board는 조회됐지만 관리할 활성 조원이 없습니다. 시즌과 조를 만든 뒤 멤버를 배정해 주세요.`}
+            actionLabel="다시 조회"
+            actionAccessibilityLabel="기도제목 빈 board 다시 조회"
+            onActionPress={onRetry}
+          />
+        </>
+      );
+    case 'success':
+      return (
+        <>
+          <PrayerBoardSummaryCard board={boardState.board} />
+          <Card>
+            <Eyebrow>Admin 15 Prayer Season - 조 관리</Eyebrow>
+            <Title>활성 기도조</Title>
+            {boardState.board.groups
+              .slice()
+              .sort((a, b) => a.sortOrder - b.sortOrder)
+              .map((group) => (
+                <View key={group.groupId} style={styles.roleRow}>
+                  <View style={styles.headerRow}>
+                    <View style={styles.headerText}>
+                      <Text style={styles.memberName}>{group.groupName}</Text>
+                      <Text style={styles.memberMeta}>
+                        group #{group.groupId} · sort {group.sortOrder}
+                      </Text>
+                    </View>
+                    <Chip
+                      label={`${countSubmittedMembers(group)}/${group.members.length}`}
+                      tone={countSubmittedMembers(group) === group.members.length ? 'success' : 'warning'}
+                    />
+                  </View>
+                  {group.members.length === 0 ? (
+                    <Body>아직 배정된 조원이 없는 빈 조입니다.</Body>
+                  ) : (
+                    group.members.map((member) => (
+                      <ListRow
+                        key={member.userId}
+                        label={member.name}
+                        supportingText={
+                          member.submittedAt
+                            ? `version ${member.version} · ${formatDateTime(member.submittedAt)}`
+                            : `version ${member.version} · 미작성`
+                        }
+                        value={member.content ? '작성' : '미작성'}
+                      />
+                    ))
+                  )}
+                  <Button
+                    accessibilityLabel={`${group.groupName} 기도조 수정 폼으로 불러오기`}
+                    onPress={() => onEditGroup(group)}
+                    variant="secondary">
+                    조/멤버 편집
+                  </Button>
+                </View>
+              ))}
+          </Card>
+        </>
+      );
+    default:
+      return assertNever(boardState);
+  }
+}
+
+function PrayerBoardSummaryCard({board}: {board: PrayerWeekSummary}) {
+  return (
+    <Card>
+      <Eyebrow>Admin 17 Prayer Dashboard</Eyebrow>
+      <Title>기도제목 주간 현황</Title>
+      <Body>
+        별도 관리자 집계 endpoint가 없어 REST Docs 기준 week board 조회값으로 제출 현황을 계산합니다.
+      </Body>
+      <View style={styles.metricGrid}>
+        <Metric label="주차" value={formatShortWeekLabel(board.weekStartDate)} />
+        <Metric label="상태" value={board.status} />
+        <Metric label="작성" value={`${board.submittedCount}/${board.targetMemberCount}`} />
+        <Metric label="기도조" value={`${board.groups.length}개`} />
+      </View>
+    </Card>
+  );
+}
+
+function AdminPrayerSeasonForm({
+  busy,
+  form,
+  onChangeForm,
+  onOpenCloseSeason,
+  onSave,
+}: {
+  busy: boolean;
+  form: PrayerSeasonForm;
+  onChangeForm: (patch: Partial<PrayerSeasonForm>) => void;
+  onOpenCloseSeason: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <Card>
+      <Eyebrow>Admin 18 Prayer Season Create</Eyebrow>
+      <Title>기도 시즌 생성/종료</Title>
+      <Body>중복 ACTIVE 시즌은 서버가 409 `PRAYER_ACTIVE_SEASON_ALREADY_EXISTS`로 거부합니다.</Body>
+      <TextField
+        accessibilityLabel="기도 시즌 이름"
+        label="시즌 이름"
+        onChangeText={(name) => onChangeForm({name})}
+        placeholder="2026 여름 나눔조"
+        value={form.name}
+      />
+      <View style={styles.filterGrid}>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="기도 시즌 시작일"
+            label="startDate"
+            onChangeText={(startDate) => onChangeForm({startDate})}
+            placeholder="YYYY-MM-DD"
+            value={form.startDate}
+          />
+        </View>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="종료할 기도 시즌 ID"
+            keyboardType="number-pad"
+            label="seasonId"
+            onChangeText={(seasonId) => onChangeForm({seasonId: seasonId.replace(/\D/g, '')})}
+            placeholder="종료/조 생성에 사용"
+            value={form.seasonId}
+          />
+        </View>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="기도 시즌 종료일"
+            label="endDate"
+            onChangeText={(endDate) => onChangeForm({endDate})}
+            placeholder="YYYY-MM-DD"
+            value={form.endDate}
+          />
+        </View>
+      </View>
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel="기도 시즌 생성"
+          disabled={busy}
+          onPress={onSave}>
+          {busy ? '처리 중...' : '시즌 생성'}
+        </Button>
+        <Button
+          accessibilityLabel="기도 시즌 종료 확인 열기"
+          disabled={busy}
+          onPress={onOpenCloseSeason}
+          variant="danger">
+          시즌 종료
+        </Button>
+      </View>
+    </Card>
+  );
+}
+
+function AdminPrayerGroupForm({
+  busy,
+  form,
+  onChangeForm,
+  onSave,
+}: {
+  busy: boolean;
+  form: PrayerGroupForm;
+  onChangeForm: (patch: Partial<PrayerGroupForm>) => void;
+  onSave: () => void;
+}) {
+  return (
+    <Card>
+      <Eyebrow>Admin 19 Prayer Group Create</Eyebrow>
+      <Title>{form.groupId ? '기도조 수정' : '기도조 생성'}</Title>
+      <View style={styles.filterGrid}>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="기도조 시즌 ID"
+            keyboardType="number-pad"
+            label="seasonId"
+            onChangeText={(seasonId) => onChangeForm({seasonId: seasonId.replace(/\D/g, '')})}
+            placeholder="필수"
+            value={form.seasonId}
+          />
+        </View>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="수정할 기도조 ID"
+            keyboardType="number-pad"
+            label="groupId"
+            onChangeText={(groupId) => onChangeForm({groupId: groupId.replace(/\D/g, '')})}
+            placeholder="비우면 생성"
+            value={form.groupId}
+          />
+        </View>
+      </View>
+      <View style={styles.filterGrid}>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="기도조 이름"
+            label="조 이름"
+            onChangeText={(name) => onChangeForm({name})}
+            placeholder="2조"
+            value={form.name}
+          />
+        </View>
+        <View style={styles.filterField}>
+          <TextField
+            accessibilityLabel="기도조 정렬 순서"
+            keyboardType="number-pad"
+            label="sortOrder"
+            onChangeText={(sortOrder) => onChangeForm({sortOrder: sortOrder.replace(/\D/g, '')})}
+            placeholder="1"
+            value={form.sortOrder}
+          />
+        </View>
+      </View>
+      {form.groupId ? (
+        <SegmentedControl
+          items={[
+            {id: 'active', label: '활성'},
+            {id: 'inactive', label: '비활성'},
+          ]}
+          selectedId={form.isActive ? 'active' : 'inactive'}
+          onSelect={(value) => onChangeForm({isActive: value === 'active'})}
+        />
+      ) : null}
+      <Button
+        accessibilityLabel="기도조 저장"
+        disabled={busy}
+        onPress={onSave}>
+        {busy ? '저장 중...' : '조 저장'}
+      </Button>
+    </Card>
+  );
+}
+
+function AdminPrayerMembersForm({
+  busy,
+  form,
+  members,
+  onChangeForm,
+  onSave,
+}: {
+  busy: boolean;
+  form: PrayerGroupMembersForm;
+  members: AdminCampusMember[];
+  onChangeForm: (patch: Partial<PrayerGroupMembersForm>) => void;
+  onSave: () => void;
+}) {
+  return (
+    <Card>
+      <Eyebrow>Admin 16, 21 Prayer Members - 배정</Eyebrow>
+      <Title>조 멤버 전체 교체</Title>
+      <Body>
+        `PUT /admin/prayer-groups/{'{groupId}'}/members`는 입력한 userId만 active로 남기고 빠진 멤버를 inactive 처리합니다. 빈 값 저장은 빈 조 상태로 저장됩니다.
+      </Body>
+      <TextField
+        accessibilityLabel="기도조 멤버 배정 groupId"
+        keyboardType="number-pad"
+        label="groupId"
+        onChangeText={(groupId) => onChangeForm({groupId: groupId.replace(/\D/g, '')})}
+        placeholder="필수"
+        value={form.groupId}
+      />
+      <TextField
+        accessibilityLabel="기도조 멤버 userId 목록"
+        helper="쉼표, 공백, 줄바꿈으로 구분합니다. 예: 98, 99, 100"
+        label="userIds"
+        onChangeText={(userIds) => onChangeForm({userIds})}
+        placeholder="98, 99, 100"
+        value={form.userIds}
+      />
+      <Button
+        accessibilityLabel="기도조 멤버 전체 교체 저장"
+        disabled={busy}
+        onPress={onSave}>
+        {busy ? '저장 중...' : '멤버 저장'}
+      </Button>
+      <View style={styles.confirmTargetList}>
+        <Text style={styles.confirmTargetText}>ACTIVE 멤버 userId 참고</Text>
+        {members.slice(0, 8).map((member) => (
+          <Text key={member.userId} style={styles.confirmTargetText}>
+            {member.name} · user {member.userId}
+          </Text>
+        ))}
+        {members.length > 8 ? (
+          <Text style={styles.confirmTargetText}>외 {members.length - 8}명</Text>
+        ) : null}
+      </View>
+    </Card>
+  );
 }
 
 function AdminSettlement({
@@ -2718,6 +3508,57 @@ function DeactivatePaymentAccountSheet({
   );
 }
 
+function PrayerSeasonCloseSheet({
+  error,
+  loading,
+  onCancel,
+  onConfirm,
+  target,
+}: {
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  target: PrayerSeasonCloseTarget;
+}) {
+  return (
+    <Modal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Eyebrow>Admin 15 Prayer Season Close Confirm</Eyebrow>
+          <Title>{target ? `시즌 #${target.seasonId}을 종료할까요?` : '기도 시즌 종료'}</Title>
+          <Body>
+            종료 후 해당 시즌은 CLOSED 상태가 됩니다. active season 중복 생성 409를 풀기 위한 위험 액션이라 확인 후 실행합니다.
+          </Body>
+          {target ? (
+            <>
+              <ListRow label="seasonId" value={String(target.seasonId)} />
+              <ListRow label="endDate" value={target.endDate} />
+            </>
+          ) : null}
+          {error ? <AdminInlineError error={error} /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="기도 시즌 종료 실행"
+              disabled={loading}
+              onPress={onConfirm}
+              variant="danger">
+              {loading ? '종료 중...' : '종료'}
+            </Button>
+            <Button
+              accessibilityLabel="기도 시즌 종료 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function SegmentedControl<T extends string>({
   items,
   onSelect,
@@ -2945,6 +3786,26 @@ function formatWon(value: number) {
   return `${value.toLocaleString('ko-KR')}원`;
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('ko-KR', {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: '2-digit',
+  });
+}
+
+function countSubmittedMembers(group: PrayerWeekSummary['groups'][number]) {
+  return group.members.filter((member) => member.submittedAt !== null || member.content !== null)
+    .length;
+}
+
 function parseOptionalPositiveInt(value: string, label: string) {
   const trimmed = value.trim();
 
@@ -2962,6 +3823,32 @@ function parseOptionalPositiveInt(value: string, label: string) {
     throw new FaithLogApiError({
       kind: 'error',
       message: `${label} 값이 올바르지 않습니다.`,
+    });
+  }
+
+  return numericValue;
+}
+
+function parseRequiredPositiveInt(value: string, label: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값을 입력해 주세요.`,
+    });
+  }
+
+  const numericValue = Number(trimmed);
+
+  if (
+    !Number.isInteger(numericValue) ||
+    numericValue <= 0 ||
+    !Number.isSafeInteger(numericValue)
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값은 양의 정수여야 합니다.`,
     });
   }
 
@@ -2992,6 +3879,33 @@ function parseRequiredNonNegativeInt(value: string, label: string) {
   }
 
   return numericValue;
+}
+
+function parseUserIdList(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return [];
+  }
+
+  const ids = trimmed
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((part) => parseRequiredPositiveInt(part, 'userIds'));
+  const seen = new Set<number>();
+
+  ids.forEach((id) => {
+    if (seen.has(id)) {
+      throw new FaithLogApiError({
+        kind: 'error',
+        message: '기도조 멤버 userId가 중복되었습니다.',
+      });
+    }
+
+    seen.add(id);
+  });
+
+  return ids;
 }
 
 function getPenaltyRuleTypeLabel(ruleType: PenaltyRuleType) {
