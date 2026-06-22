@@ -177,6 +177,39 @@ export type ServiceAdminUserRoleChangeRequest = {
   role: UserRole;
 };
 
+export type ServiceAdminCampusOperationStatus = 'ACTIVE' | 'PAUSED';
+
+export type ServiceAdminCampusListItem = {
+  adminCount: number;
+  campusId: number;
+  isActive: boolean;
+  memberCount: number;
+  name: string;
+  region: string;
+  status: ServiceAdminCampusOperationStatus;
+};
+
+export type ServiceAdminCampusList = {
+  content: ServiceAdminCampusListItem[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export type CampusUpdateRequest = {
+  description: string;
+  isActive: boolean;
+  name: string;
+  region: string;
+};
+
+export type ServiceAdminCampusMemberAddRequest = {
+  userId: number;
+};
+
+export type ServiceAdminCampusMemberAddResponse = AdminCampusMember;
+
 export type DevotionDailyCheck = {
   id: number | null;
   recordDate: string;
