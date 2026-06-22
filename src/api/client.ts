@@ -6,11 +6,9 @@ import type {
   TokenPair,
 } from './types';
 
-const DEFAULT_BASE_URL = 'https://api.example.com';
-
 type RequestOptions = {
   accessToken?: string;
-  method?: 'GET' | 'POST';
+  method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
 };
 
@@ -23,12 +21,33 @@ export class FaithLogApiError extends Error {
   }
 }
 
-function getApiBaseUrl() {
-  const configured = process.env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_BASE_URL;
-  return configured.replace(/\/+$/, '');
+export function getApiBaseUrl() {
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+
+  if (!configured) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: 'API 서버 설정이 필요합니다.',
+    });
+  }
+
+  try {
+    const url = new URL(configured);
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('Unsupported protocol');
+    }
+
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: 'API 서버 설정이 올바르지 않습니다.',
+    });
+  }
 }
 
-function buildApiUrl(path: string) {
+export function buildApiUrl(path: string) {
   const baseUrl = getApiBaseUrl();
   const normalizedPath = path.startsWith('/api/v1/')
     ? path
@@ -84,10 +103,43 @@ function normalizeNetworkError(error: unknown): ApiError {
   };
 }
 
-async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
-  const payload = (await response.json().catch(() => null)) as Partial<ApiEnvelope<T>> | null;
+function isApiEnvelope<T>(payload: unknown): payload is ApiEnvelope<T> {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
 
-  if (!payload || typeof payload.success !== 'boolean') {
+  const candidate = payload as Partial<ApiEnvelope<T>>;
+
+  return (
+    typeof candidate.success === 'boolean' &&
+    typeof candidate.code === 'string' &&
+    typeof candidate.message === 'string' &&
+    typeof candidate.timestamp === 'string'
+  );
+}
+
+async function parseJson(response: Response): Promise<unknown> {
+  const text = await response.text().catch(() => '');
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
+  const payload = await parseJson(response);
+
+  if (!isApiEnvelope<T>(payload)) {
+    if (!response.ok) {
+      throw new FaithLogApiError(normalizeApiError(response.status));
+    }
+
     throw new FaithLogApiError({
       kind: 'error',
       status: response.status,
@@ -99,7 +151,7 @@ async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
     throw new FaithLogApiError(normalizeApiError(response.status, payload));
   }
 
-  return payload as ApiEnvelope<T>;
+  return payload;
 }
 
 export async function apiRequest<T>(
@@ -119,7 +171,7 @@ export async function apiRequest<T>(
     const response = await fetch(buildApiUrl(path), init);
     const envelope = await parseEnvelope<T>(response);
 
-    return envelope.data;
+    return envelope.data as T;
   } catch (error) {
     throw new FaithLogApiError(normalizeNetworkError(error));
   }

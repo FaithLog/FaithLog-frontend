@@ -2,7 +2,7 @@ export type ApiEnvelope<T> = {
   success: boolean;
   code: string;
   message: string;
-  data: T;
+  data?: T | null;
   timestamp: string;
 };
 
