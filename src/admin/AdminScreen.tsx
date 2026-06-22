@@ -4,10 +4,13 @@ import {Modal, Pressable, StyleSheet, Text, View} from 'react-native';
 import {
   assignCoffeeDuty,
   changeAdminCampusMemberRole,
+  changeAdminChargeStatus,
   deleteCampusMember,
   FaithLogApiError,
+  fetchAdminCampusCharges,
   fetchAdminCampusMembers,
   fetchAdminDashboardSummary,
+  fetchAdminMemberCharges,
   fetchAdminMissingDevotionMembers,
   fetchDutyAssignments,
   revokeCoffeeDuty,
@@ -15,13 +18,19 @@ import {
 } from '../api/client';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
+  AdminCampusChargeSummary,
   AdminCampusMember,
   AdminDashboardSummary,
+  AdminMemberChargeList,
   AdminMissingDevotionMember,
   AdminNotificationResponse,
+  AdminWritableChargeStatus,
   ApiError,
   CampusRole,
+  ChargeItem,
+  ChargeStatus,
   DutyAssignment,
+  PaymentCategory,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
@@ -37,6 +46,7 @@ import {
   Loading,
   Offline,
   PermissionDenied,
+  TextField,
   Title,
 } from '../components/ui';
 import {colors, radius, spacing} from '../theme';
@@ -55,9 +65,11 @@ type AdminScreenProps = {
   state: AuthenticatedState;
 };
 
-type AdminTab = 'home' | 'devotion' | 'members' | 'roles';
+type AdminTab = 'home' | 'devotion' | 'members' | 'roles' | 'settlement';
 type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
+type ChargeStatusFilter = ChargeStatus | 'ALL';
+type PaymentCategoryFilter = PaymentCategory | 'ALL';
 
 type AdminLoadState =
   | {status: 'loading'}
@@ -75,7 +87,8 @@ type AdminActionState =
   | {status: 'changingRole'; membershipId: number}
   | {status: 'assigningCoffee'; userId: number}
   | {status: 'revokingCoffee'; assignmentId: number}
-  | {status: 'deletingMember'; membershipId: number};
+  | {status: 'deletingMember'; membershipId: number}
+  | {status: 'changingChargeStatus'; chargeItemId: number};
 
 type MissingDevotionState =
   | {status: 'idle'}
@@ -91,9 +104,42 @@ type NotificationSendState =
   | {status: 'sent'; result: AdminNotificationResponse; targetCount: number}
   | {status: 'failed'; error: ApiError; targetCount: number};
 
+type AdminChargeMemberRef = {
+  userId: number;
+  name: string;
+  email: string;
+};
+
+type AdminSettlementState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; charges: AdminCampusChargeSummary}
+  | {status: 'empty'; charges: AdminCampusChargeSummary}
+  | {status: 'error'; error: ApiError};
+
+type AdminChargeDetailState =
+  | {status: 'idle'}
+  | {status: 'loading'; member: AdminChargeMemberRef}
+  | {status: 'success'; charges: AdminMemberChargeList}
+  | {status: 'empty'; charges: AdminMemberChargeList}
+  | {status: 'error'; error: ApiError; member: AdminChargeMemberRef};
+
+type AdminChargeFilters = {
+  keyword: string;
+  paymentCategory: PaymentCategoryFilter;
+  status: ChargeStatusFilter;
+  userId: string;
+};
+
+type ChargeStatusConfirm = {
+  charge: ChargeItem;
+  status: AdminWritableChargeStatus;
+} | null;
+
 const adminTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
   {id: 'devotion', label: '경건'},
+  {id: 'settlement', label: '정산'},
   {id: 'members', label: '멤버'},
   {id: 'roles', label: '역할'},
 ];
@@ -104,8 +150,27 @@ const memberFilters: Array<{id: MemberFilter; label: string}> = [
   {id: 'MEMBERS', label: '멤버'},
 ];
 
+const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
+  {id: 'ALL', label: '전체'},
+  {id: 'UNPAID', label: '미납'},
+  {id: 'PAID', label: '납부'},
+  {id: 'WAIVED', label: '면제'},
+  {id: 'CANCELED', label: '취소'},
+];
+
+const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
+  {id: 'ALL', label: '전체'},
+  {id: 'PENALTY', label: '벌금'},
+  {id: 'COFFEE', label: '커피'},
+];
+
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
+const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
+  'UNPAID',
+  'WAIVED',
+  'CANCELED',
+];
 
 export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
@@ -121,6 +186,20 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
   const [notificationState, setNotificationState] = useState<NotificationSendState>({
     status: 'idle',
   });
+  const [chargeFilters, setChargeFilters] = useState<AdminChargeFilters>({
+    keyword: '',
+    paymentCategory: 'ALL',
+    status: 'ALL',
+    userId: '',
+  });
+  const [settlementState, setSettlementState] = useState<AdminSettlementState>({
+    status: 'idle',
+  });
+  const [chargeDetailState, setChargeDetailState] = useState<AdminChargeDetailState>({
+    status: 'idle',
+  });
+  const [chargeStatusConfirm, setChargeStatusConfirm] = useState<ChargeStatusConfirm>(null);
+  const [paidBlockedTarget, setPaidBlockedTarget] = useState<ChargeItem | null>(null);
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
@@ -160,6 +239,10 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     setWeekStartDate(getWeekStartDate(new Date()));
     setMissingDevotionState({status: 'idle'});
     setNotificationState({status: 'idle'});
+    setSettlementState({status: 'idle'});
+    setChargeDetailState({status: 'idle'});
+    setChargeStatusConfirm(null);
+    setPaidBlockedTarget(null);
     void loadAdmin();
   }, [campusId]);
 
@@ -168,6 +251,12 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       void loadMissingDevotions();
     }
   }, [tab, missingDevotionState.status]);
+
+  useEffect(() => {
+    if (tab === 'settlement' && settlementState.status === 'idle') {
+      void loadSettlement();
+    }
+  }, [tab, settlementState.status]);
 
   const loadMissingDevotions = async () => {
     setMissingDevotionState({status: 'loading'});
@@ -196,6 +285,154 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       setMissingDevotionState({status: 'error', error: apiError});
       void handleAuthError(apiError, setAuthState);
     }
+  };
+
+  const loadSettlement = async (filters: AdminChargeFilters = chargeFilters) => {
+    setSettlementState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const userId = parseOptionalPositiveInt(filters.userId, 'userId');
+      const charges = await fetchAdminCampusCharges(accessToken, campusId, {
+        keyword: filters.keyword,
+        paymentCategory: filters.paymentCategory,
+        status: filters.status,
+        ...(userId === undefined ? {} : {userId}),
+      });
+
+      setSettlementState(
+        charges.members.length === 0
+          ? {status: 'empty', charges}
+          : {status: 'success', charges},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.');
+      setSettlementState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const updateChargeFilter = <Key extends keyof AdminChargeFilters>(
+    key: Key,
+    value: AdminChargeFilters[Key],
+  ) => {
+    setChargeFilters((current) => ({...current, [key]: value}));
+  };
+
+  const resetChargeFilters = () => {
+    const nextFilters: AdminChargeFilters = {
+      keyword: '',
+      paymentCategory: 'ALL',
+      status: 'ALL',
+      userId: '',
+    };
+
+    setChargeFilters(nextFilters);
+    setChargeDetailState({status: 'idle'});
+    void loadSettlement(nextFilters);
+  };
+
+  const openMemberCharges = async (member: AdminChargeMemberRef) => {
+    setChargeDetailState({status: 'loading', member});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const charges = await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
+        paymentCategory: chargeFilters.paymentCategory,
+        status: chargeFilters.status,
+      });
+
+      setChargeDetailState(
+        charges.items.length === 0
+          ? {status: 'empty', charges}
+          : {status: 'success', charges},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '회원별 청구 상세를 불러오지 못했습니다.');
+      setChargeDetailState({status: 'error', error: apiError, member});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const requestChargeStatusChange = (
+    charge: ChargeItem,
+    status: AdminWritableChargeStatus,
+  ) => {
+    if (actionState.status !== 'idle' || charge.status === status) {
+      return;
+    }
+
+    setActionError(null);
+    setChargeStatusConfirm({charge, status});
+  };
+
+  const confirmChargeStatusChange = async () => {
+    if (!chargeStatusConfirm || actionState.status !== 'idle') {
+      return;
+    }
+
+    const target = chargeStatusConfirm;
+    setActionState({status: 'changingChargeStatus', chargeItemId: target.charge.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const updated = await changeAdminChargeStatus(
+        accessToken,
+        target.charge.id,
+        target.status,
+      );
+
+      replaceChargeItem(updated);
+      setChargeStatusConfirm(null);
+      setNotice({
+        tone: 'success',
+        title: '청구 상태 변경',
+        message: `${target.charge.title} 상태를 ${updated.status}로 변경했습니다.`,
+      });
+      void loadSettlement();
+    } catch (error) {
+      const apiError = toApiError(error, '청구 상태를 변경하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const replaceChargeItem = (updated: ChargeItem) => {
+    setChargeDetailState((current) => {
+      if (current.status !== 'success' && current.status !== 'empty') {
+        return current;
+      }
+
+      return {
+        status: 'success',
+        charges: {
+          ...current.charges,
+          items: current.charges.items.map((item) =>
+            item.id === updated.id ? {...item, ...updated} : item,
+          ),
+        },
+      };
+    });
   };
 
   const changeMissingWeek = (direction: -1 | 1) => {
@@ -495,6 +732,25 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           summary={loadState.summary}
           weekStartDate={weekStartDate}
         />
+      ) : tab === 'settlement' ? (
+        <AdminSettlement
+          actionState={actionState}
+          detailState={chargeDetailState}
+          filters={chargeFilters}
+          onBackToSummary={() => setChargeDetailState({status: 'idle'})}
+          onBlockedPaid={setPaidBlockedTarget}
+          onOpenMemberCharges={openMemberCharges}
+          onRequestStatusChange={requestChargeStatusChange}
+          onResetFilters={resetChargeFilters}
+          onRetryDetail={(member) => void openMemberCharges(member)}
+          onRetrySummary={() => void loadSettlement()}
+          onSearch={() => {
+            setChargeDetailState({status: 'idle'});
+            void loadSettlement();
+          }}
+          onUpdateFilter={updateChargeFilter}
+          settlementState={settlementState}
+        />
       ) : tab === 'members' ? (
         <AdminMembers
           filter={memberFilter}
@@ -530,6 +786,17 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         onConfirm={confirmNotificationSend}
         state={notificationState}
         weekStartDate={weekStartDate}
+      />
+      <ChargeStatusConfirmSheet
+        error={actionError}
+        loading={actionState.status === 'changingChargeStatus'}
+        onCancel={() => setChargeStatusConfirm(null)}
+        onConfirm={confirmChargeStatusChange}
+        target={chargeStatusConfirm}
+      />
+      <PaidNotAllowedSheet
+        charge={paidBlockedTarget}
+        onClose={() => setPaidBlockedTarget(null)}
       />
     </>
   );
@@ -810,6 +1077,370 @@ function renderNotificationResult(notificationState: NotificationSendState) {
     default:
       return assertNever(notificationState);
   }
+}
+
+function AdminSettlement({
+  actionState,
+  detailState,
+  filters,
+  onBackToSummary,
+  onBlockedPaid,
+  onOpenMemberCharges,
+  onRequestStatusChange,
+  onResetFilters,
+  onRetryDetail,
+  onRetrySummary,
+  onSearch,
+  onUpdateFilter,
+  settlementState,
+}: {
+  actionState: AdminActionState;
+  detailState: AdminChargeDetailState;
+  filters: AdminChargeFilters;
+  onBackToSummary: () => void;
+  onBlockedPaid: (charge: ChargeItem) => void;
+  onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onResetFilters: () => void;
+  onRetryDetail: (member: AdminChargeMemberRef) => void;
+  onRetrySummary: () => void;
+  onSearch: () => void;
+  onUpdateFilter: <Key extends keyof AdminChargeFilters>(
+    key: Key,
+    value: AdminChargeFilters[Key],
+  ) => void;
+  settlementState: AdminSettlementState;
+}) {
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 10 Settlement</Eyebrow>
+        <Title>정산/청구 상태 관리</Title>
+        <Body>
+          REST Docs 기준 전체 청구 집계는 summary와 members만 포함하고, 개별 청구는 회원 상세에서 조회합니다.
+        </Body>
+        <SegmentedControl
+          items={chargeStatusFilters}
+          selectedId={filters.status}
+          onSelect={(status) => onUpdateFilter('status', status)}
+        />
+        <SegmentedControl
+          items={paymentCategoryFilters}
+          selectedId={filters.paymentCategory}
+          onSelect={(paymentCategory) => onUpdateFilter('paymentCategory', paymentCategory)}
+        />
+        <View style={styles.filterGrid}>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="정산 이름 또는 이메일 검색어"
+              label="검색어"
+              onChangeText={(keyword) => onUpdateFilter('keyword', keyword)}
+              onSubmitEditing={onSearch}
+              placeholder="이름 또는 이메일"
+              returnKeyType="search"
+              value={filters.keyword}
+            />
+          </View>
+          <View style={styles.filterField}>
+            <TextField
+              accessibilityLabel="정산 사용자 ID 필터"
+              keyboardType="number-pad"
+              label="userId"
+              onChangeText={(userId) => onUpdateFilter('userId', userId.replace(/\D/g, ''))}
+              onSubmitEditing={onSearch}
+              placeholder="숫자만"
+              returnKeyType="search"
+              value={filters.userId}
+            />
+          </View>
+        </View>
+        <View style={styles.actionRow}>
+          <Button accessibilityLabel="관리자 정산 필터 적용" onPress={onSearch}>
+            조회
+          </Button>
+          <Button
+            accessibilityLabel="관리자 정산 필터 초기화"
+            onPress={onResetFilters}
+            variant="secondary">
+            초기화
+          </Button>
+        </View>
+      </Card>
+      {renderSettlementSummary({
+        onOpenMemberCharges,
+        onRetrySummary,
+        settlementState,
+      })}
+      {renderChargeDetail({
+        actionState,
+        detailState,
+        onBackToSummary,
+        onBlockedPaid,
+        onRequestStatusChange,
+        onRetryDetail,
+      })}
+    </>
+  );
+}
+
+function renderSettlementSummary({
+  onOpenMemberCharges,
+  onRetrySummary,
+  settlementState,
+}: {
+  onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onRetrySummary: () => void;
+  settlementState: AdminSettlementState;
+}) {
+  switch (settlementState.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="관리자 정산 집계를 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={settlementState.error} onRetry={onRetrySummary} />;
+    case 'empty':
+      return (
+        <>
+          <SettlementSummaryCard charges={settlementState.charges} />
+          <Empty
+            title="조건에 맞는 청구 회원이 없습니다"
+            message="status, paymentCategory, userId, keyword 필터를 조정해 주세요."
+            actionLabel="다시 조회"
+            actionAccessibilityLabel="관리자 정산 empty state에서 다시 조회"
+            onActionPress={onRetrySummary}
+          />
+        </>
+      );
+    case 'success':
+      return (
+        <>
+          <SettlementSummaryCard charges={settlementState.charges} />
+          <Card>
+            <Eyebrow>회원별 청구 집계</Eyebrow>
+            {settlementState.charges.members.map((member) => (
+              <SettlementMemberRow
+                key={member.userId}
+                member={member}
+                onPress={() => onOpenMemberCharges(member)}
+              />
+            ))}
+          </Card>
+        </>
+      );
+    default:
+      return assertNever(settlementState);
+  }
+}
+
+function SettlementSummaryCard({charges}: {charges: AdminCampusChargeSummary}) {
+  return (
+    <Card>
+      <Eyebrow>{charges.region} {charges.campusName}</Eyebrow>
+      <Title>청구 집계</Title>
+      <View style={styles.metricGrid}>
+        <Metric label="전체" value={formatWon(charges.summary.totalAmount)} />
+        <Metric label="미납" value={formatWon(charges.summary.unpaidAmount)} />
+        <Metric label="납부" value={formatWon(charges.summary.paidAmount)} />
+        <Metric label="면제" value={formatWon(charges.summary.waivedAmount)} />
+        <Metric label="취소" value={formatWon(charges.summary.canceledAmount)} />
+        <Metric label="회원" value={`${charges.members.length}명`} />
+      </View>
+    </Card>
+  );
+}
+
+function SettlementMemberRow({
+  member,
+  onPress,
+}: {
+  member: AdminChargeMemberRef & {
+    canceledAmount: number;
+    paidAmount: number;
+    totalAmount: number;
+    unpaidAmount: number;
+    waivedAmount: number;
+  };
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${member.name} 청구 상세 보기`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [styles.roleRow, pressed ? styles.pressed : null]}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Text style={styles.memberName}>{member.name}</Text>
+          <Text style={styles.memberMeta}>{member.email}</Text>
+        </View>
+        <Chip label={`user ${member.userId}`} tone="info" />
+      </View>
+      <View style={styles.metricGrid}>
+        <Metric label="미납" value={formatWon(member.unpaidAmount)} />
+        <Metric label="납부" value={formatWon(member.paidAmount)} />
+        <Metric label="면제" value={formatWon(member.waivedAmount)} />
+        <Metric label="취소" value={formatWon(member.canceledAmount)} />
+      </View>
+    </Pressable>
+  );
+}
+
+function renderChargeDetail({
+  actionState,
+  detailState,
+  onBackToSummary,
+  onBlockedPaid,
+  onRequestStatusChange,
+  onRetryDetail,
+}: {
+  actionState: AdminActionState;
+  detailState: AdminChargeDetailState;
+  onBackToSummary: () => void;
+  onBlockedPaid: (charge: ChargeItem) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onRetryDetail: (member: AdminChargeMemberRef) => void;
+}) {
+  switch (detailState.status) {
+    case 'idle':
+      return (
+        <Empty
+          title="회원을 선택해 주세요"
+          message="전체 정산 목록에서 회원을 선택하면 Admin 11 청구 상세와 상태 변경 액션을 보여줍니다."
+        />
+      );
+    case 'loading':
+      return <Loading message={`${detailState.member.name}님의 청구 상세를 불러오고 있어요.`} />;
+    case 'error':
+      return (
+        <AdminErrorState
+          error={detailState.error}
+          onRetry={() => onRetryDetail(detailState.member)}
+        />
+      );
+    case 'empty':
+    case 'success':
+      return (
+        <AdminChargeDetail
+          actionState={actionState}
+          charges={detailState.charges}
+          onBackToSummary={onBackToSummary}
+          onBlockedPaid={onBlockedPaid}
+          onRequestStatusChange={onRequestStatusChange}
+        />
+      );
+    default:
+      return assertNever(detailState);
+  }
+}
+
+function AdminChargeDetail({
+  actionState,
+  charges,
+  onBackToSummary,
+  onBlockedPaid,
+  onRequestStatusChange,
+}: {
+  actionState: AdminActionState;
+  charges: AdminMemberChargeList;
+  onBackToSummary: () => void;
+  onBlockedPaid: (charge: ChargeItem) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+}) {
+  const busy = actionState.status !== 'idle';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 11 Charge Detail - Direct Paid</Eyebrow>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Title>{charges.name}</Title>
+            <Body>{charges.email}</Body>
+          </View>
+          <Button accessibilityLabel="정산 집계로 돌아가기" onPress={onBackToSummary} variant="ghost">
+            목록
+          </Button>
+        </View>
+        <View style={styles.metricGrid}>
+          <Metric label="전체" value={formatWon(charges.summary.totalAmount)} />
+          <Metric label="미납" value={formatWon(charges.summary.unpaidAmount)} />
+          <Metric label="납부" value={formatWon(charges.summary.paidAmount)} />
+          <Metric label="면제" value={formatWon(charges.summary.waivedAmount)} />
+        </View>
+        <Body>관리자는 PAID로 직접 변경할 수 없습니다. PAID 버튼은 API 호출 없이 차단 안내만 표시합니다.</Body>
+      </Card>
+      {charges.items.length === 0 ? (
+        <Empty title="청구 항목이 없습니다" message="선택한 필터에 맞는 회원별 청구 상세가 없습니다." />
+      ) : (
+        <Card>
+          <Eyebrow>Admin 11-1 Charge Status Edit</Eyebrow>
+          {charges.items.map((charge) => (
+            <ChargeItemRow
+              busy={busy}
+              charge={charge}
+              key={charge.id}
+              onBlockedPaid={() => onBlockedPaid(charge)}
+              onRequestStatusChange={(status) => onRequestStatusChange(charge, status)}
+            />
+          ))}
+        </Card>
+      )}
+    </>
+  );
+}
+
+function ChargeItemRow({
+  busy,
+  charge,
+  onBlockedPaid,
+  onRequestStatusChange,
+}: {
+  busy: boolean;
+  charge: ChargeItem;
+  onBlockedPaid: () => void;
+  onRequestStatusChange: (status: AdminWritableChargeStatus) => void;
+}) {
+  return (
+    <View style={styles.roleRow}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Text style={styles.memberName}>{charge.title}</Text>
+          <Text style={styles.memberMeta}>{charge.reason}</Text>
+          <Text style={styles.memberMeta}>
+            due {charge.dueDate ?? '미정'} · item #{charge.id}
+          </Text>
+        </View>
+        <View style={styles.chipRow}>
+          <Chip label={charge.paymentCategory} tone="info" />
+          <Chip label={charge.status} tone={getChargeStatusTone(charge.status)} />
+        </View>
+      </View>
+      <ListRow
+        label="금액"
+        supportingText={charge.account ? `${charge.account.bankName} · ${charge.account.accountHolder}` : '계좌 snapshot 없음'}
+        value={formatWon(charge.amount)}
+      />
+      <View style={styles.roleGrid}>
+        {adminWritableChargeStatuses.map((status) => (
+          <Button
+            accessibilityLabel={`청구 항목 ${charge.id} 상태를 ${status}로 변경 확인`}
+            disabled={busy || charge.status === status}
+            key={status}
+            onPress={() => onRequestStatusChange(status)}
+            variant={status === 'CANCELED' ? 'danger' : 'secondary'}>
+            {getChargeStatusLabel(status)}
+          </Button>
+        ))}
+        <Button
+          accessibilityLabel={`청구 항목 ${charge.id} PAID 직접 변경 불가 안내`}
+          disabled={busy}
+          onPress={onBlockedPaid}
+          variant="ghost">
+          PAID 불가
+        </Button>
+      </View>
+    </View>
+  );
 }
 
 function AdminMembers({
@@ -1151,6 +1782,96 @@ function NotificationConfirmSheet({
   );
 }
 
+function ChargeStatusConfirmSheet({
+  error,
+  loading,
+  onCancel,
+  onConfirm,
+  target,
+}: {
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  target: ChargeStatusConfirm;
+}) {
+  const visible = target !== null;
+
+  return (
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Eyebrow>Admin 11-1 Charge Status Edit</Eyebrow>
+          <Title>
+            {target
+              ? `${target.charge.title}을 ${getChargeStatusLabel(target.status)} 처리할까요?`
+              : '청구 상태 변경'}
+          </Title>
+          <Body>
+            WAIVED, CANCELED, UNPAID 변경만 관리자 API로 전송합니다. PAID 변경은 납부자 직접 처리 흐름에서만 가능합니다.
+          </Body>
+          {target ? (
+            <>
+              <ListRow label="현재 상태" value={target.charge.status} />
+              <ListRow label="변경 상태" value={target.status} />
+              <ListRow label="금액" value={formatWon(target.charge.amount)} />
+            </>
+          ) : null}
+          {error ? <AdminInlineError error={error} /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="청구 상태 변경 실행"
+              disabled={loading}
+              onPress={onConfirm}
+              variant={target?.status === 'CANCELED' ? 'danger' : 'primary'}>
+              {loading ? '변경 중...' : '변경'}
+            </Button>
+            <Button
+              accessibilityLabel="청구 상태 변경 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PaidNotAllowedSheet({
+  charge,
+  onClose,
+}: {
+  charge: ChargeItem | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal animationType="slide" transparent visible={charge !== null} onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Eyebrow>Admin 11-2 Charge Paid Not Allowed</Eyebrow>
+          <Title>관리자는 PAID로 직접 변경할 수 없습니다</Title>
+          <Body>
+            REST Docs 기준 관리자 상태 변경 요청은 UNPAID, WAIVED, CANCELED만 허용합니다. 이 버튼은 API 요청을 보내지 않습니다.
+          </Body>
+          {charge ? (
+            <ListRow
+              label={charge.title}
+              supportingText={`현재 상태 ${charge.status} · item #${charge.id}`}
+              value={formatWon(charge.amount)}
+            />
+          ) : null}
+          <Button accessibilityLabel="PAID 직접 변경 불가 안내 닫기" onPress={onClose}>
+            확인
+          </Button>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function SegmentedControl<T extends string>({
   items,
   onSelect,
@@ -1374,6 +2095,61 @@ function formatCompactWon(value: number) {
   return `${value}원`;
 }
 
+function formatWon(value: number) {
+  return `${value.toLocaleString('ko-KR')}원`;
+}
+
+function parseOptionalPositiveInt(value: string, label: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const numericValue = Number(trimmed);
+
+  if (
+    !Number.isInteger(numericValue) ||
+    numericValue <= 0 ||
+    !Number.isSafeInteger(numericValue)
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값이 올바르지 않습니다.`,
+    });
+  }
+
+  return numericValue;
+}
+
+function getChargeStatusLabel(status: AdminWritableChargeStatus) {
+  switch (status) {
+    case 'UNPAID':
+      return '미납';
+    case 'WAIVED':
+      return '면제';
+    case 'CANCELED':
+      return '취소';
+    default:
+      return assertNever(status);
+  }
+}
+
+function getChargeStatusTone(status: ChargeStatus) {
+  switch (status) {
+    case 'PAID':
+      return 'success';
+    case 'UNPAID':
+      return 'warning';
+    case 'WAIVED':
+      return 'info';
+    case 'CANCELED':
+      return 'danger';
+    default:
+      return assertNever(status);
+  }
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled admin value: ${String(value)}`);
 }
@@ -1421,6 +2197,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     lineHeight: 20,
+  },
+  filterField: {
+    flex: 1,
+    minWidth: 140,
+  },
+  filterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
   },
   headerRow: {
     alignItems: 'flex-start',

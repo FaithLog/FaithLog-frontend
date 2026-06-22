@@ -1,12 +1,16 @@
 import type {
   ApiEnvelope,
   ApiError,
+  AdminCampusChargeSummary,
   AdminCampusMember,
   AdminCampusRoleChangeRequest,
   AdminDashboardSummary,
+  AdminMemberChargeList,
   AdminMissingDevotionMember,
   AdminNotificationRequest,
   AdminNotificationResponse,
+  AdminWritableChargeStatus,
+  AdminChargeStatusChangeResponse,
   CampusCreateRequest,
   CampusCreateResponse,
   CampusDetail,
@@ -263,6 +267,40 @@ function toSafeChargeListQuery(params: {
   }
 
   return query.toString();
+}
+
+function toSafeAdminCampusChargeQuery(params: {
+  keyword?: string;
+  page?: number;
+  paymentCategory?: PaymentCategory | 'ALL';
+  size?: number;
+  sort?: {direction: SortDirection; key: ChargeSortKey};
+  status?: ChargeStatus | 'ALL';
+  userId?: number;
+}) {
+  const query = new URLSearchParams(toSafeChargeListQuery(params));
+  const keyword = typeof params.keyword === 'string' ? params.keyword.trim().slice(0, 80) : '';
+
+  if (keyword) {
+    query.set('keyword', keyword);
+  }
+
+  if (params.userId !== undefined) {
+    query.set('userId', toPositiveIntegerPathSegment(params.userId, 'userId'));
+  }
+
+  return query.toString();
+}
+
+function toAdminWritableChargeStatus(value: unknown): AdminWritableChargeStatus {
+  if (value === 'UNPAID' || value === 'WAIVED' || value === 'CANCELED') {
+    return value;
+  }
+
+  throw new FaithLogApiError({
+    kind: 'error',
+    message: '관리자는 PAID로 직접 변경할 수 없습니다.',
+  });
 }
 
 function toDevotionSummaryYearMonthQuery(year: unknown, month: unknown) {
@@ -886,6 +924,72 @@ export function fetchAdminCampusMembers(accessToken: string, campusId: unknown) 
   return apiRequest<AdminCampusMember[]>(buildAdminCampusPath(campusId, 'members'), {
     accessToken,
   });
+}
+
+export function fetchAdminCampusCharges(
+  accessToken: string,
+  campusId: unknown,
+  params: {
+    keyword?: string;
+    page?: number;
+    paymentCategory?: PaymentCategory | 'ALL';
+    size?: number;
+    sort?: {direction: SortDirection; key: ChargeSortKey};
+    status?: ChargeStatus | 'ALL';
+    userId?: number;
+  } = {},
+) {
+  const query = toSafeAdminCampusChargeQuery(params);
+
+  return apiRequest<AdminCampusChargeSummary>(
+    `${buildAdminCampusPath(campusId, 'charges')}?${query}`,
+    {accessToken},
+  );
+}
+
+export function fetchAdminMemberCharges(
+  accessToken: string,
+  campusId: unknown,
+  userId: unknown,
+  params: {
+    page?: number;
+    paymentCategory?: PaymentCategory | 'ALL';
+    size?: number;
+    sort?: {direction: SortDirection; key: ChargeSortKey};
+    status?: ChargeStatus | 'ALL';
+  } = {},
+) {
+  const query = toSafeChargeListQuery(params);
+
+  return apiRequest<AdminMemberChargeList>(
+    `${buildAdminCampusPath(
+      campusId,
+      'members',
+      toPositiveIntegerPathSegment(userId, 'userId'),
+      'charges',
+    )}?${query}`,
+    {accessToken},
+  );
+}
+
+export function changeAdminChargeStatus(
+  accessToken: string,
+  chargeItemId: unknown,
+  status: unknown,
+) {
+  return apiRequest<AdminChargeStatusChangeResponse>(
+    buildApiPath(
+      'admin',
+      'charges',
+      toPositiveIntegerPathSegment(chargeItemId, 'chargeItemId'),
+      'status',
+    ),
+    {
+      accessToken,
+      body: {status: toAdminWritableChargeStatus(status)},
+      method: 'PATCH',
+    },
+  );
 }
 
 export function fetchAdminMissingDevotionMembers(
