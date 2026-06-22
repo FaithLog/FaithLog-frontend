@@ -63,6 +63,7 @@ import {
 } from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
+import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
 import {colors, spacing} from '../theme';
 
@@ -1212,6 +1213,7 @@ function AuthenticatedShell({
       {route === 'userHome' ? (
         <UserHomeDashboard
           onOpenDevotion={() => setRoute('devotion')}
+          onOpenPayments={() => setRoute('payments')}
           onOpenPolls={() => setRoute('polls')}
           onCampusSwitchPress={openCampusSwitch}
           setAuthState={setAuthState}
@@ -1221,6 +1223,12 @@ function AuthenticatedShell({
       ) : route === 'devotion' ? (
         <DevotionScreen
           onBackToHome={() => setRoute('userHome')}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
+      ) : route === 'payments' ? (
+        <PaymentScreen
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1251,7 +1259,11 @@ function AuthenticatedShell({
 
       <BottomNav activeId={route} items={navItems} onSelect={setRoute} />
 
-      {route === 'profile' || route === 'userHome' || route === 'devotion' || route === 'polls' ? null : (
+      {route === 'profile' ||
+      route === 'userHome' ||
+      route === 'devotion' ||
+      route === 'payments' ||
+      route === 'polls' ? null : (
         <Card>
           <Eyebrow>{getRouteLabel(route)}</Eyebrow>
           <Title>{getRouteTitle(route)}</Title>
@@ -1282,6 +1294,7 @@ function AuthenticatedShell({
 function UserHomeDashboard({
   onCampusSwitchPress,
   onOpenDevotion,
+  onOpenPayments,
   onOpenPolls,
   setAuthState,
   setNotice,
@@ -1289,6 +1302,7 @@ function UserHomeDashboard({
 }: {
   onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
+  onOpenPayments: () => void;
   onOpenPolls: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
@@ -1506,6 +1520,12 @@ function UserHomeDashboard({
               supportingText="createdAt 기준"
               value={formatWon(charges.monthlyTotalChargeAmount)}
             />
+            <Button
+              accessibilityLabel="내 납부 목록 화면으로 이동"
+              onPress={onOpenPayments}
+              variant="secondary">
+              납부 관리
+            </Button>
           </View>
         )}
       </HomeDataCard>
@@ -1657,7 +1677,7 @@ function RoutePlaceholder({
 }: {
   activeCampusCount: number;
   onCampusSwitchPress: () => void;
-  route: Exclude<ShellRoute, 'devotion' | 'profile' | 'userHome'>;
+  route: Exclude<ShellRoute, 'devotion' | 'payments' | 'polls' | 'profile' | 'userHome'>;
   selectedCampusDetail: CampusDetail | null;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -2096,6 +2116,8 @@ function getRouteTitle(route: ShellRoute) {
       return '일반 사용자 홈';
     case 'devotion':
       return '경건생활';
+    case 'payments':
+      return '사용자 납부';
     case 'polls':
       return '투표';
     case 'profile':
@@ -2115,6 +2137,8 @@ function getRouteIcon(route: ShellRoute) {
       return 'H';
     case 'devotion':
       return 'D';
+    case 'payments':
+      return 'W';
     case 'polls':
       return 'V';
     case 'profile':
@@ -2134,6 +2158,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return `경건, 투표, 납부, 기도제목으로 이어지는 사용자 탭 shell입니다. ACTIVE 캠퍼스 ${campusCount}개를 확인했습니다.`;
     case 'devotion':
       return '경건생활 주간 체크, 제출, 월간 통계를 다루는 일반 사용자 화면입니다.';
+    case 'payments':
+      return '사용자 청구 목록, 납부 요약, 계좌 없음 상태, 납부했어요 처리를 다루는 일반 사용자 화면입니다.';
     case 'polls':
       return '사용자 투표 목록, 상세, 응답, 댓글, 결과 조회를 다루는 일반 사용자 화면입니다.';
     case 'profile':

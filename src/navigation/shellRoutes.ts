@@ -3,6 +3,7 @@ import type {CampusMembershipSummary, CurrentUser} from '../api/types';
 export type ShellRoute =
   | 'userHome'
   | 'devotion'
+  | 'payments'
   | 'polls'
   | 'profile'
   | 'campusAdmin'
@@ -14,7 +15,7 @@ export function getAvailableRoutes(
   user: CurrentUser,
   campus: CampusMembershipSummary,
 ): ShellRoute[] {
-  const routes: ShellRoute[] = ['userHome', 'devotion', 'polls', 'profile'];
+  const routes: ShellRoute[] = ['userHome', 'devotion', 'payments', 'polls', 'profile'];
 
   if (user.role === 'ADMIN' || CAMPUS_ADMIN_ROLES.has(campus.campusRole)) {
     routes.push('campusAdmin');
@@ -33,6 +34,8 @@ export function getRouteLabel(route: ShellRoute) {
       return '내 홈';
     case 'devotion':
       return '경건';
+    case 'payments':
+      return '납부';
     case 'polls':
       return '투표';
     case 'profile':

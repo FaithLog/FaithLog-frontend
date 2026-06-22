@@ -7,6 +7,8 @@ import type {
   CampusJoinRequest,
   CampusJoinResponse,
   CampusMembershipSummary,
+  ChargeList,
+  ChargeStatus,
   ChargeSummary,
   CoffeeBrand,
   CoffeeMenu,
@@ -25,6 +27,10 @@ import type {
   LoginRequest,
   LoginResponse,
   LogoutRequest,
+  MarkChargePaidRequest,
+  MarkChargePaidResponse,
+  PaymentAccount,
+  PaymentCategory,
   SignupRequest,
   SignupResponse,
   TokenPair,
@@ -179,6 +185,64 @@ function toSummaryYearMonthQuery(year: unknown, month: unknown) {
   params.set('month', String(month));
 
   return params.toString();
+}
+
+type ChargeSortKey = 'createdAt' | 'dueDate' | 'amount';
+type SortDirection = 'asc' | 'desc';
+
+const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
+const paymentCategories = ['PENALTY', 'COFFEE'] as const;
+const chargeSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
+const sortDirections = ['asc', 'desc'] as const;
+
+function isPaymentCategory(value: unknown): value is PaymentCategory {
+  return paymentCategories.includes(value as PaymentCategory);
+}
+
+function isChargeStatus(value: unknown): value is ChargeStatus {
+  return chargeStatuses.includes(value as ChargeStatus);
+}
+
+function isChargeSortKey(value: unknown): value is ChargeSortKey {
+  return chargeSortKeys.includes(value as ChargeSortKey);
+}
+
+function isSortDirection(value: unknown): value is SortDirection {
+  return sortDirections.includes(value as SortDirection);
+}
+
+function toSafeChargeListQuery(params: {
+  page?: number;
+  paymentCategory?: PaymentCategory | 'ALL';
+  size?: number;
+  sort?: {direction: SortDirection; key: ChargeSortKey};
+  status?: ChargeStatus | 'ALL';
+}) {
+  const query = new URLSearchParams();
+  const page =
+    typeof params.page === 'number' && Number.isInteger(params.page) && params.page > 0
+      ? Math.min(params.page, 9999)
+      : 0;
+  const size =
+    typeof params.size === 'number' && Number.isInteger(params.size)
+      ? Math.min(Math.max(params.size, 1), 100)
+      : 20;
+  const sortKey = isChargeSortKey(params.sort?.key) ? params.sort.key : 'createdAt';
+  const sortDirection = isSortDirection(params.sort?.direction) ? params.sort.direction : 'desc';
+
+  query.set('page', String(page));
+  query.set('size', String(size));
+  query.set('sort', `${sortKey},${sortDirection}`);
+
+  if (isPaymentCategory(params.paymentCategory)) {
+    query.set('paymentCategory', params.paymentCategory);
+  }
+
+  if (isChargeStatus(params.status)) {
+    query.set('status', params.status);
+  }
+
+  return query.toString();
 }
 
 function toDevotionSummaryYearMonthQuery(year: unknown, month: unknown) {
@@ -477,6 +541,59 @@ export function fetchChargeSummary(
   return apiRequest<ChargeSummary>(
     `${buildCampusPath(campusId, 'charges', 'me', 'summary')}?${query}`,
     {accessToken},
+  );
+}
+
+export function fetchMyCharges(
+  accessToken: string,
+  campusId: unknown,
+  params: {
+    page?: number;
+    paymentCategory?: PaymentCategory | 'ALL';
+    size?: number;
+    sort?: {direction: SortDirection; key: ChargeSortKey};
+    status?: ChargeStatus | 'ALL';
+  } = {},
+) {
+  const query = toSafeChargeListQuery(params);
+
+  return apiRequest<ChargeList>(
+    `${buildCampusPath(campusId, 'charges', 'me')}?${query}`,
+    {accessToken},
+  );
+}
+
+export function fetchPaymentAccounts(accessToken: string, campusId: unknown) {
+  return apiRequest<PaymentAccount[]>(buildCampusPath(campusId, 'payment-accounts'), {
+    accessToken,
+  });
+}
+
+export function markMyChargePaid(
+  accessToken: string,
+  campusId: unknown,
+  chargeItemId: unknown,
+  body?: MarkChargePaidRequest,
+) {
+  const paidAt = body?.paidAt;
+  const requestBody =
+    typeof paidAt === 'string' && paidAt.trim().length > 0
+      ? {paidAt: paidAt.trim()}
+      : undefined;
+
+  return apiRequest<MarkChargePaidResponse>(
+    buildCampusPath(
+      campusId,
+      'charges',
+      'me',
+      toPositiveIntegerPathSegment(chargeItemId, 'chargeItemId'),
+      'paid',
+    ),
+    {
+      accessToken,
+      body: requestBody,
+      method: 'PATCH',
+    },
   );
 }
 

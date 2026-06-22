@@ -191,11 +191,15 @@ export type DevotionMonthlySummary = {
 };
 
 export type ChargeCategorySummary = {
-  paymentCategory: string;
+  paymentCategory: PaymentCategory;
   paidAmount: number;
   unpaidAmount: number;
   totalAmount: number;
 };
+
+export type PaymentCategory = 'PENALTY' | 'COFFEE';
+
+export type ChargeStatus = 'UNPAID' | 'PAID' | 'WAIVED' | 'CANCELED';
 
 export type ChargeSummary = {
   campusId: number;
@@ -208,6 +212,66 @@ export type ChargeSummary = {
   monthlyUnpaidAmount: number;
   monthlyTotalChargeAmount: number;
   monthlyByCategory: ChargeCategorySummary[];
+};
+
+export type ChargeAmountSummary = {
+  totalAmount: number;
+  unpaidAmount: number;
+  paidAmount: number;
+  waivedAmount: number;
+  canceledAmount: number;
+};
+
+export type ChargePaymentAccountSnapshot = {
+  paymentAccountId: number;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+};
+
+export type ChargeSource = {
+  sourceType: string;
+  sourceId: number;
+};
+
+export type ChargeItem = {
+  id: number;
+  paymentCategory: PaymentCategory;
+  title: string;
+  reason: string;
+  amount: number;
+  status: ChargeStatus;
+  dueDate?: string | null;
+  paidAt?: string | null;
+  account?: ChargePaymentAccountSnapshot | null;
+  source?: ChargeSource | null;
+};
+
+export type ChargeList = {
+  campusId: number;
+  campusName: string;
+  region: string;
+  summary: ChargeAmountSummary;
+  items: ChargeItem[];
+};
+
+export type PaymentAccount = {
+  id: number;
+  accountType: PaymentCategory;
+  nickname: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+};
+
+export type MarkChargePaidRequest = {
+  paidAt?: string;
+};
+
+export type MarkChargePaidResponse = Omit<ChargeItem, 'account' | 'dueDate' | 'source'> & {
+  campusId: number;
+  userId: number;
+  paidAt: string | null;
 };
 
 export type CoffeeBrand = {
