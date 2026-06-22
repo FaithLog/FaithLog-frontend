@@ -10,6 +10,13 @@ import type {
   AdminNotificationRequest,
   AdminNotificationResponse,
   AdminPaymentAccount,
+  AdminPrayerGroup,
+  AdminPrayerGroupCreateRequest,
+  AdminPrayerGroupMembersReplaceRequest,
+  AdminPrayerGroupUpdateRequest,
+  AdminPrayerSeason,
+  AdminPrayerSeasonCloseRequest,
+  AdminPrayerSeasonCreateRequest,
   AdminWritableChargeStatus,
   AdminChargeStatusChangeResponse,
   CampusCreateRequest,
@@ -411,6 +418,68 @@ function toPenaltyRuleUpdateRequest(body: PenaltyRuleUpdateRequest): PenaltyRule
     amountPerUnit: toNonNegativeInteger(body.amountPerUnit, '단위당 금액'),
     isActive: Boolean(body.isActive),
   };
+}
+
+function toAdminPrayerSeasonCreateRequest(
+  body: AdminPrayerSeasonCreateRequest,
+): AdminPrayerSeasonCreateRequest {
+  return {
+    name: toRequiredString(body.name, '기도 시즌 이름'),
+    startDate: toDatePathSegment(body.startDate, 'startDate'),
+  };
+}
+
+function toAdminPrayerSeasonCloseRequest(
+  body: AdminPrayerSeasonCloseRequest,
+): AdminPrayerSeasonCloseRequest {
+  return {
+    endDate: toDatePathSegment(body.endDate, 'endDate'),
+  };
+}
+
+function toPositiveSortOrder(value: unknown, label: string) {
+  return Number(toPositiveIntegerPathSegment(value, label));
+}
+
+function toAdminPrayerGroupCreateRequest(
+  body: AdminPrayerGroupCreateRequest,
+): AdminPrayerGroupCreateRequest {
+  return {
+    name: toRequiredString(body.name, '기도조 이름'),
+    sortOrder: toPositiveSortOrder(body.sortOrder, 'sortOrder'),
+  };
+}
+
+function toAdminPrayerGroupUpdateRequest(
+  body: AdminPrayerGroupUpdateRequest,
+): AdminPrayerGroupUpdateRequest {
+  return {
+    name: toRequiredString(body.name, '기도조 이름'),
+    sortOrder: toPositiveSortOrder(body.sortOrder, 'sortOrder'),
+    isActive: Boolean(body.isActive),
+  };
+}
+
+function toAdminPrayerGroupMembersReplaceRequest(
+  body: AdminPrayerGroupMembersReplaceRequest,
+): AdminPrayerGroupMembersReplaceRequest {
+  const seen = new Set<number>();
+  const userIds = body.userIds.map((userId) =>
+    Number(toPositiveIntegerPathSegment(userId, 'userIds')),
+  );
+
+  userIds.forEach((userId) => {
+    if (seen.has(userId)) {
+      throw new FaithLogApiError({
+        kind: 'error',
+        message: '기도조 멤버 userId가 중복되었습니다.',
+      });
+    }
+
+    seen.add(userId);
+  });
+
+  return {userIds};
 }
 
 function toDevotionSummaryYearMonthQuery(year: unknown, month: unknown) {
@@ -1085,6 +1154,100 @@ export function savePrayerSubmissions(
       accessToken,
       method: 'PUT',
       body,
+    },
+  );
+}
+
+export function createAdminPrayerSeason(
+  accessToken: string,
+  campusId: unknown,
+  body: AdminPrayerSeasonCreateRequest,
+) {
+  return apiRequest<AdminPrayerSeason>(
+    buildAdminCampusPath(campusId, 'prayer-seasons'),
+    {
+      accessToken,
+      body: toAdminPrayerSeasonCreateRequest(body),
+      method: 'POST',
+    },
+  );
+}
+
+export function closeAdminPrayerSeason(
+  accessToken: string,
+  seasonId: unknown,
+  body: AdminPrayerSeasonCloseRequest,
+) {
+  return apiRequest<AdminPrayerSeason>(
+    buildApiPath(
+      'admin',
+      'prayer-seasons',
+      toPositiveIntegerPathSegment(seasonId, 'seasonId'),
+      'close',
+    ),
+    {
+      accessToken,
+      body: toAdminPrayerSeasonCloseRequest(body),
+      method: 'PATCH',
+    },
+  );
+}
+
+export function createAdminPrayerGroup(
+  accessToken: string,
+  seasonId: unknown,
+  body: AdminPrayerGroupCreateRequest,
+) {
+  return apiRequest<AdminPrayerGroup>(
+    buildApiPath(
+      'admin',
+      'prayer-seasons',
+      toPositiveIntegerPathSegment(seasonId, 'seasonId'),
+      'groups',
+    ),
+    {
+      accessToken,
+      body: toAdminPrayerGroupCreateRequest(body),
+      method: 'POST',
+    },
+  );
+}
+
+export function updateAdminPrayerGroup(
+  accessToken: string,
+  groupId: unknown,
+  body: AdminPrayerGroupUpdateRequest,
+) {
+  return apiRequest<AdminPrayerGroup>(
+    buildApiPath(
+      'admin',
+      'prayer-groups',
+      toPositiveIntegerPathSegment(groupId, 'groupId'),
+    ),
+    {
+      accessToken,
+      body: toAdminPrayerGroupUpdateRequest(body),
+      method: 'PATCH',
+    },
+  );
+}
+
+export function replaceAdminPrayerGroupMembers(
+  accessToken: string,
+  groupId: unknown,
+  body: AdminPrayerGroupMembersReplaceRequest,
+) {
+  return apiRequest<AdminPrayerGroup>(
+    buildApiPath(
+      'admin',
+      'prayer-groups',
+      toPositiveIntegerPathSegment(groupId, 'groupId'),
+      'members',
+    ),
+    {
+      accessToken,
+      body: toAdminPrayerGroupMembersReplaceRequest(body),
+      method: 'PUT',
     },
   );
 }

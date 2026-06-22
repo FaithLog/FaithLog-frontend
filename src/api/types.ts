@@ -511,6 +511,55 @@ export type PrayerSubmissionSaveRequest = {
   submissions: PrayerSubmissionSaveItem[];
 };
 
+export type PrayerSeasonStatus = 'ACTIVE' | 'CLOSED' | string;
+
+export type AdminPrayerSeason = {
+  seasonId: number;
+  campusId: number;
+  name: string;
+  startDate: string;
+  endDate: string | null;
+  status: PrayerSeasonStatus;
+};
+
+export type AdminPrayerSeasonCreateRequest = {
+  name: string;
+  startDate: string;
+};
+
+export type AdminPrayerSeasonCloseRequest = {
+  endDate: string;
+};
+
+export type AdminPrayerGroupMember = {
+  userId: number;
+  name: string;
+};
+
+export type AdminPrayerGroup = {
+  groupId: number;
+  seasonId: number;
+  name: string;
+  sortOrder: number;
+  active: boolean;
+  members: AdminPrayerGroupMember[];
+};
+
+export type AdminPrayerGroupCreateRequest = {
+  name: string;
+  sortOrder: number;
+};
+
+export type AdminPrayerGroupUpdateRequest = {
+  isActive: boolean;
+  name: string;
+  sortOrder: number;
+};
+
+export type AdminPrayerGroupMembersReplaceRequest = {
+  userIds: number[];
+};
+
 export type AdminDashboardSummary = {
   campus: {
     campusId: number;
