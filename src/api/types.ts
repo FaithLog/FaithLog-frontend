@@ -494,3 +494,27 @@ export type DutyAssignment = {
 export type CoffeeDutyAssignRequest = {
   userId: number;
 };
+
+export type AdminMissingDevotionMember = {
+  userId: number;
+  name: string;
+  email: string;
+  campusMemberId: number;
+  campusName: string;
+  region: string;
+};
+
+export type AdminNotificationRequest = {
+  notificationType: string;
+  targetUserIds: number[];
+  targetWeekStartDate: string | null;
+  targetId: number | null;
+  title: string;
+  body: string;
+};
+
+export type AdminNotificationResponse = {
+  notificationRequestId: string;
+  queuedCount: number;
+  skippedCount: number;
+};

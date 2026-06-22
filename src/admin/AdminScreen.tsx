@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Modal, Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {
@@ -8,13 +8,17 @@ import {
   FaithLogApiError,
   fetchAdminCampusMembers,
   fetchAdminDashboardSummary,
+  fetchAdminMissingDevotionMembers,
   fetchDutyAssignments,
   revokeCoffeeDuty,
+  sendAdminNotification,
 } from '../api/client';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   AdminCampusMember,
   AdminDashboardSummary,
+  AdminMissingDevotionMember,
+  AdminNotificationResponse,
   ApiError,
   CampusRole,
   DutyAssignment,
@@ -51,7 +55,7 @@ type AdminScreenProps = {
   state: AuthenticatedState;
 };
 
-type AdminTab = 'home' | 'members' | 'roles';
+type AdminTab = 'home' | 'devotion' | 'members' | 'roles';
 type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
 
@@ -73,8 +77,23 @@ type AdminActionState =
   | {status: 'revokingCoffee'; assignmentId: number}
   | {status: 'deletingMember'; membershipId: number};
 
+type MissingDevotionState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; members: AdminMissingDevotionMember[]}
+  | {status: 'empty'}
+  | {status: 'error'; error: ApiError};
+
+type NotificationSendState =
+  | {status: 'idle'}
+  | {status: 'confirming'; targets: AdminMissingDevotionMember[]}
+  | {status: 'sending'; targets: AdminMissingDevotionMember[]}
+  | {status: 'sent'; result: AdminNotificationResponse; targetCount: number}
+  | {status: 'failed'; error: ApiError; targetCount: number};
+
 const adminTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
+  {id: 'devotion', label: '경건'},
   {id: 'members', label: '멤버'},
   {id: 'roles', label: '역할'},
 ];
@@ -90,12 +109,18 @@ const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADE
 
 export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
-  const weekStartDate = useMemo(() => getWeekStartDate(new Date()), [campusId]);
+  const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
   const [memberFilter, setMemberFilter] = useState<MemberFilter>('ALL');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<AdminLoadState>({status: 'loading'});
+  const [missingDevotionState, setMissingDevotionState] = useState<MissingDevotionState>({
+    status: 'idle',
+  });
+  const [notificationState, setNotificationState] = useState<NotificationSendState>({
+    status: 'idle',
+  });
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
@@ -132,8 +157,107 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
 
   useEffect(() => {
     setSelectedMemberId(null);
+    setWeekStartDate(getWeekStartDate(new Date()));
+    setMissingDevotionState({status: 'idle'});
+    setNotificationState({status: 'idle'});
     void loadAdmin();
   }, [campusId]);
+
+  useEffect(() => {
+    if (tab === 'devotion' && missingDevotionState.status === 'idle') {
+      void loadMissingDevotions();
+    }
+  }, [tab, missingDevotionState.status]);
+
+  const loadMissingDevotions = async () => {
+    setMissingDevotionState({status: 'loading'});
+    setNotificationState({status: 'idle'});
+    setActionError(null);
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const missingMembers = await fetchAdminMissingDevotionMembers(
+        accessToken,
+        campusId,
+        weekStartDate,
+      );
+
+      setMissingDevotionState(
+        missingMembers.length === 0
+          ? {status: 'empty'}
+          : {status: 'success', members: missingMembers},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '경건생활 미제출자를 불러오지 못했습니다.');
+      setMissingDevotionState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const changeMissingWeek = (direction: -1 | 1) => {
+    setWeekStartDate((current) => addDaysToDateString(current, direction * 7));
+    setMissingDevotionState({status: 'idle'});
+    setNotificationState({status: 'idle'});
+  };
+
+  const openNotificationConfirm = (targets: AdminMissingDevotionMember[]) => {
+    if (targets.length === 0 || notificationState.status === 'sending') {
+      return;
+    }
+
+    setNotificationState({status: 'confirming', targets});
+    setActionError(null);
+  };
+
+  const cancelNotificationConfirm = () => {
+    if (notificationState.status === 'sending') {
+      return;
+    }
+
+    setNotificationState({status: 'idle'});
+  };
+
+  const confirmNotificationSend = async () => {
+    if (notificationState.status !== 'confirming') {
+      return;
+    }
+
+    const targets = notificationState.targets;
+    setNotificationState({status: 'sending', targets});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const result = await sendAdminNotification(accessToken, campusId, {
+        notificationType: 'CUSTOM',
+        targetUserIds: targets.map((target) => target.userId),
+        targetWeekStartDate: weekStartDate,
+        targetId: null,
+        title: '경건생활 제출 알림',
+        body: '이번 주 경건생활을 제출해 주세요.',
+      });
+
+      setNotificationState({status: 'sent', result, targetCount: targets.length});
+      setNotice({
+        tone: result.skippedCount > 0 ? 'warning' : 'success',
+        title: '경건 미제출 알림 발송',
+        message: `${result.queuedCount}명 큐잉, ${result.skippedCount}명 스킵 처리되었습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '경건 미제출 알림을 발송하지 못했습니다.');
+      setNotificationState({status: 'failed', error: apiError, targetCount: targets.length});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
 
   const updateRole = async (member: AdminCampusMember, campusRole: CampusRole) => {
     if (actionState.status !== 'idle' || member.campusRole === campusRole) {
@@ -361,6 +485,16 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           onOpenMembers={() => setTab('members')}
           onOpenRoles={() => setTab('roles')}
         />
+      ) : tab === 'devotion' ? (
+        <AdminDevotionMissing
+          missingState={missingDevotionState}
+          notificationState={notificationState}
+          onChangeWeek={changeMissingWeek}
+          onOpenNotificationConfirm={openNotificationConfirm}
+          onRetry={loadMissingDevotions}
+          summary={loadState.summary}
+          weekStartDate={weekStartDate}
+        />
       ) : tab === 'members' ? (
         <AdminMembers
           filter={memberFilter}
@@ -390,6 +524,12 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         member={deleteTarget}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={confirmDeleteMember}
+      />
+      <NotificationConfirmSheet
+        onCancel={cancelNotificationConfirm}
+        onConfirm={confirmNotificationSend}
+        state={notificationState}
+        weekStartDate={weekStartDate}
       />
     </>
   );
@@ -483,6 +623,193 @@ function AdminHome({
       </Card>
     </>
   );
+}
+
+function AdminDevotionMissing({
+  missingState,
+  notificationState,
+  onChangeWeek,
+  onOpenNotificationConfirm,
+  onRetry,
+  summary,
+  weekStartDate,
+}: {
+  missingState: MissingDevotionState;
+  notificationState: NotificationSendState;
+  onChangeWeek: (direction: -1 | 1) => void;
+  onOpenNotificationConfirm: (targets: AdminMissingDevotionMember[]) => void;
+  onRetry: () => void;
+  summary: AdminDashboardSummary;
+  weekStartDate: string;
+}) {
+  const selectedWeekMatchesSummary = summary.devotion.weekStartDate === weekStartDate;
+  const missingCount =
+    missingState.status === 'success'
+      ? missingState.members.length
+      : selectedWeekMatchesSummary
+        ? summary.devotion.missingCount
+        : 0;
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 04 Devotion Status</Eyebrow>
+        <Title>경건 제출 현황</Title>
+        <Body>
+          {weekStartDate} 주차 기준으로 weekly devotion submitted_at이 없거나 null인 ACTIVE 멤버를 조회합니다.
+        </Body>
+        <View style={styles.metricGrid}>
+          <Metric label="선택 주차" value={formatShortWeekLabel(weekStartDate)} />
+          <Metric label="미제출" value={`${missingCount}명`} />
+          <Metric
+            label="제출률"
+            value={selectedWeekMatchesSummary ? `${summary.devotion.submitRate}%` : '조회 후 확인'}
+          />
+          <Metric label="API" value="GET missing" />
+        </View>
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="이전 주 경건 미제출자 조회"
+            disabled={missingState.status === 'loading' || notificationState.status === 'sending'}
+            onPress={() => onChangeWeek(-1)}
+            variant="secondary">
+            이전 주
+          </Button>
+          <Button
+            accessibilityLabel="다음 주 경건 미제출자 조회"
+            disabled={missingState.status === 'loading' || notificationState.status === 'sending'}
+            onPress={() => onChangeWeek(1)}
+            variant="secondary">
+            다음 주
+          </Button>
+          <Button
+            accessibilityLabel="경건 미제출자 다시 불러오기"
+            disabled={missingState.status === 'loading' || notificationState.status === 'sending'}
+            onPress={onRetry}
+            variant="ghost">
+            다시 조회
+          </Button>
+        </View>
+      </Card>
+      {renderMissingDevotionBody({
+        missingState,
+        notificationState,
+        onOpenNotificationConfirm,
+        onRetry,
+        weekStartDate,
+      })}
+      {renderNotificationResult(notificationState)}
+    </>
+  );
+}
+
+function renderMissingDevotionBody({
+  missingState,
+  notificationState,
+  onOpenNotificationConfirm,
+  onRetry,
+  weekStartDate,
+}: {
+  missingState: MissingDevotionState;
+  notificationState: NotificationSendState;
+  onOpenNotificationConfirm: (targets: AdminMissingDevotionMember[]) => void;
+  onRetry: () => void;
+  weekStartDate: string;
+}) {
+  switch (missingState.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="경건 미제출자를 조회하고 있어요." />;
+    case 'empty':
+      return (
+        <Empty
+          title="미제출자가 없습니다"
+          message={`${weekStartDate} 주차에는 알림을 보낼 대상이 없습니다.`}
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="미제출자 empty state에서 다시 조회"
+          onActionPress={onRetry}
+        />
+      );
+    case 'error':
+      return <AdminErrorState error={missingState.error} onRetry={onRetry} />;
+    case 'success':
+      return (
+        <Card>
+          <View style={styles.headerRow}>
+            <View style={styles.headerText}>
+              <Eyebrow>Admin 05 Devotion Missing</Eyebrow>
+              <Title>미제출자 {missingState.members.length}명</Title>
+              <Body>발송 전 대상자를 확인한 뒤 알림을 큐잉합니다.</Body>
+            </View>
+            <Button
+              accessibilityLabel="경건 미제출자 알림 발송 확인 열기"
+              disabled={notificationState.status === 'sending'}
+              onPress={() => onOpenNotificationConfirm(missingState.members)}>
+              알림 발송
+            </Button>
+          </View>
+          {missingState.members.map((member) => (
+            <MissingDevotionMemberRow key={member.campusMemberId} member={member} />
+          ))}
+        </Card>
+      );
+    default:
+      return assertNever(missingState);
+  }
+}
+
+function MissingDevotionMemberRow({member}: {member: AdminMissingDevotionMember}) {
+  return (
+    <View style={styles.memberRow}>
+      <Avatar name={member.name} role="MEMBER" />
+      <View style={styles.headerText}>
+        <Text style={styles.memberName}>{member.name}</Text>
+        <Text style={styles.memberMeta}>
+          {member.region} {member.campusName} · member #{member.campusMemberId}
+        </Text>
+        <Text style={styles.memberMeta}>{member.email}</Text>
+      </View>
+      <Chip label={`user ${member.userId}`} tone="info" />
+    </View>
+  );
+}
+
+function renderNotificationResult(notificationState: NotificationSendState) {
+  switch (notificationState.status) {
+    case 'idle':
+    case 'confirming':
+      return null;
+    case 'sending':
+      return <Loading message="Status 08 Notification Sending: 알림을 발송 큐에 넣고 있어요." />;
+    case 'sent':
+      return (
+        <Card>
+          <Eyebrow>Status 09 Notification Sent</Eyebrow>
+          <Title>알림 발송 요청이 접수되었습니다</Title>
+          <View style={styles.metricGrid}>
+            <Metric label="확인 대상" value={`${notificationState.targetCount}명`} />
+            <Metric label="큐잉" value={`${notificationState.result.queuedCount}명`} />
+            <Metric label="스킵" value={`${notificationState.result.skippedCount}명`} />
+          </View>
+          <ListRow
+            label="요청 ID"
+            supportingText="notification_logs.request_id"
+            value={notificationState.result.notificationRequestId}
+          />
+        </Card>
+      );
+    case 'failed':
+      return (
+        <Card>
+          <Eyebrow>Status 09 Notification Sent</Eyebrow>
+          <Title>알림 발송에 실패했습니다</Title>
+          <Body>확인 대상 {notificationState.targetCount}명에 대한 발송 요청이 완료되지 않았습니다.</Body>
+          <AdminInlineError error={notificationState.error} />
+        </Card>
+      );
+    default:
+      return assertNever(notificationState);
+  }
 }
 
 function AdminMembers({
@@ -767,6 +1094,63 @@ function DeleteMemberSheet({
   );
 }
 
+function NotificationConfirmSheet({
+  onCancel,
+  onConfirm,
+  state,
+  weekStartDate,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  state: NotificationSendState;
+  weekStartDate: string;
+}) {
+  const visible = state.status === 'confirming' || state.status === 'sending';
+  const targets = state.status === 'confirming' || state.status === 'sending' ? state.targets : [];
+  const loading = state.status === 'sending';
+
+  return (
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Eyebrow>Admin 12 Notification Confirm</Eyebrow>
+          <Title>{targets.length}명에게 경건 알림을 보낼까요?</Title>
+          <Body>
+            {weekStartDate} 주차 미제출자에게 REST Docs의 CUSTOM 알림 payload로 발송합니다.
+          </Body>
+          <ListRow label="제목" value="경건생활 제출 알림" />
+          <ListRow label="본문" supportingText="이번 주 경건생활을 제출해 주세요." />
+          <View style={styles.confirmTargetList}>
+            {targets.slice(0, 4).map((target) => (
+              <Text key={target.userId} style={styles.confirmTargetText}>
+                {target.name} · user {target.userId}
+              </Text>
+            ))}
+            {targets.length > 4 ? (
+              <Text style={styles.confirmTargetText}>외 {targets.length - 4}명</Text>
+            ) : null}
+          </View>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="경건 미제출 알림 발송 실행"
+              disabled={loading}
+              onPress={onConfirm}>
+              {loading ? '발송 중...' : '발송'}
+            </Button>
+            <Button
+              accessibilityLabel="경건 미제출 알림 발송 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function SegmentedControl<T extends string>({
   items,
   onSelect,
@@ -967,6 +1351,21 @@ function getWeekStartDate(date: Date) {
   return `${year}-${month}-${dayOfMonth}`;
 }
 
+function addDaysToDateString(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+
+  return getWeekStartDate(date);
+}
+
+function formatShortWeekLabel(value: string) {
+  const parts = value.split('-');
+  const month = parts[1] ?? '--';
+  const day = parts[2] ?? '--';
+
+  return `${month}/${day}`;
+}
+
 function formatCompactWon(value: number) {
   if (value >= 1000) {
     return `${Math.round(value / 1000)}K`;
@@ -1008,6 +1407,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  confirmTargetList: {
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.item,
+    gap: 6,
+    padding: 12,
+  },
+  confirmTargetText: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
   },
   headerRow: {
     alignItems: 'flex-start',
