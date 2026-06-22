@@ -127,6 +127,27 @@ export type DevotionDailyCheck = {
   bibleReadingChecked: boolean;
 };
 
+export type DevotionDailyCheckRequest = {
+  quietTimeChecked: boolean;
+  prayerChecked: boolean;
+  bibleReadingChecked: boolean;
+};
+
+export type DevotionDailyCheckSaveResponse = DevotionDailyCheckRequest & {
+  weeklyRecordId: number;
+  recordDate: string;
+  quietTimeCount: number;
+  prayerCount: number;
+  bibleReadingCount: number;
+  submittedAt?: string | null;
+};
+
+export type WeeklyDevotionSaveRequest = {
+  dailyChecks: Array<DevotionDailyCheckRequest & {recordDate: string}>;
+  saturdayLateMinutes: number;
+  submit: boolean;
+};
+
 export type WeeklyDevotionSummary = {
   weeklyRecordId: number | null;
   campusId: number;
@@ -141,6 +162,32 @@ export type WeeklyDevotionSummary = {
   saturdayLateMinutes: number;
   submittedAt: string | null;
   dailyChecks: DevotionDailyCheck[];
+};
+
+export type DevotionMonthTotal = {
+  quietTimeCount: number;
+  prayerCount: number;
+  bibleReadingCount: number;
+  saturdayLateMinutes: number;
+};
+
+export type DevotionMonthlyWeekRecord = DevotionMonthTotal & {
+  weeklyRecordId: number | null;
+  weekStartDate: string;
+  weekEndDate: string;
+  submittedAt: string | null;
+};
+
+export type DevotionMonthlySummary = {
+  campusId: number;
+  campusName: string;
+  region: string;
+  userId: number;
+  name: string;
+  year: number;
+  month: number;
+  devotion: DevotionMonthTotal;
+  weeklyRecords: DevotionMonthlyWeekRecord[];
 };
 
 export type ChargeCategorySummary = {

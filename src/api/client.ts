@@ -9,6 +9,9 @@ import type {
   CampusMembershipSummary,
   ChargeSummary,
   CurrentUser,
+  DevotionDailyCheckRequest,
+  DevotionDailyCheckSaveResponse,
+  DevotionMonthlySummary,
   PollSummary,
   PrayerWeekSummary,
   LoginRequest,
@@ -17,6 +20,7 @@ import type {
   SignupRequest,
   SignupResponse,
   TokenPair,
+  WeeklyDevotionSaveRequest,
   WeeklyDevotionSummary,
 } from './types';
 
@@ -103,7 +107,7 @@ export function buildCampusPath(campusId: unknown, ...segments: PathSegment[]) {
   return buildApiPath('campuses', toPositiveIntegerPathSegment(campusId, 'campusId'), ...segments);
 }
 
-function toMondayDatePathSegment(value: unknown, label: string) {
+export function toDatePathSegment(value: unknown, label: string) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new FaithLogApiError({
       kind: 'error',
@@ -113,14 +117,28 @@ function toMondayDatePathSegment(value: unknown, label: string) {
 
   const date = new Date(`${value}T00:00:00`);
 
-  if (Number.isNaN(date.getTime()) || date.getDay() !== 1 || formatLocalDate(date) !== value) {
+  if (Number.isNaN(date.getTime()) || formatLocalDate(date) !== value) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 값이 올바르지 않습니다.`,
+    });
+  }
+
+  return value;
+}
+
+export function toMondayDatePathSegment(value: unknown, label: string) {
+  const dateValue = toDatePathSegment(value, label);
+  const date = new Date(`${dateValue}T00:00:00`);
+
+  if (date.getDay() !== 1) {
     throw new FaithLogApiError({
       kind: 'error',
       message: `${label}는 월요일이어야 합니다.`,
     });
   }
 
-  return value;
+  return dateValue;
 }
 
 function formatLocalDate(date: Date) {
@@ -145,6 +163,30 @@ function toSummaryYearMonthQuery(year: unknown, month: unknown) {
     throw new FaithLogApiError({
       kind: 'error',
       message: '납부 요약 조회 연월이 올바르지 않습니다.',
+    });
+  }
+
+  const params = new URLSearchParams();
+  params.set('year', String(year));
+  params.set('month', String(month));
+
+  return params.toString();
+}
+
+function toDevotionSummaryYearMonthQuery(year: unknown, month: unknown) {
+  if (
+    typeof year !== 'number' ||
+    !Number.isInteger(year) ||
+    year < 1 ||
+    year > 9999 ||
+    typeof month !== 'number' ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '경건생활 월간 통계 조회 연월이 올바르지 않습니다.',
     });
   }
 
@@ -346,6 +388,63 @@ export function fetchWeeklyDevotionSummary(
       'weeks',
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
+    {accessToken},
+  );
+}
+
+export function saveDevotionDailyCheck(
+  accessToken: string,
+  campusId: unknown,
+  recordDate: string,
+  body: DevotionDailyCheckRequest,
+) {
+  return apiRequest<DevotionDailyCheckSaveResponse>(
+    buildCampusPath(
+      campusId,
+      'devotions',
+      'me',
+      'days',
+      toDatePathSegment(recordDate, 'recordDate'),
+    ),
+    {
+      accessToken,
+      method: 'PUT',
+      body,
+    },
+  );
+}
+
+export function saveWeeklyDevotion(
+  accessToken: string,
+  campusId: unknown,
+  weekStartDate: string,
+  body: WeeklyDevotionSaveRequest,
+) {
+  return apiRequest<WeeklyDevotionSummary>(
+    buildCampusPath(
+      campusId,
+      'devotions',
+      'me',
+      'weeks',
+      toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
+    ),
+    {
+      accessToken,
+      method: 'PUT',
+      body,
+    },
+  );
+}
+
+export function fetchDevotionMonthlySummary(
+  accessToken: string,
+  campusId: unknown,
+  params: {year: number; month: number},
+) {
+  const query = toDevotionSummaryYearMonthQuery(params.year, params.month);
+
+  return apiRequest<DevotionMonthlySummary>(
+    `${buildCampusPath(campusId, 'devotions', 'me', 'monthly-summary')}?${query}`,
     {accessToken},
   );
 }
