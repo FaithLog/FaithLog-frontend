@@ -63,9 +63,13 @@ import type {
   PenaltyRuleCreateRequest,
   PenaltyRuleType,
   PenaltyRuleUpdateRequest,
+  ServiceAdminUserDetail,
+  ServiceAdminUserList,
+  ServiceAdminUserRoleChangeRequest,
   SignupRequest,
   SignupResponse,
   TokenPair,
+  UserRole,
   WeeklyDevotionSaveRequest,
   WeeklyDevotionSummary,
 } from './types';
@@ -231,6 +235,7 @@ function toSummaryYearMonthQuery(year: unknown, month: unknown) {
 type ChargeSortKey = 'createdAt' | 'dueDate' | 'amount';
 type SortDirection = 'asc' | 'desc';
 type NotificationLogSortKey = 'createdAt' | 'sentAt' | 'sendStatus';
+type ServiceAdminUserSortKey = 'id' | 'name' | 'email' | 'role' | 'createdAt';
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
 const paymentCategories = ['PENALTY', 'COFFEE'] as const;
@@ -240,7 +245,9 @@ const chargeSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
 const notificationTypes = ['CUSTOM'] as const;
 const notificationSendStatuses = ['PENDING', 'SENT', 'FAILED', 'SKIPPED'] as const;
 const notificationLogSortKeys = ['createdAt', 'sentAt', 'sendStatus'] as const;
+const serviceAdminUserSortKeys = ['id', 'name', 'email', 'role', 'createdAt'] as const;
 const sortDirections = ['asc', 'desc'] as const;
+const userRoles = ['USER', 'MANAGER', 'ADMIN'] as const;
 
 function isPaymentCategory(value: unknown): value is PaymentCategory {
   return paymentCategories.includes(value as PaymentCategory);
@@ -274,8 +281,16 @@ function isNotificationLogSortKey(value: unknown): value is NotificationLogSortK
   return notificationLogSortKeys.includes(value as NotificationLogSortKey);
 }
 
+function isServiceAdminUserSortKey(value: unknown): value is ServiceAdminUserSortKey {
+  return serviceAdminUserSortKeys.includes(value as ServiceAdminUserSortKey);
+}
+
 function isSortDirection(value: unknown): value is SortDirection {
   return sortDirections.includes(value as SortDirection);
+}
+
+function isUserRole(value: unknown): value is (typeof userRoles)[number] {
+  return userRoles.includes(value as (typeof userRoles)[number]);
 }
 
 function toSafeChargeListQuery(params: {
@@ -357,6 +372,41 @@ function toRequiredString(value: unknown, label: string) {
   }
 
   return trimmed;
+}
+
+function toOptionalSearchQueryValue(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim().slice(0, 80);
+
+  return trimmed || undefined;
+}
+
+function toSafePage(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? Math.min(value, 9999)
+    : 0;
+}
+
+function toSafePageSize(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value)
+    ? Math.min(Math.max(value, 1), 100)
+    : 20;
+}
+
+function toServiceAdminUserRoleChangeRequest(
+  body: ServiceAdminUserRoleChangeRequest,
+): ServiceAdminUserRoleChangeRequest {
+  if (!isUserRole(body.role)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '전역 역할 값이 올바르지 않습니다.',
+    });
+  }
+
+  return {role: body.role};
 }
 
 function toNonNegativeInteger(value: unknown, label: string) {
@@ -636,6 +686,46 @@ function toSafeAdminNotificationLogQuery(params: {
 
   if (params.endDate) {
     query.set('endDate', toDatePathSegment(params.endDate, 'endDate'));
+  }
+
+  return query.toString();
+}
+
+function toSafeServiceAdminUserQuery(params: {
+  email?: string;
+  name?: string;
+  page?: number;
+  role?: UserRole | 'ALL';
+  size?: number;
+  sort?: {direction: SortDirection; key: ServiceAdminUserSortKey};
+  userId?: number;
+} = {}) {
+  const query = new URLSearchParams();
+  const page = toSafePage(params.page);
+  const size = toSafePageSize(params.size);
+  const sortKey = isServiceAdminUserSortKey(params.sort?.key) ? params.sort.key : 'id';
+  const sortDirection = isSortDirection(params.sort?.direction) ? params.sort.direction : 'asc';
+  const name = toOptionalSearchQueryValue(params.name);
+  const email = toOptionalSearchQueryValue(params.email);
+
+  query.set('page', String(page));
+  query.set('size', String(size));
+  query.set('sort', `${sortKey},${sortDirection}`);
+
+  if (name) {
+    query.set('name', name);
+  }
+
+  if (email) {
+    query.set('email', email);
+  }
+
+  if (params.userId !== undefined) {
+    query.set('userId', toPositiveIntegerPathSegment(params.userId, 'userId'));
+  }
+
+  if (isUserRole(params.role)) {
+    query.set('role', params.role);
   }
 
   return query.toString();
@@ -1518,6 +1608,55 @@ export function changeAdminCampusMemberRole(
     {
       accessToken,
       body,
+      method: 'PATCH',
+    },
+  );
+}
+
+export function getServiceAdminUsers(
+  accessToken: string,
+  params: {
+    email?: string;
+    name?: string;
+    page?: number;
+    role?: UserRole | 'ALL';
+    size?: number;
+    sort?: {direction: SortDirection; key: ServiceAdminUserSortKey};
+    userId?: number;
+  } = {},
+): Promise<ServiceAdminUserList> {
+  const query = toSafeServiceAdminUserQuery(params);
+
+  return apiRequest<ServiceAdminUserList>(`${buildApiPath('admin', 'users')}?${query}`, {
+    accessToken,
+  });
+}
+
+export function getServiceAdminUser(
+  accessToken: string,
+  userId: unknown,
+): Promise<ServiceAdminUserDetail> {
+  return apiRequest<ServiceAdminUserDetail>(
+    buildApiPath('admin', 'users', toPositiveIntegerPathSegment(userId, 'userId')),
+    {accessToken},
+  );
+}
+
+export function updateServiceAdminUserRole(
+  accessToken: string,
+  userId: unknown,
+  body: ServiceAdminUserRoleChangeRequest,
+): Promise<ServiceAdminUserDetail> {
+  return apiRequest<ServiceAdminUserDetail>(
+    buildApiPath(
+      'admin',
+      'users',
+      toPositiveIntegerPathSegment(userId, 'userId'),
+      'role',
+    ),
+    {
+      accessToken,
+      body: toServiceAdminUserRoleChangeRequest(body),
       method: 'PATCH',
     },
   );
