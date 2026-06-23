@@ -139,3 +139,36 @@ Related issue: #28 / FE-B02.
   recent value.
 - No endpoint, DTO field, request body, query parameter, or error code was added
   for FE-B02.
+
+## Prayer Week Entry Policy
+
+Related issue: #30 / FE-B04. Affects FE-012.
+
+Confirmed REST Docs endpoints:
+
+- `GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}`
+- `PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/submissions`
+
+Coverage notes:
+
+- `weekStartDate` is a path parameter and must be the Monday of the target
+  prayer week. Non-Monday dates are rejected with
+  `PRAYER_INVALID_WEEK_START_DATE`.
+- The API Docs do not define an admin setting, request field, query parameter,
+  or separate policy endpoint for opening next-week prayer entry on Saturdays.
+- Therefore, Saturday next-week entry is recorded as frontend policy: on
+  Saturdays in the app timezone, the prayer entry screen opens with the next
+  week's Monday `weekStartDate`; other days continue to open the current week.
+- The selected `weekStartDate` is then passed to the documented GET/PUT prayer
+  week endpoints without adding any undocumented contract.
+- The prayer week response still owns the save gate through `data.status`.
+  Existing FE-012 UI behavior applies: `OPEN` boards are editable, and
+  non-`OPEN` boards stay read-only/disabled.
+- Save conflict behavior is unchanged. `409 PRAYER_SUBMISSION_CONFLICT` remains
+  the documented version-conflict recovery path: reload the latest board, or
+  keep local edits while checking the latest version before retrying.
+- `401`, `403`, and `409` continue through the existing API client
+  normalization. Loading, empty, error, retry, and offline states remain owned
+  by the FE-012 prayer board/entry flow.
+- Token, secret, email, raw request body, and raw prayer content logging remains
+  disallowed. Diagnostics should use non-sensitive status or reason codes.
