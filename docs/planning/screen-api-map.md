@@ -15,6 +15,65 @@ Reference API Docs: `/Users/josephuk77/FaithLog/build/docs/asciidoc/index.html`
 - `401`, `403`, and `409` must remain separate UI states.
 - The frontend must not invent undocumented endpoints, request fields, or error
   codes.
+- Push notification open payloads are treated as external input. The frontend
+  accepts only the documented `{ route, params }` policy below, validates route
+  and params before navigation, and does not execute arbitrary deep link strings,
+  free-form query strings, paths, or URLs supplied by a server.
+
+## Push Payload Route Policy
+
+Related policy: FE-B03.
+
+Payload shape:
+
+```json
+{
+  "route": "polls",
+  "params": {
+    "pollId": 123
+  }
+}
+```
+
+Route allowlist examples:
+
+- `userHome`
+- `devotion`
+- `payments`
+- `polls`
+- `prayers`
+- `profile`
+- `campusAdmin`
+- `serviceAdmin`
+
+Params validation and normalization:
+
+- Each route owns an explicit params schema. Unknown fields are ignored or
+  rejected before navigation; they must not be forwarded into API query params.
+- Numeric identifiers such as `pollId`, `campusId`, `userId`, and `targetId`
+  must be parsed as positive integers and normalized to numbers.
+- Date-like fields such as `weekStartDate` and `targetWeekStartDate` must match
+  `YYYY-MM-DD` before use.
+- Enum-like fields must be narrowed through an allowlist; unknown strings must
+  not become route names, query keys, sort keys, or filter values.
+- Missing optional params keep the user on the route's safe list/home state.
+  Missing or invalid required params produce an invalid payload state instead of
+  silent fallback navigation.
+- Auth/session restore runs before protected route navigation. If the restored
+  user cannot access `campusAdmin` or `serviceAdmin`, the existing
+  permission-denied handling applies.
+
+State and security impact:
+
+- `401`, `403`, and `409` UX remain unchanged. Invalid payload handling is a
+  frontend validation state, not a new backend error contract.
+- Loading, empty, error, retry, and offline states remain route-owned; this
+  policy only controls whether a push open may navigate to that route.
+- Payload values, FCM tokens, access tokens, refresh tokens, emails, and raw
+  payload bodies must not be logged or sent to analytics.
+- The API Docs do not define a push open navigation payload contract. Until the
+  backend documents it, `{ route, params }` is a frontend policy and requires
+  backend coordination before being treated as a server contract.
 
 ## Service ADMIN User Management
 

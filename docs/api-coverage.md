@@ -88,6 +88,42 @@ Auto-close policy:
 - Closed-poll confirm UX is represented by `status === CLOSED`, the displayed
   `endsAt`, and result-only messaging.
 
+## Push Notification Payload Policy
+
+Related issue: #29 / FE-B03.
+
+- The frontend accepts push open navigation payloads only as `{ route, params }`.
+- `route` must match a client allowlist entry such as `userHome`, `devotion`,
+  `payments`, `polls`, `prayers`, `profile`, `campusAdmin`, or `serviceAdmin`.
+- Arbitrary deep link strings, free-form query strings, server-provided paths,
+  and server-provided URLs are not executable navigation contracts.
+- `params` are route-scoped and must be validated and normalized before
+  navigation or API use. Examples: positive integer `pollId`, `campusId`,
+  `userId`, or `targetId`; `YYYY-MM-DD` `weekStartDate` or
+  `targetWeekStartDate`; allowlisted enum-like strings only when a route
+  explicitly supports them.
+- Unknown routes, unknown param fields, invalid identifiers, and invalid dates
+  are handled as invalid payload state. The frontend must not silently turn them
+  into a default deep link or raw API query.
+- `401`, `403`, and `409` UX are not changed by FE-B03. Auth/session restore and
+  route permission checks still decide whether protected routes can open.
+- Loading, empty, error, retry, and offline states remain owned by the target
+  screen flow. Push payload validation only decides whether navigation is safe.
+- Token, secret, email, and raw payload logging/analytics exposure remains
+  disallowed. Invalid payload diagnostics should use non-sensitive reason codes.
+
+API Docs confirmation:
+
+- The REST Docs Notifications section documents `POST /api/v1/users/me/fcm-tokens`,
+  `DELETE /api/v1/users/me/fcm-tokens/{tokenId}`,
+  `POST /api/v1/admin/campuses/{campusId}/notifications`, and
+  `GET /api/v1/admin/campuses/{campusId}/notification-logs`.
+- The current API Docs do not define a push notification delivery/open payload
+  route schema.
+- Therefore `{ route, params }` is recorded as frontend policy. Backend
+  coordination is needed before this can be treated as an API/server contract or
+  before adding request fields to admin notification send payloads.
+
 ## Campus Selection Policy
 
 Related issue: #28 / FE-B02.
