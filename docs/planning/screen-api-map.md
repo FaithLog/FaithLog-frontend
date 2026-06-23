@@ -83,6 +83,22 @@ State and security impact:
 | `Admin Global User Detail` | 사용자 기본 정보와 캠퍼스 소속 조회 | `GET /api/v1/admin/users/{userId}` | loading, error, permissionDenied | 전역 `ADMIN` |
 | `Admin 27 User Role Edit` | `USER`/`MANAGER`/`ADMIN` 전역 역할 변경 | `PATCH /api/v1/admin/users/{userId}/role` | loading, saving, selfDemotionBlocked, conflict409, permissionDenied, error | 전역 `ADMIN` |
 
+## User Prayer Board And Entry
+
+| Screen | Feature | API | States | Permission |
+| --- | --- | --- | --- | --- |
+| `User 11 Prayer Board` | 조별 기도제목 주차 조회 | `GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}` | loading, empty, error, retry, offline, permissionDenied | 캠퍼스 ACTIVE 멤버 |
+| `User 12 Prayer Entry` | 조별 기도제목 작성/저장 | `PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/submissions` | loading, saving, conflict409, permissionDenied, error, retry, offline | 같은 기도조 조원/권한 보유 사용자 |
+
+Prayer week entry policy:
+
+- FE-B04 결정에 따라 토요일에는 기도제목 작성 화면을 다음 주차로 자동 진입시킨다.
+- 다음 주차는 앱 timezone 기준 토요일 날짜에서 계산한 다음 월요일 `weekStartDate`다. REST Docs의 prayer API는 월요일 `weekStartDate`만 허용하므로 토요일 날짜 자체를 path parameter로 보내지 않는다.
+- API Docs에는 토요일 오픈 정책을 위한 관리자 설정, endpoint, field, query parameter, error code가 없다. 이 결정은 frontend policy이며 새 API contract가 아니다.
+- FE-012의 조회/저장 DTO와 409 복구는 기존 REST Docs 계약을 따른다. `409 PRAYER_SUBMISSION_CONFLICT`는 version conflict로만 다루고, 최신 서버 데이터 다시 불러오기 또는 내 작성 유지 후 최신 version 확인 UX를 사용한다.
+- `401`, `403`, `409`, loading, empty, error, retry, offline 상태는 기존 prayer board/entry 흐름을 유지한다.
+- 이 문서 결정만으로 token, secret, raw prayer content, raw request payload logging 예외를 추가하지 않는다.
+
 ## Admin Poll Management
 
 | Screen | Feature | API | States | Permission |
@@ -110,7 +126,7 @@ Admin poll close/status policy:
 
 ## API Confirmation Needed
 
-- 없음. FE-B01, FE-B02의 정책 결정은 위 기준으로 resolved 처리한다.
+- 없음. FE-B01, FE-B02, FE-B04의 정책 결정은 위 기준으로 resolved 처리한다.
 
 ## Campus Selection Policy
 

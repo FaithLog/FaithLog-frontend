@@ -17,6 +17,12 @@ Reference material checked for issue #17 / FE-015:
 - Figma: `FaithLog 모바일 와이어프레임 v2`, `디자인 변경` page frames `Admin 06 Poll Manage`, `Admin 07`, `Admin 08`, `Admin 09`
 - Current implementation: `src/api/adminPollApi.ts`, `src/admin/AdminScreen.tsx`
 
+Reference material checked for issue #30 / FE-B04:
+
+- API Docs: `/Users/josephuk77/FaithLog/build/docs/asciidoc/index.html`
+- Figma: `FaithLog 모바일 와이어프레임 v2`, node `483:1107`
+- Current implementation reference: `src/prayers/PrayerScreen.tsx`
+
 ## Ready / Backlog
 
 ### FE-015. 관리자 투표 템플릿/생성/결과/미응답자
@@ -171,3 +177,27 @@ API:
 - 허용되지 않은 route 또는 invalid params는 임의 fallback navigation 없이 invalid payload 상태로 처리하고, 필요 시 사용자가 기존 홈/목록 화면에서 다시 진입하게 한다.
 - 401/403/409 UX, loading/empty/error/retry/offline 상태, token/secret/log 노출 정책은 기존 FE-006/FE-019 기준을 유지하며 이 문서 결정만으로 새 API error code나 보안 예외를 추가하지 않는다.
 - API Docs의 Notifications 계약은 FCM token 등록/비활성화, 관리자 알림 발송, 알림 로그 조회만 설명한다. push open payload의 `{ route, params }` 서버 계약은 문서에 없으므로 frontend policy로 기록하고 backend coordination이 필요하다.
+
+### FE-B04. 토요일 다음 주차 기도제목 작성 정책
+
+상태: `Resolved`
+
+결정:
+
+- 토요일에는 사용자 기도제목 작성 화면을 다음 주차로 자동 진입시킨다.
+- 다음 주차는 앱 timezone 기준 다음 월요일 `weekStartDate`로 계산한다.
+- 토요일 날짜를 prayer API path parameter로 보내지 않는다.
+
+영향:
+
+- `FE-012`
+
+구현 기준:
+
+- FE-012는 기존 REST Docs 계약인 `GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}`와 `PUT /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}/submissions`만 사용한다.
+- API Docs는 `weekStartDate`가 월요일이어야 한다는 계약, 저장 권한 403, version conflict 409만 설명한다.
+- API Docs에는 토요일 다음 주차 오픈 정책을 위한 관리자 설정, endpoint, request field, query parameter, error code가 없다. 이 결정은 frontend policy이며 새 API contract가 아니다.
+- 409는 `PRAYER_SUBMISSION_CONFLICT` version conflict 복구로만 유지한다. 최신 서버 데이터 다시 불러오기 또는 내 작성 유지 후 최신 version 확인 UX를 따른다.
+- 401/403/409, loading/empty/error/retry/offline 상태는 기존 FE-012 기도제목 조회/저장 흐름을 유지한다.
+- token, secret, raw prayer content, raw request payload는 log/analytics에 노출하지 않는다.
+- Figma node `483:1107`은 `User 08-6 Poll Results - Responders` 투표 결과 명단 화면으로 확인됐다. 토요일 기도제목 주차 선택 정책과 직접 충돌하는 prayer entry UI 요구사항은 없으므로 UI 변경은 하지 않는다.
