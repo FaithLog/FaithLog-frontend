@@ -72,3 +72,25 @@ API:
 - 자기 자신 강등 금지는 API Docs에 별도 계약이 없으므로 클라이언트 정책으로 문서화한다.
 - 마지막 활성 ADMIN 강등 금지는 API Docs의 `PATCH /api/v1/admin/users/{userId}/role` 설명과 맞춰 409 conflict UX로 다룬다.
 - 새 endpoint, request field, error code를 임의로 만들지 않는다.
+
+### FE-B02. 여러 캠퍼스 기본 선택 정책
+
+상태: `Resolved`
+
+결정:
+
+- 사용자가 여러 ACTIVE 캠퍼스에 속한 경우 앱 시작 기본 캠퍼스는 최근 선택값을 우선 사용한다.
+- 최근 선택값이 없거나 현재 ACTIVE 캠퍼스 목록에 없으면 첫 번째 ACTIVE 캠퍼스로 fallback한다.
+- fallback으로 선택된 ACTIVE 캠퍼스는 다음 앱 시작이 같은 기준을 쓰도록 최근 선택값으로 다시 저장한다.
+
+영향:
+
+- `FE-002`
+- `FE-007`
+- `FE-008`
+
+구현 기준:
+
+- 최근 선택 campusId는 secure storage에 저장한다.
+- 저장값은 positive integer로 검증하고, 현재 `GET /api/v1/campuses/me` ACTIVE 목록에 있는 경우에만 사용한다.
+- 새 endpoint, request field, query parameter를 임의로 만들지 않는다.

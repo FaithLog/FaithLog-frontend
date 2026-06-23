@@ -7,6 +7,7 @@ const REFRESH_TOKEN_KEY = 'faithlog.refreshToken';
 const FCM_TOKEN_KEY = 'faithlog.fcmToken';
 const FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
 const CLIENT_INSTANCE_ID_KEY = 'faithlog.clientInstanceId';
+const LAST_SELECTED_CAMPUS_ID_KEY = 'faithlog.lastSelectedCampusId';
 
 export type StoredTokens = {
   accessToken: string | null;
@@ -40,7 +41,24 @@ export async function clearTokens() {
     SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
     SecureStore.deleteItemAsync(FCM_TOKEN_KEY),
     SecureStore.deleteItemAsync(FCM_TOKEN_ID_KEY),
+    SecureStore.deleteItemAsync(LAST_SELECTED_CAMPUS_ID_KEY),
   ]);
+}
+
+export async function getStoredSelectedCampusId(): Promise<number | null> {
+  const value = await SecureStore.getItemAsync(LAST_SELECTED_CAMPUS_ID_KEY);
+  const campusId = value ? Number(value) : null;
+
+  return campusId && Number.isInteger(campusId) && campusId > 0 ? campusId : null;
+}
+
+export async function saveSelectedCampusId(campusId: number) {
+  if (!Number.isInteger(campusId) || campusId <= 0) {
+    await SecureStore.deleteItemAsync(LAST_SELECTED_CAMPUS_ID_KEY);
+    return;
+  }
+
+  await SecureStore.setItemAsync(LAST_SELECTED_CAMPUS_ID_KEY, String(campusId));
 }
 
 export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration> {
