@@ -40,6 +40,54 @@ Issue #27 does not add any endpoint, DTO field, query parameter, or error code.
 The frontend documentation and Service ADMIN UI only clarify how FE-020 should
 present and block the already decided ADMIN demotion policy.
 
+## Admin Poll Management APIs
+
+Related issue: #17 / FE-015.
+
+Implemented in:
+
+- `src/api/adminPollApi.ts`
+- `src/admin/AdminScreen.tsx`
+
+Confirmed REST Docs endpoints:
+
+- `GET /api/v1/admin/campuses/{campusId}/poll-templates`
+- `POST /api/v1/admin/campuses/{campusId}/poll-templates`
+- `GET /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+- `PATCH /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+- `DELETE /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+- `POST /api/v1/admin/campuses/{campusId}/polls`
+- `GET /api/v1/campuses/{campusId}/polls`
+- `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`
+- `GET /api/v1/campuses/{campusId}/polls/{pollId}/comments`
+- `GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members`
+- `POST /api/v1/admin/campuses/{campusId}/notifications`
+
+Coverage notes:
+
+- Poll template create/update validates documented fields before calling the
+  API: `title`, `pollType`, `selectionType`, `chargeGenerationType`,
+  `paymentCategory`, `paymentAccountId`, weekly start/end day/time, and
+  options.
+- Poll creation supports both `templateId` based creation and direct option
+  creation. Direct options use documented `content`, `menuId`, `priceAmount`,
+  and `sortOrder` fields.
+- Poll results use the REST Docs campus member endpoint
+  `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`; no undocumented
+  admin-prefixed results endpoint is called.
+- Missing members use the documented admin endpoint and notification sending
+  uses the documented admin notifications endpoint.
+- `401`, `403`, and `409` flow through the existing API client normalization
+  into session expired, permission denied, and conflict UI states.
+
+Auto-close policy:
+
+- The frontend does not create or call any manual poll close/status endpoint.
+- Poll creation sends `endsAt`; after that time the server is expected to
+  transition the poll to `CLOSED`.
+- Closed-poll confirm UX is represented by `status === CLOSED`, the displayed
+  `endsAt`, and result-only messaging.
+
 ## Campus Selection Policy
 
 Related issue: #28 / FE-B02.

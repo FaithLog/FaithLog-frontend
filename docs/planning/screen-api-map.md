@@ -24,6 +24,23 @@ Reference API Docs: `/Users/josephuk77/FaithLog/build/docs/asciidoc/index.html`
 | `Admin Global User Detail` | 사용자 기본 정보와 캠퍼스 소속 조회 | `GET /api/v1/admin/users/{userId}` | loading, error, permissionDenied | 전역 `ADMIN` |
 | `Admin 27 User Role Edit` | `USER`/`MANAGER`/`ADMIN` 전역 역할 변경 | `PATCH /api/v1/admin/users/{userId}/role` | loading, saving, selfDemotionBlocked, conflict409, permissionDenied, error | 전역 `ADMIN` |
 
+## Admin Poll Management
+
+| Screen | Feature | API | States | Permission |
+| --- | --- | --- | --- | --- |
+| `Admin 06 Poll Manage` | 관리자 투표 목록과 템플릿 요약 | `GET /api/v1/campuses/{campusId}/polls`, `GET /api/v1/admin/campuses/{campusId}/poll-templates` | loading, empty, error, permissionDenied | 캠퍼스 관리자 |
+| `Admin 06-1 Poll Templates` | 투표 템플릿 목록/생성/수정/비활성화 | `GET/POST/PATCH/DELETE /api/v1/admin/campuses/{campusId}/poll-templates` | loading, saving, empty, conflict409, permissionDenied, error | 캠퍼스 관리자 |
+| `Admin 07 Poll Create - Type/Detail` | 템플릿 기반 또는 직접 선택지 투표 생성 | `POST /api/v1/admin/campuses/{campusId}/polls` | loading, validationError, accountMissing, coffeeDutyMissing, conflict409, error | 캠퍼스 관리자 |
+| `Admin 08 Poll Result + Comments` | 결과와 댓글 조회 | `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`, `GET /api/v1/campuses/{campusId}/polls/{pollId}/comments` | loading, empty, closed, error, permissionDenied | 캠퍼스 ACTIVE 멤버/관리자 |
+| `Admin 09 Poll Missing` | 미응답자 조회와 알림 발송 | `GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members`, `POST /api/v1/admin/campuses/{campusId}/notifications` | loading, empty, sending, sent, failed, permissionDenied | 캠퍼스 관리자 |
+
+Admin poll close/status policy:
+
+- 수동 poll close/status endpoint는 REST Docs에 없으므로 frontend에서 만들거나 호출하지 않는다.
+- 생성 시 `endsAt`을 필수로 보내고, 서버가 `endsAt` 이후 `CLOSED` 상태로 전환한다고 안내한다.
+- 닫힌 투표 confirm UX는 `status === CLOSED`와 `endsAt` 안내/결과 확인 문구로 처리한다.
+- REST Docs 기준 결과 조회는 admin prefix가 아니라 `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`이다.
+
 ## FE-B01 Policy
 
 - 전역 `ADMIN`은 무조건 한 명 이상 남아야 한다.

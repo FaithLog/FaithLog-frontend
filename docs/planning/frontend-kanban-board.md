@@ -11,7 +11,58 @@ Reference material checked for issue #27:
 - Original planning references from `/Users/josephuk77/Documents/FeithLog-frontend`
 - Current implementation: `src/admin/ServiceAdminScreen.tsx`
 
+Reference material checked for issue #17 / FE-015:
+
+- API Docs: `/Users/josephuk77/FaithLog/build/docs/asciidoc/index.html`
+- Figma: `FaithLog 모바일 와이어프레임 v2`, `디자인 변경` page frames `Admin 06 Poll Manage`, `Admin 07`, `Admin 08`, `Admin 09`
+- Current implementation: `src/api/adminPollApi.ts`, `src/admin/AdminScreen.tsx`
+
 ## Ready / Backlog
+
+### FE-015. 관리자 투표 템플릿/생성/결과/미응답자
+
+상태: `Done`
+
+범위:
+
+- 관리자 투표 템플릿 목록/생성/수정/비활성화
+- 템플릿 기반 생성과 직접 선택지 생성
+- `endsAt` 기반 자동 종료 정책 안내
+- 결과/댓글 조회, 미응답자 조회, 미응답 알림 발송
+- 401/403/409를 기존 API client error normalization과 관리자 상태 UI로 분리
+
+화면:
+
+- `Admin 06 Poll Manage`
+- `Admin 06-1 Poll Templates`
+- `Admin 06-2 Poll Template Edit`
+- `Admin 06-3 Poll Status Change`
+- `Admin 06-4 Poll Close Confirm`
+- `Admin 07 Poll Create - Type`
+- `Admin 07 Poll Create - Detail`
+- `Admin 08 Poll Result + Comments`
+- `Admin 09 Poll Missing`
+
+API:
+
+- `GET /api/v1/admin/campuses/{campusId}/poll-templates`
+- `POST /api/v1/admin/campuses/{campusId}/poll-templates`
+- `PATCH /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+- `DELETE /api/v1/admin/campuses/{campusId}/poll-templates/{templateId}`
+- `POST /api/v1/admin/campuses/{campusId}/polls`
+- `GET /api/v1/campuses/{campusId}/polls/{pollId}/results`
+- `GET /api/v1/campuses/{campusId}/polls/{pollId}/comments`
+- `GET /api/v1/admin/campuses/{campusId}/polls/{pollId}/missing-members`
+- `POST /api/v1/admin/campuses/{campusId}/notifications`
+
+완료 기준:
+
+- [x] REST Docs 기준 poll template CRUD API client와 request validation
+- [x] poll create API client와 `endsAt` 자동 종료 안내
+- [x] 결과/댓글/미응답자/알림 수직 슬라이스
+- [x] coffee poll account/duty missing 사전 안내
+- [x] 수동 close/status API 미구현: CLOSED는 응답 `status`와 `endsAt` 안내로만 처리
+- [x] `npm run typecheck` 통과
 
 ### FE-020. Service ADMIN 유저 관리
 
