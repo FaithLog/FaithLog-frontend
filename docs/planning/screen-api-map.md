@@ -83,6 +83,20 @@ State and security impact:
 | `Admin Global User Detail` | 사용자 기본 정보와 캠퍼스 소속 조회 | `GET /api/v1/admin/users/{userId}` | loading, error, permissionDenied | 전역 `ADMIN` |
 | `Admin 27 User Role Edit` | `USER`/`MANAGER`/`ADMIN` 전역 역할 변경 | `PATCH /api/v1/admin/users/{userId}/role` | loading, saving, selfDemotionBlocked, conflict409, permissionDenied, error | 전역 `ADMIN` |
 
+## User Devotion
+
+| Screen | Feature | API | States | Permission |
+| --- | --- | --- | --- | --- |
+| `User 05 Monthly Calendar` | 월간 경건 캘린더와 선택 날짜 빠른 체크 | `GET /api/v1/campuses/{campusId}/devotions/me/monthly-summary?year=&month=`, `GET /api/v1/campuses/{campusId}/devotions/me/weeks/{weekStartDate}`, `PUT /api/v1/campuses/{campusId}/devotions/me/days/{recordDate}` | loading, saving, conflict409, error, retry, offline, permissionDenied | 캠퍼스 ACTIVE 멤버 |
+
+Monthly calendar policy:
+
+- `User 05 Monthly Calendar` is a `userHome` sub-state opened from the home devotion `캘린더` CTA, so the bottom navigation remains on `홈`.
+- The screen does not add a new route payload or backend endpoint. It combines the documented monthly summary, weekly summary, and daily check save APIs.
+- Month navigation updates the monthly summary query and selects the first day of the target month.
+- Quick check save uses the selected date's `recordDate`; the selected week is loaded through Monday `weekStartDate` to preserve the REST Docs weekly path rule.
+- `401`, `403`, `409`, loading, empty, error, retry, and offline states remain route-owned and must not log tokens, raw passwords, or raw request payloads.
+
 ## User Prayer Board And Entry
 
 | Screen | Feature | API | States | Permission |

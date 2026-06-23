@@ -257,7 +257,7 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
   return (
     <>
       <Card>
-        <Eyebrow>User 05 Monthly Calendar</Eyebrow>
+        <Eyebrow>월간 기록</Eyebrow>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Chip label={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`} tone="info" />
@@ -319,7 +319,7 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
       </Card>
 
       <Card>
-        <Eyebrow>User 06 Weekly Devotion</Eyebrow>
+        <Eyebrow>주간 기록</Eyebrow>
         <Title>경건생활</Title>
         <Body>
           {formatShortDate(weekly.weekStartDate)} - {formatShortDate(weekly.weekEndDate)} 주차입니다.
@@ -339,7 +339,7 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
       {locked ? (
         <Conflict
           title="제출 완료된 주차입니다"
-          message="제출 후에는 daily check와 주간 저장을 수정할 수 없습니다. 수정이 필요하면 관리자에게 문의해 주세요."
+          message="제출 후에는 하루 기록과 주간 저장을 수정할 수 없습니다. 수정이 필요하면 관리자에게 문의해 주세요."
         />
       ) : null}
 
@@ -347,15 +347,15 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
 
       {submitComplete || locked ? (
         <Card>
-          <Eyebrow>Status 03 Devotion Submit Complete</Eyebrow>
+          <Eyebrow>제출 상태</Eyebrow>
           <Title>{locked ? '제출이 완료됐어요' : '제출 처리 완료'}</Title>
-          <Body>서버가 submittedAt을 반환한 뒤에는 이 주차 입력을 잠급니다.</Body>
+          <Body>제출 완료 후에는 이 주차 입력을 잠급니다.</Body>
         </Card>
       ) : null}
 
       {savingAction === 'submit' ? (
         <Card>
-          <Eyebrow>Status 02 Devotion Submit Loading</Eyebrow>
+          <Eyebrow>제출 상태</Eyebrow>
           <Title>제출 처리 중</Title>
           <Body>주간 기록을 제출하고 있어요. 완료 전까지 화면을 닫지 말아 주세요.</Body>
         </Card>
@@ -411,7 +411,7 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
       </Card>
 
       <Card>
-        <Eyebrow>User 06-2 Devotion Penalty Result</Eyebrow>
+        <Eyebrow>제출 전 확인</Eyebrow>
         <Title>제출 전 확인</Title>
         <Body>벌금 금액은 서버의 벌금 규칙과 계좌 설정을 기준으로 제출 시 확정됩니다.</Body>
         <View style={styles.lateMinutesRow}>

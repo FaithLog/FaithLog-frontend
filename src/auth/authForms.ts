@@ -9,7 +9,7 @@ export type SignupFormValues = SignupRequest & {
 export type AuthFieldErrors<T extends string> = Partial<Record<T, string>>;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 4;
+const MIN_PASSWORD_LENGTH = 8;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_NAME_LENGTH = 50;
 const MAX_PASSWORD_LENGTH = 128;

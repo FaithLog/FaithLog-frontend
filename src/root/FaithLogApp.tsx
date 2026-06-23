@@ -1,5 +1,19 @@
-import {type ReactNode, useEffect, useMemo, useState} from 'react';
-import {Modal, SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {type PropsWithChildren, type ReactNode, useEffect, useMemo, useState} from 'react';
+import {
+  KeyboardAvoidingView,
+  type KeyboardTypeOptions,
+  Modal,
+  Platform,
+  Pressable,
+  type ReturnKeyTypeOptions,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextInputProps,
+  View,
+} from 'react-native';
 
 import {
   createCampus,
@@ -60,12 +74,12 @@ import {
   Offline,
   PermissionDenied,
   Screen,
-  ScreenHeader,
   TextField,
   Title,
 } from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
+import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {
   deactivateCurrentFcmToken,
   inspectFcmRegistrationStatus,
@@ -114,6 +128,8 @@ export function FaithLogApp() {
   const [entryTarget, setEntryTarget] = useState<EntryTarget | null>(null);
   const [sessionNotice, setSessionNotice] = useState<SessionNotice>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
+  const publicAuthMode =
+    authState.status === 'signedOut' || authState.status === 'sessionExpired';
 
   const retryBootstrap = () => {
     setEntryTarget(null);
@@ -140,35 +156,50 @@ export function FaithLogApp() {
   }, [authState, route]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Screen>
-        <ScrollView contentContainerStyle={styles.content}>
-          <AppHeader />
-          {sessionNotice ? <NoticeCard notice={sessionNotice} /> : null}
-          {renderAuthState({
-            clearNotice: () => setSessionNotice(null),
-            entryTarget,
-            openEntryTarget: setEntryTarget,
-            retry: retryBootstrap,
-            route,
-            setAuthState,
-            setNotice: setSessionNotice,
-            setRoute,
-            state: authState,
-          })}
-        </ScrollView>
-      </Screen>
+    <SafeAreaView style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardRoot}>
+        {publicAuthMode ? (
+          <ScrollView
+            contentContainerStyle={styles.authScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            {sessionNotice ? <AuthNotice notice={sessionNotice} /> : null}
+            {renderAuthState({
+              clearNotice: () => setSessionNotice(null),
+              entryTarget,
+              openEntryTarget: setEntryTarget,
+              retry: retryBootstrap,
+              route,
+              setAuthState,
+              setNotice: setSessionNotice,
+              setRoute,
+              state: authState,
+            })}
+          </ScrollView>
+        ) : (
+          <Screen>
+            <ScrollView
+              contentContainerStyle={styles.content}
+              keyboardShouldPersistTaps="handled">
+              {sessionNotice ? <NoticeCard notice={sessionNotice} /> : null}
+              {renderAuthState({
+                clearNotice: () => setSessionNotice(null),
+                entryTarget,
+                openEntryTarget: setEntryTarget,
+                retry: retryBootstrap,
+                route,
+                setAuthState,
+                setNotice: setSessionNotice,
+                setRoute,
+                state: authState,
+              })}
+            </ScrollView>
+          </Screen>
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
-  );
-}
-
-function AppHeader() {
-  return (
-    <ScreenHeader
-      action={<Chip label="M1 Foundation" tone="info" />}
-      subtitle="공동체 생활을 한 흐름으로"
-      title="FaithLog"
-    />
   );
 }
 
@@ -490,7 +521,7 @@ function InviteCodeForm({
 
   return (
     <Card>
-      <Eyebrow>User 03 Invite Code</Eyebrow>
+      <Eyebrow>초대코드</Eyebrow>
       <Title>초대코드를 입력해주세요</Title>
       <Body>관리자에게 받은 초대코드로 캠퍼스에 참여할 수 있어요.</Body>
       <TextField
@@ -594,7 +625,7 @@ function CampusCreateForm({
 
   return (
     <Card>
-      <Eyebrow>User 03-1 Campus Create</Eyebrow>
+      <Eyebrow>캠퍼스 만들기</Eyebrow>
       <Title>새 캠퍼스 정보</Title>
       <Body>MANAGER 또는 ADMIN 권한만 캠퍼스를 만들 수 있어요.</Body>
       <TextField
@@ -693,49 +724,54 @@ function LoginForm({
   };
 
   return (
-    <Card>
-      <Eyebrow>User 01 Login</Eyebrow>
-      <Title>로그인</Title>
-      <Body>이메일과 비밀번호로 FaithLog에 들어갑니다.</Body>
-      <TextField
+    <View style={[styles.authFrame, styles.loginAuthFrame]}>
+      <View style={styles.loginHero}>
+        <Text style={styles.loginBrandTitle}>FaithLog</Text>
+        <Text style={styles.loginSubtitle}>경건생활과 공동체 운영을{'\n'}가볍게 관리해요</Text>
+      </View>
+      <AuthTextField
         accessibilityLabel="로그인 이메일 입력"
         error={fieldErrors.email}
         keyboardType="email-address"
         label="이메일"
         onChangeText={(email) => setValues((current) => ({...current, email}))}
-        placeholder="name@example.com"
+        placeholder="example@email.com"
         returnKeyType="next"
         textContentType="emailAddress"
         value={values.email}
       />
-      <TextField
+      <AuthTextField
         accessibilityLabel="로그인 비밀번호 입력"
         error={fieldErrors.password}
         label="비밀번호"
         onChangeText={(password) => setValues((current) => ({...current, password}))}
         onSubmitEditing={submit}
+        placeholder="••••••••"
         returnKeyType="done"
         secureTextEntry
         textContentType="password"
         value={values.password}
       />
       {formError ? <InlineError message={formError} /> : null}
-      <View style={styles.actionRow}>
-        <Button
+      <View style={styles.authActionRow}>
+        <AuthButton
           accessibilityLabel="로그인 제출"
           disabled={submitting}
-          onPress={submit}>
+          onPress={submit}
+          width={92}>
           {submitting ? '로그인 중...' : '로그인'}
-        </Button>
-        <Button
+        </AuthButton>
+        <AuthButton
           accessibilityLabel="회원가입 화면으로 이동"
           disabled={submitting}
           onPress={switchToSignup}
-          variant="secondary">
+          variant="secondary"
+          width={92}>
           회원가입
-        </Button>
+        </AuthButton>
       </View>
-    </Card>
+      <Text style={styles.authFootnote}>초대코드는 회원가입 후 입력할 수 있어요</Text>
+    </View>
   );
 }
 
@@ -792,44 +828,47 @@ function SignupForm({
   };
 
   return (
-    <Card>
-      <Eyebrow>User 02 Signup</Eyebrow>
-      <Title>회원가입</Title>
-      <Body>가입 후 로그인하면 캠퍼스 초대 또는 생성 흐름으로 이어집니다.</Body>
-      <TextField
+    <View style={[styles.authFrame, styles.signupAuthFrame]}>
+      <View style={styles.signupHeader}>
+        <Text style={styles.signupTitle}>회원가입</Text>
+        <View style={styles.authBrandChip}>
+          <Text style={styles.authBrandChipText}>FaithLog</Text>
+        </View>
+      </View>
+      <AuthTextField
         accessibilityLabel="회원가입 이름 입력"
         autoCapitalize="words"
         error={fieldErrors.name}
         label="이름"
         onChangeText={(name) => setValues((current) => ({...current, name}))}
-        placeholder="홍길동"
+        placeholder="이승욱"
         returnKeyType="next"
         textContentType="name"
         value={values.name}
       />
-      <TextField
+      <AuthTextField
         accessibilityLabel="회원가입 이메일 입력"
         error={fieldErrors.email}
         keyboardType="email-address"
         label="이메일"
         onChangeText={(email) => setValues((current) => ({...current, email}))}
-        placeholder="name@example.com"
+        placeholder="josephuk77@sungkyul.ac.kr"
         returnKeyType="next"
         textContentType="emailAddress"
         value={values.email}
       />
-      <TextField
+      <AuthTextField
         accessibilityLabel="회원가입 비밀번호 입력"
         error={fieldErrors.password}
-        helper="4자 이상 입력해 주세요."
         label="비밀번호"
         onChangeText={(password) => setValues((current) => ({...current, password}))}
+        placeholder="8자 이상 입력"
         returnKeyType="next"
         secureTextEntry
         textContentType="newPassword"
         value={values.password}
       />
-      <TextField
+      <AuthTextField
         accessibilityLabel="회원가입 비밀번호 확인 입력"
         error={fieldErrors.passwordConfirm}
         label="비밀번호 확인"
@@ -837,28 +876,127 @@ function SignupForm({
           setValues((current) => ({...current, passwordConfirm}))
         }
         onSubmitEditing={submit}
+        placeholder="다시 입력"
         returnKeyType="done"
         secureTextEntry
         textContentType="newPassword"
         value={values.passwordConfirm}
       />
       {formError ? <InlineError message={formError} /> : null}
-      <View style={styles.actionRow}>
-        <Button
+      <View style={[styles.authActionRow, styles.signupAuthActionRow]}>
+        <AuthButton
           accessibilityLabel="회원가입 제출"
           disabled={submitting}
-          onPress={submit}>
-          {submitting ? '가입 중...' : '회원가입'}
-        </Button>
-        <Button
+          onPress={submit}
+          width={92}>
+          {submitting ? '가입 중...' : '가입 완료'}
+        </AuthButton>
+        <AuthButton
           accessibilityLabel="로그인 화면으로 이동"
           disabled={submitting}
           onPress={switchToLogin}
-          variant="secondary">
-          로그인으로
-        </Button>
+          width={76}>
+          로그인
+        </AuthButton>
       </View>
-    </Card>
+    </View>
+  );
+}
+
+function AuthTextField({
+  accessibilityLabel,
+  autoCapitalize = 'none',
+  error,
+  keyboardType = 'default',
+  label,
+  onChangeText,
+  onSubmitEditing,
+  placeholder,
+  returnKeyType,
+  secureTextEntry = false,
+  textContentType,
+  value,
+}: {
+  accessibilityLabel: string;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  error?: string | undefined;
+  keyboardType?: KeyboardTypeOptions;
+  label: string;
+  onChangeText: (value: string) => void;
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
+  placeholder: string;
+  returnKeyType?: ReturnKeyTypeOptions;
+  secureTextEntry?: boolean;
+  textContentType?: 'emailAddress' | 'name' | 'newPassword' | 'password' | 'none' | undefined;
+  value: string;
+}) {
+  return (
+    <View style={styles.authField}>
+      <Text style={styles.authFieldLabel}>{label}</Text>
+      <TextInput
+        accessibilityLabel={accessibilityLabel}
+        autoCapitalize={autoCapitalize}
+        keyboardType={keyboardType}
+        onChangeText={onChangeText}
+        onSubmitEditing={onSubmitEditing}
+        placeholder={placeholder}
+        placeholderTextColor={authColors.text}
+        returnKeyType={returnKeyType}
+        secureTextEntry={secureTextEntry}
+        style={[styles.authInput, error ? styles.authInputError : null]}
+        textContentType={textContentType}
+        value={value}
+      />
+      {error ? <Text style={styles.authFieldError}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function AuthButton({
+  accessibilityLabel,
+  children,
+  disabled = false,
+  onPress,
+  variant = 'primary',
+  width,
+}: PropsWithChildren<{
+  accessibilityLabel: string;
+  disabled?: boolean;
+  onPress: () => void;
+  variant?: 'primary' | 'secondary';
+  width?: number;
+}>) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.authButton,
+        variant === 'primary' ? styles.authButtonPrimary : styles.authButtonSecondary,
+        width ? {width} : null,
+        disabled ? styles.authButtonDisabled : null,
+        pressed ? styles.authButtonPressed : null,
+      ]}>
+      <Text
+        style={[
+          styles.authButtonText,
+          variant === 'primary' ? styles.authButtonTextPrimary : styles.authButtonTextSecondary,
+        ]}>
+        {children}
+      </Text>
+    </Pressable>
+  );
+}
+
+function AuthNotice({notice}: {notice: NonNullable<SessionNotice>}) {
+  return (
+    <View style={styles.authNotice}>
+      <Text style={styles.authNoticeTitle}>{notice.title}</Text>
+      <Text style={styles.authNoticeMessage}>{notice.message}</Text>
+    </View>
   );
 }
 
@@ -1093,6 +1231,7 @@ function AuthenticatedShell({
   route: ShellRoute;
   setRoute: (route: ShellRoute) => void;
 }) {
+  const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
@@ -1224,6 +1363,14 @@ function AuthenticatedShell({
     }
   };
 
+  const selectRoute = (nextRoute: ShellRoute) => {
+    if (nextRoute === 'userHome') {
+      setUserHomeView('dashboard');
+    }
+
+    setRoute(nextRoute);
+  };
+
   return (
     <View style={styles.shell}>
       <NotificationPermissionFlow
@@ -1232,16 +1379,26 @@ function AuthenticatedShell({
         userId={state.user.id}
       />
       {route === 'userHome' ? (
-        <UserHomeDashboard
-          onOpenDevotion={() => setRoute('devotion')}
-          onOpenPayments={() => setRoute('payments')}
-          onOpenPolls={() => setRoute('polls')}
-          onOpenPrayers={() => setRoute('prayers')}
-          onCampusSwitchPress={openCampusSwitch}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
+        userHomeView === 'monthlyCalendar' ? (
+          <MonthlyCalendarScreen
+            onBackToHome={() => setUserHomeView('dashboard')}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : (
+          <UserHomeDashboard
+            onOpenDevotion={() => setRoute('devotion')}
+            onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+            onOpenPayments={() => setRoute('payments')}
+            onOpenPolls={() => setRoute('polls')}
+            onOpenPrayers={() => setRoute('prayers')}
+            onCampusSwitchPress={openCampusSwitch}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        )
       ) : route === 'devotion' ? (
         <DevotionScreen
           onBackToHome={() => setRoute('userHome')}
@@ -1297,7 +1454,7 @@ function AuthenticatedShell({
         />
       )}
 
-      <BottomNav activeId={route} items={navItems} onSelect={setRoute} />
+      <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
 
       {route === 'profile' ||
       route === 'userHome' ||
@@ -1337,6 +1494,7 @@ function AuthenticatedShell({
 function UserHomeDashboard({
   onCampusSwitchPress,
   onOpenDevotion,
+  onOpenMonthlyCalendar,
   onOpenPayments,
   onOpenPolls,
   onOpenPrayers,
@@ -1346,6 +1504,7 @@ function UserHomeDashboard({
 }: {
   onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
+  onOpenMonthlyCalendar: () => void;
   onOpenPayments: () => void;
   onOpenPolls: () => void;
   onOpenPrayers: () => void;
@@ -1474,179 +1633,148 @@ function UserHomeDashboard({
   };
 
   return (
-    <>
-      <Card>
-        <View style={styles.homeHeaderRow}>
-          <View style={styles.homeHeaderText}>
-            <Chip label={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`} tone="info" />
-            <Title>{state.user.name}님, 오늘 할 일을 확인해요</Title>
-            <Body>경건, 투표, 납부, 기도제목을 카드별로 따로 불러옵니다.</Body>
-          </View>
-          {state.activeCampuses.length > 1 ? (
-            <Button
-              accessibilityLabel="홈에서 캠퍼스 변경 시트 열기"
-              onPress={onCampusSwitchPress}
-              variant="secondary">
-              캠퍼스 변경
-            </Button>
-          ) : null}
-        </View>
-      </Card>
+    <View style={styles.userFrame}>
+      <View style={styles.figmaHeader}>
+        <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
+        <Pressable
+          accessibilityLabel="홈에서 캠퍼스 변경 시트 열기"
+          accessibilityRole="button"
+          disabled={state.activeCampuses.length <= 1}
+          onPress={onCampusSwitchPress}
+          style={styles.figmaCampusChip}>
+          <Text style={styles.figmaCampusText}>
+            {state.selectedCampus.region} {state.selectedCampus.campusName}
+          </Text>
+        </Pressable>
+      </View>
 
-      <TodayActionCard
-        chargeState={chargeState}
-        devotionState={devotionState}
-        onActionPress={openHomeTarget}
-        pollState={pollState}
-        prayerState={prayerState}
-        today={today}
-      />
-
-      <HomeDataCard
-        actionLabel="내 정보 다시 불러오기"
-        loadingMessage="내 정보와 캠퍼스 목록을 불러오고 있어요."
-        onRetry={loadOverview}
-        state={overviewState}
-        title="내 캠퍼스">
-        {(overview) => (
-          <View style={styles.metaGrid}>
-            <ListRow label="이름" supportingText="GET /api/v1/users/me" value={overview.user.name} />
-            <ListRow label="전역 역할" supportingText="사용자 화면 기준" value={overview.user.role} />
-            <ListRow
-              label="ACTIVE 캠퍼스"
-              supportingText="GET /api/v1/campuses/me"
-              value={`${overview.campuses.filter((campus) => campus.status === 'ACTIVE').length}개`}
-            />
-          </View>
-        )}
-      </HomeDataCard>
-
-      <HomeDataCard
-        actionLabel="경건 카드 다시 불러오기"
-        loadingMessage="이번 주 경건생활을 확인하고 있어요."
-        onRetry={loadDevotion}
-        state={devotionState}
-        title="이번 주 경건생활">
-        {(devotion) => {
-          const todayCheck = getTodayDevotionCheck(devotion, today);
-          const completedToday = todayCheck ? isDevotionDayComplete(todayCheck) : false;
-
-          return (
-            <View style={styles.metaGrid}>
-              <ListRow label="큐티" supportingText="주간 체크 수" value={`${devotion.quietTimeCount}/7`} />
-              <ListRow label="기도" supportingText="주간 체크 수" value={`${devotion.prayerCount}/7`} />
-              <ListRow
-                label="성경읽기"
-                supportingText={devotion.submittedAt ? '제출 완료 주차' : '아직 제출 전'}
-                value={`${devotion.bibleReadingCount}/7`}
-              />
-              <ListRow
-                label="오늘 상태"
-                supportingText={todayCheck ? todayCheck.recordDate : '오늘 날짜가 주차 범위 밖입니다'}
-                value={completedToday ? '완료' : '입력 필요'}
-              />
-              <Button
-                accessibilityLabel="경건생활 주간 입력 화면으로 이동"
-                onPress={onOpenDevotion}
-                variant="secondary">
-                경건생활 관리
-              </Button>
-            </View>
-          );
-        }}
-      </HomeDataCard>
-
-      <HomeDataCard
-        actionLabel="납부 카드 다시 불러오기"
-        loadingMessage="이번 달 납부 요약을 확인하고 있어요."
-        onRetry={loadCharges}
-        state={chargeState}
-        title="이번 달 납부">
-        {(charges) => (
-          <View style={styles.metaGrid}>
-            <ListRow
-              label="미납"
-              supportingText={`${year}년 ${month}월 청구 기준`}
-              value={formatWon(charges.monthlyUnpaidAmount)}
-            />
-            <ListRow label="납부 완료" supportingText="paidAt 기준" value={formatWon(charges.monthlyPaidAmount)} />
-            <ListRow
-              label="총 청구"
-              supportingText="createdAt 기준"
-              value={formatWon(charges.monthlyTotalChargeAmount)}
-            />
-            <Button
-              accessibilityLabel="내 납부 목록 화면으로 이동"
-              onPress={onOpenPayments}
-              variant="secondary">
-              납부 관리
-            </Button>
-          </View>
-        )}
-      </HomeDataCard>
-
-      <HomeDataCard
-        actionLabel="투표 카드 다시 불러오기"
-        loadingMessage="열려 있는 투표를 불러오고 있어요."
-        onRetry={loadPolls}
-        state={pollState}
-        title="참여할 투표">
-        {(polls) => {
-          const openPolls = polls.filter((poll) => poll.status === 'OPEN');
-          const unansweredPolls = openPolls.filter((poll) => !poll.responded);
-
-          if (polls.length === 0) {
-            return <Body>현재 조회 가능한 투표가 없습니다.</Body>;
+      <Pressable
+        accessibilityLabel="오늘 해야 할 일 전체 보기"
+        accessibilityRole="button"
+        onPress={() => {
+          const actions = getTodayActions({chargeState, devotionState, pollState, prayerState, today});
+          if (actions[0]) {
+            openHomeTarget(actions[0].target);
+          } else {
+            onOpenDevotion();
           }
-
-          return (
-            <View style={styles.metaGrid}>
-              <ListRow label="열린 투표" supportingText="GET /api/v1/campuses/{campusId}/polls" value={`${openPolls.length}개`} />
-              <ListRow label="응답 필요" supportingText="responded=false" value={`${unansweredPolls.length}개`} />
-              {openPolls.slice(0, 2).map((poll) => (
-                <ListRow
-                  key={poll.id}
-                  label={poll.title}
-                  supportingText={`${poll.pollType} · ${poll.selectionType}`}
-                  value={poll.responded ? '응답됨' : '응답하기'}
-                />
-              ))}
-            </View>
-          );
         }}
-      </HomeDataCard>
+        style={({pressed}) => [styles.homeTodoCard, pressed ? styles.authButtonPressed : null]}>
+        <Text style={styles.homeTodoLabel}>오늘 해야 할 일</Text>
+        <View style={styles.homeTodoRow}>
+          <Text style={styles.homeTodoTitle}>
+            {getTodayActions({chargeState, devotionState, pollState, prayerState, today}).length}개 남았어요
+          </Text>
+          <View style={styles.homeTodoButton}>
+            <Text style={styles.homeTodoButtonText}>전체보기</Text>
+          </View>
+        </View>
+        <Text style={styles.homeTodoSummary}>
+          {getHomeActionSummary({chargeState, devotionState, pollState, prayerState, today})}
+        </Text>
+      </Pressable>
 
-      <HomeDataCard
-        actionLabel="기도제목 카드 다시 불러오기"
-        loadingMessage="이번 주 기도제목 게시판을 확인하고 있어요."
-        onRetry={loadPrayers}
-        state={prayerState}
-        title="기도제목">
-        {(prayers) => {
-          const entryPolicy = getPrayerEntryPolicy(prayers);
+      <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
+      <View style={styles.homeMetricRow}>
+        <HomeMetricTile
+          label="낸 금액"
+          value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyPaidAmount) : '확인 중'}
+        />
+        <HomeMetricTile
+          label="미납"
+          value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyUnpaidAmount) : '확인 중'}
+        />
+        <HomeMetricTile
+          label="지각"
+          value={devotionState.status === 'success' ? `${devotionState.data.saturdayLateMinutes}분` : '확인 중'}
+        />
+      </View>
 
-          return (
-            <View style={styles.metaGrid}>
-              <ListRow label="진입 정책" supportingText="User 04-1 Home" value={entryPolicy} />
-              <ListRow
-                label="작성 현황"
-                supportingText={prayers.status}
-                value={`${prayers.submittedCount}/${prayers.targetMemberCount}`}
-              />
-              <ListRow label="기도조" supportingText="활성 조 목록" value={`${prayers.groups.length}개`} />
-              {prayers.groups.length === 0 ? <Body>이번 주 활성 기도조가 없습니다.</Body> : null}
-              <Button
-                accessibilityLabel="기도제목 화면으로 이동"
-                onPress={onOpenPrayers}
-                variant="secondary">
-                기도제목 작성/확인
-              </Button>
-            </View>
-          );
-        }}
-      </HomeDataCard>
+      <View style={styles.figmaSectionRow}>
+        <Text style={styles.figmaSectionTitle}>경건생활</Text>
+        <Pressable
+          accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onOpenMonthlyCalendar}>
+          <Text style={styles.figmaTextButton}>캘린더</Text>
+        </Pressable>
+      </View>
+      <View style={styles.homeMetricRow}>
+        <HomeMetricTile
+          label="큐티"
+          value={devotionState.status === 'success' ? `${devotionState.data.quietTimeCount}회` : '확인 중'}
+          onPress={onOpenDevotion}
+        />
+        <HomeMetricTile
+          label="기도"
+          value={devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'}
+          onPress={onOpenDevotion}
+        />
+        <HomeMetricTile
+          label="말씀"
+          value={devotionState.status === 'success' ? `${devotionState.data.bibleReadingCount}회` : '확인 중'}
+          onPress={onOpenDevotion}
+        />
+      </View>
+
+      <Pressable
+        accessibilityLabel="최근 청구 항목 확인"
+        accessibilityRole="button"
+        onPress={onOpenPayments}
+        style={({pressed}) => [styles.homeChargeCard, pressed ? styles.authButtonPressed : null]}>
+        <View style={styles.homeChargeText}>
+          <Text style={styles.homeChargeTitle}>최근 청구 항목</Text>
+          <Text style={styles.homeChargeBody}>
+            {chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
+              ? `이번 달 미납 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
+              : '이번 달 납부 흐름을 확인해요'}
+          </Text>
+        </View>
+        <View style={styles.homeChargeButton}>
+          <Text style={styles.homeChargeButtonText}>입금</Text>
+        </View>
+      </Pressable>
+
+      {overviewState.status === 'error' ||
+      devotionState.status === 'error' ||
+      chargeState.status === 'error' ||
+      pollState.status === 'error' ||
+      prayerState.status === 'error' ? (
+        <InlineError message="일부 정보를 불러오지 못했습니다. 각 탭에서 다시 확인할 수 있어요." />
+      ) : null}
+    </View>
+  );
+}
+
+function HomeMetricTile({
+  label,
+  onPress,
+  value,
+}: {
+  label: string;
+  onPress?: () => void;
+  value: string;
+}) {
+  const content = (
+    <>
+      <Text style={styles.homeMetricLabel}>{label}</Text>
+      <Text style={styles.homeMetricValue}>{value}</Text>
     </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityLabel={`${label} 상세 보기`}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({pressed}) => [styles.homeMetricTile, pressed ? styles.authButtonPressed : null]}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.homeMetricTile}>{content}</View>;
 }
 
 function TodayActionCard({
@@ -1758,7 +1886,7 @@ function RoutePlaceholder({
         {selectedCampusDetail ? (
           <ListRow
             label="상세 조회"
-            supportingText="GET /api/v1/campuses/{campusId}"
+            supportingText="현재 캠퍼스 운영 상태"
             value={selectedCampusDetail.isActive ? 'ACTIVE' : 'PAUSED'}
           />
         ) : null}
@@ -1839,6 +1967,30 @@ function getTodayActions({
   return actions;
 }
 
+function getHomeActionSummary({
+  chargeState,
+  devotionState,
+  pollState,
+  prayerState,
+  today,
+}: {
+  chargeState: CardState<ChargeSummary>;
+  devotionState: CardState<WeeklyDevotionSummary>;
+  pollState: CardState<PollSummary[]>;
+  prayerState: CardState<PrayerWeekSummary>;
+  today: Date;
+}) {
+  const labels = getTodayActions({chargeState, devotionState, pollState, prayerState, today}).map(
+    (action) => action.target,
+  );
+
+  if (labels.length === 0) {
+    return '경건 · 투표 · 납부 흐름이 정리됐어요';
+  }
+
+  return labels.slice(0, 3).join(' · ');
+}
+
 function getTodayDevotionCheck(devotion: WeeklyDevotionSummary, today: Date) {
   const todayKey = formatLocalDate(today);
 
@@ -1883,6 +2035,16 @@ function formatLocalDate(date: Date) {
 
 function formatWon(amount: number) {
   return `${Math.max(0, amount).toLocaleString('ko-KR')}원`;
+}
+
+function formatCompactWon(amount: number) {
+  const safeAmount = Math.max(0, amount);
+
+  if (safeAmount >= 1000) {
+    return `${Number((safeAmount / 1000).toFixed(1)).toLocaleString('ko-KR')}K`;
+  }
+
+  return `${safeAmount.toLocaleString('ko-KR')}원`;
 }
 
 function toApiError(error: unknown, fallback: string): ApiError {
@@ -1993,7 +2155,7 @@ function NotificationPermissionFlow({
   if (state.status === 'permissionPrompt') {
     return (
       <Card>
-        <Eyebrow>App 01 Notification Permission Request</Eyebrow>
+        <Eyebrow>알림 권한</Eyebrow>
         <Title>알림을 켜둘까요?</Title>
         <Body>중요한 공동체 알림을 받을 수 있어요.</Body>
         <View style={styles.metaGrid}>
@@ -2002,7 +2164,7 @@ function NotificationPermissionFlow({
           <ListRow label="납부" supportingText="미납 또는 납부 확인 안내" value="알림" />
         </View>
         <View style={styles.actionRow}>
-          <Button accessibilityLabel="알림 권한 요청 후 토큰 등록" onPress={register}>
+          <Button accessibilityLabel="알림 권한 요청 후 기기 알림 연결" onPress={register}>
             알림 켜기
           </Button>
           <Button
@@ -2021,7 +2183,7 @@ function NotificationPermissionFlow({
 
     return (
       <Card>
-        <Eyebrow>App 01-1 Notification Disabled</Eyebrow>
+        <Eyebrow>알림 설정 필요</Eyebrow>
         <Title>{blocked ? '알림이 꺼져 있어요' : '알림 권한이 거절됐어요'}</Title>
         <Body>
           {blocked
@@ -2152,17 +2314,20 @@ function NotificationSettingsDetail({
   }, []);
 
   return (
-    <Card>
-      <Eyebrow>알림 설정 상세</Eyebrow>
-      <Title>알림 상세</Title>
-      <Body>권한 상태와 이 기기의 FCM token 등록 상태를 분리해서 확인합니다.</Body>
-      <View style={styles.metaGrid}>
+    <View style={styles.notificationDetailCard}>
+      <View style={styles.notificationDetailHeader}>
+        <Text style={styles.notificationDetailTitle}>알림 상세</Text>
+        <Text style={styles.notificationDetailBody}>
+          알림 권한과 이 기기의 알림 연결 상태를 확인합니다.
+        </Text>
+      </View>
+      <View style={styles.notificationRowList}>
         {renderNotificationSettingRows(state)}
       </View>
       {state.status === 'error' ? (
         <InlineError message={getNotificationApiErrorMessage(state.error)} />
       ) : null}
-      <View style={styles.actionRow}>
+      <View style={styles.notificationActionRow}>
         <Button
           accessibilityLabel="알림 설정 다시 확인"
           disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
@@ -2171,20 +2336,20 @@ function NotificationSettingsDetail({
           {state.status === 'checking' ? '확인 중...' : '다시 확인'}
         </Button>
         <Button
-          accessibilityLabel="알림 토큰 등록 재시도"
+          accessibilityLabel="기기 알림 등록 다시 시도"
           disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
           onPress={register}>
           {state.status === 'registering' ? '등록 중...' : '알림 켜기'}
         </Button>
         <Button
-          accessibilityLabel="이 기기 알림 토큰 비활성화"
+          accessibilityLabel="이 기기 알림 연결 해제"
           disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
           onPress={deactivate}
           variant="danger">
           {state.status === 'deactivating' ? '비활성화 중...' : '비활성화'}
         </Button>
       </View>
-    </Card>
+    </View>
   );
 }
 
@@ -2200,28 +2365,27 @@ function FcmTokenFailedCard({
   onRetry: () => void;
 }) {
   return (
-    <Card>
-      <Eyebrow>App 01-2 FCM Token Register Failed</Eyebrow>
+    <View style={styles.notificationDetailCard}>
       <Title>알림 등록 실패</Title>
       <Body>기기 알림을 다시 연결해요.</Body>
       <InlineError message={message} />
-      <View style={styles.metaGrid}>
+      <View style={styles.notificationRowList}>
         <ListRow label="재시도" supportingText="네트워크가 안정적일 때 다시 등록" value="권장" />
         <ListRow label="나중에 하기" supportingText="앱 사용은 계속할 수 있어요" value="선택" />
       </View>
-      <View style={styles.actionRow}>
-        <Button accessibilityLabel="FCM 토큰 등록 다시 시도" disabled={busy} onPress={onRetry}>
+      <View style={styles.notificationActionRow}>
+        <Button accessibilityLabel="기기 알림 등록 다시 시도" disabled={busy} onPress={onRetry}>
           {busy ? '다시 시도 중...' : '다시 시도'}
         </Button>
         <Button
-          accessibilityLabel="FCM 토큰 등록 실패 안내 닫기"
+          accessibilityLabel="알림 등록 실패 안내 닫기"
           disabled={busy}
           onPress={onDismiss}
           variant="secondary">
           나중에
         </Button>
       </View>
-    </Card>
+    </View>
   );
 }
 
@@ -2230,44 +2394,44 @@ function renderNotificationSettingRows(state: NotificationUiState) {
     case 'checking':
       return <ListRow label="상태" supportingText="앱 시작 시 권한과 등록 상태 확인" value="확인 중" />;
     case 'registering':
-      return <ListRow label="토큰 등록" supportingText="POST /api/v1/users/me/fcm-tokens" value="진행 중" />;
+      return <ListRow label="알림 등록" supportingText="이 기기로 알림을 받을 수 있게 연결 중" value="진행 중" />;
     case 'deactivating':
-      return <ListRow label="토큰 비활성화" supportingText="DELETE /api/v1/users/me/fcm-tokens/{tokenId}" value="진행 중" />;
+      return <ListRow label="알림 해제" supportingText="이 기기의 알림 연결을 정리 중" value="진행 중" />;
     case 'registered':
       return (
         <>
-          <ListRow label="권한" supportingText="OS notification permission" value="허용됨" />
-          <ListRow label="등록 ID" supportingText="서버 FCM tokenId" value={String(state.registration.tokenId)} />
-          <ListRow label="기기 유형" supportingText="REST Docs deviceType" value={state.registration.deviceType} />
-          <ListRow label="앱 버전" supportingText="REST Docs appVersion" value={state.registration.appVersion} />
+          <ListRow label="권한" supportingText="알림을 받을 수 있어요" value="허용됨" />
+          <ListRow label="등록 상태" supportingText="서버와 연결됨" value="완료" />
+          <ListRow label="기기 유형" supportingText="현재 기기 기준" value={state.registration.deviceType} />
+          <ListRow label="앱 버전" supportingText="등록된 앱 버전" value={state.registration.appVersion} />
         </>
       );
     case 'registeredLocal':
       return (
         <>
-          <ListRow label="권한" supportingText="OS notification permission" value="허용됨" />
-          <ListRow label="등록 ID" supportingText="secure storage tokenId" value={String(state.tokenId)} />
+          <ListRow label="권한" supportingText="알림을 받을 수 있어요" value="허용됨" />
+          <ListRow label="등록 상태" supportingText="이 기기에 저장됨" value="완료" />
         </>
       );
     case 'permissionPrompt':
       return (
         <>
           <ListRow label="권한" supportingText="알림 권한 요청 전 안내 필요" value="미승인" />
-          <ListRow label="등록" supportingText="권한 승인 후 토큰 등록 가능" value="대기" />
+          <ListRow label="연결" supportingText="권한 승인 후 기기 알림 연결 가능" value="대기" />
         </>
       );
     case 'permissionDenied':
       return (
         <>
-          <ListRow label="권한" supportingText="OS notification permission" value={getPermissionValue(state.permission)} />
+          <ListRow label="권한" supportingText="기기 알림 설정 확인 필요" value={getPermissionValue(state.permission)} />
           <ListRow label="복구" supportingText={getNotificationPermissionMessage(state.permission)} value="필요" />
         </>
       );
     case 'tokenUnavailable':
       return (
         <>
-          <ListRow label="권한" supportingText="OS notification permission" value="허용됨" />
-          <ListRow label="토큰" supportingText="Firebase/FCM native SDK adapter 필요" value="없음" />
+          <ListRow label="권한" supportingText="기기 알림은 허용됨" value="허용됨" />
+          <ListRow label="연결" supportingText="앱 알림 어댑터 연결 필요" value="대기" />
         </>
       );
     case 'error':
@@ -2299,7 +2463,7 @@ function getNotificationPermissionMessage(permission: 'denied' | 'blocked' | 'un
     case 'blocked':
       return 'OS 설정에서 알림을 허용해주세요.';
     case 'unavailable':
-      return '현재 앱에는 iOS/Firebase 알림 권한 SDK가 없어 OS 권한을 직접 확인하지 못합니다.';
+      return '현재 앱에서는 OS 알림 권한을 직접 확인하지 못합니다.';
     default:
       return assertNever(permission);
   }
@@ -2365,51 +2529,102 @@ function ProfileScreen({
   };
 
   return (
-    <>
-      <Card>
-        <Eyebrow>User 10 Profile</Eyebrow>
-        <Title>내정보</Title>
-        <Body>{state.selectedCampus.campusName}에서 사용 중인 계정 정보입니다.</Body>
-        <View style={styles.metaGrid}>
-          <ListRow label="이름" supportingText="GET /api/v1/users/me" value={state.user.name} />
-          <ListRow label="이메일" supportingText="로그인 계정" value={state.user.email} />
-          <ListRow label="전역 역할" supportingText="Service ADMIN 분리 기준" value={state.user.role} />
-          <ListRow
-            label="캠퍼스 역할"
-            supportingText="일반/관리자 화면 분리 기준"
-            value={state.selectedCampus.campusRole}
-          />
+    <View style={styles.userFrame}>
+      <View style={styles.figmaHeader}>
+        <Text style={styles.figmaTitle}>내정보</Text>
+        <View style={styles.figmaCampusChip}>
+          <Text style={styles.figmaCampusText}>
+            {state.selectedCampus.region} {state.selectedCampus.campusName}
+          </Text>
         </View>
+      </View>
+
+      <View style={styles.profileCard}>
+        <View style={styles.profileAvatar}>
+          <Text style={styles.profileAvatarText}>○</Text>
+        </View>
+        <View style={styles.profileInfo}>
+          <Text style={styles.profileName}>{state.user.name}</Text>
+          <Text style={styles.profileEmail}>{state.user.email}</Text>
+          <View style={styles.profileRoleChip}>
+            <Text style={styles.profileRoleText}>
+              {state.selectedCampus.campusName} · {state.selectedCampus.campusRole}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <Text style={styles.figmaSectionTitle}>계정</Text>
+      <View style={styles.profileRowList}>
+        {state.activeCampuses.length > 1 ? (
+          <ProfileActionRow
+            actionLabel="변경"
+            icon="▦"
+            onPress={onCampusSwitchPress}
+            subtitle={state.selectedCampus.campusName}
+            title="내 캠퍼스"
+          />
+        ) : null}
+        <ProfileActionRow
+          actionLabel="입력"
+          icon="+"
+          onPress={() =>
+            setNotice({
+              tone: 'info',
+              title: '초대코드',
+              message: '새 캠퍼스 참여 흐름은 초대코드 화면에서 이어집니다.',
+            })
+          }
+          subtitle="다른 캠퍼스 참여"
+          title="초대코드 추가"
+        />
+        <ProfileActionRow
+          actionLabel="실행"
+          icon="↩"
+          onPress={onLogoutPress}
+          subtitle="현재 기기에서 로그아웃"
+          title="로그아웃"
+        />
+      </View>
         {refreshError ? (
           <InlineError message={getProfileRefreshMessage(refreshError)} />
         ) : null}
-        <View style={styles.actionRow}>
-          <Button
-            accessibilityLabel="내 정보 다시 불러오기"
-            disabled={refreshing}
-            onPress={refreshProfile}
-            variant="secondary">
-            {refreshing ? '불러오는 중...' : '다시 불러오기'}
-          </Button>
-          {state.activeCampuses.length > 1 ? (
-            <Button
-              accessibilityLabel="프로필에서 캠퍼스 변경 시트 열기"
-              disabled={refreshing}
-              onPress={onCampusSwitchPress}
-              variant="secondary">
-              캠퍼스 변경
-            </Button>
-          ) : null}
-          <Button
-            accessibilityLabel="로그아웃 확인 열기"
-            onPress={onLogoutPress}
-            variant="danger">
-            로그아웃
-          </Button>
-        </View>
-      </Card>
       <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
-    </>
+      {refreshing ? <Body>내 정보를 다시 불러오고 있어요.</Body> : null}
+    </View>
+  );
+}
+
+function ProfileActionRow({
+  actionLabel,
+  icon,
+  onPress,
+  subtitle,
+  title,
+}: {
+  actionLabel: string;
+  icon: string;
+  onPress: () => void;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${title} ${actionLabel}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [styles.profileActionRow, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.profileActionIcon}>
+        <Text style={styles.profileActionIconText}>{icon}</Text>
+      </View>
+      <View style={styles.profileActionText}>
+        <Text style={styles.profileActionTitle}>{title}</Text>
+        <Text style={styles.profileActionSubtitle}>{subtitle}</Text>
+      </View>
+      <View style={styles.profileActionButton}>
+        <Text style={styles.profileActionButtonText}>{actionLabel}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -2642,21 +2857,474 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled state: ${String(value)}`);
 }
 
+const authColors = {
+  background: '#FAF6E9',
+  border: '#ECE8D9',
+  buttonSecondary: '#ECE8D9',
+  input: '#FFFDF6',
+  text: '#494949',
+  textMuted: 'rgba(73, 73, 73, 0.72)',
+};
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  authSafeArea: {
+    backgroundColor: authColors.background,
+  },
+  keyboardRoot: {
+    flex: 1,
   },
   content: {
     flexGrow: 1,
     gap: 18,
     paddingBottom: 28,
   },
+  authScrollContent: {
+    alignItems: 'center',
+    backgroundColor: authColors.background,
+    flexGrow: 1,
+    paddingBottom: 40,
+    paddingHorizontal: 24,
+  },
+  authFrame: {
+    alignSelf: 'center',
+    gap: 12,
+    maxWidth: 390,
+    minHeight: 640,
+    width: '100%',
+  },
+  loginAuthFrame: {
+    paddingTop: 92,
+  },
+  signupAuthFrame: {
+    paddingTop: 30,
+  },
+  loginHero: {
+    gap: 4,
+    marginBottom: 58,
+  },
+  loginBrandTitle: {
+    color: authColors.text,
+    fontSize: 36,
+    fontWeight: '700',
+    lineHeight: 54,
+  },
+  loginSubtitle: {
+    color: authColors.text,
+    fontSize: 19,
+    lineHeight: 28,
+  },
+  signupHeader: {
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 34,
+  },
+  signupTitle: {
+    color: authColors.text,
+    fontSize: 28,
+    fontWeight: '700',
+    lineHeight: 34,
+  },
+  authBrandChip: {
+    alignItems: 'center',
+    backgroundColor: authColors.buttonSecondary,
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 86,
+  },
+  authBrandChipText: {
+    color: authColors.text,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  authField: {
+    alignSelf: 'center',
+    gap: 8,
+    maxWidth: 318,
+    width: '100%',
+  },
+  authFieldLabel: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  authInput: {
+    backgroundColor: authColors.input,
+    borderColor: authColors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    color: authColors.text,
+    fontSize: 15,
+    minHeight: 50,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  authInputError: {
+    borderColor: colors.danger,
+  },
+  authFieldError: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  authActionRow: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 28,
+    maxWidth: 318,
+    width: '100%',
+  },
+  signupAuthActionRow: {
+    marginTop: 34,
+  },
+  authButton: {
+    alignItems: 'center',
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 76,
+    paddingHorizontal: 18,
+  },
+  authButtonPrimary: {
+    backgroundColor: authColors.text,
+  },
+  authButtonSecondary: {
+    backgroundColor: authColors.buttonSecondary,
+    borderColor: authColors.border,
+    borderWidth: 1,
+  },
+  authButtonDisabled: {
+    opacity: 0.54,
+  },
+  authButtonPressed: {
+    opacity: 0.78,
+  },
+  authButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  authButtonTextPrimary: {
+    color: authColors.input,
+  },
+  authButtonTextSecondary: {
+    color: authColors.textMuted,
+  },
+  authFootnote: {
+    alignSelf: 'center',
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 22,
+    maxWidth: 318,
+    width: '100%',
+  },
+  authNotice: {
+    backgroundColor: authColors.input,
+    borderColor: authColors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 4,
+    marginTop: 18,
+    maxWidth: 342,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    width: '100%',
+  },
+  authNoticeTitle: {
+    color: authColors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  authNoticeMessage: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   actionRow: {
     gap: 10,
     marginTop: 6,
   },
   shell: {
+    gap: 16,
+  },
+  userFrame: {
+    gap: 20,
+    paddingTop: 2,
+  },
+  figmaHeader: {
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  figmaTitle: {
+    color: authColors.text,
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 34,
+  },
+  figmaCampusChip: {
+    alignItems: 'center',
+    backgroundColor: authColors.buttonSecondary,
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    minWidth: 86,
+    paddingHorizontal: 12,
+  },
+  figmaCampusText: {
+    color: authColors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  figmaSectionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  figmaSectionTitle: {
+    color: authColors.text,
+    fontSize: 19,
+    fontWeight: '800',
+    lineHeight: 23,
+  },
+  figmaTextButton: {
+    color: authColors.text,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  homeTodoCard: {
+    backgroundColor: authColors.input,
+    borderRadius: 22,
+    gap: 10,
+    minHeight: 146,
+    paddingHorizontal: 24,
+    paddingVertical: 26,
+    shadowColor: authColors.text,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+  },
+  homeTodoLabel: {
+    color: authColors.text,
+    fontSize: 15,
+    lineHeight: 18,
+  },
+  homeTodoRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  homeTodoTitle: {
+    color: authColors.text,
+    flex: 1,
+    fontSize: 30,
+    fontWeight: '800',
+    lineHeight: 36,
+  },
+  homeTodoButton: {
+    alignItems: 'center',
+    backgroundColor: authColors.text,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    width: 82,
+  },
+  homeTodoButtonText: {
+    color: authColors.input,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  homeTodoSummary: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  homeMetricRow: {
+    flexDirection: 'row',
+    gap: 18,
+  },
+  homeMetricTile: {
+    backgroundColor: authColors.input,
+    borderRadius: 18,
+    flex: 1,
+    gap: 12,
+    height: 86,
+    justifyContent: 'center',
+    minWidth: 0,
+    paddingHorizontal: 14,
+  },
+  homeMetricLabel: {
+    color: authColors.text,
+    fontSize: 12,
+    lineHeight: 15,
+  },
+  homeMetricValue: {
+    color: authColors.text,
+    fontSize: 24,
+    fontWeight: '800',
+    lineHeight: 28,
+  },
+  homeChargeCard: {
+    alignItems: 'center',
+    backgroundColor: authColors.input,
+    borderRadius: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 104,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  homeChargeText: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  homeChargeTitle: {
+    color: authColors.text,
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 21,
+  },
+  homeChargeBody: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  homeChargeButton: {
+    alignItems: 'center',
+    backgroundColor: authColors.text,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    width: 62,
+  },
+  homeChargeButtonText: {
+    color: authColors.input,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  profileActionButton: {
+    alignItems: 'center',
+    backgroundColor: authColors.buttonSecondary,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    width: 58,
+  },
+  profileActionButtonText: {
+    color: authColors.text,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  profileActionIcon: {
+    alignItems: 'center',
+    backgroundColor: authColors.buttonSecondary,
+    borderRadius: 14,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  profileActionIconText: {
+    color: authColors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  profileActionRow: {
+    alignItems: 'center',
+    backgroundColor: authColors.input,
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 82,
+    paddingHorizontal: 20,
+  },
+  profileActionSubtitle: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  profileActionText: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  profileActionTitle: {
+    color: authColors.text,
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 19,
+  },
+  profileAvatar: {
+    alignItems: 'center',
+    backgroundColor: authColors.buttonSecondary,
+    borderRadius: 14,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  profileAvatarText: {
+    color: authColors.text,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  profileCard: {
+    alignItems: 'center',
+    backgroundColor: authColors.input,
+    borderRadius: 22,
+    flexDirection: 'row',
+    gap: 18,
+    minHeight: 124,
+    paddingHorizontal: 24,
+  },
+  profileEmail: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  profileInfo: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  profileName: {
+    color: authColors.text,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 28,
+  },
+  profileRoleChip: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: authColors.buttonSecondary,
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  profileRoleText: {
+    color: authColors.text,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  profileRowList: {
     gap: 16,
   },
   homeHeaderRow: {
@@ -2682,6 +3350,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,
+  },
+  notificationActionRow: {
+    gap: 10,
+  },
+  notificationDetailBody: {
+    color: authColors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  notificationDetailCard: {
+    backgroundColor: authColors.input,
+    borderRadius: 22,
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+  },
+  notificationDetailHeader: {
+    gap: 8,
+  },
+  notificationDetailTitle: {
+    color: authColors.text,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 28,
+  },
+  notificationRowList: {
+    gap: 8,
   },
   modalBackdrop: {
     backgroundColor: 'rgba(17, 24, 39, 0.42)',

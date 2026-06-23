@@ -208,7 +208,7 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
   return (
     <>
       <Card>
-        <Eyebrow>User 11 Prayer Board</Eyebrow>
+        <Eyebrow>기도제목</Eyebrow>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Title>조별 기도제목</Title>
@@ -239,7 +239,7 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
         <View style={styles.metaGrid}>
           <ListRow
             label="작성 현황"
-            supportingText="GET /api/v1/campuses/{campusId}/prayers/weeks/{weekStartDate}"
+            supportingText="이번 주 기도제목 제출 현황"
             value={`${board.submittedCount}/${board.targetMemberCount}`}
           />
           <ListRow label="기도조" supportingText="활성 조 기준" value={`${board.groups.length}개`} />
@@ -306,7 +306,7 @@ function GroupSelector({
 }) {
   return (
     <Card>
-      <Eyebrow>User 11-1 Prayer Group Detail</Eyebrow>
+      <Eyebrow>기도조</Eyebrow>
       <Title>기도조 선택</Title>
       <View style={styles.groupGrid}>
         {groups
@@ -379,12 +379,12 @@ function PrayerEntryPanel({
         />
       ) : null}
       <Card>
-        <Eyebrow>User 12 Prayer Entry</Eyebrow>
+        <Eyebrow>기도제목 입력</Eyebrow>
         <Title>{selectedGroup.groupName} 기도제목 입력</Title>
         <Body>
           {boardStatus === 'OPEN'
-          ? '사람별 내용과 조회 당시 version으로 저장합니다. 한 명이라도 version 충돌이 있으면 전체 저장이 rollback됩니다.'
-          : 'OPEN 상태가 아니라 저장은 제한되고 조회만 가능합니다.'}
+          ? '사람별 내용을 저장합니다. 다른 기기에서 먼저 수정된 내용이 있으면 다시 확인한 뒤 저장해 주세요.'
+          : '지금은 저장이 제한되어 조회만 가능합니다.'}
         </Body>
         <View style={styles.chipRow}>
           <Chip label={`${dirtyCount}명 변경`} tone={dirtyCount > 0 ? 'warning' : 'default'} />
