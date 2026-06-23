@@ -29,6 +29,27 @@ import {
   updateAdminPrayerGroup,
   updateAdminPenaltyRule,
 } from '../api/client';
+import {
+  createAdminPoll,
+  createAdminPollTemplate,
+  deleteAdminPollTemplate,
+  fetchAdminPollComments,
+  fetchAdminPollMissingMembers,
+  fetchAdminPollResults,
+  fetchAdminPolls,
+  fetchAdminPollTemplates,
+  sendAdminPollMissingNotification,
+  updateAdminPollTemplate,
+  type AdminPoll,
+  type AdminPollChargeGenerationType,
+  type AdminPollCreateRequest,
+  type AdminPollMissingMember,
+  type AdminPollSelectionType,
+  type AdminPollTemplate,
+  type AdminPollTemplateOptionRequest,
+  type AdminPollTemplateRequest,
+  type AdminPollType,
+} from '../api/adminPollApi';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
@@ -54,6 +75,10 @@ import type {
   PenaltyCalculationType,
   PenaltyRule,
   PenaltyRuleType,
+  PollComment,
+  PollOption,
+  PollResults,
+  PollSummary,
   PrayerWeekSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
@@ -92,6 +117,7 @@ type AdminScreenProps = {
 type AdminTab =
   | 'home'
   | 'devotion'
+  | 'polls'
   | 'notificationLogs'
   | 'prayer'
   | 'members'
@@ -263,6 +289,7 @@ type PrayerSeasonCloseTarget = {
 const adminTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
   {id: 'devotion', label: '경건'},
+  {id: 'polls', label: '투표'},
   {id: 'notificationLogs', label: '알림'},
   {id: 'prayer', label: '기도'},
   {id: 'settlement', label: '정산'},
@@ -1555,6 +1582,13 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           summary={loadState.summary}
           weekStartDate={weekStartDate}
         />
+      ) : tab === 'polls' ? (
+        <AdminPollManagement
+          campusId={campusId}
+          coffeeDuty={coffeeDuty}
+          onSessionStateChange={setAuthState}
+          setNotice={setNotice}
+        />
       ) : tab === 'notificationLogs' ? (
         <AdminNotificationLogs
           filters={notificationLogFilters}
@@ -1794,6 +1828,1091 @@ function AdminHome({
         ) : null}
       </Card>
     </>
+  );
+}
+
+type AdminPollSection = 'manage' | 'templates' | 'create' | 'results' | 'missing';
+type AdminPollListState =
+  | {status: 'loading'}
+  | {status: 'success'; polls: PollSummary[]; templates: AdminPollTemplate[]}
+  | {status: 'empty'; polls: PollSummary[]; templates: AdminPollTemplate[]}
+  | {status: 'error'; error: ApiError};
+type AdminPollResultState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; comments: PollComment[]; results: PollResults}
+  | {status: 'empty'; comments: PollComment[]; results: PollResults}
+  | {status: 'error'; error: ApiError};
+type AdminPollMissingState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; members: AdminPollMissingMember[]}
+  | {status: 'empty'}
+  | {status: 'error'; error: ApiError};
+type AdminPollActionState =
+  | {status: 'idle'}
+  | {status: 'savingTemplate'}
+  | {status: 'deletingTemplate'; templateId: number}
+  | {status: 'creatingPoll'}
+  | {status: 'sendingMissingNotice'};
+
+type AdminPollTemplateForm = {
+  autoCreateEnabled: boolean;
+  chargeGenerationType: AdminPollChargeGenerationType;
+  endDayOfWeek: string;
+  endTime: string;
+  optionsText: string;
+  paymentAccountId: string;
+  paymentCategory: PaymentCategory | 'NONE';
+  pollType: AdminPollType;
+  selectionType: AdminPollSelectionType;
+  startDayOfWeek: string;
+  startTime: string;
+  templateId: number | null;
+  title: string;
+};
+
+type AdminPollCreateForm = {
+  chargeGenerationType: AdminPollChargeGenerationType;
+  endsAt: string;
+  isAnonymous: boolean;
+  optionsText: string;
+  paymentAccountId: string;
+  paymentCategory: PaymentCategory | 'NONE';
+  pollType: AdminPollType;
+  selectionType: AdminPollSelectionType;
+  startsAt: string;
+  templateId: string;
+  title: string;
+};
+
+const pollSections: Array<{id: AdminPollSection; label: string}> = [
+  {id: 'manage', label: '관리'},
+  {id: 'templates', label: '템플릿'},
+  {id: 'create', label: '생성'},
+  {id: 'results', label: '결과'},
+  {id: 'missing', label: '미응답'},
+];
+
+const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
+  {id: 'CUSTOM', label: '커스텀'},
+  {id: 'COFFEE', label: '커피'},
+  {id: 'WEDNESDAY', label: '수요'},
+  {id: 'SATURDAY', label: '토요'},
+];
+
+const adminPollSelectionTypes: Array<{id: AdminPollSelectionType; label: string}> = [
+  {id: 'SINGLE', label: '단일'},
+  {id: 'MULTIPLE', label: '복수'},
+];
+
+const adminPollChargeTypes: Array<{id: AdminPollChargeGenerationType; label: string}> = [
+  {id: 'NONE', label: '없음'},
+  {id: 'OPTION_PRICE', label: '선택가'},
+];
+
+const emptyAdminPollTemplateForm: AdminPollTemplateForm = {
+  autoCreateEnabled: false,
+  chargeGenerationType: 'NONE',
+  endDayOfWeek: '1',
+  endTime: '18:00:00',
+  optionsText: '참석, 불참',
+  paymentAccountId: '',
+  paymentCategory: 'NONE',
+  pollType: 'CUSTOM',
+  selectionType: 'SINGLE',
+  startDayOfWeek: '1',
+  startTime: '09:00:00',
+  templateId: null,
+  title: '',
+};
+
+function createEmptyAdminPollForm(): AdminPollCreateForm {
+  const startsAt = new Date();
+  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+
+  return {
+    chargeGenerationType: 'NONE',
+    endsAt: endsAt.toISOString(),
+    isAnonymous: false,
+    optionsText: '참석, 불참',
+    paymentAccountId: '',
+    paymentCategory: 'NONE',
+    pollType: 'CUSTOM',
+    selectionType: 'SINGLE',
+    startsAt: startsAt.toISOString(),
+    templateId: '',
+    title: '',
+  };
+}
+
+function AdminPollManagement({
+  campusId,
+  coffeeDuty,
+  onSessionStateChange,
+  setNotice,
+}: {
+  campusId: number;
+  coffeeDuty: DutyAssignment | null;
+  onSessionStateChange: (state: AuthGateState) => void;
+  setNotice: (notice: Notice) => void;
+}) {
+  const [section, setSection] = useState<AdminPollSection>('manage');
+  const [listState, setListState] = useState<AdminPollListState>({status: 'loading'});
+  const [resultState, setResultState] = useState<AdminPollResultState>({status: 'idle'});
+  const [missingState, setMissingState] = useState<AdminPollMissingState>({status: 'idle'});
+  const [actionState, setActionState] = useState<AdminPollActionState>({status: 'idle'});
+  const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
+  const [deleteTemplateTarget, setDeleteTemplateTarget] =
+    useState<AdminPollTemplate | null>(null);
+  const [templateForm, setTemplateForm] = useState<AdminPollTemplateForm>(
+    emptyAdminPollTemplateForm,
+  );
+  const [pollForm, setPollForm] = useState<AdminPollCreateForm>(() =>
+    createEmptyAdminPollForm(),
+  );
+
+  const loadPolls = async () => {
+    setListState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const [polls, templates] = await Promise.all([
+        fetchAdminPolls(accessToken, campusId),
+        fetchAdminPollTemplates(accessToken, campusId),
+      ]);
+
+      setListState(
+        polls.length === 0 && templates.length === 0
+          ? {status: 'empty', polls, templates}
+          : {status: 'success', polls, templates},
+      );
+
+      if (!selectedPollId && polls[0]) {
+        setSelectedPollId(polls[0].id);
+      }
+    } catch (error) {
+      const apiError = toApiError(error, '투표 관리 정보를 불러오지 못했습니다.');
+      setListState({status: 'error', error: apiError});
+      void handleAuthError(apiError, onSessionStateChange);
+    }
+  };
+
+  useEffect(() => {
+    void loadPolls();
+  }, [campusId]);
+
+  const templates =
+    listState.status === 'success' || listState.status === 'empty' ? listState.templates : [];
+  const polls =
+    listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
+  const selectedPoll = selectedPollId
+    ? polls.find((poll) => poll.id === selectedPollId) ?? null
+    : null;
+  const busy = actionState.status !== 'idle';
+  const coffeeWarning = getAdminPollCoffeeWarning(pollForm, coffeeDuty);
+
+  const saveTemplate = async () => {
+    if (busy) {
+      return;
+    }
+
+    setActionState({status: 'savingTemplate'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const request = toAdminPollTemplateFormRequest(templateForm);
+      const saved =
+        templateForm.templateId === null
+          ? await createAdminPollTemplate(accessToken, campusId, request)
+          : await updateAdminPollTemplate(
+              accessToken,
+              campusId,
+              templateForm.templateId,
+              request,
+            );
+
+      setTemplateForm(toTemplateForm(saved));
+      setNotice({
+        tone: saved.isActive ? 'success' : 'warning',
+        title: templateForm.templateId === null ? '투표 템플릿 생성' : '투표 템플릿 수정',
+        message: `${saved.title} 템플릿을 저장했습니다.`,
+      });
+      await loadPolls();
+    } catch (error) {
+      const apiError = toApiError(error, '투표 템플릿을 저장하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmDeleteTemplate = async () => {
+    if (!deleteTemplateTarget || busy) {
+      return;
+    }
+
+    const target = deleteTemplateTarget;
+    setActionState({status: 'deletingTemplate', templateId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const deactivated = await deleteAdminPollTemplate(accessToken, campusId, target.id);
+      setDeleteTemplateTarget(null);
+      setNotice({
+        tone: 'warning',
+        title: '투표 템플릿 비활성화',
+        message: `${deactivated.title} 템플릿을 비활성화했습니다.`,
+      });
+      await loadPolls();
+    } catch (error) {
+      const apiError = toApiError(error, '투표 템플릿을 비활성화하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const createPoll = async () => {
+    if (busy) {
+      return;
+    }
+
+    setActionState({status: 'creatingPoll'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const request = toAdminPollCreateFormRequest(pollForm);
+      const created = await createAdminPoll(accessToken, campusId, request);
+      setSelectedPollId(created.id);
+      setPollForm(toPollCreateForm(created));
+      setNotice({
+        tone: 'success',
+        title: '투표 생성',
+        message: `${created.title} 투표를 생성했습니다. ${formatDateTime(created.endsAt)} 이후 서버가 자동으로 닫습니다.`,
+      });
+      await loadPolls();
+      setSection('results');
+      await loadResults(created.id);
+    } catch (error) {
+      const apiError = toApiError(error, '투표를 생성하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const loadResults = async (pollId: number | null = selectedPollId) => {
+    if (!pollId) {
+      setResultState({status: 'idle'});
+      return;
+    }
+
+    setResultState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const [results, comments] = await Promise.all([
+        fetchAdminPollResults(accessToken, campusId, pollId),
+        fetchAdminPollComments(accessToken, campusId, pollId),
+      ]);
+
+      setResultState(
+        results.respondedCount === 0 && comments.length === 0
+          ? {status: 'empty', results, comments}
+          : {status: 'success', results, comments},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '투표 결과를 불러오지 못했습니다.');
+      setResultState({status: 'error', error: apiError});
+      void handleAuthError(apiError, onSessionStateChange);
+    }
+  };
+
+  const loadMissing = async (pollId: number | null = selectedPollId) => {
+    if (!pollId) {
+      setMissingState({status: 'idle'});
+      return;
+    }
+
+    setMissingState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const members = await fetchAdminPollMissingMembers(accessToken, campusId, pollId);
+      setMissingState(members.length === 0 ? {status: 'empty'} : {status: 'success', members});
+    } catch (error) {
+      const apiError = toApiError(error, '투표 미응답자를 불러오지 못했습니다.');
+      setMissingState({status: 'error', error: apiError});
+      void handleAuthError(apiError, onSessionStateChange);
+    }
+  };
+
+  const sendMissingNotification = async () => {
+    if (missingState.status !== 'success' || !selectedPollId || busy) {
+      return;
+    }
+
+    const targets = missingState.members;
+    setActionState({status: 'sendingMissingNotice'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const result = await sendAdminPollMissingNotification(accessToken, campusId, {
+        notificationType: 'CUSTOM',
+        targetUserIds: targets.map((member) => member.userId),
+        targetWeekStartDate: null,
+        targetId: selectedPollId,
+        title: '투표 응답 알림',
+        body: selectedPoll
+          ? `${selectedPoll.title} 투표에 응답해 주세요.`
+          : '진행 중인 투표에 응답해 주세요.',
+      });
+
+      setNotice({
+        tone: result.skippedCount > 0 ? 'warning' : 'success',
+        title: '투표 미응답 알림 발송',
+        message: `${result.queuedCount}명 큐잉, ${result.skippedCount}명 스킵 처리되었습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '투표 미응답 알림을 발송하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const selectPoll = (poll: PollSummary) => {
+    setSelectedPollId(poll.id);
+    setResultState({status: 'idle'});
+    setMissingState({status: 'idle'});
+  };
+
+  const useTemplateForPoll = (template: AdminPollTemplate) => {
+    setPollForm((current) => ({
+      ...current,
+      chargeGenerationType:
+        template.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
+      optionsText: formatPollOptionsText(template.options),
+      paymentAccountId: template.paymentAccountId ? String(template.paymentAccountId) : '',
+      paymentCategory: template.paymentCategory ?? 'NONE',
+      pollType: toKnownAdminPollType(template.pollType),
+      selectionType: template.selectionType === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE',
+      templateId: String(template.id),
+      title: template.title,
+    }));
+    setSection('create');
+  };
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 06-09 Poll Management</Eyebrow>
+        <Title>투표 관리</Title>
+        <Body>
+          템플릿 CRUD, 템플릿/직접 생성, 결과와 미응답자 조회를 REST Docs 경로로 처리합니다. 수동 닫기 API 없이 endsAt 이후 서버 CLOSED 상태를 안내합니다.
+        </Body>
+        <SegmentedControl items={pollSections} selectedId={section} onSelect={setSection} />
+      </Card>
+      {actionError ? <AdminInlineError error={actionError} /> : null}
+      {listState.status === 'loading' ? (
+        <Loading message="투표와 템플릿을 불러오고 있어요." />
+      ) : listState.status === 'error' ? (
+        <AdminErrorState error={listState.error} onRetry={loadPolls} />
+      ) : (
+        <>
+          {section === 'manage' ? (
+            <AdminPollList
+              onRefresh={loadPolls}
+              onSelectPoll={selectPoll}
+              polls={polls}
+              selectedPollId={selectedPollId}
+              templates={templates}
+            />
+          ) : null}
+          {section === 'templates' ? (
+            <AdminPollTemplateEditor
+              actionState={actionState}
+              form={templateForm}
+              onChangeForm={(patch) =>
+                setTemplateForm((current) => ({...current, ...patch}))
+              }
+              onConfirmDelete={confirmDeleteTemplate}
+              onDeleteTarget={setDeleteTemplateTarget}
+              onNewTemplate={() => setTemplateForm(emptyAdminPollTemplateForm)}
+              onSave={saveTemplate}
+              onUseTemplateForPoll={useTemplateForPoll}
+              target={deleteTemplateTarget}
+              templates={templates}
+              onEditTemplate={(template) => setTemplateForm(toTemplateForm(template))}
+            />
+          ) : null}
+          {section === 'create' ? (
+            <AdminPollCreatePanel
+              busy={busy}
+              coffeeWarning={coffeeWarning}
+              form={pollForm}
+              onChangeForm={(patch) => setPollForm((current) => ({...current, ...patch}))}
+              onCreate={createPoll}
+              onReset={() => setPollForm(createEmptyAdminPollForm())}
+              templates={templates}
+            />
+          ) : null}
+          {section === 'results' ? (
+            <AdminPollResultsPanel
+              onLoad={() => void loadResults()}
+              onSelectPoll={selectPoll}
+              polls={polls}
+              selectedPoll={selectedPoll}
+              state={resultState}
+            />
+          ) : null}
+          {section === 'missing' ? (
+            <AdminPollMissingPanel
+              actionState={actionState}
+              onLoad={() => void loadMissing()}
+              onSelectPoll={selectPoll}
+              onSendNotification={sendMissingNotification}
+              polls={polls}
+              selectedPoll={selectedPoll}
+              state={missingState}
+            />
+          ) : null}
+        </>
+      )}
+    </>
+  );
+}
+
+function AdminPollList({
+  onRefresh,
+  onSelectPoll,
+  polls,
+  selectedPollId,
+  templates,
+}: {
+  onRefresh: () => void;
+  onSelectPoll: (poll: PollSummary) => void;
+  polls: PollSummary[];
+  selectedPollId: number | null;
+  templates: AdminPollTemplate[];
+}) {
+  if (polls.length === 0 && templates.length === 0) {
+    return (
+      <Empty
+        title="투표와 템플릿이 없습니다"
+        message="템플릿을 먼저 만들거나 직접 생성으로 투표를 시작할 수 있습니다."
+        actionLabel="다시 불러오기"
+        actionAccessibilityLabel="투표 관리 목록 다시 불러오기"
+        onActionPress={onRefresh}
+      />
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 06 Poll Manage</Eyebrow>
+        <Title>최근 투표</Title>
+        <View style={styles.metricGrid}>
+          <Metric label="투표" value={`${polls.length}개`} />
+          <Metric label="템플릿" value={`${templates.length}개`} />
+          <Metric label="OPEN" value={`${polls.filter((poll) => poll.status === 'OPEN').length}개`} />
+          <Metric label="CLOSED" value={`${polls.filter((poll) => poll.status === 'CLOSED').length}개`} />
+        </View>
+        {polls.map((poll) => (
+          <ListRow
+            accessibilityLabel={`${poll.title} 투표 선택`}
+            key={poll.id}
+            label={poll.title}
+            onPress={() => onSelectPoll(poll)}
+            supportingText={`${getPollTypeLabel(poll.pollType)} · ${formatDateTime(poll.endsAt)} 자동 종료`}
+            value={poll.id === selectedPollId ? '선택됨' : getPollStatusLabel(poll.status)}
+          />
+        ))}
+      </Card>
+      <Card>
+        <Eyebrow>Admin 06-4 Poll Close Confirm</Eyebrow>
+        <Title>닫힘 정책</Title>
+        <Body>
+          수동 닫기 버튼은 제공하지 않습니다. 생성 시 설정한 endsAt이 지나면 서버가 CLOSED로 전환하고, 화면은 status와 종료 시각만 안내합니다.
+        </Body>
+      </Card>
+    </>
+  );
+}
+
+function AdminPollTemplateEditor({
+  actionState,
+  form,
+  onChangeForm,
+  onConfirmDelete,
+  onDeleteTarget,
+  onEditTemplate,
+  onNewTemplate,
+  onSave,
+  onUseTemplateForPoll,
+  target,
+  templates,
+}: {
+  actionState: AdminPollActionState;
+  form: AdminPollTemplateForm;
+  onChangeForm: (patch: Partial<AdminPollTemplateForm>) => void;
+  onConfirmDelete: () => void;
+  onDeleteTarget: (template: AdminPollTemplate | null) => void;
+  onEditTemplate: (template: AdminPollTemplate) => void;
+  onNewTemplate: () => void;
+  onSave: () => void;
+  onUseTemplateForPoll: (template: AdminPollTemplate) => void;
+  target: AdminPollTemplate | null;
+  templates: AdminPollTemplate[];
+}) {
+  const busy = actionState.status !== 'idle';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>Admin 06-1 Poll Templates</Eyebrow>
+        <Title>템플릿 목록</Title>
+        {templates.length === 0 ? (
+          <Body>저장된 템플릿이 없습니다.</Body>
+        ) : (
+          templates.map((template) => (
+            <View key={template.id} style={styles.compactBlock}>
+              <ListRow
+                label={template.title}
+                supportingText={`${getPollTypeLabel(template.pollType)} · ${template.options.length}개 선택지`}
+                value={template.isActive ? 'ACTIVE' : 'INACTIVE'}
+              />
+              <View style={styles.actionRow}>
+                <Button
+                  accessibilityLabel={`${template.title} 템플릿 수정`}
+                  disabled={busy}
+                  onPress={() => onEditTemplate(template)}
+                  variant="secondary">
+                  수정
+                </Button>
+                <Button
+                  accessibilityLabel={`${template.title} 템플릿 기반 투표 생성`}
+                  disabled={busy || !template.isActive}
+                  onPress={() => onUseTemplateForPoll(template)}
+                  variant="secondary">
+                  생성에 사용
+                </Button>
+                <Button
+                  accessibilityLabel={`${template.title} 템플릿 비활성화 확인`}
+                  disabled={busy || !template.isActive}
+                  onPress={() => onDeleteTarget(template)}
+                  variant="danger">
+                  비활성화
+                </Button>
+              </View>
+            </View>
+          ))
+        )}
+      </Card>
+      <Card>
+        <Eyebrow>Admin 06-2 Poll Template Edit</Eyebrow>
+        <Title>{form.templateId === null ? '템플릿 생성' : '템플릿 수정'}</Title>
+        <TextField
+          label="템플릿 제목"
+          onChangeText={(title) => onChangeForm({title})}
+          value={form.title}
+        />
+        <SegmentedControl
+          items={adminPollTypes}
+          selectedId={form.pollType}
+          onSelect={(pollType) => onChangeForm({pollType})}
+        />
+        <SegmentedControl
+          items={adminPollSelectionTypes}
+          selectedId={form.selectionType}
+          onSelect={(selectionType) => onChangeForm({selectionType})}
+        />
+        <SegmentedControl
+          items={adminPollChargeTypes}
+          selectedId={form.chargeGenerationType}
+          onSelect={(chargeGenerationType) =>
+            onChangeForm({
+              chargeGenerationType,
+              paymentCategory: chargeGenerationType === 'NONE' ? 'NONE' : form.paymentCategory,
+            })
+          }
+        />
+        <View style={styles.formRow}>
+          <TextField
+            keyboardType="number-pad"
+            label="시작 요일"
+            onChangeText={(startDayOfWeek) => onChangeForm({startDayOfWeek})}
+            value={form.startDayOfWeek}
+          />
+          <TextField
+            label="시작 시간"
+            onChangeText={(startTime) => onChangeForm({startTime})}
+            value={form.startTime}
+          />
+        </View>
+        <View style={styles.formRow}>
+          <TextField
+            keyboardType="number-pad"
+            label="마감 요일"
+            onChangeText={(endDayOfWeek) => onChangeForm({endDayOfWeek})}
+            value={form.endDayOfWeek}
+          />
+          <TextField
+            label="마감 시간"
+            onChangeText={(endTime) => onChangeForm({endTime})}
+            value={form.endTime}
+          />
+        </View>
+        <TextField
+          helper="쉼표로 구분합니다. 커피 메뉴는 menu:4 형식으로 입력할 수 있습니다."
+          label="선택지"
+          onChangeText={(optionsText) => onChangeForm({optionsText})}
+          value={form.optionsText}
+        />
+        {form.chargeGenerationType === 'OPTION_PRICE' ? (
+          <View style={styles.formRow}>
+            <TextField
+              label="paymentCategory"
+              onChangeText={(value) =>
+                onChangeForm({paymentCategory: toAdminPollPaymentCategory(value)})
+              }
+              value={form.paymentCategory}
+            />
+            <TextField
+              keyboardType="number-pad"
+              label="paymentAccountId"
+              onChangeText={(paymentAccountId) => onChangeForm({paymentAccountId})}
+              value={form.paymentAccountId}
+            />
+          </View>
+        ) : null}
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="투표 템플릿 저장"
+            disabled={busy}
+            onPress={onSave}>
+            {busy ? '저장 중...' : '저장'}
+          </Button>
+          <Button
+            accessibilityLabel="새 투표 템플릿 입력"
+            disabled={busy}
+            onPress={onNewTemplate}
+            variant="secondary">
+            새 템플릿
+          </Button>
+        </View>
+      </Card>
+      {target ? (
+        <Card>
+          <Eyebrow>Admin 06-2 Poll Template Deactivate Confirm</Eyebrow>
+          <Title>{target.title} 비활성화</Title>
+          <Body>DELETE API는 템플릿을 삭제하지 않고 isActive=false 상태로 비활성화합니다.</Body>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="투표 템플릿 비활성화 실행"
+              disabled={busy}
+              onPress={onConfirmDelete}
+              variant="danger">
+              {actionState.status === 'deletingTemplate' ? '처리 중...' : '비활성화'}
+            </Button>
+            <Button
+              accessibilityLabel="투표 템플릿 비활성화 취소"
+              disabled={busy}
+              onPress={() => onDeleteTarget(null)}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </Card>
+      ) : null}
+    </>
+  );
+}
+
+function AdminPollCreatePanel({
+  busy,
+  coffeeWarning,
+  form,
+  onChangeForm,
+  onCreate,
+  onReset,
+  templates,
+}: {
+  busy: boolean;
+  coffeeWarning: string | null;
+  form: AdminPollCreateForm;
+  onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
+  onCreate: () => void;
+  onReset: () => void;
+  templates: AdminPollTemplate[];
+}) {
+  return (
+    <Card>
+      <Eyebrow>Admin 07 Poll Create - Type / Detail</Eyebrow>
+      <Title>투표 생성</Title>
+      <Body>
+        templateId가 있으면 템플릿 선택지를 복사하고, 없으면 직접 선택지를 보냅니다. 종료는 endsAt 기준 서버 자동 처리입니다.
+      </Body>
+      <TextField
+        helper="비우면 직접 생성입니다."
+        keyboardType="number-pad"
+        label="templateId"
+        onChangeText={(templateId) => {
+          const template = templates.find((item) => String(item.id) === templateId.trim());
+          onChangeForm(
+            template
+              ? {
+                  templateId,
+                  title: template.title,
+                  pollType: toKnownAdminPollType(template.pollType),
+                  selectionType: template.selectionType === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE',
+                  chargeGenerationType:
+                    template.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
+                  paymentCategory: template.paymentCategory ?? 'NONE',
+                  paymentAccountId: template.paymentAccountId ? String(template.paymentAccountId) : '',
+                }
+              : {templateId},
+          );
+        }}
+        value={form.templateId}
+      />
+      <TextField
+        label="투표 제목"
+        onChangeText={(title) => onChangeForm({title})}
+        value={form.title}
+      />
+      <SegmentedControl
+        items={adminPollTypes}
+        selectedId={form.pollType}
+        onSelect={(pollType) => onChangeForm({pollType})}
+      />
+      <SegmentedControl
+        items={adminPollSelectionTypes}
+        selectedId={form.selectionType}
+        onSelect={(selectionType) => onChangeForm({selectionType})}
+      />
+      <SegmentedControl
+        items={adminPollChargeTypes}
+        selectedId={form.chargeGenerationType}
+        onSelect={(chargeGenerationType) =>
+          onChangeForm({
+            chargeGenerationType,
+            paymentCategory: chargeGenerationType === 'NONE' ? 'NONE' : form.paymentCategory,
+          })
+        }
+      />
+      <View style={styles.formRow}>
+        <TextField
+          label="startsAt"
+          onChangeText={(startsAt) => onChangeForm({startsAt})}
+          value={form.startsAt}
+        />
+        <TextField
+          label="endsAt"
+          onChangeText={(endsAt) => onChangeForm({endsAt})}
+          value={form.endsAt}
+        />
+      </View>
+      {!form.templateId.trim() ? (
+        <TextField
+          helper="쉼표로 구분합니다. 커피 메뉴는 menu:4 형식으로 입력합니다."
+          label="직접 선택지"
+          onChangeText={(optionsText) => onChangeForm({optionsText})}
+          value={form.optionsText}
+        />
+      ) : null}
+      {form.chargeGenerationType === 'OPTION_PRICE' ? (
+        <View style={styles.formRow}>
+          <TextField
+            label="paymentCategory"
+            onChangeText={(value) =>
+              onChangeForm({paymentCategory: toAdminPollPaymentCategory(value)})
+            }
+            value={form.paymentCategory}
+          />
+          <TextField
+            keyboardType="number-pad"
+            label="paymentAccountId"
+            onChangeText={(paymentAccountId) => onChangeForm({paymentAccountId})}
+            value={form.paymentAccountId}
+          />
+        </View>
+      ) : null}
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel="익명 투표 여부 전환"
+          disabled={busy}
+          onPress={() => onChangeForm({isAnonymous: !form.isAnonymous})}
+          variant="secondary">
+          {form.isAnonymous ? '익명 ON' : '익명 OFF'}
+        </Button>
+        <Button
+          accessibilityLabel="투표 생성 입력 초기화"
+          disabled={busy}
+          onPress={onReset}
+          variant="secondary">
+          초기화
+        </Button>
+      </View>
+      {coffeeWarning ? (
+        <View style={styles.inlineError}>
+          <Text style={styles.inlineErrorText}>{coffeeWarning}</Text>
+        </View>
+      ) : null}
+      <Button
+        accessibilityLabel="투표 생성 실행"
+        disabled={busy || coffeeWarning !== null}
+        onPress={onCreate}>
+        {busy ? 'Status 10 Poll Create Loading' : '투표 생성'}
+      </Button>
+    </Card>
+  );
+}
+
+function AdminPollResultsPanel({
+  onLoad,
+  onSelectPoll,
+  polls,
+  selectedPoll,
+  state,
+}: {
+  onLoad: () => void;
+  onSelectPoll: (poll: PollSummary) => void;
+  polls: PollSummary[];
+  selectedPoll: PollSummary | null;
+  state: AdminPollResultState;
+}) {
+  return (
+    <>
+      <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
+      <Card>
+        <Eyebrow>Admin 08 Poll Result + Comments</Eyebrow>
+        <Title>{selectedPoll ? selectedPoll.title : '투표를 선택해 주세요'}</Title>
+        <Body>
+          결과 조회는 REST Docs의 GET /api/v1/campuses/{'{campusId}'}/polls/{'{pollId}'}/results를 사용합니다.
+        </Body>
+        <Button
+          accessibilityLabel="선택한 투표 결과와 댓글 불러오기"
+          disabled={!selectedPoll || state.status === 'loading'}
+          onPress={onLoad}>
+          결과 조회
+        </Button>
+      </Card>
+      {state.status === 'idle' ? null : state.status === 'loading' ? (
+        <Loading message="투표 결과와 댓글을 불러오고 있어요." />
+      ) : state.status === 'error' ? (
+        <AdminErrorState error={state.error} onRetry={onLoad} />
+      ) : (
+        <AdminPollResultsBody comments={state.comments} results={state.results} />
+      )}
+    </>
+  );
+}
+
+function AdminPollResultsBody({
+  comments,
+  results,
+}: {
+  comments: PollComment[];
+  results: PollResults;
+}) {
+  return (
+    <>
+      <Card>
+        <Eyebrow>{results.status === 'CLOSED' ? 'CLOSED Poll Confirm' : 'OPEN Poll'}</Eyebrow>
+        <Title>{results.title}</Title>
+        <View style={styles.metricGrid}>
+          <Metric label="대상" value={`${results.targetMemberCount}명`} />
+          <Metric label="응답" value={`${results.respondedCount}명`} />
+          <Metric label="미응답" value={`${results.notRespondedCount}명`} />
+          <Metric label="상태" value={getPollStatusLabel(results.status)} />
+        </View>
+        <Body>
+          종료 시각 {formatDateTime(results.endsAt)} 이후 CLOSED 상태가 되면 결과 확인만 가능합니다.
+        </Body>
+      </Card>
+      <Card>
+        <Eyebrow>선택지별 결과</Eyebrow>
+        {results.optionResults.map((option) => (
+          <View key={option.id} style={styles.compactBlock}>
+            <ListRow
+              label={option.content}
+              supportingText={
+                results.anonymous
+                  ? '익명 투표는 응답자 목록을 표시하지 않습니다.'
+                  : option.respondents.map((person) => person.name).join(', ') || '응답자 없음'
+              }
+              value={`${option.responseCount}명`}
+            />
+          </View>
+        ))}
+      </Card>
+      <Card>
+        <Eyebrow>댓글</Eyebrow>
+        {comments.length === 0 ? (
+          <Body>댓글이 없습니다.</Body>
+        ) : (
+          comments.map((comment) => (
+            <ListRow
+              key={comment.commentId}
+              label={comment.name}
+              supportingText={comment.deleted ? '삭제된 댓글입니다.' : comment.content}
+              value={formatDateTime(comment.createdAt)}
+            />
+          ))
+        )}
+      </Card>
+    </>
+  );
+}
+
+function AdminPollMissingPanel({
+  actionState,
+  onLoad,
+  onSelectPoll,
+  onSendNotification,
+  polls,
+  selectedPoll,
+  state,
+}: {
+  actionState: AdminPollActionState;
+  onLoad: () => void;
+  onSelectPoll: (poll: PollSummary) => void;
+  onSendNotification: () => void;
+  polls: PollSummary[];
+  selectedPoll: PollSummary | null;
+  state: AdminPollMissingState;
+}) {
+  const canSend = state.status === 'success' && actionState.status === 'idle';
+
+  return (
+    <>
+      <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
+      <Card>
+        <Eyebrow>Admin 09 Poll Missing</Eyebrow>
+        <Title>{selectedPoll ? `${selectedPoll.title} 미응답자` : '투표를 선택해 주세요'}</Title>
+        <Body>미응답자 조회는 관리자 endpoint를 사용하고, 알림은 사용 가능한 notifications API에 연결합니다.</Body>
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="선택한 투표 미응답자 불러오기"
+            disabled={!selectedPoll || state.status === 'loading'}
+            onPress={onLoad}>
+            미응답자 조회
+          </Button>
+          <Button
+            accessibilityLabel="투표 미응답자에게 알림 발송"
+            disabled={!canSend}
+            onPress={onSendNotification}
+            variant="secondary">
+            {actionState.status === 'sendingMissingNotice' ? '발송 중...' : '알림 발송'}
+          </Button>
+        </View>
+      </Card>
+      {state.status === 'idle' ? null : state.status === 'loading' ? (
+        <Loading message="투표 미응답자를 불러오고 있어요." />
+      ) : state.status === 'error' ? (
+        <AdminErrorState error={state.error} onRetry={onLoad} />
+      ) : state.status === 'empty' ? (
+        <Empty
+          title="모두 응답했습니다"
+          message="현재 ACTIVE 멤버 중 미응답자가 없습니다."
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="투표 미응답자 다시 조회"
+          onActionPress={onLoad}
+        />
+      ) : (
+        <Card>
+          <Eyebrow>미응답자 {state.members.length}명</Eyebrow>
+          {state.members.map((member) => (
+            <ListRow
+              key={member.userId}
+              label={member.name}
+              supportingText={member.email}
+              value={`user ${member.userId}`}
+            />
+          ))}
+        </Card>
+      )}
+    </>
+  );
+}
+
+function AdminPollPicker({
+  onSelectPoll,
+  polls,
+  selectedPoll,
+}: {
+  onSelectPoll: (poll: PollSummary) => void;
+  polls: PollSummary[];
+  selectedPoll: PollSummary | null;
+}) {
+  return (
+    <Card>
+      <Eyebrow>투표 선택</Eyebrow>
+      {polls.length === 0 ? (
+        <Body>조회할 투표가 없습니다.</Body>
+      ) : (
+        polls.map((poll) => (
+          <ListRow
+            accessibilityLabel={`${poll.title} 투표 선택`}
+            key={poll.id}
+            label={poll.title}
+            onPress={() => onSelectPoll(poll)}
+            supportingText={`${getPollTypeLabel(poll.pollType)} · ${formatDateTime(poll.endsAt)} 자동 종료`}
+            value={selectedPoll?.id === poll.id ? '선택됨' : getPollStatusLabel(poll.status)}
+          />
+        ))
+      )}
+    </Card>
   );
 }
 
@@ -4327,6 +5446,209 @@ function formatDateTime(value: string) {
   });
 }
 
+function toAdminPollTemplateFormRequest(
+  form: AdminPollTemplateForm,
+): AdminPollTemplateRequest {
+  return {
+    title: form.title,
+    pollType: form.pollType,
+    selectionType: form.selectionType,
+    chargeGenerationType: form.chargeGenerationType,
+    paymentCategory: form.paymentCategory === 'NONE' ? null : form.paymentCategory,
+    paymentAccountId: parseNullablePositiveInt(form.paymentAccountId),
+    autoCreateEnabled: form.autoCreateEnabled,
+    startDayOfWeek: parseRequiredPositiveInt(form.startDayOfWeek, 'startDayOfWeek'),
+    startTime: form.startTime,
+    endDayOfWeek: parseRequiredPositiveInt(form.endDayOfWeek, 'endDayOfWeek'),
+    endTime: form.endTime,
+    options: parseAdminPollOptionsText(form.optionsText),
+  };
+}
+
+function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreateRequest {
+  const templateId = parseNullablePositiveInt(form.templateId);
+
+  return {
+    templateId,
+    title: form.title,
+    pollType: form.pollType,
+    selectionType: form.selectionType,
+    isAnonymous: form.isAnonymous,
+    chargeGenerationType: form.chargeGenerationType,
+    paymentCategory: form.paymentCategory === 'NONE' ? null : form.paymentCategory,
+    paymentAccountId: parseNullablePositiveInt(form.paymentAccountId),
+    startsAt: form.startsAt,
+    endsAt: form.endsAt,
+    options: templateId === null ? parseAdminPollOptionsText(form.optionsText) : [],
+  };
+}
+
+function toTemplateForm(template: AdminPollTemplate): AdminPollTemplateForm {
+  return {
+    autoCreateEnabled: template.autoCreateEnabled,
+    chargeGenerationType:
+      template.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
+    endDayOfWeek: String(template.endDayOfWeek),
+    endTime: template.endTime,
+    optionsText: formatPollOptionsText(template.options),
+    paymentAccountId: template.paymentAccountId ? String(template.paymentAccountId) : '',
+    paymentCategory:
+      template.paymentCategory === 'PENALTY' || template.paymentCategory === 'COFFEE'
+        ? template.paymentCategory
+        : 'NONE',
+    pollType: toKnownAdminPollType(template.pollType),
+    selectionType: template.selectionType === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE',
+    startDayOfWeek: String(template.startDayOfWeek),
+    startTime: template.startTime,
+    templateId: template.id,
+    title: template.title,
+  };
+}
+
+function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
+  return {
+    chargeGenerationType: poll.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
+    endsAt: poll.endsAt,
+    isAnonymous: poll.isAnonymous,
+    optionsText: formatPollOptionsText(poll.options),
+    paymentAccountId: poll.paymentAccountId ? String(poll.paymentAccountId) : '',
+    paymentCategory:
+      poll.paymentCategory === 'PENALTY' || poll.paymentCategory === 'COFFEE'
+        ? poll.paymentCategory
+        : 'NONE',
+    pollType: toKnownAdminPollType(poll.pollType),
+    selectionType: poll.selectionType === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE',
+    startsAt: poll.startsAt,
+    templateId: poll.templateId ? String(poll.templateId) : '',
+    title: poll.title,
+  };
+}
+
+function parseAdminPollOptionsText(value: string): AdminPollTemplateOptionRequest[] {
+  const parts = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    throw new FaithLogApiError({kind: 'error', message: '선택지를 입력해 주세요.'});
+  }
+
+  return parts.map((part, index) => {
+    if (/^menu:\d+$/i.test(part)) {
+      return {
+        content: null,
+        menuId: Number(part.split(':')[1]),
+        priceAmount: null,
+        sortOrder: index + 1,
+      };
+    }
+
+    const [content, price] = part.split('|').map((item) => item.trim());
+
+    return {
+      content: content || null,
+      menuId: null,
+      priceAmount: price ? parseRequiredNonNegativeInt(price, 'priceAmount') : null,
+      sortOrder: index + 1,
+    };
+  });
+}
+
+function formatPollOptionsText(options: PollOption[]) {
+  return options
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((option) =>
+      option.priceAmount > 0 ? `${option.content}|${option.priceAmount}` : option.content,
+    )
+    .join(', ');
+}
+
+function parseNullablePositiveInt(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return parseRequiredPositiveInt(trimmed, 'id');
+}
+
+function getAdminPollCoffeeWarning(
+  form: AdminPollCreateForm,
+  coffeeDuty: DutyAssignment | null,
+) {
+  if (form.pollType !== 'COFFEE' || form.chargeGenerationType !== 'OPTION_PRICE') {
+    return null;
+  }
+
+  if (form.paymentCategory !== 'COFFEE' || !form.paymentAccountId.trim()) {
+    return '커피 선택가 투표는 COFFEE 계좌 paymentAccountId가 필요합니다.';
+  }
+
+  if (!coffeeDuty) {
+    return '커피 담당자가 지정되지 않아 CLOSED 이후 정산 운영에 문제가 생길 수 있습니다.';
+  }
+
+  return null;
+}
+
+function toKnownAdminPollType(value: string): AdminPollType {
+  switch (value) {
+    case 'COFFEE':
+    case 'WEDNESDAY':
+    case 'SATURDAY':
+      return value;
+    case 'CUSTOM':
+    default:
+      return 'CUSTOM';
+  }
+}
+
+function toAdminPollPaymentCategory(value: string): PaymentCategory | 'NONE' {
+  const normalized = value.trim().toUpperCase();
+
+  if (normalized === 'COFFEE' || normalized === 'PENALTY') {
+    return normalized;
+  }
+
+  return 'NONE';
+}
+
+function getPollTypeLabel(value: string) {
+  switch (value) {
+    case 'COFFEE':
+      return '커피';
+    case 'WEDNESDAY':
+      return '수요';
+    case 'SATURDAY':
+      return '토요';
+    case 'CUSTOM':
+      return '커스텀';
+    default:
+      return value;
+  }
+}
+
+function getPollStatusLabel(value: string) {
+  switch (value) {
+    case 'OPEN':
+      return 'OPEN';
+    case 'CLOSED':
+      return 'CLOSED';
+    default:
+      return value;
+  }
+}
+
 function countSubmittedMembers(group: PrayerWeekSummary['groups'][number]) {
   return group.members.filter(hasPrayerMemberSubmitted).length;
 }
@@ -4572,6 +5894,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  compactBlock: {
+    gap: spacing.gap,
+    marginBottom: spacing.gap,
+  },
   confirmTargetList: {
     backgroundColor: colors.neutralSoft,
     borderRadius: radius.item,
@@ -4591,6 +5917,11 @@ const styles = StyleSheet.create({
     minWidth: 140,
   },
   filterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+  },
+  formRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.gap,
