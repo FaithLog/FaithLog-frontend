@@ -295,6 +295,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
             />
 
             <UserDetailSection
+              currentUserId={state.user.id}
               detailState={detailState}
               onRetry={(userId) => void loadUserDetail(userId)}
               onRoleSelect={openRoleConfirm}
@@ -324,8 +325,8 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
                 <Title>전역 역할을 변경할까요?</Title>
                 <Body>
                   {roleChangeState.user.name}님의 역할을 {roleChangeState.user.role}에서{' '}
-                  {roleChangeState.role}로 변경합니다. 마지막 활성 ADMIN 강등은 서버 정책에 따라
-                  409로 거부될 수 있습니다.
+                  {roleChangeState.role}로 변경합니다. 본인 ADMIN 권한 강등은 클라이언트에서
+                  차단하고, 마지막 활성 ADMIN 강등은 서버 정책에 따라 409로 거부될 수 있습니다.
                 </Body>
                 <View style={styles.actions}>
                   <Button
@@ -407,11 +408,13 @@ function UserListSection({
 }
 
 function UserDetailSection({
+  currentUserId,
   detailState,
   onRetry,
   onRoleSelect,
   selectedRole,
 }: {
+  currentUserId: number;
   detailState: UserDetailState;
   onRetry: (userId: number) => void;
   onRoleSelect: (role: RoleOption) => void;
@@ -434,7 +437,9 @@ function UserDetailSection({
           onRetry={() => onRetry(detailState.userId)}
         />
       );
-    case 'success':
+    case 'success': {
+      const isCurrentUser = detailState.data.userId === currentUserId;
+
       return (
         <Card>
           <Eyebrow>사용자 상세</Eyebrow>
@@ -449,6 +454,7 @@ function UserDetailSection({
             {ROLE_OPTIONS.map((role) => (
               <FilterButton
                 active={selectedRole === role}
+                disabled={isCurrentUser && role !== 'ADMIN'}
                 key={role}
                 label={role}
                 onPress={() => onRoleSelect(role)}
@@ -456,8 +462,8 @@ function UserDetailSection({
             ))}
           </View>
           <Body>
-            마지막 활성 Service ADMIN 1명을 USER 또는 MANAGER로 강등하면 서버가 409로
-            거부합니다.
+            본인 ADMIN 권한은 이 화면에서 USER 또는 MANAGER로 강등할 수 없습니다. 마지막 활성
+            Service ADMIN 1명을 강등하면 서버가 409로 거부합니다.
           </Body>
           <View style={styles.campusList}>
             <Eyebrow>소속 캠퍼스</Eyebrow>
@@ -476,6 +482,7 @@ function UserDetailSection({
           </View>
         </Card>
       );
+    }
     default:
       return assertNever(detailState);
   }
@@ -556,10 +563,12 @@ function InlineError({error}: {error: ApiError}) {
 
 function FilterButton({
   active,
+  disabled = false,
   label,
   onPress,
 }: {
   active: boolean;
+  disabled?: boolean;
   label: string;
   onPress: () => void;
 }) {
@@ -567,14 +576,21 @@ function FilterButton({
     <Pressable
       accessibilityLabel={`${label} 필터`}
       accessibilityRole="button"
-      accessibilityState={{selected: active}}
+      accessibilityState={{disabled, selected: active}}
+      disabled={disabled}
       onPress={onPress}
       style={({pressed}) => [
         styles.filterButton,
         active ? styles.filterButtonActive : null,
+        disabled ? styles.filterButtonDisabled : null,
         pressed ? styles.pressed : null,
       ]}>
-      <Text style={[styles.filterButtonText, active ? styles.filterButtonTextActive : null]}>
+      <Text
+        style={[
+          styles.filterButtonText,
+          active ? styles.filterButtonTextActive : null,
+          disabled ? styles.filterButtonTextDisabled : null,
+        ]}>
         {label}
       </Text>
     </Pressable>
@@ -661,6 +677,9 @@ const styles = StyleSheet.create({
   filterButtonActive: {
     backgroundColor: colors.primary,
   },
+  filterButtonDisabled: {
+    opacity: 0.45,
+  },
   filterButtonText: {
     color: colors.text,
     fontSize: 14,
@@ -668,6 +687,9 @@ const styles = StyleSheet.create({
   },
   filterButtonTextActive: {
     color: colors.surface,
+  },
+  filterButtonTextDisabled: {
+    color: colors.mutedText,
   },
   sectionHeader: {
     alignItems: 'flex-start',
