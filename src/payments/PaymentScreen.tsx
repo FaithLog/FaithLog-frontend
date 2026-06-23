@@ -225,54 +225,29 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   const accountMissing = getAccountMissingState(accounts, charges.items, category);
 
   return (
-    <>
-      <Card>
-        <Eyebrow>User 09 Payment</Eyebrow>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Chip label={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`} tone="info" />
-            <Title>내 납부</Title>
-            <Body>이번 달 요약과 청구 목록을 확인하고, 미납 항목은 바로 납부 완료 처리합니다.</Body>
-          </View>
-          <Button
-            accessibilityLabel="납부 정보 다시 불러오기"
-            onPress={() => loadPayments(page)}
-            variant="ghost">
-            새로고침
-          </Button>
+    <View style={styles.figmaScreen}>
+      <View style={styles.figmaHeader}>
+        <Text style={styles.figmaTitle}>납부</Text>
+        <View style={styles.figmaCampusChip}>
+          <Text style={styles.figmaCampusText}>
+            {state.selectedCampus.region} {state.selectedCampus.campusName}
+          </Text>
         </View>
-        <View style={styles.summaryGrid}>
-          <ListRow
-            label="이번 달 미납"
-            supportingText="createdAt 기준"
-            value={formatWon(summary.monthlyUnpaidAmount)}
-          />
-          <ListRow
-            label="이번 달 납부"
-            supportingText="paidAt 기준"
-            value={formatWon(summary.monthlyPaidAmount)}
-          />
-          <ListRow
-            label="전체 납부"
-            supportingText={summary.name}
-            value={formatWon(summary.totalPaidAmount)}
-          />
+      </View>
+
+      <View style={styles.paymentHeroCard}>
+        <View style={styles.paymentHeroText}>
+          <Text style={styles.paymentHeroLabel}>총 미납 금액</Text>
+          <Text style={styles.paymentHeroAmount}>{formatWon(summary.monthlyUnpaidAmount)}</Text>
         </View>
-        {summary.monthlyByCategory.length > 0 ? (
-          <View style={styles.categorySummary}>
-            {summary.monthlyByCategory.map((item) => (
-              <View key={item.paymentCategory} style={styles.categorySummaryItem}>
-                <Text style={styles.categorySummaryTitle}>
-                  {getPaymentCategoryLabel(item.paymentCategory)}
-                </Text>
-                <Text style={styles.categorySummaryBody}>
-                  미납 {formatWon(item.unpaidAmount)} · 납부 {formatWon(item.paidAmount)}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-      </Card>
+        <Pressable
+          accessibilityLabel="미납 항목 납부 확인"
+          accessibilityRole="button"
+          onPress={() => loadPayments(page)}
+          style={styles.paymentHeroButton}>
+          <Text style={styles.paymentHeroButtonText}>새로고침</Text>
+        </Pressable>
+      </View>
 
       {accountMissing ? (
         <PaymentAccountMissingState
@@ -288,19 +263,21 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       ) : null}
 
       {actionState.status === 'markingPaid' ? (
-        <Card>
-          <Eyebrow>Status 06 Payment Mark Loading</Eyebrow>
-          <Title>납부 완료 처리 중</Title>
-          <Body>선택한 청구를 PAID로 반영하고 있어요. 중복 처리를 막기 위해 잠시만 기다려 주세요.</Body>
-        </Card>
+        <View style={styles.paymentStatusNotice}>
+          <Text style={styles.paymentStatusTitle}>납부 완료 처리 중</Text>
+          <Text style={styles.paymentStatusBody}>
+            선택한 청구를 납부 완료로 바꾸고 있어요. 중복 처리를 막기 위해 잠시만 기다려 주세요.
+          </Text>
+        </View>
       ) : null}
 
       {actionState.status === 'complete' ? (
-        <Card>
-          <Eyebrow>Status 07 Payment Mark Complete</Eyebrow>
-          <Title>납부 완료</Title>
-          <Body>{actionState.charge.title} 항목이 즉시 납부 완료로 바뀌었습니다.</Body>
-        </Card>
+        <View style={styles.paymentStatusNotice}>
+          <Text style={styles.paymentStatusTitle}>납부 완료</Text>
+          <Text style={styles.paymentStatusBody}>
+            {actionState.charge.title} 항목이 납부 완료로 바뀌었습니다.
+          </Text>
+        </View>
       ) : null}
 
       {actionState.status === 'error' ? (
@@ -310,9 +287,8 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         />
       ) : null}
 
-      <Card>
-        <Eyebrow>필터</Eyebrow>
-        <Title>청구 목록</Title>
+      <View style={styles.filterPanel}>
+        <Text style={styles.figmaSectionTitle}>청구 항목</Text>
         <FilterRow
           accessibilityPrefix="납부 유형 필터"
           items={categoryFilters}
@@ -346,7 +322,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           }}
           selected={sort}
         />
-      </Card>
+      </View>
 
       {charges.items.length === 0 ? (
         <Empty
@@ -362,12 +338,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           }}
         />
       ) : (
-        <Card>
-          <Eyebrow>{charges.campusName}</Eyebrow>
-          <Title>{page + 1}페이지</Title>
-          <Body>
-            총 {formatWon(charges.summary.totalAmount)} · 미납 {formatWon(charges.summary.unpaidAmount)}
-          </Body>
+        <View style={styles.chargeList}>
           <View style={styles.chargeList}>
             {charges.items.map((charge) => (
               <ChargeCard
@@ -398,11 +369,11 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
               다음
             </Button>
           </View>
-        </Card>
+        </View>
       )}
 
-      <Card>
-        <Eyebrow>납부 계좌</Eyebrow>
+      <View style={styles.accountPanel}>
+        <Text style={styles.figmaSectionTitle}>납부 계좌</Text>
         {accounts.length === 0 ? (
           <Body>현재 활성 납부 계좌가 없습니다. 관리자에게 계좌 등록을 요청해 주세요.</Body>
         ) : (
@@ -417,8 +388,8 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
             ))}
           </View>
         )}
-      </Card>
-    </>
+      </View>
+    </View>
   );
 }
 
@@ -492,42 +463,34 @@ function ChargeCard({
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
 
   return (
-    <View style={styles.chargeItem}>
-      <View style={styles.chargeHeader}>
-        <View style={styles.chargeTitleBlock}>
-          <Text style={styles.chargeTitle}>{charge.title}</Text>
-          <Text style={styles.chargeReason}>{charge.reason}</Text>
-        </View>
-        <Chip label={getChargeStatusLabel(charge.status)} tone={getChargeStatusTone(charge.status)} />
+    <View style={styles.figmaChargeRow}>
+      <View style={styles.figmaChargeIcon}>
+        <Text style={styles.figmaChargeIconText}>
+          {charge.paymentCategory === 'COFFEE' ? 'C' : charge.status === 'PAID' ? '✓' : '₩'}
+        </Text>
       </View>
-      <View style={styles.metaRow}>
-        <Chip label={getPaymentCategoryLabel(charge.paymentCategory)} tone="info" />
-        <Text style={styles.amountText}>{formatWon(charge.amount)}</Text>
+      <View style={styles.figmaChargeText}>
+        <Text style={styles.chargeTitle}>{charge.title}</Text>
+        <Text style={styles.chargeReason}>
+          {charge.status === 'PAID' ? '납부 완료' : charge.reason || getPaymentCategoryLabel(charge.paymentCategory)}
+        </Text>
       </View>
-      <ListRow
-        label="납부 기한"
-        supportingText={charge.paidAt ? `납부 완료 ${formatDateTime(charge.paidAt)}` : '미납 상태'}
-        value={charge.dueDate ?? '기한 없음'}
-      />
-      {charge.account ? (
-        <ListRow
-          label={`${charge.account.bankName} ${charge.account.accountHolder}`}
-          supportingText="청구 생성 시점 계좌 snapshot"
-          value={charge.account.accountNumber}
-        />
-      ) : (
-        <PermissionDenied
-          title="연결된 계좌가 없습니다"
-          message="이 청구 항목에는 납부 계좌 snapshot이 없어 납부 완료 처리를 막았습니다."
-        />
-      )}
-      <Button
+      <Text style={styles.figmaChargeAmount}>{formatWon(charge.amount)}</Text>
+      <Pressable
         accessibilityLabel={`${charge.title} 납부 완료 처리`}
+        accessibilityRole="button"
+        accessibilityState={{disabled: disabled || !canMarkPaid}}
         disabled={disabled || !canMarkPaid}
         onPress={onMarkPaid}
-        variant={canMarkPaid ? 'primary' : 'secondary'}>
-        {markingPaid ? '처리 중...' : charge.status === 'UNPAID' ? '납부했어요' : '처리 완료'}
-      </Button>
+        style={({pressed}) => [
+          styles.figmaChargeButton,
+          !canMarkPaid ? styles.figmaChargeButtonDone : null,
+          pressed ? styles.pressed : null,
+        ]}>
+        <Text style={styles.figmaChargeButtonText}>
+          {markingPaid ? '처리' : charge.status === 'UNPAID' ? '입금' : '완료'}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -733,7 +696,22 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled payment state: ${String(value)}`);
 }
 
+const paymentColors = {
+  card: '#FFFDF8',
+  chip: '#ECE8D9',
+  text: '#494949',
+  muted: 'rgba(73, 73, 73, 0.72)',
+  border: '#ECE5D4',
+  dark: '#494949',
+};
+
 const styles = StyleSheet.create({
+  accountPanel: {
+    backgroundColor: paymentColors.card,
+    borderRadius: 18,
+    gap: 12,
+    padding: 20,
+  },
   actionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -821,6 +799,94 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  figmaCampusChip: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.chip,
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    minWidth: 86,
+    paddingHorizontal: 12,
+  },
+  figmaCampusText: {
+    color: paymentColors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  figmaChargeAmount: {
+    color: paymentColors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    minWidth: 64,
+    textAlign: 'right',
+  },
+  figmaChargeButton: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.dark,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    width: 58,
+  },
+  figmaChargeButtonDone: {
+    backgroundColor: paymentColors.chip,
+  },
+  figmaChargeButtonText: {
+    color: paymentColors.card,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  figmaChargeIcon: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.chip,
+    borderRadius: 14,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  figmaChargeIconText: {
+    color: paymentColors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  figmaChargeRow: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.card,
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 82,
+    paddingHorizontal: 20,
+  },
+  figmaChargeText: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  figmaHeader: {
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  figmaScreen: {
+    gap: 20,
+    paddingTop: 2,
+  },
+  figmaSectionTitle: {
+    color: paymentColors.text,
+    fontSize: 19,
+    fontWeight: '800',
+    lineHeight: 23,
+  },
+  figmaTitle: {
+    color: paymentColors.text,
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 34,
+  },
+  filterPanel: {
+    gap: 12,
+  },
   headerRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -841,6 +907,62 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.72,
+  },
+  paymentHeroAmount: {
+    color: paymentColors.text,
+    fontSize: 40,
+    fontWeight: '800',
+    lineHeight: 50,
+  },
+  paymentHeroButton: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.dark,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    width: 96,
+  },
+  paymentHeroButtonText: {
+    color: paymentColors.card,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  paymentHeroCard: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.card,
+    borderRadius: 22,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 130,
+    paddingHorizontal: 24,
+  },
+  paymentHeroLabel: {
+    color: paymentColors.text,
+    fontSize: 14,
+    lineHeight: 17,
+  },
+  paymentHeroText: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  paymentStatusBody: {
+    color: paymentColors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  paymentStatusNotice: {
+    backgroundColor: paymentColors.card,
+    borderRadius: 18,
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+  },
+  paymentStatusTitle: {
+    color: paymentColors.text,
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 22,
   },
   summaryGrid: {
     gap: 8,

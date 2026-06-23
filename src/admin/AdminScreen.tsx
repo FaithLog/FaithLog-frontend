@@ -2737,9 +2737,7 @@ function AdminPollResultsPanel({
       <Card>
         <Eyebrow>Admin 08 Poll Result + Comments</Eyebrow>
         <Title>{selectedPoll ? selectedPoll.title : '투표를 선택해 주세요'}</Title>
-        <Body>
-          결과 조회는 REST Docs의 GET /api/v1/campuses/{'{campusId}'}/polls/{'{pollId}'}/results를 사용합니다.
-        </Body>
+        <Body>선택한 투표의 응답 결과와 댓글 흐름을 함께 확인합니다.</Body>
         <Button
           accessibilityLabel="선택한 투표 결과와 댓글 불러오기"
           disabled={!selectedPoll || state.status === 'loading'}

@@ -261,7 +261,10 @@ export function BottomNav<T extends string>({
               pressed ? styles.pressed : null,
             ]}>
             {item.icon ? (
-              <Text accessibilityElementsHidden importantForAccessibility="no" style={styles.navIcon}>
+              <Text
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                style={[styles.navIcon, active ? styles.navIconActive : null]}>
                 {item.icon}
               </Text>
             ) : null}
@@ -599,30 +602,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: radius.pill,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 6,
-    padding: 6,
+    gap: 8,
+    minHeight: 80,
+    marginHorizontal: -24,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   bottomNavItem: {
     alignItems: 'center',
-    borderRadius: radius.pill,
+    borderRadius: 18,
     flex: 1,
     gap: 3,
     justifyContent: 'center',
-    minHeight: 56,
+    minHeight: 48,
     minWidth: 0,
     paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   bottomNavItemActive: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: '#494949',
   },
   navIcon: {
     color: colors.mutedText,
     fontSize: 14,
     fontWeight: '900',
+  },
+  navIconActive: {
+    color: colors.surface,
   },
   bottomNavLabel: {
     color: colors.mutedText,
@@ -634,7 +642,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bottomNavLabelActive: {
-    color: colors.primary,
+    color: colors.surface,
   },
   pressed: {
     opacity: 0.78,
