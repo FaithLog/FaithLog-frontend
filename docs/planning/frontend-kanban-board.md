@@ -145,3 +145,29 @@ API:
 - 최근 선택 campusId는 secure storage에 저장한다.
 - 저장값은 positive integer로 검증하고, 현재 `GET /api/v1/campuses/me` ACTIVE 목록에 있는 경우에만 사용한다.
 - 새 endpoint, request field, query parameter를 임의로 만들지 않는다.
+
+### FE-B03. Push payload route schema
+
+상태: `Resolved`
+
+결정:
+
+- Push notification payload는 `{ route, params }` 형태만 허용한다.
+- `route`는 클라이언트 route allowlist에 등록된 화면 키만 허용한다.
+- `params`는 route별 허용 필드와 타입으로 검증하고, navigation 또는 API query로 전달하기 전에 정규화한다.
+- 임의 deep link 문자열, 자유 query string, 서버가 임의로 주는 path/url 실행은 허용하지 않는다.
+
+영향:
+
+- `FE-006`
+- `FE-019`
+
+구현 기준:
+
+- 현재 클라이언트 shell route allowlist 예시는 `userHome`, `devotion`, `payments`, `polls`, `prayers`, `profile`, `campusAdmin`, `serviceAdmin`이다.
+- FE-006의 push open 처리는 auth/session 복원 이후 payload shape 검증, route allowlist 확인, route별 params 정규화 순서로 수행한다.
+- FE-019의 관리자 알림 발송/로그 문서는 payload navigation 계약이 REST Docs에 명시되기 전까지 새 request field로 단정하지 않는다.
+- route별 params 예시는 `polls`의 `pollId: positive integer`, `devotion`의 `weekStartDate: YYYY-MM-DD`, `campusAdmin`의 `campusId: positive integer`, `serviceAdmin`의 `userId: positive integer`처럼 최소 식별자만 허용한다.
+- 허용되지 않은 route 또는 invalid params는 임의 fallback navigation 없이 invalid payload 상태로 처리하고, 필요 시 사용자가 기존 홈/목록 화면에서 다시 진입하게 한다.
+- 401/403/409 UX, loading/empty/error/retry/offline 상태, token/secret/log 노출 정책은 기존 FE-006/FE-019 기준을 유지하며 이 문서 결정만으로 새 API error code나 보안 예외를 추가하지 않는다.
+- API Docs의 Notifications 계약은 FCM token 등록/비활성화, 관리자 알림 발송, 알림 로그 조회만 설명한다. push open payload의 `{ route, params }` 서버 계약은 문서에 없으므로 frontend policy로 기록하고 backend coordination이 필요하다.
