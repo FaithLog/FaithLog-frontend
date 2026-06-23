@@ -39,3 +39,19 @@ Coverage notes:
 Issue #27 does not add any endpoint, DTO field, query parameter, or error code.
 The frontend documentation and Service ADMIN UI only clarify how FE-020 should
 present and block the already decided ADMIN demotion policy.
+
+## Campus Selection Policy
+
+Related issue: #28 / FE-B02.
+
+- Recent campus selection is a frontend storage policy, not a backend API
+  contract change.
+- The frontend stores the last selected campusId in secure storage and restores
+  it after `GET /api/v1/campuses/me`.
+- The stored campusId is used only when it is a positive integer and still
+  exists in the current ACTIVE campus list.
+- If the stored campusId is missing, invalid, inactive, or no longer joined, the
+  first ACTIVE campus from the current response is selected and saved as the new
+  recent value.
+- No endpoint, DTO field, request body, query parameter, or error code was added
+  for FE-B02.

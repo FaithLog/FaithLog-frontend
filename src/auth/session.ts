@@ -6,7 +6,13 @@ import {
   logoutUser,
   refreshAuthToken,
 } from '../api/client';
-import {clearTokens, getStoredTokens, saveTokens} from '../api/tokenStorage';
+import {
+  clearTokens,
+  getStoredSelectedCampusId,
+  getStoredTokens,
+  saveSelectedCampusId,
+  saveTokens,
+} from '../api/tokenStorage';
 import type {
   ApiError,
   CampusMembershipSummary,
@@ -81,11 +87,17 @@ async function establishSession(tokens: Pick<LoginResponse, 'accessToken'>): Pro
     return {status: 'noCampus', user};
   }
 
+  const storedCampusId = await getStoredSelectedCampusId();
+  const selectedCampus =
+    activeCampuses.find((campus) => campus.campusId === storedCampusId) ??
+    activeCampuses[0]!;
+  await saveSelectedCampusId(selectedCampus.campusId);
+
   return {
     status: 'authenticated',
     user,
     activeCampuses,
-    selectedCampus: activeCampuses[0]!,
+    selectedCampus,
   };
 }
 

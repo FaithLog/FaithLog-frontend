@@ -34,4 +34,12 @@ Reference API Docs: `/Users/josephuk77/FaithLog/build/docs/asciidoc/index.html`
 
 ## API Confirmation Needed
 
-- 없음. FE-B01의 정책 결정은 위 기준으로 resolved 처리한다.
+- 없음. FE-B01, FE-B02의 정책 결정은 위 기준으로 resolved 처리한다.
+
+## Campus Selection Policy
+
+- 여러 ACTIVE 캠퍼스가 있는 사용자는 앱 시작 시 최근 선택한 campusId를 우선 사용한다.
+- 최근 선택값이 없거나 현재 ACTIVE 캠퍼스 목록에 없으면 `GET /api/v1/campuses/me` 응답의 첫 번째 ACTIVE 캠퍼스로 fallback한다.
+- fallback 결과는 secure storage에 다시 저장해 다음 시작 때 같은 기준을 사용한다.
+- 초대코드 가입, 캠퍼스 생성, 캠퍼스 전환, 프로필/캠퍼스 목록 refresh 후 선택된 캠퍼스도 최근 선택값으로 저장한다.
+- 저장된 campusId는 positive integer로 검증하고, API Docs에 없는 query/body/path 계약은 추가하지 않는다.

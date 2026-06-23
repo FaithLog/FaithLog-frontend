@@ -15,7 +15,7 @@ import {
   signupUser,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens, getStoredTokens, saveSelectedCampusId} from '../api/tokenStorage';
 import type {
   ApiError,
   CampusDetail,
@@ -900,6 +900,8 @@ async function resolveAuthenticatedCampusState(
     });
   }
 
+  await saveSelectedCampusId(selectedCampus.campusId);
+
   return {
     status: 'authenticated',
     user,
@@ -927,6 +929,8 @@ async function refreshAuthenticatedCampusState(
     activeCampuses.find((campus) => campus.campusId === preferredCampusId) ??
     activeCampuses.find((campus) => campus.campusId === current.selectedCampus.campusId) ??
     activeCampuses[0]!;
+
+  await saveSelectedCampusId(selectedCampus.campusId);
 
   return {
     status: 'authenticated',
