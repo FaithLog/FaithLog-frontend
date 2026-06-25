@@ -66,6 +66,7 @@ import {
   Card,
   Chip,
   Conflict,
+  DangerConfirmSheet,
   Empty,
   ErrorState,
   Eyebrow,
@@ -2724,33 +2725,20 @@ function LogoutConfirmSheet({
   visible: boolean;
 }) {
   return (
-    <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalSheet}>
-          <Eyebrow>Logout Confirm</Eyebrow>
-          <Title>로그아웃할까요?</Title>
-          <Body>
-            서버 로그아웃을 best effort로 시도하고, 이 기기의 access/refresh token은 삭제합니다.
-          </Body>
-          <View style={styles.actionRow}>
-            <Button
-              accessibilityLabel="로그아웃 취소"
-              disabled={loading}
-              onPress={onCancel}
-              variant="secondary">
-              취소
-            </Button>
-            <Button
-              accessibilityLabel="로그아웃 확정"
-              disabled={loading}
-              onPress={onConfirm}
-              variant="danger">
-              {loading ? '로그아웃 중...' : '로그아웃'}
-            </Button>
-          </View>
-        </View>
-      </View>
-    </Modal>
+    <DangerConfirmSheet
+      accessibilityLabel="로그아웃 위험 확인"
+      cancelAccessibilityLabel="로그아웃 취소"
+      confirmAccessibilityLabel="로그아웃 확정"
+      confirmLabel="로그아웃"
+      dangerSummary="서버 로그아웃 확인과 기기 토큰 삭제를 함께 진행합니다."
+      loading={loading}
+      loadingLabel="로그아웃 중..."
+      message="서버 로그아웃을 best effort로 시도하고, 이 기기의 access/refresh token은 삭제합니다."
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      title="로그아웃할까요?"
+      visible={visible}
+    />
   );
 }
 

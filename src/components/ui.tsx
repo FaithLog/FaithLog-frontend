@@ -2,8 +2,10 @@ import type {PropsWithChildren, ReactNode} from 'react';
 import {
   ActivityIndicator,
   type KeyboardTypeOptions,
+  Modal,
   Pressable,
   type ReturnKeyTypeOptions,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,6 +36,24 @@ type StateProps = {
   secondaryActionLabel?: string;
   title: string;
 };
+
+type DangerConfirmSheetProps = PropsWithChildren<{
+  accessibilityLabel?: string;
+  cancelAccessibilityLabel?: string;
+  cancelLabel?: string;
+  confirmAccessibilityLabel?: string;
+  confirmLabel: string;
+  dangerSummary?: string;
+  failureMessage?: string | null;
+  loading?: boolean;
+  loadingLabel?: string;
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  title: string;
+  visible: boolean;
+  warningLabel?: string;
+}>;
 
 export function Screen({children}: PropsWithChildren) {
   return <View style={styles.screen}>{children}</View>;
@@ -108,6 +128,100 @@ export function Button({
       ]}>
       <Text style={[styles.buttonText, styles[`${variant}ButtonText`]]}>{children}</Text>
     </Pressable>
+  );
+}
+
+export function DangerConfirmSheet({
+  accessibilityLabel,
+  cancelAccessibilityLabel,
+  cancelLabel = '취소',
+  children,
+  confirmAccessibilityLabel,
+  confirmLabel,
+  dangerSummary,
+  failureMessage,
+  loading = false,
+  loadingLabel,
+  message,
+  onCancel,
+  onConfirm,
+  title,
+  visible,
+  warningLabel = '주의',
+}: DangerConfirmSheetProps) {
+  const confirmText = loading ? (loadingLabel ?? '처리 중...') : confirmLabel;
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={loading ? undefined : onCancel}
+      transparent
+      visible={visible}>
+      <View style={styles.dangerSheetBackdrop}>
+        <Pressable
+          accessibilityElementsHidden
+          disabled={loading}
+          importantForAccessibility="no-hide-descendants"
+          onPress={onCancel}
+          style={styles.dangerSheetScrim}
+        />
+        <View
+          accessibilityLabel={accessibilityLabel ?? title}
+          accessibilityRole="alert"
+          accessibilityViewIsModal
+          style={styles.dangerSheet}>
+          <View accessibilityElementsHidden importantForAccessibility="no" style={styles.sheetHandle} />
+          <ScrollView
+            contentContainerStyle={styles.dangerSheetContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            <Chip label={warningLabel} tone="danger" />
+            <Text style={styles.dangerSheetTitle}>{title}</Text>
+            <Text style={styles.dangerSheetMessage}>{message}</Text>
+            {children ? <View style={styles.dangerSheetDetails}>{children}</View> : null}
+            {dangerSummary ? (
+              <View style={styles.dangerSummary}>
+                <Text style={styles.dangerSummaryText}>{dangerSummary}</Text>
+              </View>
+            ) : null}
+            {failureMessage ? (
+              <View accessibilityRole="alert" style={styles.dangerFailure}>
+                <Text style={styles.dangerFailureText}>{failureMessage}</Text>
+              </View>
+            ) : null}
+          </ScrollView>
+          <View style={styles.dangerSheetActions}>
+            <Pressable
+              accessibilityLabel={cancelAccessibilityLabel ?? cancelLabel}
+              accessibilityRole="button"
+              accessibilityState={{disabled: loading}}
+              disabled={loading}
+              onPress={onCancel}
+              style={({pressed}) => [
+                styles.dangerCancelButton,
+                loading ? styles.disabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.dangerCancelButtonText}>{cancelLabel}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel={confirmAccessibilityLabel ?? confirmLabel}
+              accessibilityRole="button"
+              accessibilityState={{busy: loading, disabled: loading}}
+              disabled={loading}
+              onPress={onConfirm}
+              style={({pressed}) => [
+                styles.dangerConfirmButton,
+                loading ? styles.disabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              {loading ? <ActivityIndicator color={colors.surface} /> : null}
+              <Text style={styles.dangerConfirmButtonText}>{confirmText}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -510,6 +624,137 @@ const styles = StyleSheet.create({
   },
   ghostButtonText: {
     color: colors.text,
+  },
+  dangerSheetBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  dangerSheetScrim: {
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  dangerSheet: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    gap: spacing.gap,
+    maxHeight: '86%',
+    maxWidth: 420,
+    paddingBottom: spacing.bottomSafe,
+    paddingHorizontal: 28,
+    paddingTop: 16,
+    width: '100%',
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    height: 5,
+    marginBottom: 16,
+    width: 82,
+  },
+  dangerSheetContent: {
+    gap: spacing.gap,
+    paddingBottom: 4,
+  },
+  dangerSheetTitle: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 30,
+  },
+  dangerSheetMessage: {
+    color: colors.mutedText,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  dangerSheetDetails: {
+    gap: 8,
+  },
+  dangerSummary: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  dangerSummaryText: {
+    color: colors.danger,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  dangerFailure: {
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.control,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dangerFailureText: {
+    color: colors.danger,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  dangerSheetActions: {
+    flexDirection: 'row',
+    gap: spacing.gap,
+  },
+  dangerCancelButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  dangerCancelButtonText: {
+    color: colors.mutedText,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  dangerConfirmButton: {
+    alignItems: 'center',
+    backgroundColor: colors.danger,
+    borderRadius: radius.control,
+    flex: 1.08,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  dangerConfirmButtonText: {
+    color: colors.surface,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   disabled: {
     opacity: 0.5,
