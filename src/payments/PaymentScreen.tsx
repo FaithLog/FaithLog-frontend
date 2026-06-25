@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View} from 'react-native';
 
 import {
   FaithLogApiError,
@@ -24,17 +24,13 @@ import type {AuthGateState} from '../auth/authGate';
 import {
   Body,
   Button,
-  Card,
-  Chip,
   Conflict,
   Empty,
   ErrorState,
-  Eyebrow,
   ListRow,
   Loading,
   Offline,
   PermissionDenied,
-  Title,
 } from '../components/ui';
 import {colors, radius, spacing} from '../theme';
 
@@ -95,8 +91,10 @@ const sortOptions: Array<{label: string; value: SortOption}> = [
 
 export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenProps) {
   const campusId = state.selectedCampus.campusId;
+  const {width} = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
   const {month, year} = getYearMonth(today);
+  const compactPaymentLayout = width <= 360;
   const [category, setCategory] = useState<CategoryFilter>('ALL');
   const [status, setStatus] = useState<StatusFilter>('UNPAID');
   const [sort, setSort] = useState<SortOption>('createdAtDesc');
@@ -105,9 +103,17 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   const [loadState, setLoadState] = useState<PaymentLoadState>({status: 'loading'});
   const [actionState, setActionState] = useState<PaymentActionState>({status: 'idle'});
 
-  const loadPayments = async (nextPage = page) => {
+  const loadPayments = async (
+    nextPage = page,
+    options: {showLoading?: boolean} = {},
+  ) => {
+    const showLoading = options.showLoading ?? true;
     const previousSuccess = loadState.status === 'success' ? loadState : null;
-    setLoadState({status: 'loading'});
+
+    if (showLoading || !previousSuccess) {
+      setLoadState({status: 'loading'});
+    }
+
     try {
       const accessToken = await resolveAccessToken(setAuthState);
 
@@ -202,7 +208,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         title: '납부 완료 처리',
         message: `${paid.title} 항목을 납부 완료로 반영했습니다.`,
       });
-      await loadPayments(page);
+      await loadPayments(page, {showLoading: false});
     } catch (error) {
       const apiError = toApiError(error, '납부 완료 처리를 하지 못했습니다.');
       setActionState({status: 'error', error: apiError});
@@ -238,7 +244,13 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       <View style={styles.paymentHeroCard}>
         <View style={styles.paymentHeroText}>
           <Text style={styles.paymentHeroLabel}>총 미납 금액</Text>
-          <Text style={styles.paymentHeroAmount}>{formatWon(summary.monthlyUnpaidAmount)}</Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+            numberOfLines={1}
+            style={styles.paymentHeroAmount}>
+            {formatWon(summary.monthlyUnpaidAmount)}
+          </Text>
         </View>
         <Pressable
           accessibilityLabel="미납 항목 납부 확인"
@@ -251,6 +263,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
 
       {accountMissing ? (
         <PaymentAccountMissingState
+          accountsEmpty={accounts.length === 0}
           category={accountMissing}
           onContactAdmin={() =>
             setNotice({
@@ -263,21 +276,19 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       ) : null}
 
       {actionState.status === 'markingPaid' ? (
-        <View style={styles.paymentStatusNotice}>
-          <Text style={styles.paymentStatusTitle}>납부 완료 처리 중</Text>
-          <Text style={styles.paymentStatusBody}>
-            선택한 청구를 납부 완료로 바꾸고 있어요. 중복 처리를 막기 위해 잠시만 기다려 주세요.
-          </Text>
-        </View>
+        <PaymentStatusNotice
+          message="선택한 청구를 납부 완료로 바꾸고 있어요. 중복 처리를 막기 위해 잠시만 기다려 주세요."
+          title="납부 완료 처리 중"
+          tone="loading"
+        />
       ) : null}
 
       {actionState.status === 'complete' ? (
-        <View style={styles.paymentStatusNotice}>
-          <Text style={styles.paymentStatusTitle}>납부 완료</Text>
-          <Text style={styles.paymentStatusBody}>
-            {actionState.charge.title} 항목이 납부 완료로 바뀌었습니다.
-          </Text>
-        </View>
+        <PaymentStatusNotice
+          message={`${actionState.charge.title} 항목이 납부 완료로 바뀌었습니다.`}
+          title="납부 완료"
+          tone="complete"
+        />
       ) : null}
 
       {actionState.status === 'error' ? (
@@ -350,6 +361,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
                   actionState.chargeItemId === charge.id
                 }
                 onMarkPaid={() => markPaid(charge)}
+                compact={compactPaymentLayout}
               />
             ))}
           </View>
@@ -432,30 +444,84 @@ function FilterRow<T extends string>({
 }
 
 function PaymentAccountMissingState({
+  accountsEmpty,
   category,
   onContactAdmin,
 }: {
+  accountsEmpty: boolean;
   category: CategoryFilter;
   onContactAdmin: () => void;
 }) {
+  const missingTarget =
+    category === 'ALL' ? '납부 계좌' : `${getPaymentCategoryFilterLabel(category)} 계좌`;
+  const reason = accountsEmpty
+    ? '현재 활성 납부 계좌가 없습니다.'
+    : `${getPaymentCategoryFilterLabel(category)} 청구에 연결된 계좌가 없습니다.`;
+
   return (
-    <PermissionDenied
-      title="납부 계좌가 필요합니다"
-      message={`${getPaymentCategoryFilterLabel(category)} 청구를 납부하려면 활성 계좌가 필요합니다. 계좌가 없거나 청구에 연결되지 않은 상태입니다.`}
-      actionLabel="관리자 문의"
-      actionAccessibilityLabel="납부 계좌 없음 상태에서 관리자 문의 안내"
-      onActionPress={onContactAdmin}
-    />
+    <View accessibilityRole="alert" style={styles.accountMissingPanel}>
+      <View style={styles.accountMissingIcon}>
+        <Text style={styles.accountMissingIconText}>!</Text>
+      </View>
+      <View style={styles.accountMissingText}>
+        <Text style={styles.accountMissingEyebrow}>계좌 미등록</Text>
+        <Text style={styles.accountMissingTitle}>{missingTarget}가 필요합니다</Text>
+        <Text style={styles.accountMissingBody}>
+          {reason} 납부하려면 캠퍼스 관리자가 활성 계좌를 등록하거나 청구에 연결해야 합니다.
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel="납부 계좌 없음 상태에서 관리자 문의 안내"
+        accessibilityRole="button"
+        onPress={onContactAdmin}
+        style={({pressed}) => [styles.accountMissingButton, pressed ? styles.pressed : null]}>
+        <Text style={styles.accountMissingButtonText}>관리자 문의</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function PaymentStatusNotice({
+  message,
+  title,
+  tone,
+}: {
+  message: string;
+  title: string;
+  tone: 'loading' | 'complete';
+}) {
+  const complete = tone === 'complete';
+
+  return (
+    <View
+      accessibilityLabel={`${title}. ${message}`}
+      accessibilityRole="alert"
+      style={[styles.paymentStatusNotice, complete ? styles.paymentStatusNoticeComplete : null]}>
+      <View style={[styles.paymentStatusIcon, complete ? styles.paymentStatusIconComplete : null]}>
+        {complete ? (
+          <Text style={styles.paymentStatusIconText}>✓</Text>
+        ) : (
+          <ActivityIndicator color={paymentColors.text} size="small" />
+        )}
+      </View>
+      <View style={styles.paymentStatusText}>
+        <Text style={styles.paymentStatusEyebrow}>{complete ? '완료' : '처리 중'}</Text>
+        <Text style={styles.paymentStatusTitle}>{title}</Text>
+        <Text style={styles.paymentStatusBody}>{message}</Text>
+      </View>
+    </View>
   );
 }
 
 function ChargeCard({
   charge,
+  compact,
   disabled,
   markingPaid,
   onMarkPaid,
 }: {
   charge: ChargeItem;
+  compact: boolean;
   disabled: boolean;
   markingPaid: boolean;
   onMarkPaid: () => void;
@@ -463,34 +529,46 @@ function ChargeCard({
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
 
   return (
-    <View style={styles.figmaChargeRow}>
-      <View style={styles.figmaChargeIcon}>
-        <Text style={styles.figmaChargeIconText}>
-          {charge.paymentCategory === 'COFFEE' ? 'C' : charge.status === 'PAID' ? '✓' : '₩'}
-        </Text>
+    <View style={[styles.figmaChargeRow, compact ? styles.figmaChargeRowCompact : null]}>
+      <View style={styles.figmaChargeMain}>
+        <View style={styles.figmaChargeIcon}>
+          <Text style={styles.figmaChargeIconText}>
+            {charge.paymentCategory === 'COFFEE' ? 'C' : charge.status === 'PAID' ? '✓' : '₩'}
+          </Text>
+        </View>
+        <View style={styles.figmaChargeText}>
+          <Text style={styles.chargeTitle}>{charge.title}</Text>
+          <Text style={styles.chargeReason}>
+            {charge.status === 'PAID'
+              ? '납부 완료'
+              : charge.reason || getPaymentCategoryLabel(charge.paymentCategory)}
+          </Text>
+        </View>
       </View>
-      <View style={styles.figmaChargeText}>
-        <Text style={styles.chargeTitle}>{charge.title}</Text>
-        <Text style={styles.chargeReason}>
-          {charge.status === 'PAID' ? '납부 완료' : charge.reason || getPaymentCategoryLabel(charge.paymentCategory)}
+      <View style={styles.figmaChargeTrailing}>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+          numberOfLines={1}
+          style={styles.figmaChargeAmount}>
+          {formatWon(charge.amount)}
         </Text>
+        <Pressable
+          accessibilityLabel={`${charge.title} 납부 완료 처리`}
+          accessibilityRole="button"
+          accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
+          disabled={disabled || !canMarkPaid}
+          onPress={onMarkPaid}
+          style={({pressed}) => [
+            styles.figmaChargeButton,
+            !canMarkPaid ? styles.figmaChargeButtonDone : null,
+            pressed ? styles.pressed : null,
+          ]}>
+          <Text style={styles.figmaChargeButtonText}>
+            {markingPaid ? '처리' : charge.status === 'UNPAID' ? '입금' : '완료'}
+          </Text>
+        </Pressable>
       </View>
-      <Text style={styles.figmaChargeAmount}>{formatWon(charge.amount)}</Text>
-      <Pressable
-        accessibilityLabel={`${charge.title} 납부 완료 처리`}
-        accessibilityRole="button"
-        accessibilityState={{disabled: disabled || !canMarkPaid}}
-        disabled={disabled || !canMarkPaid}
-        onPress={onMarkPaid}
-        style={({pressed}) => [
-          styles.figmaChargeButton,
-          !canMarkPaid ? styles.figmaChargeButtonDone : null,
-          pressed ? styles.pressed : null,
-        ]}>
-        <Text style={styles.figmaChargeButtonText}>
-          {markingPaid ? '처리' : charge.status === 'UNPAID' ? '입금' : '완료'}
-        </Text>
-      </Pressable>
     </View>
   );
 }
@@ -564,7 +642,7 @@ async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) 
   const {accessToken} = await getStoredTokens();
 
   if (!accessToken) {
-    setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+    setAuthState({status: 'sessionExpired', message: '로그인 세션을 다시 확인해 주세요.'});
     return null;
   }
 
@@ -636,36 +714,6 @@ function getPaymentCategoryFilterLabel(category: CategoryFilter) {
   return category === 'ALL' ? '전체' : getPaymentCategoryLabel(category);
 }
 
-function getChargeStatusLabel(status: ChargeStatus) {
-  switch (status) {
-    case 'UNPAID':
-      return '미납';
-    case 'PAID':
-      return '납부 완료';
-    case 'WAIVED':
-      return '면제';
-    case 'CANCELED':
-      return '취소';
-    default:
-      return assertNever(status);
-  }
-}
-
-function getChargeStatusTone(status: ChargeStatus) {
-  switch (status) {
-    case 'UNPAID':
-      return 'warning';
-    case 'PAID':
-      return 'success';
-    case 'WAIVED':
-      return 'info';
-    case 'CANCELED':
-      return 'default';
-    default:
-      return assertNever(status);
-  }
-}
-
 function getYearMonth(date: Date) {
   return {
     year: date.getFullYear(),
@@ -675,21 +723,6 @@ function getYearMonth(date: Date) {
 
 function formatWon(amount: number) {
   return `${Math.max(0, amount).toLocaleString('ko-KR')}원`;
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat('ko-KR', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function assertNever(value: never): never {
@@ -703,14 +736,82 @@ const paymentColors = {
   muted: 'rgba(73, 73, 73, 0.72)',
   border: '#ECE5D4',
   dark: '#494949',
+  success: '#2F8F63',
+  successSoft: '#E4F4EA',
+  warningSoft: '#FFF3CE',
 };
 
 const styles = StyleSheet.create({
+  accountMissingBody: {
+    color: paymentColors.muted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  accountMissingButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: paymentColors.dark,
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  accountMissingButtonText: {
+    color: paymentColors.card,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 15,
+    textAlign: 'center',
+  },
+  accountMissingEyebrow: {
+    color: paymentColors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 15,
+  },
+  accountMissingIcon: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.warningSoft,
+    borderRadius: 18,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  accountMissingIconText: {
+    color: paymentColors.text,
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
   accountPanel: {
     backgroundColor: paymentColors.card,
     borderRadius: 18,
     gap: 12,
     padding: 20,
+  },
+  accountMissingPanel: {
+    alignItems: 'flex-start',
+    backgroundColor: paymentColors.card,
+    borderColor: paymentColors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 14,
+    padding: 18,
+  },
+  accountMissingText: {
+    gap: 6,
+    minWidth: 0,
+  },
+  accountMissingTitle: {
+    color: paymentColors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 19,
+    fontWeight: '800',
+    lineHeight: 24,
   },
   actionRow: {
     flexDirection: 'row',
@@ -761,11 +862,15 @@ const styles = StyleSheet.create({
   },
   chargeReason: {
     color: colors.mutedText,
+    flexShrink: 1,
+    flexWrap: 'wrap',
     fontSize: 13,
     lineHeight: 18,
   },
   chargeTitle: {
     color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
     fontSize: 16,
     fontWeight: '800',
     lineHeight: 22,
@@ -816,9 +921,11 @@ const styles = StyleSheet.create({
   },
   figmaChargeAmount: {
     color: paymentColors.text,
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '800',
-    minWidth: 64,
+    maxWidth: 116,
+    minWidth: 58,
     textAlign: 'right',
   },
   figmaChargeButton: {
@@ -850,6 +957,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
+  figmaChargeMain: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minWidth: 0,
+  },
   figmaChargeRow: {
     alignItems: 'center',
     backgroundColor: paymentColors.card,
@@ -858,10 +972,25 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: 82,
     paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  figmaChargeRowCompact: {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+    minHeight: 118,
+    paddingHorizontal: 16,
   },
   figmaChargeText: {
     flex: 1,
     gap: 6,
+    minWidth: 0,
+  },
+  figmaChargeTrailing: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 10,
+    justifyContent: 'flex-end',
     minWidth: 0,
   },
   figmaHeader: {
@@ -910,6 +1039,7 @@ const styles = StyleSheet.create({
   },
   paymentHeroAmount: {
     color: paymentColors.text,
+    flexShrink: 1,
     fontSize: 40,
     fontWeight: '800',
     lineHeight: 50,
@@ -918,6 +1048,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: paymentColors.dark,
     borderRadius: 12,
+    flexShrink: 0,
     height: 34,
     justifyContent: 'center',
     width: 96,
@@ -931,10 +1062,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: paymentColors.card,
     borderRadius: 22,
+    columnGap: 14,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     minHeight: 130,
     paddingHorizontal: 24,
+    paddingVertical: 20,
+    rowGap: 12,
   },
   paymentHeroLabel: {
     color: paymentColors.text,
@@ -948,18 +1083,57 @@ const styles = StyleSheet.create({
   },
   paymentStatusBody: {
     color: paymentColors.muted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
     fontSize: 13,
     lineHeight: 19,
   },
-  paymentStatusNotice: {
-    backgroundColor: paymentColors.card,
+  paymentStatusEyebrow: {
+    color: paymentColors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 15,
+  },
+  paymentStatusIcon: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.chip,
     borderRadius: 18,
-    gap: 8,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  paymentStatusIconComplete: {
+    backgroundColor: paymentColors.successSoft,
+  },
+  paymentStatusIconText: {
+    color: paymentColors.success,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 26,
+  },
+  paymentStatusNotice: {
+    alignItems: 'flex-start',
+    backgroundColor: paymentColors.card,
+    borderColor: paymentColors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
     paddingHorizontal: 20,
     paddingVertical: 18,
   },
+  paymentStatusNoticeComplete: {
+    borderColor: paymentColors.successSoft,
+  },
+  paymentStatusText: {
+    flex: 1,
+    gap: 5,
+    minWidth: 0,
+  },
   paymentStatusTitle: {
     color: paymentColors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
     fontSize: 17,
     fontWeight: '800',
     lineHeight: 22,
