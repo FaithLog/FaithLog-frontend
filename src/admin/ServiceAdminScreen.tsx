@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {
   FaithLogApiError,
@@ -23,6 +23,7 @@ import {
   Card,
   Chip,
   Conflict,
+  DangerConfirmSheet,
   Empty,
   ErrorState,
   Eyebrow,
@@ -72,7 +73,7 @@ type RoleChangeState =
   | {status: 'idle'}
   | {status: 'confirming'; role: RoleOption; user: ServiceAdminUserDetail}
   | {status: 'submitting'; role: RoleOption; user: ServiceAdminUserDetail}
-  | {status: 'error'; error: ApiError};
+  | {status: 'failure'; error: ApiError; role: RoleOption; user: ServiceAdminUserDetail};
 
 const ROLE_OPTIONS: RoleOption[] = ['USER', 'MANAGER', 'ADMIN'];
 const ROLE_FILTERS: RoleFilter[] = ['ALL', ...ROLE_OPTIONS];
@@ -170,7 +171,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
   };
 
   const submitRoleChange = async () => {
-    if (roleChangeState.status !== 'confirming') {
+    if (roleChangeState.status !== 'confirming' && roleChangeState.status !== 'failure') {
       return;
     }
 
@@ -195,7 +196,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
       void loadUsers();
     } catch (error) {
       const apiError = toApiError(error, '전역 역할을 변경하지 못했습니다.');
-      setRoleChangeState({status: 'error', error: apiError});
+      setRoleChangeState({status: 'failure', error: apiError, role, user});
       void handleAuthError(apiError, setAuthState);
     }
   };
@@ -203,7 +204,6 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
   useEffect(() => {
     void loadUsers();
     // 초기 진입 로드만 수행하고, 필터는 조회 버튼으로 명시 적용합니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (state.user.role !== 'ADMIN') {
@@ -302,54 +302,54 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
               selectedRole={selectedRole}
             />
 
-            {roleChangeState.status === 'error' ? (
-              <InlineError error={roleChangeState.error} />
-            ) : null}
           </>
         )}
       </ScrollView>
 
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setRoleChangeState({status: 'idle'})}
-        transparent
-        visible={
-          roleChangeState.status === 'confirming' || roleChangeState.status === 'submitting'
-        }>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            {roleChangeState.status === 'confirming' ||
-            roleChangeState.status === 'submitting' ? (
-              <>
-                <Chip label="위험 작업" tone="warning" />
-                <Title>전역 역할을 변경할까요?</Title>
-                <Body>
-                  {roleChangeState.user.name}님의 역할을 {roleChangeState.user.role}에서{' '}
-                  {roleChangeState.role}로 변경합니다. 본인 ADMIN 권한 강등은 클라이언트에서
-                  차단하고, 마지막 활성 ADMIN 강등은 서버 정책에 따라 409로 거부될 수 있습니다.
-                </Body>
-                <View style={styles.actions}>
-                  <Button
-                    accessibilityLabel="전역 역할 변경 취소"
-                    disabled={roleChangeState.status === 'submitting'}
-                    onPress={() => setRoleChangeState({status: 'idle'})}
-                    variant="ghost">
-                    취소
-                  </Button>
-                  <Button
-                    accessibilityLabel="전역 역할 변경 확정"
-                    disabled={roleChangeState.status === 'submitting'}
-                    onPress={() => void submitRoleChange()}
-                    variant="danger">
-                    {roleChangeState.status === 'submitting' ? '변경 중' : '변경'}
-                  </Button>
-                </View>
-              </>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
+      <RoleChangeConfirmSheet
+        onCancel={() => setRoleChangeState({status: 'idle'})}
+        onConfirm={() => void submitRoleChange()}
+        state={roleChangeState}
+      />
     </Screen>
+  );
+}
+
+function RoleChangeConfirmSheet({
+  onCancel,
+  onConfirm,
+  state,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  state: RoleChangeState;
+}) {
+  const visible =
+    state.status === 'confirming' ||
+    state.status === 'submitting' ||
+    state.status === 'failure';
+  const target = visible ? state : null;
+  const loading = state.status === 'submitting';
+
+  return (
+    <DangerConfirmSheet
+      accessibilityLabel="전역 역할 변경 위험 확인"
+      confirmAccessibilityLabel="전역 역할 변경 확정"
+      confirmLabel={state.status === 'failure' ? '다시 시도' : '변경'}
+      dangerSummary="권한 변경은 즉시 적용됩니다. 마지막 활성 ADMIN 강등은 서버에서 거부될 수 있습니다."
+      failureMessage={state.status === 'failure' ? getActionErrorMessage(state.error) : null}
+      loading={loading}
+      loadingLabel="변경 중..."
+      message={
+        target
+          ? `${target.user.name}님의 역할을 ${target.user.role}에서 ${target.role}로 변경합니다. 본인 ADMIN 권한 강등은 클라이언트에서 차단합니다.`
+          : ''
+      }
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      title="전역 역할을 변경할까요?"
+      visible={visible}
+    />
   );
 }
 
@@ -553,14 +553,6 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
   }
 }
 
-function InlineError({error}: {error: ApiError}) {
-  return (
-    <View accessibilityRole="alert" style={styles.inlineError}>
-      <Text style={styles.inlineErrorText}>{getActionErrorMessage(error)}</Text>
-    </View>
-  );
-}
-
 function FilterButton({
   active,
   disabled = false,
@@ -704,38 +696,6 @@ const styles = StyleSheet.create({
   },
   campusList: {
     gap: spacing.gap,
-  },
-  inlineError: {
-    backgroundColor: colors.dangerSoft,
-    borderRadius: radius.card,
-    padding: spacing.card,
-  },
-  inlineErrorText: {
-    color: colors.danger,
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
-  },
-  modalBackdrop: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
-    flex: 1,
-    justifyContent: 'center',
-    padding: spacing.screenX,
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.card,
-    gap: spacing.gap,
-    maxWidth: 420,
-    padding: spacing.card,
-    width: '100%',
-  },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.gap,
-    justifyContent: 'flex-end',
   },
   pressed: {
     opacity: 0.8,
