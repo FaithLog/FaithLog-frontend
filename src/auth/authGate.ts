@@ -1,4 +1,4 @@
-import {FaithLogApiError} from '../api/client';
+import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
 import {refreshAndEstablishSession} from './session';
@@ -17,9 +17,14 @@ export type AuthGateState =
   | {status: 'permissionDenied'; message: string}
   | {status: 'conflict'; message: string}
   | {status: 'offline'; message: string}
+  | {status: 'configurationError'; message: string}
   | {status: 'error'; message: string};
 
 function mapErrorToGateState(error: ApiError): AuthGateState {
+  if (error.code === 'CONFIGURATION') {
+    return {status: 'configurationError', message: error.message};
+  }
+
   switch (error.kind) {
     case 'sessionExpired':
       return {status: 'sessionExpired', message: error.message};
@@ -37,6 +42,19 @@ function mapErrorToGateState(error: ApiError): AuthGateState {
 }
 
 export async function bootstrapAuthGate(): Promise<AuthGateState> {
+  try {
+    validateRuntimeConfig();
+  } catch (error) {
+    if (error instanceof FaithLogApiError) {
+      return mapErrorToGateState(error.detail);
+    }
+
+    return {
+      status: 'configurationError',
+      message: '앱 설정을 확인하지 못했습니다.',
+    };
+  }
+
   const {refreshToken} = await getStoredTokens();
 
   if (!refreshToken) {

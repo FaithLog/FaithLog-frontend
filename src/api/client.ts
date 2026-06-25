@@ -99,12 +99,29 @@ export class FaithLogApiError extends Error {
 
 let authRefreshInFlight: Promise<TokenPair> | null = null;
 
+export function isMockModeEnabled() {
+  return process.env.EXPO_PUBLIC_MOCK_MODE?.trim().toLowerCase() === 'true';
+}
+
+export function validateRuntimeConfig() {
+  if (isMockModeEnabled()) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      code: 'CONFIGURATION',
+      message: 'Mock mode는 fixture adapter가 연결된 빌드에서만 사용할 수 있습니다.',
+    });
+  }
+
+  getApiBaseUrl();
+}
+
 export function getApiBaseUrl() {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 
   if (!configured) {
     throw new FaithLogApiError({
       kind: 'error',
+      code: 'CONFIGURATION',
       message: 'API 서버 설정이 필요합니다.',
     });
   }
@@ -120,6 +137,7 @@ export function getApiBaseUrl() {
   } catch {
     throw new FaithLogApiError({
       kind: 'error',
+      code: 'CONFIGURATION',
       message: 'API 서버 설정이 올바르지 않습니다.',
     });
   }

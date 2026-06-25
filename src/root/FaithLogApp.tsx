@@ -129,7 +129,9 @@ export function FaithLogApp() {
   const [sessionNotice, setSessionNotice] = useState<SessionNotice>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
   const publicAuthMode =
-    authState.status === 'signedOut' || authState.status === 'sessionExpired';
+    authState.status === 'signedOut' ||
+    authState.status === 'sessionExpired' ||
+    authState.status === 'configurationError';
 
   const retryBootstrap = () => {
     setEntryTarget(null);
@@ -298,6 +300,18 @@ function renderAuthState({
           actionLabel="다시 시도"
           actionAccessibilityLabel="오프라인 상태에서 다시 시도"
           onActionPress={retry}
+        />
+      );
+    case 'configurationError':
+      return (
+        <StatusCard
+          eyebrow="환경 설정"
+          title="API 서버 주소를 확인해 주세요"
+          message={state.message}
+          primaryLabel="다시 확인"
+          primaryAccessibilityLabel="API 서버 환경 설정을 다시 확인"
+          onPrimaryPress={retry}
+          tone="danger"
         />
       );
     case 'error':
