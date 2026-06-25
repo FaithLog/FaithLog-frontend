@@ -1,5 +1,15 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 import {
   FaithLogApiError,
@@ -19,11 +29,8 @@ import {
   Button,
   Card,
   Chip,
-  Conflict,
   Empty,
   ErrorState,
-  Eyebrow,
-  ListRow,
   Loading,
   Offline,
   PermissionDenied,
@@ -67,7 +74,7 @@ const PRAYER_CONTENT_MAX_LENGTH = 1000;
 
 export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps) {
   const campusId = state.selectedCampus.campusId;
-  const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
+  const [weekStartDate, setWeekStartDate] = useState(() => getInitialPrayerWeekStartDate(new Date()));
   const [boardState, setBoardState] = useState<BoardState>({status: 'loading'});
   const [drafts, setDrafts] = useState<Record<number, PrayerDraft>>({});
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
@@ -184,7 +191,7 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
       setNotice({
         tone: 'success',
         title: '기도제목 저장 완료',
-        message: `${selectedGroup.groupName} ${dirtyDrafts.length}명 기도제목을 최신 version으로 갱신했습니다.`,
+        message: `${selectedGroup.groupName} ${dirtyDrafts.length}명 기도제목을 저장했습니다.`,
       });
     } catch (error) {
       const apiError = toApiError(error, '기도제목을 저장하지 못했습니다.');
@@ -195,56 +202,94 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
     }
   };
 
-  if (boardState.status === 'error') {
-    return <PrayerErrorState error={boardState.error} onRetry={() => loadBoard()} />;
-  }
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={16}
+      style={styles.keyboardRoot}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        {boardState.status === 'error' ? (
+          <PrayerErrorState error={boardState.error} onRetry={() => loadBoard()} />
+        ) : boardState.status !== 'success' ? (
+          <Loading message="이번 주 기도제목을 불러오고 있어요." />
+        ) : (
+          <PrayerBoardContent
+            actionError={actionError}
+            board={boardState.board}
+            currentUserId={state.user.id}
+            dirtyCount={dirtyDrafts.length}
+            drafts={selectedDrafts}
+            onChangeDraft={updateDraft}
+            onKeepLocalAndReload={() => loadBoard({preserveDrafts: true})}
+            onMoveWeek={moveWeek}
+            onReloadLatest={() => loadBoard()}
+            onRetrySave={saveSelectedGroup}
+            onSave={saveSelectedGroup}
+            onSelectGroup={(groupId) => {
+              setActionError(null);
+              setSelectedGroupId(groupId);
+            }}
+            saveState={saveState}
+            selectedCampusName={state.selectedCampus.campusName}
+            selectedGroup={selectedGroup}
+            weekWasAutoAdvanced={isSaturday(new Date()) && weekStartDate === getNextWeekStartDate(new Date())}
+          />
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
 
-  if (boardState.status !== 'success') {
-    return <Loading message="이번 주 기도제목을 불러오고 있어요." />;
-  }
-
-  const board = boardState.board;
+function PrayerBoardContent({
+  actionError,
+  board,
+  currentUserId,
+  dirtyCount,
+  drafts,
+  onChangeDraft,
+  onKeepLocalAndReload,
+  onMoveWeek,
+  onReloadLatest,
+  onRetrySave,
+  onSave,
+  onSelectGroup,
+  saveState,
+  selectedCampusName,
+  selectedGroup,
+  weekWasAutoAdvanced,
+}: {
+  actionError: ApiError | null;
+  board: PrayerWeekSummary;
+  currentUserId: number;
+  dirtyCount: number;
+  drafts: PrayerDraft[];
+  onChangeDraft: (userId: number, content: string) => void;
+  onKeepLocalAndReload: () => void;
+  onMoveWeek: (direction: -1 | 1) => void;
+  onReloadLatest: () => void;
+  onRetrySave: () => void;
+  onSave: () => void;
+  onSelectGroup: (groupId: number) => void;
+  saveState: SaveState;
+  selectedCampusName: string;
+  selectedGroup: PrayerGroupSummary | null;
+  weekWasAutoAdvanced: boolean;
+}) {
+  const saving = saveState === 'saving';
 
   return (
     <>
-      <Card>
-        <Eyebrow>기도제목</Eyebrow>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Title>조별 기도제목</Title>
-            <Body>{state.selectedCampus.campusName} 캠퍼스의 주간 기도제목입니다.</Body>
-          </View>
-          <Chip label={getBoardStatusLabel(board.status)} tone={getBoardStatusTone(board.status)} />
-        </View>
-        <View style={styles.weekControls}>
-          <Button
-            accessibilityLabel="이전 주 기도제목 보기"
-            disabled={saving}
-            onPress={() => moveWeek(-1)}
-            variant="secondary">
-            이전 주
-          </Button>
-          <View style={styles.weekLabel}>
-            <Text style={styles.weekDate}>{board.weekStartDate}</Text>
-            <Text style={styles.weekRange}>~ {board.weekEndDate}</Text>
-          </View>
-          <Button
-            accessibilityLabel="다음 주 기도제목 보기"
-            disabled={saving}
-            onPress={() => moveWeek(1)}
-            variant="secondary">
-            다음 주
-          </Button>
-        </View>
-        <View style={styles.metaGrid}>
-          <ListRow
-            label="작성 현황"
-            supportingText="이번 주 기도제목 제출 현황"
-            value={`${board.submittedCount}/${board.targetMemberCount}`}
-          />
-          <ListRow label="기도조" supportingText="활성 조 기준" value={`${board.groups.length}개`} />
-        </View>
-      </Card>
+      <PrayerBoardHero
+        board={board}
+        onMoveWeek={onMoveWeek}
+        saving={saving}
+        selectedCampusName={selectedCampusName}
+        selectedGroup={selectedGroup}
+        weekWasAutoAdvanced={weekWasAutoAdvanced}
+      />
 
       {board.targetMemberCount === 0 || board.groups.length === 0 ? (
         <Empty
@@ -252,29 +297,27 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
           message="기도 시즌이나 조 배정이 열리면 이 화면에서 조회하고 입력할 수 있어요."
           actionLabel="다시 불러오기"
           actionAccessibilityLabel="빈 기도제목 게시판 다시 불러오기"
-          onActionPress={() => loadBoard()}
+          onActionPress={onReloadLatest}
         />
       ) : (
         <>
           <GroupSelector
-            currentUserId={state.user.id}
+            currentUserId={currentUserId}
             groups={board.groups}
             selectedGroupId={selectedGroup?.groupId ?? null}
-            onSelect={(groupId) => {
-              setActionError(null);
-              setSelectedGroupId(groupId);
-            }}
+            onSelect={onSelectGroup}
           />
           {selectedGroup ? (
             <PrayerEntryPanel
               actionError={actionError}
               boardStatus={board.status}
-              dirtyCount={dirtyDrafts.length}
-              drafts={selectedDrafts}
-              onChangeDraft={updateDraft}
-              onKeepLocalAndReload={() => loadBoard({preserveDrafts: true})}
-              onReloadLatest={() => loadBoard()}
-              onSave={saveSelectedGroup}
+              dirtyCount={dirtyCount}
+              drafts={drafts}
+              onChangeDraft={onChangeDraft}
+              onKeepLocalAndReload={onKeepLocalAndReload}
+              onReloadLatest={onReloadLatest}
+              onRetrySave={onRetrySave}
+              onSave={onSave}
               saveState={saveState}
               selectedGroup={selectedGroup}
             />
@@ -284,12 +327,84 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
               message="선택 가능한 조 정보를 다시 불러와 주세요."
               actionLabel="다시 불러오기"
               actionAccessibilityLabel="기도조 선택 오류 후 다시 불러오기"
-              onActionPress={() => loadBoard()}
+              onActionPress={onReloadLatest}
             />
           )}
         </>
       )}
     </>
+  );
+}
+
+function PrayerBoardHero({
+  board,
+  onMoveWeek,
+  saving,
+  selectedCampusName,
+  selectedGroup,
+  weekWasAutoAdvanced,
+}: {
+  board: PrayerWeekSummary;
+  onMoveWeek: (direction: -1 | 1) => void;
+  saving: boolean;
+  selectedCampusName: string;
+  selectedGroup: PrayerGroupSummary | null;
+  weekWasAutoAdvanced: boolean;
+}) {
+  const groupSubmittedCount = selectedGroup ? countSubmittedMembers(selectedGroup) : 0;
+  const groupTargetCount = selectedGroup?.members.length ?? 0;
+
+  return (
+    <View style={styles.hero}>
+      <View style={styles.topBar}>
+        <Chip label={selectedCampusName} tone="info" />
+        <View style={styles.notificationBadge}>
+          <Text style={styles.notificationIcon}>!</Text>
+        </View>
+      </View>
+      <Text style={styles.heroTitle}>조별 기도제목</Text>
+      <Text style={styles.heroSubtitle}>{selectedCampusName} 공동체의 기도제목을 함께 확인해요.</Text>
+      {weekWasAutoAdvanced ? (
+        <Card>
+          <Chip label="토요일 작성" tone="info" />
+          <Title>다음 주차 기도제목을 작성해요</Title>
+          <Body>토요일에는 다음 월요일 주차로 자동 이동합니다. 저장 요청에는 월요일 주차만 사용해요.</Body>
+        </Card>
+      ) : null}
+      <Card>
+        <View style={styles.heroCardHeader}>
+          <View style={styles.headerText}>
+            <Text style={styles.sectionTitle}>이번 주 공동체 기도</Text>
+            <Text style={styles.sectionDescription}>우리 어부와 선원들이 조별 기도제목을 한곳에서 확인해요</Text>
+          </View>
+          <Chip label={getBoardStatusLabel(board.status)} tone={getBoardStatusTone(board.status)} />
+        </View>
+        <View style={styles.weekControls}>
+          <Button
+            accessibilityLabel="이전 주 기도제목 보기"
+            disabled={saving}
+            onPress={() => onMoveWeek(-1)}
+            variant="ghost">
+            이전
+          </Button>
+          <View style={styles.weekLabel}>
+            <Text style={styles.weekDate}>{formatWeekLabel(board.weekStartDate)}</Text>
+            <Text style={styles.weekRange}>{board.weekStartDate} ~ {board.weekEndDate}</Text>
+          </View>
+          <Button
+            accessibilityLabel="다음 주 기도제목 보기"
+            disabled={saving}
+            onPress={() => onMoveWeek(1)}
+            variant="ghost">
+            다음
+          </Button>
+        </View>
+        <View style={styles.progressGrid}>
+          <ProgressStat label="전체 작성" value={board.submittedCount} total={board.targetMemberCount} />
+          <ProgressStat label="내 조" value={groupSubmittedCount} total={groupTargetCount} />
+        </View>
+      </Card>
+    </View>
   );
 }
 
@@ -305,9 +420,8 @@ function GroupSelector({
   selectedGroupId: number | null;
 }) {
   return (
-    <Card>
-      <Eyebrow>기도조</Eyebrow>
-      <Title>기도조 선택</Title>
+    <View style={styles.section}>
+      <Text style={styles.sectionHeading}>조별로 보기</Text>
       <View style={styles.groupGrid}>
         {groups
           .slice()
@@ -328,17 +442,23 @@ function GroupSelector({
                   selected ? styles.groupButtonSelected : null,
                   pressed ? styles.pressed : null,
                 ]}>
-                <Text style={[styles.groupButtonText, selected ? styles.groupButtonTextSelected : null]}>
-                  {group.groupName}
-                </Text>
-                <Text style={styles.groupButtonMeta}>
-                  {group.members.length}명{mine ? ' · 내 조' : ''}
-                </Text>
+                <View style={styles.groupAvatar}>
+                  <Text style={styles.groupAvatarText}>{group.groupName.slice(0, 1)}</Text>
+                </View>
+                <View style={styles.groupButtonBody}>
+                  <Text style={[styles.groupButtonText, selected ? styles.groupButtonTextSelected : null]}>
+                    {group.groupName}
+                  </Text>
+                  <Text style={styles.groupButtonMeta}>
+                    {group.members.length}명 · {countSubmittedMembers(group)}명 작성{mine ? ' · 내 조' : ''}
+                  </Text>
+                </View>
+                <Text style={styles.groupChevron}>›</Text>
               </Pressable>
             );
           })}
       </View>
-    </Card>
+    </View>
   );
 }
 
@@ -350,6 +470,7 @@ function PrayerEntryPanel({
   onChangeDraft,
   onKeepLocalAndReload,
   onReloadLatest,
+  onRetrySave,
   onSave,
   saveState,
   selectedGroup,
@@ -361,13 +482,16 @@ function PrayerEntryPanel({
   onChangeDraft: (userId: number, content: string) => void;
   onKeepLocalAndReload: () => void;
   onReloadLatest: () => void;
+  onRetrySave: () => void;
   onSave: () => void;
   saveState: SaveState;
   selectedGroup: PrayerGroupSummary;
 }) {
+  const {width} = useWindowDimensions();
   const saving = saveState === 'saving';
   const refreshing = saveState === 'refreshing';
   const editable = boardStatus === 'OPEN' && !saving && !refreshing;
+  const compact = width < 360;
 
   return (
     <>
@@ -376,21 +500,34 @@ function PrayerEntryPanel({
           error={actionError}
           onKeepLocalAndReload={onKeepLocalAndReload}
           onReloadLatest={onReloadLatest}
+          onRetrySave={onRetrySave}
         />
       ) : null}
-      <Card>
-        <Eyebrow>기도제목 입력</Eyebrow>
-        <Title>{selectedGroup.groupName} 기도제목 입력</Title>
-        <Body>
-          {boardStatus === 'OPEN'
-          ? '사람별 내용을 저장합니다. 다른 기기에서 먼저 수정된 내용이 있으면 다시 확인한 뒤 저장해 주세요.'
-          : '지금은 저장이 제한되어 조회만 가능합니다.'}
-        </Body>
-        <View style={styles.chipRow}>
-          <Chip label={`${dirtyCount}명 변경`} tone={dirtyCount > 0 ? 'warning' : 'default'} />
-          <Chip label={`상태 ${boardStatus}`} tone={getBoardStatusTone(boardStatus)} />
-        </View>
-      </Card>
+      <View style={styles.section}>
+        <Text style={styles.sectionHeading}>{selectedGroup.groupName} 기도제목</Text>
+        <Card>
+          <View style={styles.heroCardHeader}>
+            <View style={styles.headerText}>
+              <Text style={styles.sectionTitle}>{selectedGroup.groupName} 모아보기</Text>
+              <Text style={styles.sectionDescription}>
+                {selectedGroup.members.length}명 중 {countSubmittedMembers(selectedGroup)}명 작성
+              </Text>
+            </View>
+            <Button
+              accessibilityLabel={`${selectedGroup.groupName} 기도제목 최신 데이터 복사`}
+              disabled={saving}
+              onPress={onReloadLatest}
+              variant="secondary">
+              새로고침
+            </Button>
+          </View>
+          {boardStatus !== 'OPEN' ? (
+            <Body>지금은 저장이 제한되어 조회만 가능합니다.</Body>
+          ) : (
+            <Body>사람별 내용을 저장합니다. 먼저 수정된 내용이 있으면 저장 전에 다시 확인해요.</Body>
+          )}
+        </Card>
+      </View>
       {drafts.map((draft) => (
         <Card key={draft.userId}>
           <View style={styles.memberHeader}>
@@ -400,11 +537,13 @@ function PrayerEntryPanel({
             <View style={styles.memberText}>
               <Text style={styles.memberName}>{draft.name}</Text>
               <Text style={styles.memberMeta}>
-                version {draft.version}
-                {draft.submittedAt ? ` · ${formatDateTime(draft.submittedAt)}` : ' · 미작성'}
+                {draft.submittedAt ? `${formatDateTime(draft.submittedAt)} 작성` : '아직 작성 전이에요'}
               </Text>
             </View>
-            {isDraftDirty(draft) ? <Chip label="수정됨" tone="warning" /> : null}
+            <Chip
+              label={isDraftDirty(draft) ? '수정중' : draft.submittedAt ? '작성완료' : '미작성'}
+              tone={isDraftDirty(draft) ? 'warning' : draft.submittedAt ? 'success' : 'default'}
+            />
           </View>
           <TextInput
             accessibilityLabel={`${draft.name} 기도제목 입력`}
@@ -413,7 +552,11 @@ function PrayerEntryPanel({
             onChangeText={(value) => onChangeDraft(draft.userId, value)}
             placeholder="기도제목을 입력해 주세요"
             placeholderTextColor={colors.subtleText}
-            style={[styles.prayerInput, !editable ? styles.prayerInputDisabled : null]}
+            style={[
+              styles.prayerInput,
+              compact ? styles.prayerInputCompact : null,
+              !editable ? styles.prayerInputDisabled : null,
+            ]}
             value={draft.content}
           />
           <Text style={styles.inputCounter}>
@@ -422,9 +565,13 @@ function PrayerEntryPanel({
         </Card>
       ))}
       <Card>
+        <View style={styles.saveSummaryRow}>
+          <Chip label={`${dirtyCount}명 변경`} tone={dirtyCount > 0 ? 'warning' : 'default'} />
+          <Chip label={getBoardStatusLabel(boardStatus)} tone={getBoardStatusTone(boardStatus)} />
+        </View>
         <Button
           accessibilityLabel={`${selectedGroup.groupName} 변경된 기도제목 저장`}
-          disabled={!editable || dirtyCount === 0}
+          disabled={!editable || dirtyCount === 0 || saving}
           onPress={onSave}>
           {saving ? '저장 중...' : '변경 사항 저장'}
         </Button>
@@ -444,32 +591,36 @@ function PrayerActionErrorCard({
   error,
   onKeepLocalAndReload,
   onReloadLatest,
+  onRetrySave,
 }: {
   error: ApiError;
   onKeepLocalAndReload: () => void;
   onReloadLatest: () => void;
+  onRetrySave: () => void;
 }) {
   if (error.kind === 'conflict') {
     return (
-      <Conflict
-        title="기도제목 저장이 rollback됐습니다"
-        message={`${getErrorMessage(error)} 저장 요청 안의 항목 중 하나라도 충돌하면 전체 요청이 저장되지 않습니다.`}
-        actionLabel="최신 서버 데이터 다시 불러오기"
-        actionAccessibilityLabel="기도제목 충돌 후 최신 서버 데이터로 다시 불러오기"
+      <PrayerStatusPanel
+        actionAccessibilityLabel="기도제목 충돌 후 최신 내용 새로고침"
+        actionLabel="새로고침"
+        message="새로고침 후 최신 내용을 확인해 주세요"
         onActionPress={onReloadLatest}
-        secondaryActionLabel="내 작성 유지하고 최신 확인"
-        secondaryActionAccessibilityLabel="기도제목 충돌 후 내 작성 내용을 유지하며 최신 version 확인"
         onSecondaryActionPress={onKeepLocalAndReload}
+        secondaryActionAccessibilityLabel="기도제목 충돌 후 내 입력 보기"
+        secondaryActionLabel="내 입력 보기"
+        title="먼저 수정된 내용이 있어요"
       />
     );
   }
 
   return (
-    <Card>
-      <Eyebrow>{error.code ?? error.kind}</Eyebrow>
-      <Title>{getActionErrorTitle(error.kind)}</Title>
-      <Body>{getErrorMessage(error)}</Body>
-    </Card>
+    <PrayerStatusPanel
+      actionAccessibilityLabel="기도제목 저장 실패 후 다시 시도"
+      actionLabel="다시 시도"
+      message={getSafePrayerActionMessage(error)}
+      onActionPress={onRetrySave}
+      title={getActionErrorTitle(error.kind)}
+    />
   );
 }
 
@@ -505,9 +656,9 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
       );
     case 'conflict':
       return (
-        <Conflict
-          title={presentation.title}
-          message={presentation.message}
+        <PrayerStatusPanel
+          title="먼저 수정된 내용이 있어요"
+          message="새로고침 후 최신 내용을 확인해 주세요"
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="충돌 후 기도제목 다시 불러오기"
           onActionPress={onRetry}
@@ -536,6 +687,71 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
     default:
       return assertNever(error.kind);
   }
+}
+
+function PrayerStatusPanel({
+  actionAccessibilityLabel,
+  actionLabel,
+  message,
+  onActionPress,
+  onSecondaryActionPress,
+  secondaryActionAccessibilityLabel,
+  secondaryActionLabel,
+  title,
+}: {
+  actionAccessibilityLabel: string;
+  actionLabel: string;
+  message: string;
+  onActionPress: () => void;
+  onSecondaryActionPress?: () => void;
+  secondaryActionAccessibilityLabel?: string;
+  secondaryActionLabel?: string;
+  title: string;
+}) {
+  return (
+    <View accessibilityRole="alert" style={styles.statusPanel}>
+      <View style={styles.statusBrandRow}>
+        <Text style={styles.statusBrand}>FaithLog</Text>
+        <Chip label="기도제목" tone="default" />
+      </View>
+      <View style={styles.statusIconWrap}>
+        <Text style={styles.statusIcon}>!</Text>
+      </View>
+      <Text style={styles.statusTitle}>{title}</Text>
+      <Text style={styles.statusMessage}>{message}</Text>
+      <View style={styles.statusActions}>
+        <Button
+          accessibilityLabel={actionAccessibilityLabel}
+          onPress={onActionPress}>
+          {actionLabel}
+        </Button>
+        {secondaryActionLabel && onSecondaryActionPress ? (
+          <Button
+            accessibilityLabel={secondaryActionAccessibilityLabel ?? secondaryActionLabel}
+            onPress={onSecondaryActionPress}
+            variant="secondary">
+            {secondaryActionLabel}
+          </Button>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function ProgressStat({label, total, value}: {label: string; total: number; value: number}) {
+  const percent = total > 0 ? Math.min(Math.max(value / total, 0), 1) : 0;
+
+  return (
+    <View style={styles.progressStat}>
+      <View style={styles.progressHeader}>
+        <Text style={styles.progressLabel}>{label}</Text>
+        <Text style={styles.progressValue}>{value}/{total}</Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, {width: `${percent * 100}%`}]} />
+      </View>
+    </View>
+  );
 }
 
 function buildDrafts(
@@ -626,10 +842,6 @@ function toApiError(error: unknown, fallback: string): ApiError {
   return {kind: 'error', message: fallback};
 }
 
-function getErrorMessage(error: ApiError) {
-  return getApiErrorPresentation(error).message;
-}
-
 function getActionErrorTitle(kind: ApiError['kind']) {
   switch (kind) {
     case 'sessionExpired':
@@ -670,6 +882,18 @@ function getBoardStatusTone(status: string) {
   return 'default';
 }
 
+function getInitialPrayerWeekStartDate(date: Date) {
+  return isSaturday(date) ? getNextWeekStartDate(date) : getWeekStartDate(date);
+}
+
+function getNextWeekStartDate(date: Date) {
+  return addDays(getWeekStartDate(date), 7);
+}
+
+function isSaturday(date: Date) {
+  return date.getDay() === 6;
+}
+
 function getWeekStartDate(date: Date) {
   const start = new Date(date);
   const day = start.getDay();
@@ -677,6 +901,39 @@ function getWeekStartDate(date: Date) {
   start.setDate(start.getDate() + diff);
 
   return formatLocalDate(start);
+}
+
+function formatWeekLabel(weekStartDate: string) {
+  const date = new Date(`${weekStartDate}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return weekStartDate;
+  }
+
+  const month = date.getMonth() + 1;
+  const weekOfMonth = Math.floor((date.getDate() - 1) / 7) + 1;
+
+  return `${month}월 ${weekOfMonth}주차`;
+}
+
+function countSubmittedMembers(group: PrayerGroupSummary) {
+  return group.members.filter((member) => member.submittedAt || member.content?.trim()).length;
+}
+
+function getSafePrayerActionMessage(error: ApiError) {
+  if (error.kind === 'offline') {
+    return '네트워크 상태를 확인하고 다시 시도해주세요';
+  }
+
+  if (error.kind === 'permissionDenied') {
+    return '기도제목을 저장할 권한을 확인해주세요';
+  }
+
+  if (error.kind === 'sessionExpired') {
+    return '다시 로그인한 뒤 저장해주세요';
+  }
+
+  return '네트워크 상태를 확인하고 다시 시도해주세요';
 }
 
 function addDays(dateValue: string, days: number) {
@@ -727,19 +984,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
   groupButton: {
-    backgroundColor: colors.neutralSoft,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: radius.item,
     borderWidth: 1,
-    minWidth: '46%',
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 74,
     paddingHorizontal: 14,
     paddingVertical: 12,
+  },
+  groupAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.tealSoft,
+    borderRadius: 12,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  groupAvatarText: {
+    color: colors.teal,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  groupButtonBody: {
+    flex: 1,
+    minWidth: 0,
   },
   groupButtonMeta: {
     color: colors.mutedText,
@@ -747,7 +1019,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   groupButtonSelected: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surface,
     borderColor: colors.primary,
   },
   groupButtonText: {
@@ -758,20 +1030,118 @@ const styles = StyleSheet.create({
   groupButtonTextSelected: {
     color: colors.primary,
   },
+  groupChevron: {
+    color: colors.subtleText,
+    fontSize: 22,
+    fontWeight: '800',
+  },
   groupGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.gap,
   },
-  headerRow: {
-    alignItems: 'flex-start',
+  hero: {
+    gap: spacing.gap,
+  },
+  heroCardHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.gap,
     justifyContent: 'space-between',
   },
+  heroSubtitle: {
+    color: colors.mutedText,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 26,
+    fontWeight: '900',
+    lineHeight: 34,
+  },
+  keyboardRoot: {
+    flex: 1,
+  },
+  notificationBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 16,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  notificationIcon: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  progressFill: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    height: '100%',
+  },
+  progressGrid: {
+    gap: spacing.gap,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  progressLabel: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  progressStat: {
+    gap: 8,
+  },
+  progressTrack: {
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.pill,
+    height: 6,
+    overflow: 'hidden',
+  },
+  progressValue: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  saveSummaryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  scrollContent: {
+    gap: spacing.gap,
+    paddingBottom: spacing.bottomSafe + 112,
+  },
+  section: {
+    gap: spacing.gap,
+  },
+  sectionDescription: {
+    color: colors.mutedText,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  sectionHeading: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  sectionTitle: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
   headerText: {
     flex: 1,
     gap: 4,
+    minWidth: 0,
   },
   inputCounter: {
     alignSelf: 'flex-end',
@@ -796,9 +1166,7 @@ const styles = StyleSheet.create({
   },
   memberText: {
     flex: 1,
-  },
-  metaGrid: {
-    gap: spacing.gap,
+    minWidth: 0,
   },
   prayerInput: {
     backgroundColor: colors.neutralSoft,
@@ -814,11 +1182,69 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     textAlignVertical: 'top',
   },
+  prayerInputCompact: {
+    minHeight: 92,
+  },
   prayerInputDisabled: {
     opacity: 0.65,
   },
   pressed: {
     opacity: 0.72,
+  },
+  statusActions: {
+    gap: spacing.gap,
+    marginTop: 24,
+    minWidth: 160,
+  },
+  statusBrand: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  statusBrandRow: {
+    alignSelf: 'stretch',
+    gap: 10,
+  },
+  statusIcon: {
+    color: colors.danger,
+    fontSize: 28,
+    fontWeight: '900',
+  },
+  statusIconWrap: {
+    alignItems: 'center',
+    backgroundColor: colors.dangerSoft,
+    borderRadius: 28,
+    height: 56,
+    justifyContent: 'center',
+    marginTop: 72,
+    width: 56,
+  },
+  statusMessage: {
+    color: colors.mutedText,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  statusPanel: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: radius.card,
+    minHeight: 520,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+  },
+  statusTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 30,
+    marginTop: 42,
+    textAlign: 'center',
+  },
+  topBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   weekControls: {
     alignItems: 'center',
