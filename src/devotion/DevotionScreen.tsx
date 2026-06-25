@@ -870,14 +870,14 @@ const styles = StyleSheet.create({
   calendarCount: {
     color: colors.mutedText,
     flexWrap: 'wrap',
-    fontSize: 10,
+    fontSize: 15,
     fontWeight: '700',
     textAlign: 'center',
   },
   calendarDay: {
     color: colors.text,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   calendarDaySelected: {
     color: colors.primary,
@@ -914,8 +914,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
     textAlign: 'center',
   },
   checkPillTextChecked: {
@@ -923,12 +923,12 @@ const styles = StyleSheet.create({
   },
   dayDate: {
     color: colors.mutedText,
-    fontSize: 12,
+    fontSize: 15,
   },
   dayLabel: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   dayLabelSelected: {
     color: colors.teal,
@@ -958,7 +958,7 @@ const styles = StyleSheet.create({
   fieldError: {
     color: colors.danger,
     flexWrap: 'wrap',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
   },
   headerRow: {
@@ -974,7 +974,7 @@ const styles = StyleSheet.create({
   lateMinutesHelp: {
     color: colors.mutedText,
     flexWrap: 'wrap',
-    fontSize: 12,
+    fontSize: 15,
   },
   lateMinutesInput: {
     backgroundColor: colors.surface,
@@ -982,8 +982,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     color: colors.text,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
     minHeight: 44,
     paddingHorizontal: 12,
     textAlign: 'center',
@@ -993,7 +993,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexWrap: 'wrap',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   lateMinutesRow: {
     alignItems: 'center',
@@ -1023,8 +1023,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     flexWrap: 'wrap',
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
     textAlign: 'center',
   },
   pressed: {
@@ -1038,8 +1038,8 @@ const styles = StyleSheet.create({
   weekdayLabel: {
     color: colors.mutedText,
     flex: 1,
-    fontSize: 12,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
   },
   weekdayRow: {

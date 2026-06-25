@@ -982,7 +982,7 @@ const styles = StyleSheet.create({
   avatarText: {
     color: colors.primary,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   groupButton: {
     alignItems: 'center',
@@ -1007,7 +1007,7 @@ const styles = StyleSheet.create({
   groupAvatarText: {
     color: colors.teal,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   groupButtonBody: {
     flex: 1,
@@ -1015,7 +1015,7 @@ const styles = StyleSheet.create({
   },
   groupButtonMeta: {
     color: colors.mutedText,
-    fontSize: 12,
+    fontSize: 15,
     marginTop: 4,
   },
   groupButtonSelected: {
@@ -1025,15 +1025,15 @@ const styles = StyleSheet.create({
   groupButtonText: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   groupButtonTextSelected: {
     color: colors.primary,
   },
   groupChevron: {
     color: colors.subtleText,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
   },
   groupGrid: {
     gap: spacing.gap,
@@ -1049,13 +1049,13 @@ const styles = StyleSheet.create({
   },
   heroSubtitle: {
     color: colors.mutedText,
-    fontSize: 14,
+    fontSize: 15,
     lineHeight: 20,
   },
   heroTitle: {
     color: colors.text,
-    fontSize: 26,
-    fontWeight: '900',
+    fontSize: 24,
+    fontWeight: '700',
     lineHeight: 34,
   },
   keyboardRoot: {
@@ -1072,7 +1072,7 @@ const styles = StyleSheet.create({
   notificationIcon: {
     color: colors.primary,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   progressFill: {
     backgroundColor: colors.primary,
@@ -1088,8 +1088,8 @@ const styles = StyleSheet.create({
   },
   progressLabel: {
     color: colors.mutedText,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   progressStat: {
     gap: 8,
@@ -1102,8 +1102,8 @@ const styles = StyleSheet.create({
   },
   progressValue: {
     color: colors.primary,
-    fontSize: 13,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '700',
   },
   saveSummaryRow: {
     flexDirection: 'row',
@@ -1121,13 +1121,13 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   sectionHeading: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
     lineHeight: 24,
   },
   sectionTitle: {
@@ -1135,7 +1135,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexWrap: 'wrap',
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 22,
   },
   headerText: {
@@ -1146,7 +1146,7 @@ const styles = StyleSheet.create({
   inputCounter: {
     alignSelf: 'flex-end',
     color: colors.subtleText,
-    fontSize: 12,
+    fontSize: 15,
     marginTop: 8,
   },
   memberHeader: {
@@ -1156,13 +1156,13 @@ const styles = StyleSheet.create({
   },
   memberMeta: {
     color: colors.mutedText,
-    fontSize: 12,
+    fontSize: 15,
     marginTop: 2,
   },
   memberName: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   memberText: {
     flex: 1,
@@ -1198,8 +1198,8 @@ const styles = StyleSheet.create({
   },
   statusBrand: {
     color: colors.text,
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
   },
   statusBrandRow: {
     alignSelf: 'stretch',
@@ -1207,8 +1207,8 @@ const styles = StyleSheet.create({
   },
   statusIcon: {
     color: colors.danger,
-    fontSize: 28,
-    fontWeight: '900',
+    fontSize: 24,
+    fontWeight: '700',
   },
   statusIconWrap: {
     alignItems: 'center',
@@ -1221,7 +1221,7 @@ const styles = StyleSheet.create({
   },
   statusMessage: {
     color: colors.mutedText,
-    fontSize: 14,
+    fontSize: 15,
     lineHeight: 20,
     textAlign: 'center',
   },
@@ -1235,8 +1235,8 @@ const styles = StyleSheet.create({
   },
   statusTitle: {
     color: colors.text,
-    fontSize: 22,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
     lineHeight: 30,
     marginTop: 42,
     textAlign: 'center',
@@ -1255,7 +1255,7 @@ const styles = StyleSheet.create({
   weekDate: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
     textAlign: 'center',
   },
   weekLabel: {
@@ -1264,7 +1264,7 @@ const styles = StyleSheet.create({
   },
   weekRange: {
     color: colors.mutedText,
-    fontSize: 12,
+    fontSize: 15,
     marginTop: 2,
     textAlign: 'center',
   },

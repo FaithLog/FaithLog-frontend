@@ -730,15 +730,15 @@ function assertNever(value: never): never {
 }
 
 const paymentColors = {
-  card: '#FFFDF8',
-  chip: '#ECE8D9',
-  text: '#494949',
-  muted: 'rgba(73, 73, 73, 0.72)',
-  border: '#ECE5D4',
-  dark: '#494949',
-  success: '#2F8F63',
-  successSoft: '#E4F4EA',
-  warningSoft: '#FFF3CE',
+  card: colors.surface,
+  chip: colors.borderSoft,
+  text: colors.textPrimary,
+  muted: colors.textSecondary,
+  border: colors.borderSoft,
+  dark: colors.primary,
+  success: colors.success,
+  successSoft: colors.borderSoft,
+  warningSoft: colors.borderSoft,
 };
 
 const styles = StyleSheet.create({
@@ -746,7 +746,7 @@ const styles = StyleSheet.create({
     color: paymentColors.muted,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
+    fontSize: 15,
     lineHeight: 20,
   },
   accountMissingButton: {
@@ -761,16 +761,16 @@ const styles = StyleSheet.create({
   },
   accountMissingButtonText: {
     color: paymentColors.card,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 15,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
     textAlign: 'center',
   },
   accountMissingEyebrow: {
     color: paymentColors.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 15,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   accountMissingIcon: {
     alignItems: 'center',
@@ -782,8 +782,8 @@ const styles = StyleSheet.create({
   },
   accountMissingIconText: {
     color: paymentColors.text,
-    fontSize: 21,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
     lineHeight: 25,
   },
   accountPanel: {
@@ -809,8 +809,8 @@ const styles = StyleSheet.create({
     color: paymentColors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 24,
   },
   actionRow: {
@@ -821,16 +821,16 @@ const styles = StyleSheet.create({
   },
   amountText: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
   },
   categorySummary: {
     gap: 10,
   },
   categorySummaryBody: {
     color: colors.mutedText,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   categorySummaryItem: {
     backgroundColor: colors.neutralSoft,
@@ -840,8 +840,8 @@ const styles = StyleSheet.create({
   },
   categorySummaryTitle: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   chargeHeader: {
     alignItems: 'flex-start',
@@ -864,15 +864,15 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   chargeTitle: {
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
     lineHeight: 22,
   },
   chargeTitleBlock: {
@@ -893,8 +893,8 @@ const styles = StyleSheet.create({
   },
   filterChipText: {
     color: colors.mutedText,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   filterChipTextActive: {
     color: colors.primary,
@@ -915,15 +915,15 @@ const styles = StyleSheet.create({
   },
   figmaCampusText: {
     color: paymentColors.muted,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   figmaChargeAmount: {
     color: paymentColors.text,
     flexShrink: 1,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
     maxWidth: 116,
     minWidth: 58,
     textAlign: 'right',
@@ -941,7 +941,7 @@ const styles = StyleSheet.create({
   },
   figmaChargeButtonText: {
     color: paymentColors.card,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
   figmaChargeIcon: {
@@ -954,8 +954,8 @@ const styles = StyleSheet.create({
   },
   figmaChargeIconText: {
     color: paymentColors.text,
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
   },
   figmaChargeMain: {
     alignItems: 'center',
@@ -1003,14 +1003,14 @@ const styles = StyleSheet.create({
   },
   figmaSectionTitle: {
     color: paymentColors.text,
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 23,
   },
   figmaTitle: {
     color: paymentColors.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     lineHeight: 34,
   },
   filterPanel: {
@@ -1040,8 +1040,8 @@ const styles = StyleSheet.create({
   paymentHeroAmount: {
     color: paymentColors.text,
     flexShrink: 1,
-    fontSize: 40,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     lineHeight: 50,
   },
   paymentHeroButton: {
@@ -1055,7 +1055,7 @@ const styles = StyleSheet.create({
   },
   paymentHeroButtonText: {
     color: paymentColors.card,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
   paymentHeroCard: {
@@ -1073,8 +1073,8 @@ const styles = StyleSheet.create({
   },
   paymentHeroLabel: {
     color: paymentColors.text,
-    fontSize: 14,
-    lineHeight: 17,
+    fontSize: 15,
+    lineHeight: 20,
   },
   paymentHeroText: {
     flex: 1,
@@ -1085,14 +1085,14 @@ const styles = StyleSheet.create({
     color: paymentColors.muted,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   paymentStatusEyebrow: {
     color: paymentColors.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 15,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   paymentStatusIcon: {
     alignItems: 'center',
@@ -1107,8 +1107,8 @@ const styles = StyleSheet.create({
   },
   paymentStatusIconText: {
     color: paymentColors.success,
-    fontSize: 22,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
     lineHeight: 26,
   },
   paymentStatusNotice: {
@@ -1134,8 +1134,8 @@ const styles = StyleSheet.create({
     color: paymentColors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 22,
   },
   summaryGrid: {

@@ -1012,8 +1012,8 @@ const styles = StyleSheet.create({
   },
   segmentButtonText: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   segmentButtonTextActive: {
     color: colors.surface,
@@ -1057,24 +1057,24 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 14,
-    fontWeight: '900',
-    lineHeight: 19,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   compareBefore: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   compareAfter: {
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   warningBox: {
     backgroundColor: colors.warningSoft,
@@ -1084,14 +1084,14 @@ const styles = StyleSheet.create({
   },
   warningTitle: {
     color: colors.warning,
-    fontSize: 14,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '700',
   },
   warningText: {
     color: colors.warning,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 19,
+    lineHeight: 20,
   },
   inlineError: {
     backgroundColor: colors.dangerSoft,
@@ -1100,8 +1100,8 @@ const styles = StyleSheet.create({
   },
   inlineErrorText: {
     color: colors.danger,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
     lineHeight: 20,
   },
   actions: {

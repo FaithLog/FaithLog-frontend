@@ -813,9 +813,12 @@ function LoginForm({
   return (
     <View style={[styles.authFrame, styles.loginAuthFrame]}>
       <View style={styles.loginHero}>
-        <Text style={styles.loginBrandTitle}>FaithLog</Text>
-        <Text style={styles.loginSubtitle}>경건생활과 공동체 운영을{'\n'}가볍게 관리해요</Text>
+        <View style={styles.authBrandChip}>
+          <Text style={styles.authBrandChipText}>FaithLog</Text>
+        </View>
+        <Text style={styles.loginBrandTitle}>로그인</Text>
       </View>
+      <Text style={styles.loginSubtitle}>경건생활과 공동체 운영을 가볍게 관리해요</Text>
       <AuthTextField
         accessibilityLabel="로그인 이메일 입력"
         error={fieldErrors.email}
@@ -917,10 +920,10 @@ function SignupForm({
   return (
     <View style={[styles.authFrame, styles.signupAuthFrame]}>
       <View style={styles.signupHeader}>
-        <Text style={styles.signupTitle}>회원가입</Text>
         <View style={styles.authBrandChip}>
           <Text style={styles.authBrandChipText}>FaithLog</Text>
         </View>
+        <Text style={styles.signupTitle}>회원가입</Text>
       </View>
       <AuthTextField
         accessibilityLabel="회원가입 이름 입력"
@@ -2958,9 +2961,9 @@ function getEntryTargetTitle(target: EntryTarget) {
 function getEntryTargetDescription(target: EntryTarget) {
   switch (target) {
     case 'login':
-      return '이메일과 비밀번호로 로그인하고 token을 secure storage에 저장합니다.';
+      return '이메일과 비밀번호로 로그인하고 세션을 안전하게 저장합니다.';
     case 'signup':
-      return '이름, 이메일, 비밀번호를 검증하고 서버 validation 오류를 표시합니다.';
+      return '이름, 이메일, 비밀번호를 확인하고 오류를 안내합니다.';
     case 'inviteCode':
       return 'ACTIVE 캠퍼스가 없을 때 초대코드 입력 흐름으로 이동할 수 있는 진입점입니다.';
     case 'campusCreate':
@@ -2975,12 +2978,12 @@ function assertNever(value: never): never {
 }
 
 const authColors = {
-  background: '#FAF6E9',
-  border: '#ECE8D9',
-  buttonSecondary: '#ECE8D9',
-  input: '#FFFDF6',
-  text: '#494949',
-  textMuted: 'rgba(73, 73, 73, 0.72)',
+  background: colors.background,
+  border: colors.border,
+  buttonSecondary: colors.borderSoft,
+  input: colors.surface,
+  text: colors.textPrimary,
+  textMuted: colors.textSecondary,
 };
 
 const styles = StyleSheet.create({
@@ -3014,25 +3017,30 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   loginAuthFrame: {
-    paddingTop: 92,
+    paddingTop: 30,
   },
   signupAuthFrame: {
     paddingTop: 30,
   },
   loginHero: {
-    gap: 4,
-    marginBottom: 58,
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 28,
   },
   loginBrandTitle: {
     color: authColors.text,
-    fontSize: 36,
+    fontSize: 24,
     fontWeight: '700',
     lineHeight: 54,
   },
   loginSubtitle: {
-    color: authColors.text,
-    fontSize: 19,
-    lineHeight: 28,
+    alignSelf: 'center',
+    color: authColors.textMuted,
+    fontSize: 15,
+    lineHeight: 20,
+    marginBottom: 44,
+    maxWidth: 300,
+    textAlign: 'center',
   },
   signupHeader: {
     alignItems: 'flex-start',
@@ -3041,7 +3049,7 @@ const styles = StyleSheet.create({
   },
   signupTitle: {
     color: authColors.text,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
     lineHeight: 34,
   },
@@ -3055,10 +3063,10 @@ const styles = StyleSheet.create({
     width: 86,
   },
   authBrandChipText: {
-    color: authColors.text,
-    fontSize: 12,
+    color: colors.primary,
+    fontSize: 15,
     fontWeight: '600',
-    lineHeight: 16,
+    lineHeight: 20,
   },
   authField: {
     alignSelf: 'center',
@@ -3068,9 +3076,9 @@ const styles = StyleSheet.create({
   },
   authFieldLabel: {
     color: authColors.textMuted,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '600',
-    lineHeight: 18,
+    lineHeight: 20,
   },
   authInput: {
     backgroundColor: authColors.input,
@@ -3088,9 +3096,9 @@ const styles = StyleSheet.create({
   },
   authFieldError: {
     color: colors.danger,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 18,
+    lineHeight: 20,
   },
   authActionRow: {
     alignSelf: 'center',
@@ -3112,7 +3120,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   authButtonPrimary: {
-    backgroundColor: authColors.text,
+    backgroundColor: colors.primary,
   },
   authButtonSecondary: {
     backgroundColor: authColors.buttonSecondary,
@@ -3126,13 +3134,13 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   authButtonText: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '600',
-    lineHeight: 16,
+    lineHeight: 20,
     textAlign: 'center',
   },
   authButtonTextPrimary: {
-    color: authColors.input,
+    color: colors.surface,
   },
   authButtonTextSecondary: {
     color: authColors.textMuted,
@@ -3140,8 +3148,8 @@ const styles = StyleSheet.create({
   authFootnote: {
     alignSelf: 'center',
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     marginTop: 22,
     maxWidth: 318,
     width: '100%',
@@ -3160,14 +3168,14 @@ const styles = StyleSheet.create({
   },
   authNoticeTitle: {
     color: authColors.text,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 18,
+    lineHeight: 20,
   },
   authNoticeMessage: {
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   actionRow: {
     gap: 10,
@@ -3186,8 +3194,8 @@ const styles = StyleSheet.create({
   },
   figmaTitle: {
     color: authColors.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     lineHeight: 34,
   },
   figmaCampusChip: {
@@ -3201,9 +3209,9 @@ const styles = StyleSheet.create({
   },
   figmaCampusText: {
     color: authColors.textMuted,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   figmaSectionRow: {
     alignItems: 'center',
@@ -3212,15 +3220,15 @@ const styles = StyleSheet.create({
   },
   figmaSectionTitle: {
     color: authColors.text,
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 23,
   },
   figmaTextButton: {
-    color: authColors.text,
-    fontSize: 12,
+    color: colors.primary,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 16,
+    lineHeight: 20,
   },
   homeTodoCard: {
     backgroundColor: authColors.input,
@@ -3237,7 +3245,7 @@ const styles = StyleSheet.create({
   homeTodoLabel: {
     color: authColors.text,
     fontSize: 15,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   homeTodoRow: {
     alignItems: 'center',
@@ -3248,28 +3256,28 @@ const styles = StyleSheet.create({
   homeTodoTitle: {
     color: authColors.text,
     flex: 1,
-    fontSize: 30,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     lineHeight: 36,
   },
   homeTodoButton: {
     alignItems: 'center',
-    backgroundColor: authColors.text,
+    backgroundColor: authColors.buttonSecondary,
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
     width: 82,
   },
   homeTodoButtonText: {
-    color: authColors.input,
-    fontSize: 12,
+    color: colors.primary,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   homeTodoSummary: {
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   homeMetricRow: {
     flexDirection: 'row',
@@ -3287,13 +3295,13 @@ const styles = StyleSheet.create({
   },
   homeMetricLabel: {
     color: authColors.text,
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 15,
+    lineHeight: 20,
   },
   homeMetricValue: {
     color: authColors.text,
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '600',
     lineHeight: 28,
   },
   homeChargeCard: {
@@ -3313,28 +3321,28 @@ const styles = StyleSheet.create({
   },
   homeChargeTitle: {
     color: authColors.text,
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 21,
   },
   homeChargeBody: {
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 15,
+    lineHeight: 20,
   },
   homeChargeButton: {
     alignItems: 'center',
-    backgroundColor: authColors.text,
+    backgroundColor: authColors.buttonSecondary,
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
     width: 62,
   },
   homeChargeButtonText: {
-    color: authColors.input,
-    fontSize: 12,
+    color: colors.primary,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   profileActionButton: {
     alignItems: 'center',
@@ -3346,9 +3354,9 @@ const styles = StyleSheet.create({
   },
   profileActionButtonText: {
     color: authColors.text,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   profileActionIcon: {
     alignItems: 'center',
@@ -3360,8 +3368,8 @@ const styles = StyleSheet.create({
   },
   profileActionIconText: {
     color: authColors.text,
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
   },
   profileActionRow: {
     alignItems: 'center',
@@ -3374,8 +3382,8 @@ const styles = StyleSheet.create({
   },
   profileActionSubtitle: {
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 15,
+    lineHeight: 20,
   },
   profileActionText: {
     flex: 1,
@@ -3385,8 +3393,8 @@ const styles = StyleSheet.create({
   profileActionTitle: {
     color: authColors.text,
     fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 19,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   profileAvatar: {
     alignItems: 'center',
@@ -3398,8 +3406,8 @@ const styles = StyleSheet.create({
   },
   profileAvatarText: {
     color: authColors.text,
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
   },
   profileCard: {
     alignItems: 'center',
@@ -3412,8 +3420,8 @@ const styles = StyleSheet.create({
   },
   profileEmail: {
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   profileInfo: {
     flex: 1,
@@ -3422,8 +3430,8 @@ const styles = StyleSheet.create({
   },
   profileName: {
     color: authColors.text,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 28,
   },
   profileRoleChip: {
@@ -3437,9 +3445,9 @@ const styles = StyleSheet.create({
   },
   profileRoleText: {
     color: authColors.text,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   profileRowList: {
     gap: 16,
@@ -3464,7 +3472,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     lineHeight: 20,
   },
@@ -3473,8 +3481,8 @@ const styles = StyleSheet.create({
   },
   notificationDetailBody: {
     color: authColors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   notificationDetailCard: {
     backgroundColor: authColors.input,
@@ -3488,15 +3496,15 @@ const styles = StyleSheet.create({
   },
   notificationDetailTitle: {
     color: authColors.text,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 28,
   },
   notificationRowList: {
     gap: 8,
   },
   modalBackdrop: {
-    backgroundColor: 'rgba(17, 24, 39, 0.42)',
+    backgroundColor: colors.textMuted,
     flex: 1,
     justifyContent: 'flex-end',
     padding: spacing.screenX,

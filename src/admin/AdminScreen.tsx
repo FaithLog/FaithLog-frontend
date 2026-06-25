@@ -5885,7 +5885,7 @@ const styles = StyleSheet.create({
   avatarText: {
     color: colors.primary,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   chipRow: {
     flexDirection: 'row',
@@ -5906,8 +5906,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
     lineHeight: 20,
   },
   filterField: {
@@ -5945,28 +5945,28 @@ const styles = StyleSheet.create({
     color: colors.danger,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
     lineHeight: 20,
   },
   memberAction: {
     color: colors.primary,
-    fontSize: 13,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '700',
   },
   memberMeta: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   memberName: {
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 22,
   },
   memberRow: {
@@ -5994,13 +5994,13 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     color: colors.mutedText,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   metricValue: {
     color: colors.text,
-    fontSize: 22,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '700',
     lineHeight: 28,
   },
   pressed: {
@@ -6045,8 +6045,8 @@ const styles = StyleSheet.create({
   },
   segmentText: {
     color: colors.mutedText,
-    fontSize: 13,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
   },
   segmentTextActive: {
@@ -6060,7 +6060,7 @@ const styles = StyleSheet.create({
     padding: spacing.card,
   },
   sheetBackdrop: {
-    backgroundColor: 'rgba(17, 24, 39, 0.35)',
+    backgroundColor: colors.textMuted,
     flex: 1,
     justifyContent: 'flex-end',
   },

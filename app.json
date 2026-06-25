@@ -14,7 +14,7 @@
     "android": {
       "package": "com.faithlog.frontend",
       "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FFFFFF"
       }
     },
     "web": {
