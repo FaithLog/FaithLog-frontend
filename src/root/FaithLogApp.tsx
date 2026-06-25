@@ -849,16 +849,14 @@ function LoginForm({
         <AuthButton
           accessibilityLabel="로그인 제출"
           disabled={submitting}
-          onPress={submit}
-          width={92}>
+          onPress={submit}>
           {submitting ? '로그인 중...' : '로그인'}
         </AuthButton>
         <AuthButton
           accessibilityLabel="회원가입 화면으로 이동"
           disabled={submitting}
           onPress={switchToSignup}
-          variant="secondary"
-          width={92}>
+          variant="secondary">
           회원가입
         </AuthButton>
       </View>
@@ -979,15 +977,13 @@ function SignupForm({
         <AuthButton
           accessibilityLabel="회원가입 제출"
           disabled={submitting}
-          onPress={submit}
-          width={92}>
+          onPress={submit}>
           {submitting ? '가입 중...' : '가입 완료'}
         </AuthButton>
         <AuthButton
           accessibilityLabel="로그인 화면으로 이동"
           disabled={submitting}
-          onPress={switchToLogin}
-          width={76}>
+          onPress={switchToLogin}>
           로그인
         </AuthButton>
       </View>
@@ -1050,13 +1046,11 @@ function AuthButton({
   disabled = false,
   onPress,
   variant = 'primary',
-  width,
 }: PropsWithChildren<{
   accessibilityLabel: string;
   disabled?: boolean;
   onPress: () => void;
   variant?: 'primary' | 'secondary';
-  width?: number;
 }>) {
   return (
     <Pressable
@@ -1068,11 +1062,12 @@ function AuthButton({
       style={({pressed}) => [
         styles.authButton,
         variant === 'primary' ? styles.authButtonPrimary : styles.authButtonSecondary,
-        width ? {width} : null,
         disabled ? styles.authButtonDisabled : null,
         pressed ? styles.authButtonPressed : null,
       ]}>
       <Text
+        ellipsizeMode="tail"
+        numberOfLines={1}
         style={[
           styles.authButtonText,
           variant === 'primary' ? styles.authButtonTextPrimary : styles.authButtonTextSecondary,
@@ -3324,6 +3319,7 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 28,
     maxWidth: 318,
+    minWidth: 0,
     width: '100%',
   },
   signupAuthActionRow: {
@@ -3332,10 +3328,12 @@ const styles = StyleSheet.create({
   authButton: {
     alignItems: 'center',
     borderRadius: 12,
-    height: 34,
+    flexBasis: 0,
+    flexGrow: 1,
+    height: 44,
     justifyContent: 'center',
-    minWidth: 76,
-    paddingHorizontal: 18,
+    minWidth: 0,
+    paddingHorizontal: 12,
   },
   authButtonPrimary: {
     backgroundColor: colors.primary,
@@ -3352,9 +3350,11 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   authButtonText: {
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
+    maxWidth: '100%',
     textAlign: 'center',
   },
   authButtonTextPrimary: {
