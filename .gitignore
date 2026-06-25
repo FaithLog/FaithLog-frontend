@@ -9,6 +9,8 @@ node_modules/
 .expo-shared/
 dist/
 web-build/
+google-services.json
+GoogleService-Info.plist
 *.jks
 *.p8
 *.p12
@@ -31,6 +33,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+firebase-debug.log*
 *.log
 
 # environment
