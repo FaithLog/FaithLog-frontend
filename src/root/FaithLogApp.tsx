@@ -735,7 +735,7 @@ function LoginForm({
         keyboardType="email-address"
         label="이메일"
         onChangeText={(email) => setValues((current) => ({...current, email}))}
-        placeholder="example@email.com"
+        placeholder="faithlog.user@example.test"
         returnKeyType="next"
         textContentType="emailAddress"
         value={values.email}
@@ -841,7 +841,7 @@ function SignupForm({
         error={fieldErrors.name}
         label="이름"
         onChangeText={(name) => setValues((current) => ({...current, name}))}
-        placeholder="이승욱"
+        placeholder="샘플 사용자"
         returnKeyType="next"
         textContentType="name"
         value={values.name}
@@ -852,7 +852,7 @@ function SignupForm({
         keyboardType="email-address"
         label="이메일"
         onChangeText={(email) => setValues((current) => ({...current, email}))}
-        placeholder="josephuk77@sungkyul.ac.kr"
+        placeholder="new.user@example.test"
         returnKeyType="next"
         textContentType="emailAddress"
         value={values.email}
@@ -876,7 +876,7 @@ function SignupForm({
           setValues((current) => ({...current, passwordConfirm}))
         }
         onSubmitEditing={submit}
-        placeholder="다시 입력"
+        placeholder="8자 이상 다시 입력"
         returnKeyType="done"
         secureTextEntry
         textContentType="newPassword"
