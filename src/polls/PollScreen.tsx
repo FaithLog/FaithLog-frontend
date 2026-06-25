@@ -1307,12 +1307,12 @@ function assertNever(value: never): never {
 }
 
 const pollColors = {
-  card: '#FFFDF8',
-  chip: '#ECE8D9',
-  text: '#494949',
-  muted: 'rgba(73, 73, 73, 0.72)',
-  border: '#ECE5D4',
-  dark: '#494949',
+  card: colors.surface,
+  chip: colors.borderSoft,
+  text: colors.textPrimary,
+  muted: colors.textSecondary,
+  border: colors.borderSoft,
+  dark: colors.primary,
 };
 
 const styles = StyleSheet.create({
@@ -1332,13 +1332,13 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     color: colors.primary,
-    fontSize: 11,
+    fontSize: 15,
     fontWeight: '700',
   },
   catalogBody: {
     color: colors.mutedText,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   catalogBox: {
     backgroundColor: pollColors.card,
@@ -1351,8 +1351,8 @@ const styles = StyleSheet.create({
   },
   catalogTitle: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   chipRow: {
     flexDirection: 'row',
@@ -1362,7 +1362,7 @@ const styles = StyleSheet.create({
   },
   commentAuthor: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
   commentHeader: {
@@ -1373,12 +1373,12 @@ const styles = StyleSheet.create({
   },
   commentTime: {
     color: colors.subtleText,
-    fontSize: 12,
+    fontSize: 15,
     marginTop: 2,
   },
   fieldLabel: {
     color: pollColors.text,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
     marginBottom: 6,
     marginTop: spacing.gap,
@@ -1396,7 +1396,7 @@ const styles = StyleSheet.create({
   },
   figmaBackButtonText: {
     color: pollColors.text,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
   figmaCampusChip: {
@@ -1410,9 +1410,9 @@ const styles = StyleSheet.create({
   },
   figmaCampusText: {
     color: pollColors.muted,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   figmaCommentCard: {
     backgroundColor: pollColors.card,
@@ -1434,7 +1434,7 @@ const styles = StyleSheet.create({
   },
   figmaFilterText: {
     color: pollColors.text,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
   figmaFilterTextActive: {
@@ -1458,19 +1458,19 @@ const styles = StyleSheet.create({
   },
   figmaHeroMeta: {
     color: pollColors.muted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   figmaHeroTitle: {
     color: pollColors.text,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 27,
   },
   figmaMutedText: {
     color: pollColors.muted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   figmaOptionResultCard: {
     backgroundColor: pollColors.card,
@@ -1488,7 +1488,7 @@ const styles = StyleSheet.create({
   },
   figmaPollButtonText: {
     color: pollColors.card,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
   figmaPollIcon: {
@@ -1502,12 +1502,12 @@ const styles = StyleSheet.create({
   figmaPollIconText: {
     color: pollColors.text,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   figmaPollMeta: {
     color: pollColors.muted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
   },
   figmaPollRow: {
     alignItems: 'center',
@@ -1526,8 +1526,8 @@ const styles = StyleSheet.create({
   figmaPollTitle: {
     color: pollColors.text,
     fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 19,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   figmaScreen: {
     gap: 20,
@@ -1535,8 +1535,8 @@ const styles = StyleSheet.create({
   },
   figmaSectionTitle: {
     color: pollColors.text,
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 23,
   },
   figmaSmallChip: {
@@ -1550,13 +1550,13 @@ const styles = StyleSheet.create({
   },
   figmaSmallChipText: {
     color: pollColors.text,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
   figmaTitle: {
     color: pollColors.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     lineHeight: 34,
   },
   headerRow: {
@@ -1575,8 +1575,8 @@ const styles = StyleSheet.create({
   },
   inlineNoticeText: {
     color: colors.mutedText,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   inlineWarning: {
     backgroundColor: colors.warningSoft,
@@ -1599,8 +1599,8 @@ const styles = StyleSheet.create({
   },
   optionMark: {
     color: colors.subtleText,
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     width: 24,
   },
   optionMarkSelected: {
@@ -1608,7 +1608,7 @@ const styles = StyleSheet.create({
   },
   optionMeta: {
     color: colors.mutedText,
-    fontSize: 12,
+    fontSize: 15,
     marginTop: 3,
   },
   optionRow: {
@@ -1655,7 +1655,7 @@ const styles = StyleSheet.create({
   respondentName: {
     color: colors.mutedText,
     flex: 1,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
   },
   tab: {
@@ -1670,8 +1670,8 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: colors.mutedText,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   tabTextActive: {
     color: colors.primary,

@@ -14,7 +14,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 
-import {colors, radius, spacing} from '../theme';
+import {colors, radius, spacing, typography} from '../theme';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type Tone = 'default' | 'info' | 'success' | 'warning' | 'danger';
@@ -441,15 +441,19 @@ function StateCard({
   tone,
 }: StateProps & {tone: Tone}) {
   return (
-    <Card>
-      <Chip label={getStateToneLabel(tone)} tone={tone} />
-      <Title>{title}</Title>
-      <Body>{message}</Body>
+    <View style={styles.stateCard}>
+      <View style={[styles.stateIcon, styles[`${tone}StateIcon`]]}>
+        <Text style={[styles.stateIconText, styles[`${tone}StateIconText`]]}>
+          {getStateToneGlyph(tone)}
+        </Text>
+      </View>
+      <Text style={styles.stateTitle}>{title}</Text>
+      <Text style={styles.stateMessage}>{message}</Text>
       {actionLabel && onActionPress ? (
         <Button
           accessibilityLabel={actionAccessibilityLabel ?? actionLabel}
           onPress={onActionPress}
-          variant={tone === 'danger' ? 'danger' : 'secondary'}>
+          variant={tone === 'danger' ? 'danger' : 'primary'}>
           {actionLabel}
         </Button>
       ) : null}
@@ -461,22 +465,22 @@ function StateCard({
           {secondaryActionLabel}
         </Button>
       ) : null}
-    </Card>
+    </View>
   );
 }
 
-function getStateToneLabel(tone: Tone) {
+function getStateToneGlyph(tone: Tone) {
   switch (tone) {
     case 'danger':
-      return '오류';
+      return '!';
     case 'info':
-      return '안내';
+      return 'i';
     case 'success':
-      return '완료';
+      return '✓';
     case 'warning':
-      return '확인 필요';
+      return '!';
     case 'default':
-      return '상태';
+      return '•';
     default:
       return tone satisfies never;
   }
@@ -505,16 +509,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 24,
-    fontWeight: '900',
-    lineHeight: 30,
+    ...typography.screenTitle,
   },
   headerSubtitle: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 14,
-    lineHeight: 20,
+    ...typography.body,
   },
   headerAction: {
     alignItems: 'flex-end',
@@ -525,38 +526,33 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     padding: spacing.card,
     shadowColor: colors.shadow,
-    shadowOffset: {width: 0, height: 6},
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 3,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+    elevation: 2,
     gap: spacing.gap,
   },
   eyebrow: {
     color: colors.primary,
     flexWrap: 'wrap',
-    fontSize: 13,
-    fontWeight: '800',
+    ...typography.label,
   },
   title: {
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 24,
-    fontWeight: '800',
-    lineHeight: 32,
+    ...typography.screenTitle,
   },
   body: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 15,
-    lineHeight: 22,
+    ...typography.body,
   },
   chip: {
     alignSelf: 'flex-start',
     borderRadius: radius.pill,
-    fontSize: 13,
-    fontWeight: '800',
+    ...typography.label,
     overflow: 'hidden',
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -609,8 +605,8 @@ const styles = StyleSheet.create({
   buttonText: {
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 15,
-    fontWeight: '800',
+    ...typography.body,
+    fontWeight: '600',
     textAlign: 'center',
   },
   primaryButtonText: {
@@ -630,7 +626,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   dangerSheetScrim: {
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    backgroundColor: colors.textMuted,
     bottom: 0,
     left: 0,
     position: 'absolute',
@@ -666,16 +662,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 30,
+    ...typography.screenTitle,
   },
   dangerSheetMessage: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 14,
-    lineHeight: 20,
+    ...typography.body,
   },
   dangerSheetDetails: {
     gap: 8,
@@ -692,9 +685,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
+    ...typography.label,
   },
   dangerFailure: {
     backgroundColor: colors.dangerSoft,
@@ -706,9 +697,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
+    ...typography.label,
   },
   dangerSheetActions: {
     flexDirection: 'row',
@@ -731,8 +720,8 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 15,
-    fontWeight: '800',
+    ...typography.body,
+    fontWeight: '600',
     textAlign: 'center',
   },
   dangerConfirmButton: {
@@ -752,8 +741,8 @@ const styles = StyleSheet.create({
     color: colors.surface,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 15,
-    fontWeight: '800',
+    ...typography.body,
+    fontWeight: '600',
     textAlign: 'center',
   },
   disabled: {
@@ -769,16 +758,14 @@ const styles = StyleSheet.create({
   },
   iconText: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: '900',
+    ...typography.cardTitle,
   },
   field: {
     gap: 8,
   },
   fieldLabel: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: '800',
+    ...typography.label,
   },
   textField: {
     backgroundColor: colors.surface,
@@ -786,7 +773,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderWidth: 1,
     color: colors.text,
-    fontSize: 16,
+    ...typography.body,
     minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -796,14 +783,11 @@ const styles = StyleSheet.create({
   },
   fieldHelper: {
     color: colors.mutedText,
-    fontSize: 13,
-    lineHeight: 18,
+    ...typography.label,
   },
   fieldError: {
     color: colors.danger,
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
+    ...typography.label,
   },
   listRow: {
     alignItems: 'center',
@@ -826,22 +810,20 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 15,
-    fontWeight: '800',
-    lineHeight: 20,
+    ...typography.body,
+    fontWeight: '600',
   },
   listRowSupporting: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 13,
-    lineHeight: 18,
+    ...typography.label,
+    fontWeight: '400',
   },
   listRowValue: {
     color: colors.primary,
     flexShrink: 1,
-    fontSize: 14,
-    fontWeight: '800',
+    ...typography.label,
   },
   bottomNav: {
     alignItems: 'center',
@@ -867,27 +849,90 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   bottomNavItemActive: {
-    backgroundColor: '#494949',
+    backgroundColor: colors.borderSoft,
   },
   navIcon: {
     color: colors.mutedText,
-    fontSize: 14,
-    fontWeight: '900',
+    ...typography.label,
   },
   navIconActive: {
-    color: colors.surface,
+    color: colors.primary,
   },
   bottomNavLabel: {
     color: colors.mutedText,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 16,
+    ...typography.caption,
+    fontWeight: '600',
     textAlign: 'center',
   },
   bottomNavLabelActive: {
-    color: colors.surface,
+    color: colors.primary,
+  },
+  stateCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    gap: 18,
+    minHeight: 320,
+    paddingHorizontal: 24,
+    paddingVertical: 34,
+  },
+  stateIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 41,
+    height: 82,
+    justifyContent: 'center',
+    width: 82,
+  },
+  defaultStateIcon: {
+    backgroundColor: colors.borderSoft,
+  },
+  infoStateIcon: {
+    backgroundColor: colors.borderSoft,
+  },
+  successStateIcon: {
+    backgroundColor: colors.borderSoft,
+  },
+  warningStateIcon: {
+    backgroundColor: colors.borderSoft,
+  },
+  dangerStateIcon: {
+    backgroundColor: colors.borderSoft,
+  },
+  stateIconText: {
+    color: colors.primary,
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  defaultStateIconText: {
+    color: colors.textMuted,
+  },
+  infoStateIconText: {
+    color: colors.primary,
+  },
+  successStateIconText: {
+    color: colors.success,
+  },
+  warningStateIconText: {
+    color: colors.warning,
+  },
+  dangerStateIconText: {
+    color: colors.danger,
+  },
+  stateTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 32,
+    textAlign: 'center',
+  },
+  stateMessage: {
+    color: colors.mutedText,
+    fontSize: 15,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   pressed: {
     opacity: 0.78,

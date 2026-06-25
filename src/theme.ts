@@ -1,22 +1,31 @@
 export const colors = {
-  background: '#FAF6E9',
-  surface: '#ffffff',
-  primary: '#494949',
-  primarySoft: '#ECE8D9',
-  teal: '#5ba8b0',
-  tealSoft: '#e8f6f8',
-  text: '#494949',
-  mutedText: '#747064',
-  subtleText: '#9A9588',
-  border: '#ECE5D4',
-  neutralSoft: '#F4F0E5',
-  danger: '#ef4444',
-  dangerSoft: '#fee2e2',
-  warning: '#f59e0b',
-  warningSoft: '#fef3c7',
-  success: '#10b981',
-  successSoft: '#d1fae5',
-  shadow: '#1f2937',
+  background: '#F7F8FA',
+  surface: '#FFFFFF',
+  primary: '#3182F6',
+  faith: '#5BA8B0',
+  mint: '#92C7CF',
+  danger: '#EF4444',
+  success: '#22C55E',
+  warning: '#F59E0B',
+  textPrimary: '#191F28',
+  textSecondary: '#4E5968',
+  textMuted: '#8B95A1',
+  borderSoft: '#EEF1F4',
+
+  // Backward-compatible semantic aliases. Values must remain mapped to the
+  // Foundations/Tokens swatches above.
+  primarySoft: '#EEF1F4',
+  teal: '#5BA8B0',
+  tealSoft: '#92C7CF',
+  text: '#191F28',
+  mutedText: '#4E5968',
+  subtleText: '#8B95A1',
+  border: '#EEF1F4',
+  neutralSoft: '#F7F8FA',
+  dangerSoft: '#EEF1F4',
+  warningSoft: '#EEF1F4',
+  successSoft: '#EEF1F4',
+  shadow: '#191F28',
 };
 
 export const spacing = {
@@ -26,9 +35,37 @@ export const spacing = {
   bottomSafe: 24,
 };
 
+export const typography = {
+  screenTitle: {
+    fontSize: 24,
+    fontWeight: '700' as const,
+    lineHeight: 32,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    lineHeight: 22,
+  },
+  body: {
+    fontSize: 15,
+    fontWeight: '400' as const,
+    lineHeight: 20,
+  },
+  label: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    lineHeight: 20,
+  },
+  caption: {
+    fontSize: 15,
+    fontWeight: '400' as const,
+    lineHeight: 20,
+  },
+};
+
 export const radius = {
-  card: 16,
+  card: 24,
   control: 14,
-  item: 14,
+  item: 18,
   pill: 999,
 };

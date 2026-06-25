@@ -24,6 +24,7 @@ import {
   Offline,
   PermissionDenied,
 } from '../components/ui';
+import {colors} from '../theme';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -591,17 +592,17 @@ function assertNever(value: never): never {
 }
 
 const calendarColors = {
-  background: '#FAF6E9',
-  card: '#FFFDF8',
-  chip: '#ECE8D9',
-  text: '#494949',
-  muted: '#747064',
-  border: '#ECE5D4',
-  button: '#494949',
-  completion0: '#EEE9DC',
-  completion1: '#E8E1CF',
-  completion2: '#DDD3BB',
-  completion3: '#CFC1A3',
+  background: colors.background,
+  card: colors.surface,
+  chip: colors.borderSoft,
+  text: colors.textPrimary,
+  muted: colors.textSecondary,
+  border: colors.borderSoft,
+  button: colors.primary,
+  completion0: colors.borderSoft,
+  completion1: colors.mint,
+  completion2: colors.faith,
+  completion3: colors.primary,
 };
 
 const styles = StyleSheet.create({
@@ -620,8 +621,8 @@ const styles = StyleSheet.create({
   },
   title: {
     color: calendarColors.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     lineHeight: 34,
   },
   campusChip: {
@@ -634,9 +635,9 @@ const styles = StyleSheet.create({
   },
   campusChipText: {
     color: calendarColors.muted,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   monthCard: {
     alignItems: 'center',
@@ -653,14 +654,14 @@ const styles = StyleSheet.create({
   },
   monthChevron: {
     color: calendarColors.text,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
     lineHeight: 30,
   },
   monthTitle: {
     color: calendarColors.text,
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 24,
     minWidth: 150,
     textAlign: 'center',
@@ -685,9 +686,9 @@ const styles = StyleSheet.create({
   weekdayLabel: {
     color: calendarColors.text,
     flex: 1,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 13,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
     textAlign: 'center',
   },
   calendarGrid: {
@@ -713,9 +714,9 @@ const styles = StyleSheet.create({
   },
   calendarDayText: {
     color: calendarColors.text,
-    fontSize: 11,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 12,
+    lineHeight: 20,
   },
   completion0: {
     backgroundColor: calendarColors.completion0,
@@ -747,14 +748,14 @@ const styles = StyleSheet.create({
   },
   legendText: {
     color: calendarColors.muted,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 13,
+    lineHeight: 20,
   },
   sectionTitle: {
     color: calendarColors.text,
-    fontSize: 21,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     lineHeight: 23,
     marginTop: 16,
   },
@@ -792,15 +793,15 @@ const styles = StyleSheet.create({
   quickButtonText: {
     color: calendarColors.text,
     fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 18,
+    fontWeight: '600',
+    lineHeight: 20,
     textAlign: 'center',
   },
   lockedText: {
     color: calendarColors.muted,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 18,
+    lineHeight: 20,
     marginTop: 10,
   },
   saveRow: {
@@ -820,9 +821,9 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     color: calendarColors.card,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 15,
+    lineHeight: 20,
   },
   disabled: {
     opacity: 0.52,
