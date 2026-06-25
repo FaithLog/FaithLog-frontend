@@ -12,7 +12,10 @@
     "lint": "eslint \"App.tsx\" \"src/**/*.{ts,tsx}\"",
     "test": "vitest run",
     "ci": "npm run typecheck && npm run lint && npm run test",
-    "eas-build-pre-install": "node scripts/prepare-firebase-config.js"
+    "eas-build-pre-install": "node scripts/prepare-firebase-config.js",
+    "hooks:install": "sh scripts/install-git-hooks.sh",
+    "hooks:validate:branch": "node scripts/validate-branch-name.js",
+    "hooks:validate:commit": "node scripts/validate-commit-message.js"
   },
   "dependencies": {
     "expo": "~56.0.0",
