@@ -5888,17 +5888,6 @@ function getSelectionTypeLabel(value: string) {
   }
 }
 
-function getPaymentCategoryLabel(value: PaymentCategory) {
-  switch (value) {
-    case 'COFFEE':
-      return '커피';
-    case 'PENALTY':
-      return '벌금';
-    default:
-      return value;
-  }
-}
-
 function getDayOfWeekLabel(value: number) {
   switch (value) {
     case 1:
