@@ -122,6 +122,8 @@ type CardState<T> =
 
 type HomeCardKey = 'overview' | 'devotion' | 'charges' | 'polls' | 'prayers';
 
+type HomePrayerEntryVariant = 'suggestion' | 'always';
+
 type NotificationUiState =
   | {status: 'checking'}
   | {status: 'registering'}
@@ -582,7 +584,7 @@ function InviteCodeForm({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        onSessionExpired('저장된 access token이 없습니다.');
+        onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
         return;
       }
 
@@ -688,7 +690,7 @@ function CampusCreateForm({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        onSessionExpired('저장된 access token이 없습니다.');
+        onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
         return;
       }
 
@@ -1354,7 +1356,10 @@ function AuthenticatedShell({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
         return;
       }
 
@@ -1391,7 +1396,10 @@ function AuthenticatedShell({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
         return;
       }
 
@@ -1448,7 +1456,7 @@ function AuthenticatedShell({
       setNotice({
         tone: 'success',
         title: '로그아웃 완료',
-        message: '이 기기에 저장된 토큰을 삭제했습니다.',
+        message: '이 기기의 로그인 정보를 정리했습니다.',
       });
     }
   };
@@ -1518,6 +1526,7 @@ function AuthenticatedShell({
         <ProfileScreen
           onCampusSwitchPress={openCampusSwitch}
           onLogoutPress={() => setLogoutConfirmVisible(true)}
+          onOpenPrayers={() => setRoute('prayers')}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1616,6 +1625,7 @@ function UserHomeDashboard({
   const [chargeState, setChargeState] = useState<CardState<ChargeSummary>>({status: 'idle'});
   const [pollState, setPollState] = useState<CardState<PollSummary[]>>({status: 'idle'});
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
+  const prayerEntryVariant = getHomePrayerEntryVariant(prayerState);
 
   const runCardRequest = async <T,>(
     key: HomeCardKey,
@@ -1629,7 +1639,7 @@ function UserHomeDashboard({
       if (!accessToken) {
         const error: ApiError = {
           kind: 'sessionExpired',
-          message: '저장된 access token이 없습니다.',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         };
         setCardState({status: 'error', error});
         setAuthState({status: 'sessionExpired', message: error.message});
@@ -1733,7 +1743,7 @@ function UserHomeDashboard({
           disabled={state.activeCampuses.length <= 1}
           onPress={onCampusSwitchPress}
           style={styles.figmaCampusChip}>
-          <Text style={styles.figmaCampusText}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
         </Pressable>
@@ -1753,7 +1763,11 @@ function UserHomeDashboard({
         style={({pressed}) => [styles.homeTodoCard, pressed ? styles.authButtonPressed : null]}>
         <Text style={styles.homeTodoLabel}>오늘 해야 할 일</Text>
         <View style={styles.homeTodoRow}>
-          <Text style={styles.homeTodoTitle}>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.82}
+            numberOfLines={1}
+            style={styles.homeTodoTitle}>
             {getTodayActions({chargeState, devotionState, pollState, prayerState, today}).length}개 남았어요
           </Text>
           <View style={styles.homeTodoButton}>
@@ -1765,66 +1779,80 @@ function UserHomeDashboard({
         </Text>
       </Pressable>
 
-      <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
-      <View style={styles.homeMetricRow}>
-        <HomeMetricTile
-          label="낸 금액"
-          value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyPaidAmount) : '확인 중'}
-        />
-        <HomeMetricTile
-          label="미납"
-          value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyUnpaidAmount) : '확인 중'}
-        />
-        <HomeMetricTile
-          label="지각"
-          value={devotionState.status === 'success' ? `${devotionState.data.saturdayLateMinutes}분` : '확인 중'}
-        />
-      </View>
+      {prayerEntryVariant === 'suggestion' ? (
+        <>
+          <Text style={styles.figmaSectionTitle}>이번 주 루틴</Text>
+          <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
+          <HomeRoutineEntryCard
+            actionLabel="체크"
+            body={
+              devotionState.status === 'success'
+                ? `큐티 ${devotionState.data.quietTimeCount}/7 · 기도 ${devotionState.data.prayerCount}/7 · 말씀 ${devotionState.data.bibleReadingCount}/7`
+                : '경건생활 체크를 확인해요'
+            }
+            onPress={onOpenDevotion}
+            title="경건생활"
+          />
+          <HomeRoutineEntryCard
+            actionLabel="입금"
+            body={
+              chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
+                ? `이번 달 미납 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
+                : '이번 달 납부 흐름을 확인해요'
+            }
+            onPress={onOpenPayments}
+            title="최근 청구 항목"
+          />
+        </>
+      ) : (
+        <>
+          <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
+          <View style={styles.homeMetricRow}>
+            <HomeMetricTile
+              label="낸 금액"
+              value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyPaidAmount) : '확인 중'}
+            />
+            <HomeMetricTile
+              label="미납"
+              tone="danger"
+              value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyUnpaidAmount) : '확인 중'}
+            />
+            <HomeMetricTile
+              label="지각"
+              tone="warning"
+              value={devotionState.status === 'success' ? `${devotionState.data.saturdayLateMinutes}분` : '확인 중'}
+            />
+          </View>
 
-      <View style={styles.figmaSectionRow}>
-        <Text style={styles.figmaSectionTitle}>경건생활</Text>
-        <Pressable
-          accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
-          accessibilityRole="button"
-          onPress={onOpenMonthlyCalendar}>
-          <Text style={styles.figmaTextButton}>캘린더</Text>
-        </Pressable>
-      </View>
-      <View style={styles.homeMetricRow}>
-        <HomeMetricTile
-          label="큐티"
-          value={devotionState.status === 'success' ? `${devotionState.data.quietTimeCount}회` : '확인 중'}
-          onPress={onOpenDevotion}
-        />
-        <HomeMetricTile
-          label="기도"
-          value={devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'}
-          onPress={onOpenDevotion}
-        />
-        <HomeMetricTile
-          label="말씀"
-          value={devotionState.status === 'success' ? `${devotionState.data.bibleReadingCount}회` : '확인 중'}
-          onPress={onOpenDevotion}
-        />
-      </View>
-
-      <Pressable
-        accessibilityLabel="최근 청구 항목 확인"
-        accessibilityRole="button"
-        onPress={onOpenPayments}
-        style={({pressed}) => [styles.homeChargeCard, pressed ? styles.authButtonPressed : null]}>
-        <View style={styles.homeChargeText}>
-          <Text style={styles.homeChargeTitle}>최근 청구 항목</Text>
-          <Text style={styles.homeChargeBody}>
-            {chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
-              ? `이번 달 미납 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
-              : '이번 달 납부 흐름을 확인해요'}
-          </Text>
-        </View>
-        <View style={styles.homeChargeButton}>
-          <Text style={styles.homeChargeButtonText}>입금</Text>
-        </View>
-      </Pressable>
+          <View style={styles.figmaSectionRow}>
+            <Text style={styles.figmaSectionTitle}>경건생활</Text>
+            <Pressable
+              accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
+              accessibilityRole="button"
+              onPress={onOpenMonthlyCalendar}>
+              <Text style={styles.figmaTextButton}>캘린더</Text>
+            </Pressable>
+          </View>
+          <View style={styles.homeMetricRow}>
+            <HomeMetricTile
+              label="큐티"
+              value={devotionState.status === 'success' ? `${devotionState.data.quietTimeCount}회` : '확인 중'}
+              onPress={onOpenDevotion}
+            />
+            <HomeMetricTile
+              label="기도"
+              value={devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'}
+              onPress={onOpenDevotion}
+            />
+            <HomeMetricTile
+              label="말씀"
+              value={devotionState.status === 'success' ? `${devotionState.data.bibleReadingCount}회` : '확인 중'}
+              onPress={onOpenDevotion}
+            />
+          </View>
+          <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
+        </>
+      )}
 
       {overviewState.status === 'error' ||
       devotionState.status === 'error' ||
@@ -1840,16 +1868,28 @@ function UserHomeDashboard({
 function HomeMetricTile({
   label,
   onPress,
+  tone = 'default',
   value,
 }: {
   label: string;
   onPress?: () => void;
+  tone?: 'danger' | 'default' | 'warning';
   value: string;
 }) {
   const content = (
     <>
       <Text style={styles.homeMetricLabel}>{label}</Text>
-      <Text style={styles.homeMetricValue}>{value}</Text>
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+        numberOfLines={1}
+        style={[
+          styles.homeMetricValue,
+          tone === 'danger' ? styles.homeMetricValueDanger : null,
+          tone === 'warning' ? styles.homeMetricValueWarning : null,
+        ]}>
+        {value}
+      </Text>
     </>
   );
 
@@ -1866,6 +1906,74 @@ function HomeMetricTile({
   }
 
   return <View style={styles.homeMetricTile}>{content}</View>;
+}
+
+function HomePrayerEntryCard({
+  onPress,
+  prayerState,
+}: {
+  onPress: () => void;
+  prayerState: CardState<PrayerWeekSummary>;
+}) {
+  const variant = getHomePrayerEntryVariant(prayerState);
+  const copy = getHomePrayerEntryCopy(variant, prayerState);
+
+  return (
+    <Pressable
+      accessibilityLabel={`${copy.title} ${copy.actionLabel}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.homePrayerCard,
+        variant === 'suggestion' ? styles.homePrayerCardSuggested : null,
+        pressed ? styles.authButtonPressed : null,
+      ]}>
+      <View style={styles.homePrayerText}>
+        <Text style={styles.homePrayerEyebrow}>{copy.eyebrow}</Text>
+        <Text numberOfLines={2} style={styles.homePrayerTitle}>
+          {copy.title}
+        </Text>
+        <Text numberOfLines={2} style={styles.homePrayerBody}>
+          {copy.body}
+        </Text>
+      </View>
+      <View style={styles.homePrayerButton}>
+        <Text style={styles.homePrayerButtonText}>{copy.actionLabel}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function HomeRoutineEntryCard({
+  actionLabel,
+  body,
+  onPress,
+  title,
+}: {
+  actionLabel: string;
+  body: string;
+  onPress: () => void;
+  title: string;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${title} ${actionLabel}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [styles.homeRoutineCard, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.homeRoutineText}>
+        <Text numberOfLines={1} style={styles.homeRoutineTitle}>
+          {title}
+        </Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeRoutineBody}>
+          {body}
+        </Text>
+      </View>
+      <View style={styles.homePrayerButton}>
+        <Text style={styles.homePrayerButtonText}>{actionLabel}</Text>
+      </View>
+    </Pressable>
+  );
 }
 
 function TodayActionCard({
@@ -2100,6 +2208,71 @@ function getPrayerEntryPolicy(prayers: PrayerWeekSummary) {
   return '기도제목 상시 진입';
 }
 
+function getHomePrayerEntryVariant(
+  prayerState: CardState<PrayerWeekSummary>,
+): HomePrayerEntryVariant {
+  if (
+    prayerState.status === 'success' &&
+    prayerState.data.status === 'OPEN' &&
+    prayerState.data.targetMemberCount > 0
+  ) {
+    return 'suggestion';
+  }
+
+  return 'always';
+}
+
+function getHomePrayerEntryCopy(
+  variant: HomePrayerEntryVariant,
+  prayerState: CardState<PrayerWeekSummary>,
+) {
+  if (prayerState.status === 'loading' || prayerState.status === 'idle') {
+    return {
+      actionLabel: '보기',
+      body: '이번 주 기도제목 상태를 확인하고 있어요.',
+      eyebrow: '기도제목',
+      title: '이번 주 기도제목',
+    };
+  }
+
+  if (prayerState.status === 'error') {
+    return {
+      actionLabel: '확인',
+      body: '기도 탭에서 다시 불러오거나 조별 입력 상태를 확인할 수 있어요.',
+      eyebrow: '기도제목',
+      title: '이번 주 기도제목',
+    };
+  }
+
+  if (variant === 'suggestion') {
+    return {
+      actionLabel: '보기',
+      body: getPrayerProgressSummary(prayerState.data),
+      eyebrow: getPrayerEntryPolicy(prayerState.data),
+      title: '조별 기도제목',
+    };
+  }
+
+  return {
+    actionLabel: '보기',
+    body: getPrayerProgressSummary(prayerState.data),
+    eyebrow: getPrayerEntryPolicy(prayerState.data),
+    title: '이번 주 기도제목',
+  };
+}
+
+function getPrayerProgressSummary(prayers: PrayerWeekSummary) {
+  const primaryGroup = prayers.groups[0];
+
+  if (!primaryGroup) {
+    return `전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+  }
+
+  const groupSubmittedCount = primaryGroup.members.filter((member) => member.submittedAt).length;
+
+  return `${primaryGroup.groupName} ${groupSubmittedCount}/${primaryGroup.members.length} 작성 · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+}
+
 function getWeekStartDate(date: Date) {
   const start = new Date(date);
   const day = start.getDay();
@@ -2206,7 +2379,10 @@ function NotificationPermissionFlow({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
         return;
       }
 
@@ -2217,11 +2393,11 @@ function NotificationPermissionFlow({
         setNotice({
           tone: 'success',
           title: '알림 설정 완료',
-          message: '이 기기의 알림 토큰을 서버에 등록했습니다.',
+          message: '이 기기의 알림 연결을 완료했습니다.',
         });
       }
     } catch (error) {
-      const apiError = toApiError(error, '알림 토큰을 등록하지 못했습니다.');
+      const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
       if (apiError.kind === 'sessionExpired') {
@@ -2306,7 +2482,7 @@ function NotificationPermissionFlow({
     <FcmTokenFailedCard
       busy={state.status === 'registering'}
       body={failure?.body ?? '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.'}
-      message={failure?.message ?? 'Firebase/FCM 연결 상태를 확인한 뒤 다시 시도해 주세요.'}
+      message={failure?.message ?? '기기 알림 연결 상태를 확인한 뒤 다시 시도해 주세요.'}
       onDismiss={() => setState({status: 'dismissed'})}
       onRetry={state.status === 'error' ? () => void inspect() : register}
       title={failure?.title ?? '기기 알림 연결 실패'}
@@ -2345,7 +2521,10 @@ function NotificationSettingsDetail({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
         return;
       }
 
@@ -2356,11 +2535,11 @@ function NotificationSettingsDetail({
         setNotice({
           tone: 'success',
           title: '알림 등록 완료',
-          message: '이 기기의 알림 토큰을 서버에 등록했습니다.',
+          message: '이 기기의 알림 연결을 완료했습니다.',
         });
       }
     } catch (error) {
-      const apiError = toApiError(error, '알림 토큰을 등록하지 못했습니다.');
+      const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
       if (apiError.kind === 'sessionExpired') {
@@ -2379,7 +2558,10 @@ function NotificationSettingsDetail({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
         return;
       }
 
@@ -2387,11 +2569,11 @@ function NotificationSettingsDetail({
       setNotice({
         tone: 'success',
         title: '알림 비활성화',
-        message: '이 기기의 알림 토큰을 비활성화했습니다.',
+        message: '이 기기의 알림 연결을 해제했습니다.',
       });
       await inspect();
     } catch (error) {
-      const apiError = toApiError(error, '알림 토큰을 비활성화하지 못했습니다.');
+      const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
       if (apiError.kind === 'sessionExpired') {
@@ -2567,8 +2749,8 @@ function getNotificationPermissionMessage(permission: 'denied' | 'blocked' | 'un
 
 function getNotificationApiErrorMessage(error: ApiError) {
   return getApiErrorPresentation(error, {
-    conflictMessage: '서버의 토큰 상태와 충돌했습니다. 알림 설정을 다시 확인해 주세요.',
-    permissionMessage: '알림 토큰을 등록하거나 비활성화할 권한이 없습니다.',
+    conflictMessage: '서버의 알림 연결 상태와 충돌했습니다. 알림 설정을 다시 확인해 주세요.',
+    permissionMessage: '기기 알림을 연결하거나 해제할 권한이 없습니다.',
   }).message;
 }
 
@@ -2583,7 +2765,7 @@ function getNotificationFailurePresentation(error: ApiError) {
     case 'permissionDenied':
       return {
         title: '알림 연결 권한이 없어요',
-        body: '현재 계정으로는 이 기기의 알림 토큰을 등록할 수 없어요.',
+        body: '현재 계정으로는 이 기기의 알림을 연결할 수 없어요.',
         message: getNotificationApiErrorMessage(error),
       };
     case 'offline':
@@ -2595,7 +2777,7 @@ function getNotificationFailurePresentation(error: ApiError) {
     case 'conflict':
       return {
         title: '알림 상태를 다시 확인해 주세요',
-        body: '서버의 최신 알림 토큰 상태와 맞지 않아 다시 확인이 필요해요.',
+        body: '서버의 최신 알림 연결 상태와 맞지 않아 다시 확인이 필요해요.',
         message: getNotificationApiErrorMessage(error),
       };
     case 'error':
@@ -2609,15 +2791,32 @@ function getNotificationFailurePresentation(error: ApiError) {
   }
 }
 
+function getCampusRoleDisplayLabel(role: string) {
+  switch (role) {
+    case 'CAMPUS_LEADER':
+      return '리더';
+    case 'ELDER':
+      return '장로';
+    case 'MINISTER':
+      return '교역자';
+    case 'MEMBER':
+      return '일반 멤버';
+    default:
+      return '멤버';
+  }
+}
+
 function ProfileScreen({
   onCampusSwitchPress,
   onLogoutPress,
+  onOpenPrayers,
   setAuthState,
   setNotice,
   state,
 }: {
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
+  onOpenPrayers: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -2636,7 +2835,10 @@ function ProfileScreen({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
         return;
       }
 
@@ -2666,56 +2868,57 @@ function ProfileScreen({
       <View style={styles.figmaHeader}>
         <Text style={styles.figmaTitle}>내정보</Text>
         <View style={styles.figmaCampusChip}>
-          <Text style={styles.figmaCampusText}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
         </View>
       </View>
 
       <View style={styles.profileCard}>
-        <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>○</Text>
-        </View>
         <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{state.user.name}</Text>
-          <Text style={styles.profileEmail}>{state.user.email}</Text>
-          <View style={styles.profileRoleChip}>
-            <Text style={styles.profileRoleText}>
-              {state.selectedCampus.campusName} · {state.selectedCampus.campusRole}
-            </Text>
-          </View>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
+            {state.user.name}
+          </Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileCampusText}>
+            {state.selectedCampus.campusName} · {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
+          </Text>
         </View>
+        <View style={styles.profileRoleChip}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileRoleText}>
+            {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.figmaSectionTitle}>공동체 메뉴</Text>
+      <View style={styles.profileRowList}>
+        <ProfileActionRow
+          actionLabel="보기"
+          onPress={onOpenPrayers}
+          subtitle="전체 조별 기도제목 한 페이지 조회"
+          title="조별 기도제목"
+        />
+        <ProfileActionRow
+          actionLabel="작성"
+          onPress={onOpenPrayers}
+          subtitle="내 조 조원별 기도제목 작성"
+          title="기도제목 입력"
+        />
+        <ProfileActionRow
+          actionLabel="관리"
+          onPress={onCampusSwitchPress}
+          subtitle="다른 캠퍼스 초대코드 입력"
+          title="캠퍼스 참여 코드"
+        />
       </View>
 
       <Text style={styles.figmaSectionTitle}>계정</Text>
       <View style={styles.profileRowList}>
-        {state.activeCampuses.length > 1 ? (
-          <ProfileActionRow
-            actionLabel="변경"
-            icon="▦"
-            onPress={onCampusSwitchPress}
-            subtitle={state.selectedCampus.campusName}
-            title="내 캠퍼스"
-          />
-        ) : null}
         <ProfileActionRow
-          actionLabel="입력"
-          icon="+"
-          onPress={() =>
-            setNotice({
-              tone: 'info',
-              title: '초대코드',
-              message: '새 캠퍼스 참여 흐름은 초대코드 화면에서 이어집니다.',
-            })
-          }
-          subtitle="다른 캠퍼스 참여"
-          title="초대코드 추가"
-        />
-        <ProfileActionRow
-          actionLabel="실행"
-          icon="↩"
+          actionLabel="로그아웃"
+          actionTone="danger"
           onPress={onLogoutPress}
-          subtitle="현재 기기에서 로그아웃"
+          subtitle="현재 기기에서 세션 종료"
           title="로그아웃"
         />
       </View>
@@ -2730,13 +2933,15 @@ function ProfileScreen({
 
 function ProfileActionRow({
   actionLabel,
+  actionTone = 'default',
   icon,
   onPress,
   subtitle,
   title,
 }: {
   actionLabel: string;
-  icon: string;
+  actionTone?: 'danger' | 'default';
+  icon?: string;
   onPress: () => void;
   subtitle: string;
   title: string;
@@ -2747,15 +2952,27 @@ function ProfileActionRow({
       accessibilityRole="button"
       onPress={onPress}
       style={({pressed}) => [styles.profileActionRow, pressed ? styles.authButtonPressed : null]}>
-      <View style={styles.profileActionIcon}>
-        <Text style={styles.profileActionIconText}>{icon}</Text>
-      </View>
+      {icon ? (
+        <View style={styles.profileActionIcon}>
+          <Text style={styles.profileActionIconText}>{icon}</Text>
+        </View>
+      ) : null}
       <View style={styles.profileActionText}>
-        <Text style={styles.profileActionTitle}>{title}</Text>
-        <Text style={styles.profileActionSubtitle}>{subtitle}</Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileActionTitle}>
+          {title}
+        </Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileActionSubtitle}>
+          {subtitle}
+        </Text>
       </View>
       <View style={styles.profileActionButton}>
-        <Text style={styles.profileActionButtonText}>{actionLabel}</Text>
+        <Text
+          style={[
+            styles.profileActionButtonText,
+            actionTone === 'danger' ? styles.profileActionButtonTextDanger : null,
+          ]}>
+          {actionLabel}
+        </Text>
       </View>
     </Pressable>
   );
@@ -2784,9 +3001,9 @@ function CampusSwitchSheet({
     <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalSheet}>
-          <Eyebrow>Campus Switch</Eyebrow>
-          <Title>캠퍼스 변경</Title>
-          <Body>소속된 ACTIVE 캠퍼스 중 이동할 캠퍼스를 선택할 수 있어요.</Body>
+          <Eyebrow>공동체</Eyebrow>
+          <Title>공동체 메뉴</Title>
+          <Body>현재 참여 중인 공동체를 확인하고 이동할 공동체를 선택할 수 있어요.</Body>
           {error ? <InlineError message={getCampusSwitchErrorMessage(error)} /> : null}
           <View style={styles.metaGrid}>
             {campuses.length > 0 ? (
@@ -2795,30 +3012,30 @@ function CampusSwitchSheet({
 
                 return (
                   <ListRow
-                    accessibilityLabel={`${campus.campusName} 캠퍼스로 변경`}
+                    accessibilityLabel={`${campus.campusName} 공동체로 변경`}
                     key={campus.membershipId}
                     label={campus.campusName}
                     onPress={() => onSelect(campus)}
-                    supportingText={`${campus.region} · ${campus.campusRole}`}
+                    supportingText={`${campus.region} · ${getCampusRoleDisplayLabel(campus.campusRole)}`}
                     value={selected ? '현재' : '선택'}
                   />
                 );
               })
             ) : (
-              <Body>ACTIVE 캠퍼스가 없습니다.</Body>
+              <Body>참여 중인 공동체가 없습니다.</Body>
             )}
           </View>
-          <Body>선택 후 해당 캠퍼스의 홈 화면으로 이동합니다.</Body>
+          <Body>선택 후 해당 공동체의 홈 화면으로 이동합니다.</Body>
           <View style={styles.actionRow}>
             <Button
-              accessibilityLabel="캠퍼스 목록 다시 불러오기"
+              accessibilityLabel="공동체 목록 다시 불러오기"
               disabled={loading}
               onPress={onRefresh}
               variant="secondary">
               {loading ? '불러오는 중...' : '목록 갱신'}
             </Button>
             <Button
-              accessibilityLabel="캠퍼스 변경 시트 닫기"
+              accessibilityLabel="공동체 메뉴 닫기"
               disabled={loading}
               onPress={onCancel}
               variant="ghost">
@@ -2848,10 +3065,10 @@ function LogoutConfirmSheet({
       cancelAccessibilityLabel="로그아웃 취소"
       confirmAccessibilityLabel="로그아웃 확정"
       confirmLabel="로그아웃"
-      dangerSummary="서버 로그아웃 확인과 기기 토큰 삭제를 함께 진행합니다."
+      dangerSummary="서버 로그아웃 확인과 기기 로그인 정보 정리를 함께 진행합니다."
       loading={loading}
       loadingLabel="로그아웃 중..."
-      message="서버 로그아웃을 best effort로 시도하고, 이 기기의 access/refresh token은 삭제합니다."
+      message="로그아웃을 시도한 뒤 이 기기의 로그인 정보를 안전하게 정리합니다."
       onCancel={onCancel}
       onConfirm={onConfirm}
       title="로그아웃할까요?"
@@ -2933,7 +3150,7 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
     case 'prayers':
       return '사용자 조별 기도제목 조회, 사람별 입력, version 충돌 복구를 다루는 일반 사용자 화면입니다.';
     case 'profile':
-      return '내 정보 조회, GET /users/me 새로고침, 로그아웃 확인 흐름입니다.';
+      return '내 정보 새로고침, 공동체 메뉴, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':
       return '캠퍼스 역할이 관리자 권한일 때만 노출되는 관리자 shell입니다.';
     case 'serviceAdmin':
@@ -2998,6 +3215,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    backgroundColor: colors.background,
     flexGrow: 1,
     gap: 18,
     paddingBottom: 28,
@@ -3182,9 +3400,11 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   shell: {
+    backgroundColor: colors.background,
     gap: 16,
   },
   userFrame: {
+    backgroundColor: colors.background,
     gap: 20,
     paddingTop: 2,
   },
@@ -3195,23 +3415,26 @@ const styles = StyleSheet.create({
   figmaTitle: {
     color: authColors.text,
     fontSize: 24,
-    fontWeight: '600',
-    lineHeight: 34,
+    fontWeight: '700',
+    lineHeight: 32,
   },
   figmaCampusChip: {
     alignItems: 'center',
-    backgroundColor: authColors.buttonSecondary,
-    borderRadius: 15,
-    height: 30,
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    height: 28,
     justifyContent: 'center',
-    minWidth: 86,
-    paddingHorizontal: 12,
+    maxWidth: '100%',
+    minWidth: 72,
+    paddingHorizontal: 10,
   },
   figmaCampusText: {
-    color: authColors.textMuted,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
+    color: colors.faith,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: '100%',
   },
   figmaSectionRow: {
     alignItems: 'center',
@@ -3220,32 +3443,33 @@ const styles = StyleSheet.create({
   },
   figmaSectionTitle: {
     color: authColors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 23,
+    fontSize: 19,
+    fontWeight: '700',
+    lineHeight: 28,
   },
   figmaTextButton: {
     color: colors.primary,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   homeTodoCard: {
     backgroundColor: authColors.input,
-    borderRadius: 22,
+    borderRadius: 24,
     gap: 10,
     minHeight: 146,
     paddingHorizontal: 24,
     paddingVertical: 26,
-    shadowColor: authColors.text,
+    shadowColor: colors.textPrimary,
     shadowOffset: {width: 0, height: 8},
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
   },
   homeTodoLabel: {
-    color: authColors.text,
+    color: colors.textMuted,
     fontSize: 15,
-    lineHeight: 20,
+    fontWeight: '400',
+    lineHeight: 22,
   },
   homeTodoRow: {
     alignItems: 'center',
@@ -3255,14 +3479,16 @@ const styles = StyleSheet.create({
   },
   homeTodoTitle: {
     color: authColors.text,
+    flexShrink: 1,
     flex: 1,
     fontSize: 24,
     fontWeight: '600',
     lineHeight: 36,
+    minWidth: 0,
   },
   homeTodoButton: {
     alignItems: 'center',
-    backgroundColor: authColors.buttonSecondary,
+    backgroundColor: colors.borderSoft,
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
@@ -3270,14 +3496,96 @@ const styles = StyleSheet.create({
   },
   homeTodoButtonText: {
     color: colors.primary,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   homeTodoSummary: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  homePrayerBody: {
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  homePrayerButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    width: 62,
+  },
+  homePrayerButtonText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  homePrayerCard: {
+    alignItems: 'center',
+    backgroundColor: authColors.input,
+    borderRadius: 20,
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
+    minHeight: 96,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+  },
+  homePrayerCardSuggested: {
+    borderColor: colors.borderSoft,
+  },
+  homePrayerEyebrow: {
     color: authColors.textMuted,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  homePrayerText: {
+    flex: 1,
+    gap: 7,
+    minWidth: 0,
+  },
+  homePrayerTitle: {
+    color: authColors.text,
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  homeRoutineBody: {
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  homeRoutineCard: {
+    alignItems: 'center',
+    backgroundColor: authColors.input,
+    borderRadius: 20,
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
+    minHeight: 96,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+  },
+  homeRoutineText: {
+    flex: 1,
+    gap: 10,
+    minWidth: 0,
+  },
+  homeRoutineTitle: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
   },
   homeMetricRow: {
     flexDirection: 'row',
@@ -3285,7 +3593,7 @@ const styles = StyleSheet.create({
   },
   homeMetricTile: {
     backgroundColor: authColors.input,
-    borderRadius: 18,
+    borderRadius: 20,
     flex: 1,
     gap: 12,
     height: 86,
@@ -3294,20 +3602,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   homeMetricLabel: {
-    color: authColors.text,
-    fontSize: 15,
-    lineHeight: 20,
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 18,
   },
   homeMetricValue: {
     color: authColors.text,
-    fontSize: 24,
-    fontWeight: '600',
-    lineHeight: 28,
+    flexShrink: 1,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 32,
+  },
+  homeMetricValueDanger: {
+    color: colors.danger,
+  },
+  homeMetricValueWarning: {
+    color: colors.warning,
   },
   homeChargeCard: {
     alignItems: 'center',
     backgroundColor: authColors.input,
-    borderRadius: 18,
+    borderRadius: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     minHeight: 104,
@@ -3323,16 +3639,16 @@ const styles = StyleSheet.create({
     color: authColors.text,
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 21,
+    lineHeight: 22,
   },
   homeChargeBody: {
-    color: authColors.textMuted,
-    fontSize: 15,
-    lineHeight: 20,
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   homeChargeButton: {
     alignItems: 'center',
-    backgroundColor: authColors.buttonSecondary,
+    backgroundColor: colors.borderSoft,
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
@@ -3340,28 +3656,33 @@ const styles = StyleSheet.create({
   },
   homeChargeButtonText: {
     color: colors.primary,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   profileActionButton: {
     alignItems: 'center',
-    backgroundColor: authColors.buttonSecondary,
+    backgroundColor: colors.borderSoft,
     borderRadius: 12,
+    flexShrink: 0,
     height: 34,
     justifyContent: 'center',
     width: 58,
   },
   profileActionButtonText: {
-    color: authColors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  profileActionButtonTextDanger: {
+    color: colors.danger,
   },
   profileActionIcon: {
     alignItems: 'center',
     backgroundColor: authColors.buttonSecondary,
     borderRadius: 14,
+    flexShrink: 0,
     height: 44,
     justifyContent: 'center',
     width: 44,
@@ -3374,16 +3695,18 @@ const styles = StyleSheet.create({
   profileActionRow: {
     alignItems: 'center',
     backgroundColor: authColors.input,
-    borderRadius: 18,
+    borderRadius: 20,
     flexDirection: 'row',
     gap: 12,
-    minHeight: 82,
-    paddingHorizontal: 20,
+    minHeight: 86,
+    paddingHorizontal: 24,
   },
   profileActionSubtitle: {
-    color: authColors.textMuted,
-    fontSize: 15,
-    lineHeight: 20,
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 18,
   },
   profileActionText: {
     flex: 1,
@@ -3392,14 +3715,16 @@ const styles = StyleSheet.create({
   },
   profileActionTitle: {
     color: authColors.text,
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 20,
+    lineHeight: 22,
   },
   profileAvatar: {
     alignItems: 'center',
     backgroundColor: authColors.buttonSecondary,
     borderRadius: 14,
+    flexShrink: 0,
     height: 44,
     justifyContent: 'center',
     width: 44,
@@ -3412,15 +3737,18 @@ const styles = StyleSheet.create({
   profileCard: {
     alignItems: 'center',
     backgroundColor: authColors.input,
-    borderRadius: 22,
+    borderRadius: 24,
     flexDirection: 'row',
     gap: 18,
-    minHeight: 124,
+    justifyContent: 'space-between',
+    minHeight: 112,
     paddingHorizontal: 24,
   },
-  profileEmail: {
-    color: authColors.textMuted,
-    fontSize: 15,
+  profileCampusText: {
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '400',
     lineHeight: 20,
   },
   profileInfo: {
@@ -3430,24 +3758,28 @@ const styles = StyleSheet.create({
   },
   profileName: {
     color: authColors.text,
-    fontSize: 16,
-    fontWeight: '600',
+    flexShrink: 1,
+    fontSize: 22,
+    fontWeight: '700',
     lineHeight: 28,
   },
   profileRoleChip: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: authColors.buttonSecondary,
-    borderRadius: 15,
-    height: 30,
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    flexShrink: 0,
+    height: 28,
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    maxWidth: '100%',
+    paddingHorizontal: 12,
   },
   profileRoleText: {
-    color: authColors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
+    color: colors.faith,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: '100%',
   },
   profileRowList: {
     gap: 16,
