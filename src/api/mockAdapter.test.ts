@@ -42,7 +42,7 @@ describe('FaithLog mock API adapter', () => {
   it('serves auth fixtures without calling the network or leaking personal examples', async () => {
     const response = await loginUser({
       email: 'faithlog.user@example.test',
-      password: 'samplepass8',
+      password: 'FaithlogQa8!',
     });
 
     expect(response.user.email).toBe('faithlog.user@example.test');

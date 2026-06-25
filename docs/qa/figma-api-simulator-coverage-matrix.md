@@ -34,7 +34,7 @@ discrepancy until the design file adds, restores, or identifies the missing
 
 | # | Figma frame | Node | Code route/component | API Docs section | Status | Remaining work |
 | ---: | --- | --- | --- | --- | --- | --- |
-| 1 | User 01 Login | `165:496` | `FaithLogApp` auth/login form | Auth login | Partial | Code intentionally uses non-personal `example.test`; Figma still shows generic `example@email.com`. |
+| 1 | User 01 Login | `165:496` | `FaithLogApp` auth/login form | Auth login | Partial | Code intentionally uses non-personal `example.test`; Figma still shows a non-policy sample email. |
 | 2 | User 02 Signup | `165:510` | `FaithLogApp` signup form, `authForms.ts` | Auth signup | Partial | Code uses safe sample placeholders and 8+ password rule; Figma still contains personal-looking sample text. |
 | 3 | User 03 Invite Code | `165:530` | no-campus invite/join flow | Campuses join | Partial | Existing flow needs exact spacing and authenticated profile re-entry QA. |
 | 4 | User 03-1 Campus Create | `168:479` | no-campus campus create flow | Campuses create | Partial | Existing flow needs exact Figma and simulator screenshots. |

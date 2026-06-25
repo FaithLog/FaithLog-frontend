@@ -838,7 +838,7 @@ function LoginForm({
         label="비밀번호"
         onChangeText={(password) => setValues((current) => ({...current, password}))}
         onSubmitEditing={submit}
-        placeholder="••••••••"
+        placeholder="FaithlogQa8!"
         returnKeyType="done"
         secureTextEntry
         textContentType="password"
@@ -850,7 +850,7 @@ function LoginForm({
           accessibilityLabel="로그인 제출"
           disabled={submitting}
           onPress={submit}
-          width={92}>
+          width={112}>
           {submitting ? '로그인 중...' : '로그인'}
         </AuthButton>
         <AuthButton
@@ -954,7 +954,7 @@ function SignupForm({
         error={fieldErrors.password}
         label="비밀번호"
         onChangeText={(password) => setValues((current) => ({...current, password}))}
-        placeholder="8자 이상 입력"
+        placeholder="FaithlogQa8!"
         returnKeyType="next"
         secureTextEntry
         textContentType="newPassword"
@@ -968,7 +968,7 @@ function SignupForm({
           setValues((current) => ({...current, passwordConfirm}))
         }
         onSubmitEditing={submit}
-        placeholder="8자 이상 다시 입력"
+        placeholder="FaithlogQa8!"
         returnKeyType="done"
         secureTextEntry
         textContentType="newPassword"
@@ -1073,6 +1073,8 @@ function AuthButton({
         pressed ? styles.authButtonPressed : null,
       ]}>
       <Text
+        adjustsFontSizeToFit
+        numberOfLines={1}
         style={[
           styles.authButtonText,
           variant === 'primary' ? styles.authButtonTextPrimary : styles.authButtonTextSecondary,
@@ -3355,6 +3357,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
+    minWidth: 0,
     textAlign: 'center',
   },
   authButtonTextPrimary: {
