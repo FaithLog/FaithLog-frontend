@@ -18,11 +18,53 @@ export type DeviceFcmTokenResult =
   | {status: 'error'; message: string};
 
 export type DeviceFcmTokenProvider = () => Promise<string | null>;
+export type NotificationOpenPayloadListener = (payload: unknown) => void;
+export type NotificationOpenPayloadSubscriber = (
+  listener: NotificationOpenPayloadListener,
+) => () => void;
+export type InitialNotificationOpenPayloadProvider = () => Promise<unknown | null>;
 
 let deviceFcmTokenProvider: DeviceFcmTokenProvider | null = null;
+let notificationOpenPayloadSubscriber: NotificationOpenPayloadSubscriber | null = null;
+let initialNotificationOpenPayloadProvider: InitialNotificationOpenPayloadProvider | null =
+  null;
 
 export function setDeviceFcmTokenProvider(provider: DeviceFcmTokenProvider | null) {
   deviceFcmTokenProvider = provider;
+}
+
+export function setNotificationOpenPayloadSubscriber(
+  subscriber: NotificationOpenPayloadSubscriber | null,
+) {
+  notificationOpenPayloadSubscriber = subscriber;
+}
+
+export function setInitialNotificationOpenPayloadProvider(
+  provider: InitialNotificationOpenPayloadProvider | null,
+) {
+  initialNotificationOpenPayloadProvider = provider;
+}
+
+export async function getInitialNotificationOpenPayload() {
+  if (!initialNotificationOpenPayloadProvider) {
+    return null;
+  }
+
+  try {
+    return await initialNotificationOpenPayloadProvider();
+  } catch {
+    return null;
+  }
+}
+
+export function subscribeNotificationOpenPayload(
+  listener: NotificationOpenPayloadListener,
+) {
+  if (!notificationOpenPayloadSubscriber) {
+    return () => {};
+  }
+
+  return notificationOpenPayloadSubscriber(listener);
 }
 
 export async function getDeviceFcmToken(
