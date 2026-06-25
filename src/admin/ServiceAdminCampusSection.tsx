@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Modal, Pressable, StyleSheet, Text, View} from 'react-native';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {
   addServiceAdminCampusMember,
@@ -52,6 +52,7 @@ type ServiceAdminCampusSectionProps = {
 };
 
 type CampusStatusFilter = ServiceAdminCampusOperationStatus | 'ALL';
+type CampusScreenStep = 'list' | 'detail' | 'edit' | 'confirm';
 
 type CampusListState =
   | {status: 'loading'}
@@ -72,7 +73,6 @@ type CampusDetailState =
 
 type CampusActionState =
   | {status: 'idle'}
-  | {status: 'confirmingDeactivate'}
   | {status: 'savingCampus'}
   | {status: 'addingMember'}
   | {status: 'error'; error: ApiError};
@@ -109,6 +109,7 @@ export function ServiceAdminCampusSection({
   setNotice,
   state,
 }: ServiceAdminCampusSectionProps) {
+  const [campusScreen, setCampusScreen] = useState<CampusScreenStep>('list');
   const [nameFilter, setNameFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<CampusStatusFilter>('ALL');
@@ -122,7 +123,11 @@ export function ServiceAdminCampusSection({
   const selectedCampus = detailState.status === 'success' ? detailState.data : null;
   const selectedSummary = detailState.status === 'success' ? detailState.summary : undefined;
 
-  const loadCampuses = async () => {
+  const loadCampuses = async (showList = true) => {
+    if (showList) {
+      setCampusScreen('list');
+    }
+
     if (state.user.role !== 'ADMIN') {
       setListState({
         status: 'error',
@@ -161,6 +166,7 @@ export function ServiceAdminCampusSection({
     campusId: number,
     summary?: ServiceAdminCampusListItem,
   ) => {
+    setCampusScreen('detail');
     setDetailState({status: 'loading', campusId, summary});
     setActionState({status: 'idle'});
     setFieldErrors({});
@@ -183,7 +189,7 @@ export function ServiceAdminCampusSection({
     }
   };
 
-  const submitCampusUpdate = async (skipDeactivateConfirm = false) => {
+  const openCampusUpdateConfirm = () => {
     if (!selectedCampus) {
       return;
     }
@@ -192,15 +198,28 @@ export function ServiceAdminCampusSection({
 
     if (!validation.valid) {
       setFieldErrors(validation.fieldErrors);
-      return;
-    }
-
-    if (selectedCampus.isActive && !editForm.isActive && !skipDeactivateConfirm) {
-      setActionState({status: 'confirmingDeactivate'});
+      setCampusScreen('edit');
       return;
     }
 
     setFieldErrors({});
+    setActionState({status: 'idle'});
+    setCampusScreen('confirm');
+  };
+
+  const submitCampusUpdate = async () => {
+    if (!selectedCampus) {
+      return;
+    }
+
+    const validation = validateCampusCreateForm(editForm);
+
+    if (!validation.valid) {
+      setFieldErrors(validation.fieldErrors);
+      setCampusScreen('edit');
+      return;
+    }
+
     setActionState({status: 'savingCampus'});
 
     try {
@@ -218,12 +237,13 @@ export function ServiceAdminCampusSection({
       setDetailState({status: 'success', data: updated, summary: selectedSummary});
       setEditForm(toEditForm(updated));
       setActionState({status: 'idle'});
+      setCampusScreen('detail');
       setNotice({
         tone: 'success',
         title: '캠퍼스 수정 완료',
         message: `${updated.name} 캠퍼스 정보를 저장했습니다.`,
       });
-      void loadCampuses();
+      void loadCampuses(false);
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스 정보를 저장하지 못했습니다.');
       setActionState({status: 'error', error: apiError});
@@ -241,7 +261,7 @@ export function ServiceAdminCampusSection({
     if (userId === undefined || userId === null) {
       setFieldErrors((current) => ({
         ...current,
-        memberUserId: 'userId는 1 이상의 정수로 입력해 주세요.',
+        memberUserId: '사용자 번호는 1 이상의 정수로 입력해 주세요.',
       }));
       return;
     }
@@ -269,9 +289,9 @@ export function ServiceAdminCampusSection({
       setNotice({
         tone: 'success',
         title: '멤버 추가 완료',
-        message: `${member.name}님을 ${selectedCampus.name} 캠퍼스에 MEMBER로 추가했습니다.`,
+        message: `${member.name}님을 ${selectedCampus.name} 캠퍼스에 일반 멤버로 추가했습니다.`,
       });
-      void loadCampuses();
+      void loadCampuses(false);
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스 멤버를 추가하지 못했습니다.');
       setActionState({status: 'error', error: apiError});
@@ -282,101 +302,123 @@ export function ServiceAdminCampusSection({
   useEffect(() => {
     void loadCampuses();
     // 초기 진입 로드만 수행하고, 필터는 조회 버튼으로 명시 적용합니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <>
-      <Card>
-        <Eyebrow>캠퍼스 필터</Eyebrow>
-        <TextField
-          label="캠퍼스 이름"
-          onChangeText={setNameFilter}
-          placeholder="이름 검색"
-          returnKeyType="search"
-          value={nameFilter}
-        />
-        <TextField
-          label="지역"
-          onChangeText={setRegionFilter}
-          placeholder="지역 검색"
-          returnKeyType="search"
-          value={regionFilter}
-        />
-        <View style={styles.segmentRow}>
-          {CAMPUS_STATUS_FILTERS.map((status) => (
-            <SegmentButton
-              active={statusFilter === status.id}
-              key={status.id}
-              label={status.label}
-              onPress={() => setStatusFilter(status.id)}
+      {campusScreen === 'list' ? (
+        <>
+          <Card>
+            <View style={styles.screenStepHeader}>
+              <Chip label="목록" tone="info" />
+              <Title>캠퍼스 관리</Title>
+              <Body>이름, 지역, 운영 상태로 캠퍼스를 찾고 상세 화면으로 이동합니다.</Body>
+            </View>
+            <TextField
+              label="캠퍼스 이름"
+              onChangeText={setNameFilter}
+              placeholder="이름 검색"
+              returnKeyType="search"
+              value={nameFilter}
             />
-          ))}
-        </View>
-        <Button accessibilityLabel="Service ADMIN 캠퍼스 목록 조회" onPress={loadCampuses}>
-          조회
-        </Button>
-      </Card>
+            <TextField
+              label="지역"
+              onChangeText={setRegionFilter}
+              placeholder="지역 검색"
+              returnKeyType="search"
+              value={regionFilter}
+            />
+            <View style={styles.segmentRow}>
+              {CAMPUS_STATUS_FILTERS.map((status) => (
+                <SegmentButton
+                  active={statusFilter === status.id}
+                  key={status.id}
+                  label={status.label}
+                  onPress={() => setStatusFilter(status.id)}
+                />
+              ))}
+            </View>
+            <Button
+              accessibilityLabel="Service ADMIN 캠퍼스 목록 조회"
+              onPress={() => void loadCampuses()}>
+              조회
+            </Button>
+          </Card>
 
-      <CampusListSection
-        listState={listState}
-        onRetry={loadCampuses}
-        onSelectCampus={(campus) => void loadCampusDetail(campus.campusId, campus)}
-      />
+          <CampusListSection
+            listState={listState}
+            onRetry={() => void loadCampuses()}
+            onSelectCampus={(campus) => void loadCampusDetail(campus.campusId, campus)}
+          />
+        </>
+      ) : null}
 
-      <CampusDetailSection
-        actionState={actionState}
-        detailState={detailState}
-        editForm={editForm}
-        fieldErrors={fieldErrors}
-        memberUserId={memberUserId}
-        onEditFormChange={(patch) => setEditForm((current) => ({...current, ...patch}))}
-        onMemberUserIdChange={(value) => {
-          setMemberUserId(value);
-          setFieldErrors((current) => {
-            const next = {...current};
-            delete next.memberUserId;
-            return next;
-          });
-        }}
-        onRetry={(campusId, summary) => void loadCampusDetail(campusId, summary)}
-        onSubmitCampusUpdate={() => void submitCampusUpdate()}
-        onSubmitMemberAdd={() => void submitMemberAdd()}
-      />
+      {campusScreen === 'detail' ? (
+        <CampusDetailSection
+          actionState={actionState}
+          detailState={detailState}
+          fieldErrors={fieldErrors}
+          memberUserId={memberUserId}
+          onBackToList={() => {
+            setActionState({status: 'idle'});
+            setCampusScreen('list');
+          }}
+          onEditCampus={() => {
+            if (selectedCampus) {
+              setEditForm(toEditForm(selectedCampus));
+              setFieldErrors({});
+              setActionState({status: 'idle'});
+              setCampusScreen('edit');
+            }
+          }}
+          onMemberUserIdChange={(value) => {
+            setMemberUserId(value);
+            setFieldErrors((current) => {
+              const next = {...current};
+              delete next.memberUserId;
+              return next;
+            });
+          }}
+          onRetry={(campusId, summary) => void loadCampusDetail(campusId, summary)}
+          onSubmitMemberAdd={() => void submitMemberAdd()}
+        />
+      ) : null}
+
+      {campusScreen === 'edit' ? (
+        <CampusEditSection
+          actionState={actionState}
+          detailState={detailState}
+          editForm={editForm}
+          fieldErrors={fieldErrors}
+          onBackToDetail={() => {
+            if (selectedCampus) {
+              setEditForm(toEditForm(selectedCampus));
+            }
+            setFieldErrors({});
+            setActionState({status: 'idle'});
+            setCampusScreen('detail');
+          }}
+          onEditFormChange={(patch) => setEditForm((current) => ({...current, ...patch}))}
+          onRetry={(campusId, summary) => void loadCampusDetail(campusId, summary)}
+          onReviewUpdate={openCampusUpdateConfirm}
+        />
+      ) : null}
+
+      {campusScreen === 'confirm' ? (
+        <CampusUpdateConfirmSection
+          actionState={actionState}
+          detailState={detailState}
+          editForm={editForm}
+          onBackToEdit={() => {
+            setActionState({status: 'idle'});
+            setCampusScreen('edit');
+          }}
+          onConfirmUpdate={() => void submitCampusUpdate()}
+          onRetry={(campusId, summary) => void loadCampusDetail(campusId, summary)}
+        />
+      ) : null}
 
       {actionState.status === 'error' ? <InlineError error={actionState.error} /> : null}
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setActionState({status: 'idle'})}
-        transparent
-        visible={actionState.status === 'confirmingDeactivate'}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Chip label="영향 확인" tone="warning" />
-            <Title>캠퍼스를 중지할까요?</Title>
-            <Body>
-              중지된 캠퍼스는 Service ADMIN 목록에서 PAUSED로 표시됩니다. 기존 멤버의 이용
-              가능 범위와 관리자 작업은 서버 권한 정책의 영향을 받으므로, 운영 중지 전에
-              구성원에게 안내해 주세요.
-            </Body>
-            <View style={styles.actions}>
-              <Button
-                accessibilityLabel="캠퍼스 중지 취소"
-                onPress={() => setActionState({status: 'idle'})}
-                variant="ghost">
-                취소
-              </Button>
-              <Button
-                accessibilityLabel="캠퍼스 중지 확정"
-                onPress={() => void submitCampusUpdate(true)}
-                variant="danger">
-                중지 저장
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </>
   );
 }
@@ -422,10 +464,10 @@ function CampusListSection({
             <ListRow
               accessibilityLabel={`${campus.name} 캠퍼스 상세 보기`}
               key={campus.campusId}
-              label={`${campus.name} #${campus.campusId}`}
+              label={campus.name}
               onPress={() => onSelectCampus(campus)}
               supportingText={`${campus.region} · 멤버 ${campus.memberCount}명 · 관리자 ${campus.adminCount}명`}
-              value={campus.status}
+              value={getCampusStatusLabel(campus.status)}
             />
           ))}
         </Card>
@@ -438,24 +480,22 @@ function CampusListSection({
 function CampusDetailSection({
   actionState,
   detailState,
-  editForm,
   fieldErrors,
   memberUserId,
-  onEditFormChange,
+  onBackToList,
+  onEditCampus,
   onMemberUserIdChange,
   onRetry,
-  onSubmitCampusUpdate,
   onSubmitMemberAdd,
 }: {
   actionState: CampusActionState;
   detailState: CampusDetailState;
-  editForm: CampusEditForm;
   fieldErrors: CampusFieldErrors;
   memberUserId: string;
-  onEditFormChange: (patch: Partial<CampusEditForm>) => void;
+  onBackToList: () => void;
+  onEditCampus: () => void;
   onMemberUserIdChange: (value: string) => void;
   onRetry: (campusId: number, summary?: ServiceAdminCampusListItem) => void;
-  onSubmitCampusUpdate: () => void;
   onSubmitMemberAdd: () => void;
 }) {
   switch (detailState.status) {
@@ -467,7 +507,7 @@ function CampusDetailSection({
         />
       );
     case 'loading':
-      return <Loading message={`#${detailState.campusId} 캠퍼스를 불러오고 있어요.`} />;
+      return <Loading message="선택한 캠퍼스 정보를 불러오고 있어요." />;
     case 'error':
       return (
         <ServiceAdminCampusErrorState
@@ -480,84 +520,44 @@ function CampusDetailSection({
         <Card>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderText}>
-              <Eyebrow>캠퍼스 상세</Eyebrow>
+              <Chip label="상세" tone="info" />
               <Title>{detailState.data.name}</Title>
             </View>
-            <Chip label={detailState.data.isActive ? 'ACTIVE' : 'PAUSED'} tone="info" />
+            <Chip label={getCampusActiveLabel(detailState.data.isActive)} tone="info" />
           </View>
-          <ListRow label="campusId" value={String(detailState.data.campusId)} />
           <ListRow label="지역" value={detailState.data.region} />
           <ListRow label="초대코드" value={detailState.data.inviteCode ?? '권한 없음'} />
           {detailState.summary ? (
             <>
-              <ListRow label="ACTIVE 멤버" value={`${detailState.summary.memberCount}명`} />
-              <ListRow label="ACTIVE 관리자" value={`${detailState.summary.adminCount}명`} />
+              <ListRow label="운영 멤버" value={`${detailState.summary.memberCount}명`} />
+              <ListRow label="운영 관리자" value={`${detailState.summary.adminCount}명`} />
             </>
           ) : null}
 
-          <View style={styles.formBlock}>
-            <Eyebrow>Admin 13-1 Campus Edit</Eyebrow>
-            <TextField
-              error={fieldErrors.name}
-              label="캠퍼스 이름"
-              onChangeText={(name) => onEditFormChange({name})}
-              placeholder="캠퍼스 이름"
-              value={editForm.name}
-            />
-            <TextField
-              error={fieldErrors.region}
-              label="지역"
-              onChangeText={(region) => onEditFormChange({region})}
-              placeholder="지역"
-              value={editForm.region}
-            />
-            <TextField
-              error={fieldErrors.description}
-              label="설명"
-              onChangeText={(description) => onEditFormChange({description})}
-              placeholder="캠퍼스 설명"
-              value={editForm.description}
-            />
-            <View style={styles.segmentRow}>
-              {CAMPUS_STATUS_OPTIONS.map((status) => {
-                const active = editForm.isActive === (status.id === 'ACTIVE');
-
-                return (
-                  <SegmentButton
-                    active={active}
-                    key={status.id}
-                    label={status.label}
-                    onPress={() => onEditFormChange({isActive: status.id === 'ACTIVE'})}
-                  />
-                );
-              })}
-            </View>
-            {!editForm.isActive ? (
-              <View style={styles.warningBox}>
-                <Text style={styles.warningTitle}>비활성화 영향 안내</Text>
-                <Text style={styles.warningText}>
-                  저장하면 Service ADMIN 캠퍼스 목록의 운영 상태가 PAUSED로 표시됩니다.
-                  멤버 사용 가능 범위는 서버 권한 정책을 따르므로 사전 안내가 필요합니다.
-                </Text>
-              </View>
-            ) : null}
+          <View style={styles.actions}>
             <Button
-              accessibilityLabel="캠퍼스 정보 저장"
-              disabled={actionState.status === 'savingCampus'}
-              onPress={onSubmitCampusUpdate}>
-              {actionState.status === 'savingCampus' ? '저장 중' : '캠퍼스 저장'}
+              accessibilityLabel="Service ADMIN 캠퍼스 목록으로 돌아가기"
+              onPress={onBackToList}
+              variant="ghost">
+              목록
+            </Button>
+            <Button
+              accessibilityLabel={`${detailState.data.name} 캠퍼스 정보 수정`}
+              onPress={onEditCampus}
+              variant="secondary">
+              정보 수정
             </Button>
           </View>
 
           <View style={styles.formBlock}>
-            <Eyebrow>멤버 직접 추가</Eyebrow>
+            <Chip label="멤버 추가" tone="info" />
             <TextField
               error={fieldErrors.memberUserId}
-              helper="초대코드 없이 ACTIVE + MEMBER 소속으로 추가합니다."
+              helper="초대코드 없이 운영 멤버로 추가합니다. 이미 운영 중인 소속은 충돌로 안내됩니다."
               keyboardType="number-pad"
-              label="userId"
+              label="사용자 번호"
               onChangeText={onMemberUserIdChange}
-              placeholder="추가할 사용자 ID"
+              placeholder="추가할 사용자 번호"
               value={memberUserId}
             />
             <Button
@@ -573,6 +573,236 @@ function CampusDetailSection({
     default:
       return assertNever(detailState);
   }
+}
+
+function CampusEditSection({
+  actionState,
+  detailState,
+  editForm,
+  fieldErrors,
+  onBackToDetail,
+  onEditFormChange,
+  onRetry,
+  onReviewUpdate,
+}: {
+  actionState: CampusActionState;
+  detailState: CampusDetailState;
+  editForm: CampusEditForm;
+  fieldErrors: CampusFieldErrors;
+  onBackToDetail: () => void;
+  onEditFormChange: (patch: Partial<CampusEditForm>) => void;
+  onRetry: (campusId: number, summary?: ServiceAdminCampusListItem) => void;
+  onReviewUpdate: () => void;
+}) {
+  switch (detailState.status) {
+    case 'idle':
+      return (
+        <Empty
+          title="수정할 캠퍼스를 선택하세요"
+          message="목록에서 캠퍼스를 선택한 뒤 정보 수정으로 이동할 수 있습니다."
+        />
+      );
+    case 'loading':
+      return <Loading message="수정할 캠퍼스 정보를 불러오고 있어요." />;
+    case 'error':
+      return (
+        <ServiceAdminCampusErrorState
+          error={detailState.error}
+          onRetry={() => onRetry(detailState.campusId, detailState.summary)}
+        />
+      );
+    case 'success':
+      return (
+        <Card>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderText}>
+              <Chip label="수정" tone="info" />
+              <Title>캠퍼스 정보 수정</Title>
+              <Body>{detailState.data.name} 캠퍼스의 이름, 지역, 설명, 운영 상태를 수정합니다.</Body>
+            </View>
+          </View>
+
+          <TextField
+            error={fieldErrors.name}
+            label="캠퍼스 이름"
+            onChangeText={(name) => onEditFormChange({name})}
+            placeholder="캠퍼스 이름"
+            value={editForm.name}
+          />
+          <TextField
+            error={fieldErrors.region}
+            label="지역"
+            onChangeText={(region) => onEditFormChange({region})}
+            placeholder="지역"
+            value={editForm.region}
+          />
+          <TextField
+            error={fieldErrors.description}
+            label="설명"
+            onChangeText={(description) => onEditFormChange({description})}
+            placeholder="캠퍼스 설명"
+            value={editForm.description}
+          />
+          <View style={styles.segmentRow}>
+            {CAMPUS_STATUS_OPTIONS.map((status) => {
+              const active = editForm.isActive === (status.id === 'ACTIVE');
+
+              return (
+                <SegmentButton
+                  active={active}
+                  key={status.id}
+                  label={status.label}
+                  onPress={() => onEditFormChange({isActive: status.id === 'ACTIVE'})}
+                />
+              );
+            })}
+          </View>
+          {!editForm.isActive ? (
+            <View style={styles.warningBox}>
+              <Text style={styles.warningTitle}>운영 중지 영향 안내</Text>
+              <Text style={styles.warningText}>
+                저장하면 목록의 운영 상태가 중지로 표시됩니다. 멤버 사용 가능 범위는 서버
+                권한 정책을 따르므로 사전 안내가 필요합니다.
+              </Text>
+            </View>
+          ) : null}
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel="캠퍼스 상세로 돌아가기"
+              disabled={actionState.status === 'savingCampus'}
+              onPress={onBackToDetail}
+              variant="ghost">
+              취소
+            </Button>
+            <Button
+              accessibilityLabel="캠퍼스 수정 내용 확인"
+              disabled={actionState.status === 'savingCampus'}
+              onPress={onReviewUpdate}>
+              저장 확인
+            </Button>
+          </View>
+        </Card>
+      );
+    default:
+      return assertNever(detailState);
+  }
+}
+
+function CampusUpdateConfirmSection({
+  actionState,
+  detailState,
+  editForm,
+  onBackToEdit,
+  onConfirmUpdate,
+  onRetry,
+}: {
+  actionState: CampusActionState;
+  detailState: CampusDetailState;
+  editForm: CampusEditForm;
+  onBackToEdit: () => void;
+  onConfirmUpdate: () => void;
+  onRetry: (campusId: number, summary?: ServiceAdminCampusListItem) => void;
+}) {
+  switch (detailState.status) {
+    case 'idle':
+      return (
+        <Empty
+          title="확인할 수정 내용이 없습니다"
+          message="목록에서 캠퍼스를 선택한 뒤 수정 내용을 확인할 수 있습니다."
+        />
+      );
+    case 'loading':
+      return <Loading message="확인할 캠퍼스 정보를 불러오고 있어요." />;
+    case 'error':
+      return (
+        <ServiceAdminCampusErrorState
+          error={detailState.error}
+          onRetry={() => onRetry(detailState.campusId, detailState.summary)}
+        />
+      );
+    case 'success':
+      return (
+        <Card>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderText}>
+              <Chip label="저장 확인" tone="warning" />
+              <Title>수정 내용을 저장할까요?</Title>
+              <Body>아래 내용으로 캠퍼스 정보가 변경됩니다. 저장 전 마지막으로 확인하세요.</Body>
+            </View>
+          </View>
+
+          <View style={styles.compareBlock}>
+            <ChangePreviewRow
+              label="캠퍼스 이름"
+              before={detailState.data.name}
+              after={editForm.name}
+            />
+            <ChangePreviewRow label="지역" before={detailState.data.region} after={editForm.region} />
+            <ChangePreviewRow
+              label="설명"
+              before={detailState.data.description}
+              after={editForm.description}
+            />
+            <ChangePreviewRow
+              label="운영 상태"
+              before={getCampusActiveLabel(detailState.data.isActive)}
+              after={getCampusActiveLabel(editForm.isActive)}
+            />
+          </View>
+
+          {detailState.data.isActive && !editForm.isActive ? (
+            <View style={styles.warningBox}>
+              <Text style={styles.warningTitle}>운영 중지 확인</Text>
+              <Text style={styles.warningText}>
+                저장 후 캠퍼스는 중지 상태로 표시됩니다. 기존 구성원에게 운영 변경 사항을
+                안내했는지 확인해 주세요.
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel="캠퍼스 수정 화면으로 돌아가기"
+              disabled={actionState.status === 'savingCampus'}
+              onPress={onBackToEdit}
+              variant="ghost">
+              다시 수정
+            </Button>
+            <Button
+              accessibilityLabel="캠퍼스 수정 내용 저장"
+              disabled={actionState.status === 'savingCampus'}
+              onPress={onConfirmUpdate}>
+              {actionState.status === 'savingCampus' ? '저장 중' : '저장하기'}
+            </Button>
+          </View>
+        </Card>
+      );
+    default:
+      return assertNever(detailState);
+  }
+}
+
+function ChangePreviewRow({
+  after,
+  before,
+  label,
+}: {
+  after: string;
+  before: string;
+  label: string;
+}) {
+  const changed = before.trim() !== after.trim();
+
+  return (
+    <View style={styles.compareRow}>
+      <View style={styles.compareTextGroup}>
+        <Text style={styles.compareLabel}>{label}</Text>
+        <Text style={styles.compareBefore}>기존: {before || '입력 없음'}</Text>
+        <Text style={styles.compareAfter}>변경: {after || '입력 없음'}</Text>
+      </View>
+      <Chip label={changed ? '변경' : '유지'} tone={changed ? 'warning' : 'default'} />
+    </View>
+  );
 }
 
 function SegmentButton({
@@ -605,9 +835,10 @@ function SegmentButton({
 function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
   const presentation = getApiErrorPresentation(error, {
     conflictTitle: '캠퍼스 상태와 충돌했습니다',
-    conflictMessage: '이미 ACTIVE 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다. 최신 정보를 다시 불러와 주세요.',
+    conflictMessage:
+      '이미 운영 중인 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다. 최신 정보를 다시 불러와 주세요.',
     permissionTitle: 'Service ADMIN 권한이 필요합니다',
-    permissionMessage: 'USER 또는 MANAGER는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.',
+    permissionMessage: '일반 사용자 또는 캠퍼스 관리자는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.',
     defaultTitle: '캠퍼스 정보를 처리하지 못했습니다',
   });
 
@@ -688,7 +919,7 @@ async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) 
   const {accessToken} = await getStoredTokens();
 
   if (!accessToken) {
-    setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+    setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
     return null;
   }
 
@@ -715,8 +946,9 @@ function toApiError(error: unknown, fallback: string): ApiError {
 
 function getActionErrorMessage(error: ApiError) {
   return getApiErrorPresentation(error, {
-    conflictMessage: '이미 ACTIVE 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다.',
-    permissionMessage: '전역 ADMIN 권한이 없습니다. USER 또는 MANAGER는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.',
+    conflictMessage: '이미 운영 중인 소속이 있거나 캠퍼스 상태 정책과 충돌했습니다.',
+    permissionMessage:
+      '전역 관리자 권한이 없습니다. 일반 사용자 또는 캠퍼스 관리자는 Service ADMIN 캠퍼스 관리를 사용할 수 없습니다.',
   }).message;
 }
 
@@ -740,11 +972,29 @@ function toOptionalPositiveInteger(value: string) {
   return numericValue;
 }
 
+function getCampusStatusLabel(status: ServiceAdminCampusOperationStatus) {
+  switch (status) {
+    case 'ACTIVE':
+      return '운영';
+    case 'PAUSED':
+      return '중지';
+    default:
+      return assertNever(status);
+  }
+}
+
+function getCampusActiveLabel(isActive: boolean) {
+  return isActive ? '운영' : '중지';
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled ServiceAdminCampusSection state: ${String(value)}`);
 }
 
 const styles = StyleSheet.create({
+  screenStepHeader: {
+    gap: 6,
+  },
   segmentRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -753,6 +1003,7 @@ const styles = StyleSheet.create({
   segmentButton: {
     backgroundColor: colors.neutralSoft,
     borderRadius: radius.control,
+    minHeight: 44,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -770,6 +1021,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.gap,
     justifyContent: 'space-between',
   },
@@ -781,6 +1033,48 @@ const styles = StyleSheet.create({
   formBlock: {
     gap: spacing.gap,
     paddingTop: spacing.gap,
+  },
+  compareBlock: {
+    gap: 8,
+  },
+  compareRow: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.item,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  compareTextGroup: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  compareLabel: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 19,
+  },
+  compareBefore: {
+    color: colors.mutedText,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  compareAfter: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   warningBox: {
     backgroundColor: colors.warningSoft,
@@ -809,21 +1103,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     lineHeight: 20,
-  },
-  modalBackdrop: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
-    flex: 1,
-    justifyContent: 'center',
-    padding: spacing.screenX,
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.card,
-    gap: spacing.gap,
-    maxWidth: 420,
-    padding: spacing.card,
-    width: '100%',
   },
   actions: {
     flexDirection: 'row',
