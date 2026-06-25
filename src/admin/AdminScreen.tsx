@@ -1848,11 +1848,22 @@ function AdminHome({
   );
 }
 
-type AdminPollSection = 'manage' | 'templates' | 'create' | 'results' | 'missing';
+type AdminPollSection = 'manage' | 'create' | 'results' | 'missing' | 'templates' | 'status';
+type AdminPollTypeFilter = AdminPollType | 'ALL';
 type AdminPollListState =
   | {status: 'loading'}
-  | {status: 'success'; polls: PollSummary[]; templates: AdminPollTemplate[]}
-  | {status: 'empty'; polls: PollSummary[]; templates: AdminPollTemplate[]}
+  | {
+      status: 'success';
+      accounts: PaymentAccount[];
+      polls: PollSummary[];
+      templates: AdminPollTemplate[];
+    }
+  | {
+      status: 'empty';
+      accounts: PaymentAccount[];
+      polls: PollSummary[];
+      templates: AdminPollTemplate[];
+    }
   | {status: 'error'; error: ApiError};
 type AdminPollResultState =
   | {status: 'idle'}
@@ -1905,10 +1916,19 @@ type AdminPollCreateForm = {
 
 const pollSections: Array<{id: AdminPollSection; label: string}> = [
   {id: 'manage', label: '관리'},
-  {id: 'templates', label: '템플릿'},
   {id: 'create', label: '생성'},
   {id: 'results', label: '결과'},
-  {id: 'missing', label: '미응답'},
+  {id: 'missing', label: '미참여'},
+  {id: 'templates', label: '템플릿'},
+  {id: 'status', label: '상태'},
+];
+
+const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
+  {id: 'ALL', label: '전체'},
+  {id: 'WEDNESDAY', label: '수요'},
+  {id: 'SATURDAY', label: '토요'},
+  {id: 'COFFEE', label: '커피'},
+  {id: 'CUSTOM', label: '커스텀'},
 ];
 
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
@@ -1980,6 +2000,7 @@ function AdminPollManagement({
   const [missingState, setMissingState] = useState<AdminPollMissingState>({status: 'idle'});
   const [actionState, setActionState] = useState<AdminPollActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [pollTypeFilter, setPollTypeFilter] = useState<AdminPollTypeFilter>('ALL');
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   const [deleteTemplateTarget, setDeleteTemplateTarget] =
     useState<AdminPollTemplate | null>(null);
@@ -2001,15 +2022,16 @@ function AdminPollManagement({
         return;
       }
 
-      const [polls, templates] = await Promise.all([
+      const [polls, templates, accounts] = await Promise.all([
         fetchAdminPolls(accessToken, campusId),
         fetchAdminPollTemplates(accessToken, campusId),
+        fetchPaymentAccounts(accessToken, campusId),
       ]);
 
       setListState(
         polls.length === 0 && templates.length === 0
-          ? {status: 'empty', polls, templates}
-          : {status: 'success', polls, templates},
+          ? {status: 'empty', accounts, polls, templates}
+          : {status: 'success', accounts, polls, templates},
       );
 
       if (!selectedPollId && polls[0]) {
@@ -2030,9 +2052,13 @@ function AdminPollManagement({
     listState.status === 'success' || listState.status === 'empty' ? listState.templates : [];
   const polls =
     listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
+  const accounts =
+    listState.status === 'success' || listState.status === 'empty' ? listState.accounts : [];
+  const filteredPolls = filterAdminPollsByType(polls, pollTypeFilter);
   const selectedPoll = selectedPollId
     ? polls.find((poll) => poll.id === selectedPollId) ?? null
     : null;
+  const selectedTemplate = getSelectedTemplate(templateForm, templates);
   const busy = actionState.status !== 'idle';
   const coffeeWarning = getAdminPollCoffeeWarning(pollForm, coffeeDuty);
 
@@ -2271,11 +2297,8 @@ function AdminPollManagement({
   return (
     <>
       <Card>
-        <Eyebrow>투표 운영</Eyebrow>
         <Title>투표 관리</Title>
-        <Body>
-          템플릿, 직접 생성, 결과와 미응답자 조회를 한곳에서 관리합니다. 종료 예정 시각 이후에는 서버 상태에 맞춰 닫힘으로 안내합니다.
-        </Body>
+        <Body>투표 생성, 결과 확인, 미참여자 알림, 반복 템플릿을 관리합니다.</Body>
         <SegmentedControl items={pollSections} selectedId={section} onSelect={setSection} />
       </Card>
       {actionError ? <AdminInlineError error={actionError} /> : null}
@@ -2287,9 +2310,11 @@ function AdminPollManagement({
         <>
           {section === 'manage' ? (
             <AdminPollList
+              filter={pollTypeFilter}
+              onChangeFilter={setPollTypeFilter}
               onRefresh={loadPolls}
               onSelectPoll={selectPoll}
-              polls={polls}
+              polls={filteredPolls}
               selectedPollId={selectedPollId}
               templates={templates}
             />
@@ -2297,6 +2322,7 @@ function AdminPollManagement({
           {section === 'templates' ? (
             <AdminPollTemplateEditor
               actionState={actionState}
+              accounts={accounts}
               form={templateForm}
               onChangeForm={(patch) =>
                 setTemplateForm((current) => ({...current, ...patch}))
@@ -2306,6 +2332,7 @@ function AdminPollManagement({
               onNewTemplate={() => setTemplateForm(emptyAdminPollTemplateForm)}
               onSave={saveTemplate}
               onUseTemplateForPoll={useTemplateForPoll}
+              selectedTemplate={selectedTemplate}
               target={deleteTemplateTarget}
               templates={templates}
               onEditTemplate={(template) => setTemplateForm(toTemplateForm(template))}
@@ -2313,11 +2340,13 @@ function AdminPollManagement({
           ) : null}
           {section === 'create' ? (
             <AdminPollCreatePanel
+              accounts={accounts}
               busy={busy}
               coffeeWarning={coffeeWarning}
               form={pollForm}
               onChangeForm={(patch) => setPollForm((current) => ({...current, ...patch}))}
               onCreate={createPoll}
+              onPickTemplate={useTemplateForPoll}
               onReset={() => setPollForm(createEmptyAdminPollForm())}
               templates={templates}
             />
@@ -2342,6 +2371,13 @@ function AdminPollManagement({
               state={missingState}
             />
           ) : null}
+          {section === 'status' ? (
+            <AdminPollStatusPanel
+              onSelectPoll={selectPoll}
+              polls={polls}
+              selectedPoll={selectedPoll}
+            />
+          ) : null}
         </>
       )}
     </>
@@ -2349,12 +2385,16 @@ function AdminPollManagement({
 }
 
 function AdminPollList({
+  filter,
+  onChangeFilter,
   onRefresh,
   onSelectPoll,
   polls,
   selectedPollId,
   templates,
 }: {
+  filter: AdminPollTypeFilter;
+  onChangeFilter: (filter: AdminPollTypeFilter) => void;
   onRefresh: () => void;
   onSelectPoll: (poll: PollSummary) => void;
   polls: PollSummary[];
@@ -2376,31 +2416,48 @@ function AdminPollList({
   return (
     <>
       <Card>
-        <Eyebrow>투표 목록</Eyebrow>
-        <Title>최근 투표</Title>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Title>투표</Title>
+            <Body>진행 중이거나 종료된 투표를 유형별로 확인합니다.</Body>
+          </View>
+          <Button
+            accessibilityLabel="투표 목록 다시 불러오기"
+            onPress={onRefresh}
+            variant="secondary">
+            새로고침
+          </Button>
+        </View>
         <View style={styles.metricGrid}>
           <Metric label="투표" value={`${polls.length}개`} />
           <Metric label="템플릿" value={`${templates.length}개`} />
-          <Metric label="OPEN" value={`${polls.filter((poll) => poll.status === 'OPEN').length}개`} />
-          <Metric label="CLOSED" value={`${polls.filter((poll) => poll.status === 'CLOSED').length}개`} />
+          <Metric label="진행" value={`${polls.filter((poll) => poll.status === 'OPEN').length}개`} />
+          <Metric label="마감" value={`${polls.filter((poll) => poll.status === 'CLOSED').length}개`} />
         </View>
+      </Card>
+      <Card>
+        <Eyebrow>유형별 투표</Eyebrow>
+        <SegmentedControl
+          items={adminPollTypeFilters}
+          selectedId={filter}
+          onSelect={onChangeFilter}
+        />
+        {polls.length === 0 ? <Body>선택한 유형의 투표가 없습니다.</Body> : null}
         {polls.map((poll) => (
           <ListRow
             accessibilityLabel={`${poll.title} 투표 선택`}
             key={poll.id}
             label={poll.title}
             onPress={() => onSelectPoll(poll)}
-            supportingText={`${getPollTypeLabel(poll.pollType)} · ${formatDateTime(poll.endsAt)} 자동 종료`}
+            supportingText={`${getPollResponseSummary(poll)} · ${formatDateTime(poll.endsAt)} 마감`}
             value={poll.id === selectedPollId ? '선택됨' : getPollStatusLabel(poll.status)}
           />
         ))}
       </Card>
       <Card>
-        <Eyebrow>닫힘 정책</Eyebrow>
-        <Title>닫힘 정책</Title>
-        <Body>
-          수동 닫기 버튼은 제공하지 않습니다. 생성 시 설정한 종료 예정 시각이 지나면 닫힘 상태와 종료 시각만 안내합니다.
-        </Body>
+        <Eyebrow>반복</Eyebrow>
+        <Title>투표 템플릿</Title>
+        <Body>저장된 템플릿으로 반복 투표를 빠르게 만들 수 있습니다.</Body>
       </Card>
     </>
   );
@@ -2408,6 +2465,7 @@ function AdminPollList({
 
 function AdminPollTemplateEditor({
   actionState,
+  accounts,
   form,
   onChangeForm,
   onConfirmDelete,
@@ -2416,9 +2474,11 @@ function AdminPollTemplateEditor({
   onNewTemplate,
   onSave,
   onUseTemplateForPoll,
+  selectedTemplate,
   target,
   templates,
 }: {
+  accounts: PaymentAccount[];
   actionState: AdminPollActionState;
   form: AdminPollTemplateForm;
   onChangeForm: (patch: Partial<AdminPollTemplateForm>) => void;
@@ -2428,16 +2488,23 @@ function AdminPollTemplateEditor({
   onNewTemplate: () => void;
   onSave: () => void;
   onUseTemplateForPoll: (template: AdminPollTemplate) => void;
+  selectedTemplate: AdminPollTemplate | null;
   target: AdminPollTemplate | null;
   templates: AdminPollTemplate[];
 }) {
   const busy = actionState.status !== 'idle';
+  const activeTemplates = templates.filter((template) => template.isActive);
 
   return (
     <>
       <Card>
-        <Eyebrow>투표 템플릿</Eyebrow>
-        <Title>템플릿 목록</Title>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Title>투표 템플릿</Title>
+            <Body>반복 생성에 사용할 템플릿과 마감 규칙을 관리합니다.</Body>
+          </View>
+          <Chip label={`반복 투표 ${activeTemplates.length}개`} tone="info" />
+        </View>
         {templates.length === 0 ? (
           <Body>저장된 템플릿이 없습니다.</Body>
         ) : (
@@ -2445,8 +2512,8 @@ function AdminPollTemplateEditor({
             <View key={template.id} style={styles.compactBlock}>
               <ListRow
                 label={template.title}
-                supportingText={`${getPollTypeLabel(template.pollType)} · ${template.options.length}개 선택지`}
-                value={template.isActive ? 'ACTIVE' : 'INACTIVE'}
+                supportingText={getTemplateScheduleLabel(template)}
+                value={template.isActive ? 'ON' : 'OFF'}
               />
               <View style={styles.actionRow}>
                 <Button
@@ -2476,8 +2543,8 @@ function AdminPollTemplateEditor({
         )}
       </Card>
       <Card>
-        <Eyebrow>템플릿 편집</Eyebrow>
         <Title>{form.templateId === null ? '템플릿 생성' : '템플릿 수정'}</Title>
+        <Body>투표 유형, 선택 방식, 선택지와 반복 시간을 저장합니다.</Body>
         <TextField
           label="템플릿 제목"
           onChangeText={(title) => onChangeForm({title})}
@@ -2536,21 +2603,17 @@ function AdminPollTemplateEditor({
           value={form.optionsText}
         />
         {form.chargeGenerationType === 'OPTION_PRICE' ? (
-          <View style={styles.formRow}>
-            <TextField
-              label="정산 분류"
-              onChangeText={(value) =>
-                onChangeForm({paymentCategory: toAdminPollPaymentCategory(value)})
-              }
-              value={form.paymentCategory}
-            />
-            <TextField
-              keyboardType="number-pad"
-              label="납부 계좌 ID"
-              onChangeText={(paymentAccountId) => onChangeForm({paymentAccountId})}
-              value={form.paymentAccountId}
-            />
-          </View>
+          <PaymentAccountPicker
+            accounts={accounts}
+            category={form.paymentCategory}
+            onSelect={(account) =>
+              onChangeForm({
+                paymentAccountId: String(account.id),
+                paymentCategory: account.accountType,
+              })
+            }
+            selectedAccountId={toOptionalPositiveId(form.paymentAccountId)}
+          />
         ) : null}
         <View style={styles.actionRow}>
           <Button
@@ -2568,11 +2631,11 @@ function AdminPollTemplateEditor({
           </Button>
         </View>
       </Card>
+      {selectedTemplate ? <AdminPollTemplatePreview template={selectedTemplate} /> : null}
       {target ? (
         <Card>
-          <Eyebrow>템플릿 비활성화 확인</Eyebrow>
           <Title>{target.title} 비활성화</Title>
-          <Body>템플릿은 삭제하지 않고 비활성 상태로 전환합니다.</Body>
+          <Body>반복 생성 목록에서 제외합니다. 이미 생성된 투표는 그대로 유지됩니다.</Body>
           <View style={styles.actionRow}>
             <Button
               accessibilityLabel="투표 템플릿 비활성화 실행"
@@ -2596,52 +2659,56 @@ function AdminPollTemplateEditor({
 }
 
 function AdminPollCreatePanel({
+  accounts,
   busy,
   coffeeWarning,
   form,
   onChangeForm,
   onCreate,
+  onPickTemplate,
   onReset,
   templates,
 }: {
+  accounts: PaymentAccount[];
   busy: boolean;
   coffeeWarning: string | null;
   form: AdminPollCreateForm;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
   onCreate: () => void;
+  onPickTemplate: (template: AdminPollTemplate) => void;
   onReset: () => void;
   templates: AdminPollTemplate[];
 }) {
+  const selectedTemplate = templates.find((item) => String(item.id) === form.templateId.trim());
+
   return (
     <Card>
-      <Eyebrow>투표 생성</Eyebrow>
       <Title>투표 생성</Title>
-      <Body>
-        템플릿을 선택하면 저장된 선택지를 복사하고, 직접 생성 시 입력한 선택지를 사용합니다. 종료는 종료 예정 시각 기준으로 자동 처리됩니다.
-      </Body>
-      <TextField
-        helper="비우면 직접 생성입니다."
-        keyboardType="number-pad"
-        label="템플릿 ID"
-        onChangeText={(templateId) => {
-          const template = templates.find((item) => String(item.id) === templateId.trim());
-          onChangeForm(
-            template
-              ? {
-                  templateId,
-                  title: template.title,
-                  pollType: toKnownAdminPollType(template.pollType),
-                  selectionType: template.selectionType === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE',
-                  chargeGenerationType:
-                    template.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
-                  paymentCategory: template.paymentCategory ?? 'NONE',
-                  paymentAccountId: template.paymentAccountId ? String(template.paymentAccountId) : '',
-                }
-              : {templateId},
-          );
-        }}
-        value={form.templateId}
-      />
+      <Body>투표 유형을 고르고 제목, 마감, 선택지를 입력합니다.</Body>
+      {templates.length > 0 ? (
+        <View style={styles.compactBlock}>
+          <Eyebrow>템플릿 선택</Eyebrow>
+          {templates
+            .filter((template) => template.isActive)
+            .map((template) => (
+              <ListRow
+                accessibilityLabel={`${template.title} 템플릿 선택`}
+                key={template.id}
+                label={template.title}
+                onPress={() => onPickTemplate(template)}
+                supportingText={getTemplateScheduleLabel(template)}
+                value={selectedTemplate?.id === template.id ? '선택됨' : getPollTypeLabel(template.pollType)}
+              />
+            ))}
+          <Button
+            accessibilityLabel="템플릿 없이 직접 입력"
+            disabled={busy}
+            onPress={() => onChangeForm({templateId: '', optionsText: form.optionsText || '참석, 불참'})}
+            variant="secondary">
+            직접 입력
+          </Button>
+        </View>
+      ) : null}
       <TextField
         label="투표 제목"
         onChangeText={(title) => onChangeForm({title})}
@@ -2669,12 +2736,12 @@ function AdminPollCreatePanel({
       />
       <View style={styles.formRow}>
         <TextField
-          label="시작 시각"
+          label="시작 일시"
           onChangeText={(startsAt) => onChangeForm({startsAt})}
           value={form.startsAt}
         />
         <TextField
-          label="종료 예정"
+          label="마감 일시"
           onChangeText={(endsAt) => onChangeForm({endsAt})}
           value={form.endsAt}
         />
@@ -2688,21 +2755,17 @@ function AdminPollCreatePanel({
         />
       ) : null}
       {form.chargeGenerationType === 'OPTION_PRICE' ? (
-        <View style={styles.formRow}>
-          <TextField
-            label="정산 분류"
-            onChangeText={(value) =>
-              onChangeForm({paymentCategory: toAdminPollPaymentCategory(value)})
-            }
-            value={form.paymentCategory}
-          />
-          <TextField
-            keyboardType="number-pad"
-            label="납부 계좌 ID"
-            onChangeText={(paymentAccountId) => onChangeForm({paymentAccountId})}
-            value={form.paymentAccountId}
-          />
-        </View>
+        <PaymentAccountPicker
+          accounts={accounts}
+          category={form.paymentCategory}
+          onSelect={(account) =>
+            onChangeForm({
+              paymentAccountId: String(account.id),
+              paymentCategory: account.accountType,
+            })
+          }
+          selectedAccountId={toOptionalPositiveId(form.paymentAccountId)}
+        />
       ) : null}
       <View style={styles.actionRow}>
         <Button
@@ -2729,9 +2792,70 @@ function AdminPollCreatePanel({
         accessibilityLabel="투표 생성 실행"
         disabled={busy || coffeeWarning !== null}
         onPress={onCreate}>
-        {busy ? '생성 중...' : '투표 생성'}
+        {busy ? '생성 중...' : '생성하기'}
       </Button>
     </Card>
+  );
+}
+
+function AdminPollTemplatePreview({template}: {template: AdminPollTemplate}) {
+  return (
+    <Card>
+      <Title>{template.title}</Title>
+      <View style={styles.chipRow}>
+        <Chip label={template.autoCreateEnabled ? '반복 ON' : '반복 OFF'} tone="info" />
+        <Chip label={getSelectionTypeLabel(template.selectionType)} tone="default" />
+        <Chip label={`${getPollTypeLabel(template.pollType)} 템플릿`} tone="default" />
+      </View>
+      <Body>{getTemplateScheduleLabel(template)}</Body>
+      <Eyebrow>옵션</Eyebrow>
+      {template.options.map((option, index) => (
+        <ListRow
+          key={option.id}
+          label={option.content}
+          supportingText={option.priceAmount > 0 ? formatWon(option.priceAmount) : ''}
+          value={String(index + 1)}
+        />
+      ))}
+      <Eyebrow>생성 규칙</Eyebrow>
+      <Body>같은 캠퍼스와 템플릿 주차에는 한 번만 생성되도록 서버 규칙을 따릅니다.</Body>
+    </Card>
+  );
+}
+
+function PaymentAccountPicker({
+  accounts,
+  category,
+  onSelect,
+  selectedAccountId,
+}: {
+  accounts: PaymentAccount[];
+  category: PaymentCategory | 'NONE';
+  onSelect: (account: PaymentAccount) => void;
+  selectedAccountId: number | null;
+}) {
+  const selectableAccounts = accounts.filter((account) =>
+    category === 'NONE' ? true : account.accountType === category,
+  );
+
+  return (
+    <View style={styles.compactBlock}>
+      <Eyebrow>청구 계좌</Eyebrow>
+      {selectableAccounts.length === 0 ? (
+        <Body>선택할 수 있는 청구 계좌가 없습니다. 정산 화면에서 계좌를 먼저 등록해 주세요.</Body>
+      ) : (
+        selectableAccounts.map((account) => (
+          <ListRow
+            accessibilityLabel={`${account.nickname} 청구 계좌 선택`}
+            key={account.id}
+            label={account.nickname}
+            onPress={() => onSelect(account)}
+            supportingText={`${getPaymentCategoryLabel(account.accountType)} · ${account.bankName}`}
+            value={selectedAccountId === account.id ? '선택됨' : ''}
+          />
+        ))
+      )}
+    </View>
   );
 }
 
@@ -2752,9 +2876,8 @@ function AdminPollResultsPanel({
     <>
       <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
       <Card>
-        <Eyebrow>투표 결과</Eyebrow>
         <Title>{selectedPoll ? selectedPoll.title : '투표를 선택해 주세요'}</Title>
-        <Body>선택한 투표의 응답 결과와 댓글 흐름을 함께 확인합니다.</Body>
+        <Body>선택지별 응답과 댓글을 함께 확인합니다.</Body>
         <Button
           accessibilityLabel="선택한 투표 결과와 댓글 불러오기"
           disabled={!selectedPoll || state.status === 'loading'}
@@ -2783,17 +2906,14 @@ function AdminPollResultsBody({
   return (
     <>
       <Card>
-        <Eyebrow>{results.status === 'CLOSED' ? 'CLOSED Poll Confirm' : 'OPEN Poll'}</Eyebrow>
         <Title>{results.title}</Title>
         <View style={styles.metricGrid}>
           <Metric label="대상" value={`${results.targetMemberCount}명`} />
           <Metric label="응답" value={`${results.respondedCount}명`} />
-          <Metric label="미응답" value={`${results.notRespondedCount}명`} />
+          <Metric label="미참여" value={`${results.notRespondedCount}명`} />
           <Metric label="상태" value={getPollStatusLabel(results.status)} />
         </View>
-        <Body>
-          종료 시각 {formatDateTime(results.endsAt)} 이후 CLOSED 상태가 되면 결과 확인만 가능합니다.
-        </Body>
+        <Body>{formatDateTime(results.endsAt)} 마감 기준 결과입니다.</Body>
       </Card>
       <Card>
         <Eyebrow>선택지별 결과</Eyebrow>
@@ -2853,18 +2973,17 @@ function AdminPollMissingPanel({
     <>
       <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
       <Card>
-        <Eyebrow>미응답자 관리</Eyebrow>
-        <Title>{selectedPoll ? `${selectedPoll.title} 미응답자` : '투표를 선택해 주세요'}</Title>
-        <Body>선택한 투표의 미응답자를 확인하고 필요한 경우 알림을 보냅니다.</Body>
+        <Title>{selectedPoll ? `${selectedPoll.title} 미참여자` : '투표를 선택해 주세요'}</Title>
+        <Body>아직 응답하지 않은 멤버를 확인하고 알림을 보냅니다.</Body>
         <View style={styles.actionRow}>
           <Button
-            accessibilityLabel="선택한 투표 미응답자 불러오기"
+            accessibilityLabel="선택한 투표 미참여자 불러오기"
             disabled={!selectedPoll || state.status === 'loading'}
             onPress={onLoad}>
-            미응답자 조회
+            미참여자 조회
           </Button>
           <Button
-            accessibilityLabel="투표 미응답자에게 알림 발송"
+            accessibilityLabel="투표 미참여자에게 알림 발송"
             disabled={!canSend}
             onPress={onSendNotification}
             variant="secondary">
@@ -2873,30 +2992,75 @@ function AdminPollMissingPanel({
         </View>
       </Card>
       {state.status === 'idle' ? null : state.status === 'loading' ? (
-        <Loading message="투표 미응답자를 불러오고 있어요." />
+        <Loading message="투표 미참여자를 불러오고 있어요." />
       ) : state.status === 'error' ? (
         <AdminErrorState error={state.error} onRetry={onLoad} />
       ) : state.status === 'empty' ? (
         <Empty
           title="모두 응답했습니다"
-          message="현재 ACTIVE 멤버 중 미응답자가 없습니다."
+          message="현재 참여가 필요한 멤버 중 미참여자가 없습니다."
           actionLabel="다시 조회"
-          actionAccessibilityLabel="투표 미응답자 다시 조회"
+          actionAccessibilityLabel="투표 미참여자 다시 조회"
           onActionPress={onLoad}
         />
       ) : (
         <Card>
-          <Eyebrow>미응답자 {state.members.length}명</Eyebrow>
+          <Eyebrow>미참여자 {state.members.length}명</Eyebrow>
           {state.members.map((member) => (
             <ListRow
               key={member.userId}
               label={member.name}
               supportingText={member.email}
-              value={`사용자 ID ${member.userId}`}
+              value="알림"
             />
           ))}
         </Card>
       )}
+    </>
+  );
+}
+
+function AdminPollStatusPanel({
+  onSelectPoll,
+  polls,
+  selectedPoll,
+}: {
+  onSelectPoll: (poll: PollSummary) => void;
+  polls: PollSummary[];
+  selectedPoll: PollSummary | null;
+}) {
+  return (
+    <>
+      <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
+      <Card>
+        <Title>{selectedPoll ? selectedPoll.title : '투표를 선택해 주세요'}</Title>
+        {selectedPoll ? (
+          <>
+            <View style={styles.metricGrid}>
+              <Metric label="현재" value={getPollStatusLabel(selectedPoll.status)} />
+              <Metric label="마감" value={formatDateTime(selectedPoll.endsAt)} />
+            </View>
+            <ListRow
+              label="예약"
+              supportingText="아직 응답할 수 없는 상태입니다."
+              value={selectedPoll.status === 'SCHEDULED' ? '현재' : ''}
+            />
+            <ListRow
+              label="진행"
+              supportingText="응답과 댓글 작성이 가능합니다."
+              value={selectedPoll.status === 'OPEN' ? '현재' : ''}
+            />
+            <ListRow
+              label="마감"
+              supportingText="응답과 댓글 작성이 잠깁니다."
+              value={selectedPoll.status === 'CLOSED' ? '현재' : ''}
+            />
+            <Body>현재 운영 상태와 마감 시간을 확인합니다. 변경이 필요한 경우 정해진 관리 절차에 따라 처리해 주세요.</Body>
+          </>
+        ) : (
+          <Body>상태를 확인할 투표를 선택해 주세요.</Body>
+        )}
+      </Card>
     </>
   );
 }
@@ -5668,14 +5832,104 @@ function getAdminPollCoffeeWarning(
   }
 
   if (form.paymentCategory !== 'COFFEE' || !form.paymentAccountId.trim()) {
-    return '커피 선택가 투표는 COFFEE 납부 계좌 ID가 필요합니다.';
+    return '커피 선택가 투표는 커피 청구 계좌가 필요합니다.';
   }
 
   if (!coffeeDuty) {
-    return '커피 담당자가 지정되지 않아 CLOSED 이후 정산 운영에 문제가 생길 수 있습니다.';
+    return '커피 담당자가 지정되지 않아 마감 이후 정산 운영에 문제가 생길 수 있습니다.';
   }
 
   return null;
+}
+
+function filterAdminPollsByType(polls: PollSummary[], filter: AdminPollTypeFilter) {
+  switch (filter) {
+    case 'ALL':
+      return polls;
+    case 'COFFEE':
+    case 'CUSTOM':
+    case 'SATURDAY':
+    case 'WEDNESDAY':
+      return polls.filter((poll) => poll.pollType === filter);
+    default:
+      return assertNever(filter);
+  }
+}
+
+function getSelectedTemplate(
+  form: AdminPollTemplateForm,
+  templates: AdminPollTemplate[],
+) {
+  return form.templateId === null
+    ? null
+    : templates.find((template) => template.id === form.templateId) ?? null;
+}
+
+function getPollResponseSummary(poll: PollSummary) {
+  return poll.responded ? '내 응답 완료' : '내 응답 대기';
+}
+
+function getTemplateScheduleLabel(template: AdminPollTemplate) {
+  return `${getDayOfWeekLabel(template.startDayOfWeek)} ${formatShortTime(
+    template.startTime,
+  )} 시작 · ${getDayOfWeekLabel(template.endDayOfWeek)} ${formatShortTime(
+    template.endTime,
+  )} 마감`;
+}
+
+function getSelectionTypeLabel(value: string) {
+  switch (value) {
+    case 'MULTIPLE':
+      return '복수 선택';
+    case 'SINGLE':
+      return '단일 선택';
+    default:
+      return value;
+  }
+}
+
+function getPaymentCategoryLabel(value: PaymentCategory) {
+  switch (value) {
+    case 'COFFEE':
+      return '커피';
+    case 'PENALTY':
+      return '벌금';
+    default:
+      return value;
+  }
+}
+
+function getDayOfWeekLabel(value: number) {
+  switch (value) {
+    case 1:
+      return '월';
+    case 2:
+      return '화';
+    case 3:
+      return '수';
+    case 4:
+      return '목';
+    case 5:
+      return '금';
+    case 6:
+      return '토';
+    case 7:
+      return '일';
+    default:
+      return `${value}일`;
+  }
+}
+
+function formatShortTime(value: string) {
+  return value.slice(0, 5);
+}
+
+function toOptionalPositiveId(value: string) {
+  try {
+    return parseNullablePositiveInt(value);
+  } catch {
+    return null;
+  }
 }
 
 function toKnownAdminPollType(value: string): AdminPollType {
@@ -5688,16 +5942,6 @@ function toKnownAdminPollType(value: string): AdminPollType {
     default:
       return 'CUSTOM';
   }
-}
-
-function toAdminPollPaymentCategory(value: string): PaymentCategory | 'NONE' {
-  const normalized = value.trim().toUpperCase();
-
-  if (normalized === 'COFFEE' || normalized === 'PENALTY') {
-    return normalized;
-  }
-
-  return 'NONE';
 }
 
 function getPollTypeLabel(value: string) {
@@ -5717,12 +5961,14 @@ function getPollTypeLabel(value: string) {
 
 function getPollStatusLabel(value: string) {
   switch (value) {
+    case 'SCHEDULED':
+      return '예약';
     case 'OPEN':
-      return 'OPEN';
+      return '진행';
     case 'CLOSED':
-      return 'CLOSED';
+      return '마감';
     default:
-      return value;
+      return '상태 확인';
   }
 }
 
