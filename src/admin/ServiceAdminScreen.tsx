@@ -3,6 +3,7 @@ import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {
   FaithLogApiError,
+  getServiceAdminCampuses,
   getServiceAdminUser,
   getServiceAdminUsers,
   updateServiceAdminUserRole,
@@ -12,6 +13,7 @@ import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
   ServiceAdminUserDetail,
+  ServiceAdminCampusList,
   ServiceAdminUserList,
   ServiceAdminUserListItem,
   UserRole,
@@ -47,6 +49,7 @@ type Notice = {
 } | null;
 
 type ServiceAdminScreenProps = {
+  onOpenCampusAdminFeature: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -54,8 +57,20 @@ type ServiceAdminScreenProps = {
 
 type RoleFilter = UserRole | 'ALL';
 type RoleOption = UserRole;
-type ServiceAdminSection = 'campuses' | 'users';
+type ServiceAdminSection = 'home' | 'campuses' | 'users';
 type UserScreenView = 'list' | 'detail' | 'roleEdit';
+
+type ServiceAdminHomeData = {
+  activeCampusCount: number;
+  campuses: ServiceAdminCampusList;
+  users: ServiceAdminUserList;
+};
+
+type ServiceAdminHomeState =
+  | {status: 'loading'}
+  | {status: 'success'; data: ServiceAdminHomeData}
+  | {status: 'empty'; data: ServiceAdminHomeData}
+  | {status: 'error'; error: ApiError};
 
 type UserListState =
   | {status: 'loading'}
@@ -77,12 +92,19 @@ type RoleChangeState =
 const ROLE_OPTIONS: RoleOption[] = ['USER', 'MANAGER', 'ADMIN'];
 const ROLE_FILTERS: RoleFilter[] = ['ALL', ...ROLE_OPTIONS];
 const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = [
+  {id: 'home', label: '홈'},
   {id: 'campuses', label: '캠퍼스'},
   {id: 'users', label: '사용자'},
 ];
 
-export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdminScreenProps) {
-  const [activeSection, setActiveSection] = useState<ServiceAdminSection>('campuses');
+export function ServiceAdminScreen({
+  onOpenCampusAdminFeature,
+  setAuthState,
+  setNotice,
+  state,
+}: ServiceAdminScreenProps) {
+  const [activeSection, setActiveSection] = useState<ServiceAdminSection>('home');
+  const [homeState, setHomeState] = useState<ServiceAdminHomeState>({status: 'loading'});
   const [userView, setUserView] = useState<UserScreenView>('list');
   const [nameFilter, setNameFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
@@ -95,6 +117,49 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
   const [formError, setFormError] = useState<string | null>(null);
 
   const selectedUser = detailState.status === 'success' ? detailState.data : null;
+
+  const loadHome = async () => {
+    if (state.user.role !== 'ADMIN') {
+      setHomeState({
+        status: 'error',
+        error: {
+          kind: 'permissionDenied',
+          message: 'Service ADMIN 홈에는 전역 ADMIN 권한이 필요합니다.',
+        },
+      });
+      return;
+    }
+
+    setHomeState({status: 'loading'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const [users, campuses, activeCampuses] = await Promise.all([
+        getServiceAdminUsers(accessToken, {size: 5, sort: {direction: 'desc', key: 'createdAt'}}),
+        getServiceAdminCampuses(accessToken, {
+          size: 5,
+          sort: {direction: 'desc', key: 'createdAt'},
+        }),
+        getServiceAdminCampuses(accessToken, {size: 1, status: 'ACTIVE'}),
+      ]);
+      const data = {activeCampusCount: activeCampuses.totalElements, campuses, users};
+
+      setHomeState(
+        users.totalElements > 0 || campuses.totalElements > 0
+          ? {status: 'success', data}
+          : {status: 'empty', data},
+      );
+    } catch (error) {
+      const apiError = toApiError(error, 'Service ADMIN 홈 요약을 불러오지 못했습니다.');
+      setHomeState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
 
   const loadUsers = async () => {
     if (state.user.role !== 'ADMIN') {
@@ -237,6 +302,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
 
   useEffect(() => {
     void loadUsers();
+    void loadHome();
     // 초기 진입 로드만 수행하고, 필터는 조회 버튼으로 명시 적용합니다.
   }, []);
 
@@ -259,7 +325,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
       <ScreenHeader
         eyebrow="서비스 관리자"
         subtitle="전역 사용자와 캠퍼스 관리를 분리해 운영합니다."
-        title="서비스 관리자 관리"
+        title="Service ADMIN"
       />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.segmentRow}>
@@ -273,7 +339,23 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
           ))}
         </View>
 
-        {activeSection === 'campuses' ? (
+        {activeSection === 'home' ? (
+          <ServiceAdminHome
+            homeState={homeState}
+            onOpenCampusAdmin={() => setActiveSection('campuses')}
+            onOpenCampusAdminFeature={() => {
+              setNotice({
+                tone: 'info',
+                title: '캠퍼스 관리자에서 계속',
+                message:
+                  '알림과 정산은 선택한 캠퍼스의 관리자 화면에서 운영합니다. Service ADMIN 홈에서는 별도 요약을 제공하지 않습니다.',
+              });
+              onOpenCampusAdminFeature();
+            }}
+            onOpenUsers={() => setActiveSection('users')}
+            onRetry={loadHome}
+          />
+        ) : activeSection === 'campuses' ? (
           <ServiceAdminCampusSection
             setAuthState={setAuthState}
             setNotice={setNotice}
@@ -418,6 +500,214 @@ function UserListSection({
     default:
       return assertNever(listState);
   }
+}
+
+function ServiceAdminHome({
+  homeState,
+  onOpenCampusAdmin,
+  onOpenCampusAdminFeature,
+  onOpenUsers,
+  onRetry,
+}: {
+  homeState: ServiceAdminHomeState;
+  onOpenCampusAdmin: () => void;
+  onOpenCampusAdminFeature: () => void;
+  onOpenUsers: () => void;
+  onRetry: () => void;
+}) {
+  switch (homeState.status) {
+    case 'loading':
+      return <Loading message="Service ADMIN 홈 요약을 불러오고 있어요." />;
+    case 'error':
+      return <ServiceAdminErrorState error={homeState.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <>
+          <Empty
+            title="운영 데이터가 아직 없습니다"
+            message="사용자와 캠퍼스가 생성되면 Service ADMIN 홈에 요약이 표시됩니다."
+            actionLabel="다시 조회"
+            actionAccessibilityLabel="Service ADMIN 홈 요약 다시 조회"
+            onActionPress={onRetry}
+          />
+          <ServiceAdminHomeActions
+            onOpenCampusAdmin={onOpenCampusAdmin}
+            onOpenCampusAdminFeature={onOpenCampusAdminFeature}
+            onOpenUsers={onOpenUsers}
+          />
+        </>
+      );
+    case 'success':
+      return (
+        <>
+          <ServiceAdminHero
+            activeCampusCount={homeState.data.activeCampusCount}
+            campusCount={homeState.data.campuses.totalElements}
+            userCount={homeState.data.users.totalElements}
+          />
+          <ServiceAdminHomeActions
+            onOpenCampusAdmin={onOpenCampusAdmin}
+            onOpenCampusAdminFeature={onOpenCampusAdminFeature}
+            onOpenUsers={onOpenUsers}
+          />
+          <ServiceAdminRecentOverview data={homeState.data} />
+        </>
+      );
+    default:
+      return assertNever(homeState);
+  }
+}
+
+function ServiceAdminHero({
+  activeCampusCount,
+  campusCount,
+  userCount,
+}: {
+  activeCampusCount: number;
+  campusCount: number;
+  userCount: number;
+}) {
+  return (
+    <Card>
+      <View style={styles.homeHeroHeader}>
+        <View style={styles.sectionHeaderText}>
+          <Eyebrow>서비스 전체</Eyebrow>
+          <Title>서비스 전체 운영 현황</Title>
+          <Body>사용자와 캠퍼스 목록에서 계산한 요약입니다.</Body>
+        </View>
+        <Chip label="전역" tone="info" />
+      </View>
+      <View style={styles.homeStatsRow}>
+        <HomeStatCard label="사용자" value={`${userCount}명`} />
+        <HomeStatCard label="캠퍼스" value={`${campusCount}개`} />
+        <HomeStatCard label="운영" value={`${activeCampusCount}개`} />
+      </View>
+    </Card>
+  );
+}
+
+function HomeStatCard({label, value}: {label: string; value: string}) {
+  return (
+    <View style={styles.homeStatCard}>
+      <Text style={styles.homeStatLabel}>{label}</Text>
+      <Text style={styles.homeStatValue}>{value}</Text>
+    </View>
+  );
+}
+
+function ServiceAdminHomeActions({
+  onOpenCampusAdmin,
+  onOpenCampusAdminFeature,
+  onOpenUsers,
+}: {
+  onOpenCampusAdmin: () => void;
+  onOpenCampusAdminFeature: () => void;
+  onOpenUsers: () => void;
+}) {
+  return (
+    <Card>
+      <View style={styles.sectionHeaderText}>
+        <Eyebrow>관리 진입점</Eyebrow>
+        <Title>필요한 운영 화면으로 이동</Title>
+      </View>
+      <ServiceAdminHomeAction
+        label="사용자 관리"
+        meta="전역 사용자 조회와 역할 변경"
+        onPress={onOpenUsers}
+        value="열기"
+      />
+      <ServiceAdminHomeAction
+        label="캠퍼스 관리"
+        meta="캠퍼스 조회, 수정, 멤버 추가"
+        onPress={onOpenCampusAdmin}
+        value="열기"
+      />
+      <ServiceAdminHomeAction
+        label="알림 발송"
+        meta="캠퍼스 관리자 알림 화면에서 처리"
+        onPress={onOpenCampusAdminFeature}
+        value="이동"
+      />
+      <ServiceAdminHomeAction
+        label="정산 계좌"
+        meta="캠퍼스 관리자 정산 화면에서 처리"
+        onPress={onOpenCampusAdminFeature}
+        value="이동"
+      />
+      <View style={styles.summaryUnavailable}>
+        <Text style={styles.summaryUnavailableTitle}>알림·정산 요약 미제공</Text>
+        <Text style={styles.summaryUnavailableText}>
+          Service ADMIN 홈에서는 알림·정산 집계를 제공하지 않습니다.
+        </Text>
+      </View>
+    </Card>
+  );
+}
+
+function ServiceAdminHomeAction({
+  label,
+  meta,
+  onPress,
+  value,
+}: {
+  label: string;
+  meta: string;
+  onPress: () => void;
+  value: string;
+}) {
+  return (
+    <ListRow
+      accessibilityLabel={`${label} 화면으로 이동`}
+      label={label}
+      onPress={onPress}
+      supportingText={meta}
+      value={value}
+    />
+  );
+}
+
+function ServiceAdminRecentOverview({data}: {data: ServiceAdminHomeData}) {
+  return (
+    <Card>
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionHeaderText}>
+          <Eyebrow>최근 항목</Eyebrow>
+          <Body>첫 페이지 목록 응답 기준입니다.</Body>
+        </View>
+        <Chip label="요약" tone="default" />
+      </View>
+      <View style={styles.recentBlock}>
+        <Text style={styles.recentBlockTitle}>사용자</Text>
+        {data.users.content.length > 0 ? (
+          data.users.content.slice(0, 3).map((user) => (
+            <ListRow
+              key={user.userId}
+              label={user.name}
+              supportingText={`${user.email} · 캠퍼스 ${user.campusCount}개`}
+              value={getRoleLabel(user.role)}
+            />
+          ))
+        ) : (
+          <Body>표시할 사용자가 없습니다.</Body>
+        )}
+      </View>
+      <View style={styles.recentBlock}>
+        <Text style={styles.recentBlockTitle}>캠퍼스</Text>
+        {data.campuses.content.length > 0 ? (
+          data.campuses.content.slice(0, 3).map((campus) => (
+            <ListRow
+              key={campus.campusId}
+              label={campus.name}
+              supportingText={`${campus.region} · 멤버 ${campus.memberCount}명`}
+              value={getServiceAdminCampusStatusLabel(campus.status)}
+            />
+          ))
+        ) : (
+          <Body>표시할 캠퍼스가 없습니다.</Body>
+        )}
+      </View>
+    </Card>
+  );
 }
 
 function UserDetailSection({
@@ -898,6 +1188,19 @@ function getRoleLabel(role: RoleOption) {
   }
 }
 
+function getServiceAdminCampusStatusLabel(
+  status: ServiceAdminCampusList['content'][number]['status'],
+) {
+  switch (status) {
+    case 'ACTIVE':
+      return '운영';
+    case 'PAUSED':
+      return '중지';
+    default:
+      return assertNever(status);
+  }
+}
+
 function toOptionalPositiveInteger(value: string) {
   const trimmed = value.trim();
 
@@ -927,6 +1230,59 @@ const styles = StyleSheet.create({
     gap: spacing.gap,
     paddingBottom: spacing.bottomSafe,
     paddingTop: spacing.gap,
+  },
+  homeHeroHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  homeStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  homeStatCard: {
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.item,
+    flex: 1,
+    gap: 8,
+    minHeight: 82,
+    padding: 14,
+  },
+  homeStatLabel: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  homeStatValue: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  summaryUnavailable: {
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.item,
+    gap: 4,
+    padding: 14,
+  },
+  summaryUnavailableTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  summaryUnavailableText: {
+    color: colors.mutedText,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 19,
+  },
+  recentBlock: {
+    gap: 8,
+  },
+  recentBlockTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
   },
   segmentRow: {
     flexDirection: 'row',

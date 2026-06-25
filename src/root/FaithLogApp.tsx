@@ -1,4 +1,4 @@
-import {type PropsWithChildren, type ReactNode, useEffect, useMemo, useState} from 'react';
+import {type PropsWithChildren, type ReactNode, useEffect, useMemo, useRef, useState} from 'react';
 import {
   KeyboardAvoidingView,
   type KeyboardTypeOptions,
@@ -129,6 +129,7 @@ export function FaithLogApp() {
   const [entryTarget, setEntryTarget] = useState<EntryTarget | null>(null);
   const [sessionNotice, setSessionNotice] = useState<SessionNotice>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
+  const initialAuthenticatedRouteAppliedRef = useRef(false);
   const publicAuthMode =
     authState.status === 'signedOut' ||
     authState.status === 'sessionExpired' ||
@@ -147,11 +148,18 @@ export function FaithLogApp() {
 
   useEffect(() => {
     if (authState.status !== 'authenticated') {
+      initialAuthenticatedRouteAppliedRef.current = false;
       setRoute('userHome');
       return;
     }
 
     const routes = getAvailableRoutes(authState.user, authState.selectedCampus);
+
+    if (!initialAuthenticatedRouteAppliedRef.current) {
+      initialAuthenticatedRouteAppliedRef.current = true;
+      setRoute(authState.user.role === 'ADMIN' ? 'serviceAdmin' : routes[0]!);
+      return;
+    }
 
     if (!routes.includes(route)) {
       setRoute(routes[0]!);
@@ -1455,6 +1463,7 @@ function AuthenticatedShell({
         />
       ) : route === 'serviceAdmin' ? (
         <ServiceAdminScreen
+          onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
