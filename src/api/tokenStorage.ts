@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import {Platform} from 'react-native';
 
 import type {TokenPair} from './types';
 
@@ -8,6 +9,7 @@ const FCM_TOKEN_KEY = 'faithlog.fcmToken';
 const FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
 const CLIENT_INSTANCE_ID_KEY = 'faithlog.clientInstanceId';
 const LAST_SELECTED_CAMPUS_ID_KEY = 'faithlog.lastSelectedCampusId';
+const webStorageFallback = new Map<string, string>();
 
 export type StoredTokens = {
   accessToken: string | null;
@@ -21,8 +23,8 @@ export type StoredFcmRegistration = {
 
 export async function getStoredTokens(): Promise<StoredTokens> {
   const [accessToken, refreshToken] = await Promise.all([
-    SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
+    getStorageItem(ACCESS_TOKEN_KEY),
+    getStorageItem(REFRESH_TOKEN_KEY),
   ]);
 
   return {accessToken, refreshToken};
@@ -30,23 +32,23 @@ export async function getStoredTokens(): Promise<StoredTokens> {
 
 export async function saveTokens(tokens: Pick<TokenPair, 'accessToken' | 'refreshToken'>) {
   await Promise.all([
-    SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken),
-    SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken),
+    setStorageItem(ACCESS_TOKEN_KEY, tokens.accessToken),
+    setStorageItem(REFRESH_TOKEN_KEY, tokens.refreshToken),
   ]);
 }
 
 export async function clearTokens() {
   await Promise.all([
-    SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
-    SecureStore.deleteItemAsync(FCM_TOKEN_KEY),
-    SecureStore.deleteItemAsync(FCM_TOKEN_ID_KEY),
-    SecureStore.deleteItemAsync(LAST_SELECTED_CAMPUS_ID_KEY),
+    deleteStorageItem(ACCESS_TOKEN_KEY),
+    deleteStorageItem(REFRESH_TOKEN_KEY),
+    deleteStorageItem(FCM_TOKEN_KEY),
+    deleteStorageItem(FCM_TOKEN_ID_KEY),
+    deleteStorageItem(LAST_SELECTED_CAMPUS_ID_KEY),
   ]);
 }
 
 export async function getStoredSelectedCampusId(): Promise<number | null> {
-  const value = await SecureStore.getItemAsync(LAST_SELECTED_CAMPUS_ID_KEY);
+  const value = await getStorageItem(LAST_SELECTED_CAMPUS_ID_KEY);
   const campusId = value ? Number(value) : null;
 
   return campusId && Number.isInteger(campusId) && campusId > 0 ? campusId : null;
@@ -54,17 +56,17 @@ export async function getStoredSelectedCampusId(): Promise<number | null> {
 
 export async function saveSelectedCampusId(campusId: number) {
   if (!Number.isInteger(campusId) || campusId <= 0) {
-    await SecureStore.deleteItemAsync(LAST_SELECTED_CAMPUS_ID_KEY);
+    await deleteStorageItem(LAST_SELECTED_CAMPUS_ID_KEY);
     return;
   }
 
-  await SecureStore.setItemAsync(LAST_SELECTED_CAMPUS_ID_KEY, String(campusId));
+  await setStorageItem(LAST_SELECTED_CAMPUS_ID_KEY, String(campusId));
 }
 
 export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration> {
   const [token, tokenIdValue] = await Promise.all([
-    SecureStore.getItemAsync(FCM_TOKEN_KEY),
-    SecureStore.getItemAsync(FCM_TOKEN_ID_KEY),
+    getStorageItem(FCM_TOKEN_KEY),
+    getStorageItem(FCM_TOKEN_ID_KEY),
   ]);
   const parsedTokenId = tokenIdValue ? Number(tokenIdValue) : null;
   const tokenId =
@@ -76,31 +78,77 @@ export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration>
 }
 
 export async function saveFcmToken(token: string) {
-  await SecureStore.setItemAsync(FCM_TOKEN_KEY, token);
+  await setStorageItem(FCM_TOKEN_KEY, token);
 }
 
 export async function saveFcmTokenId(tokenId: number) {
-  await SecureStore.setItemAsync(FCM_TOKEN_ID_KEY, String(tokenId));
+  await setStorageItem(FCM_TOKEN_ID_KEY, String(tokenId));
 }
 
 export async function clearFcmRegistration() {
   await Promise.all([
-    SecureStore.deleteItemAsync(FCM_TOKEN_KEY),
-    SecureStore.deleteItemAsync(FCM_TOKEN_ID_KEY),
+    deleteStorageItem(FCM_TOKEN_KEY),
+    deleteStorageItem(FCM_TOKEN_ID_KEY),
   ]);
 }
 
 export async function getOrCreateClientInstanceId() {
-  const stored = await SecureStore.getItemAsync(CLIENT_INSTANCE_ID_KEY);
+  const stored = await getStorageItem(CLIENT_INSTANCE_ID_KEY);
 
   if (stored) {
     return stored;
   }
 
   const clientInstanceId = createClientInstanceId();
-  await SecureStore.setItemAsync(CLIENT_INSTANCE_ID_KEY, clientInstanceId);
+  await setStorageItem(CLIENT_INSTANCE_ID_KEY, clientInstanceId);
 
   return clientInstanceId;
+}
+
+async function getStorageItem(key: string) {
+  if (Platform.OS !== 'web') {
+    return SecureStore.getItemAsync(key);
+  }
+
+  return getBrowserStorage()?.getItem(key) ?? webStorageFallback.get(key) ?? null;
+}
+
+async function setStorageItem(key: string, value: string) {
+  if (Platform.OS !== 'web') {
+    await SecureStore.setItemAsync(key, value);
+    return;
+  }
+
+  const storage = getBrowserStorage();
+
+  if (storage) {
+    storage.setItem(key, value);
+    return;
+  }
+
+  webStorageFallback.set(key, value);
+}
+
+async function deleteStorageItem(key: string) {
+  if (Platform.OS !== 'web') {
+    await SecureStore.deleteItemAsync(key);
+    return;
+  }
+
+  getBrowserStorage()?.removeItem(key);
+  webStorageFallback.delete(key);
+}
+
+function getBrowserStorage(): Storage | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function createClientInstanceId() {
