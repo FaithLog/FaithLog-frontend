@@ -87,7 +87,15 @@ import {
   registerCurrentFcmToken,
   type FcmRegistrationStatus,
 } from '../notifications/fcmRegistration';
-import {openNotificationSettings} from '../notifications/notificationAdapter';
+import {
+  getInitialNotificationOpenPayload,
+  openNotificationSettings,
+  subscribeNotificationOpenPayload,
+} from '../notifications/notificationAdapter';
+import {
+  getPushNavigationInvalidMessage,
+  parsePushNotificationOpenPayload,
+} from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen} from '../prayers/PrayerScreen';
@@ -130,6 +138,7 @@ export function FaithLogApp() {
   const [sessionNotice, setSessionNotice] = useState<SessionNotice>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
   const initialAuthenticatedRouteAppliedRef = useRef(false);
+  const initialNotificationOpenHandledRef = useRef(false);
   const publicAuthMode =
     authState.status === 'signedOut' ||
     authState.status === 'sessionExpired' ||
@@ -165,6 +174,61 @@ export function FaithLogApp() {
       setRoute(routes[0]!);
     }
   }, [authState, route]);
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated') {
+      initialNotificationOpenHandledRef.current = false;
+      return undefined;
+    }
+
+    let active = true;
+    const handlePayload = (payload: unknown) => {
+      const target = parsePushNotificationOpenPayload(payload);
+
+      if (target.status === 'invalid') {
+        setSessionNotice({
+          tone: 'warning',
+          title: '알림 이동 제한',
+          message: getPushNavigationInvalidMessage(target.reason),
+        });
+        return;
+      }
+
+      const routes = getAvailableRoutes(authState.user, authState.selectedCampus);
+
+      if (!routes.includes(target.route)) {
+        setSessionNotice({
+          tone: 'warning',
+          title: '알림 이동 권한 없음',
+          message: '현재 계정에서 열 수 없는 화면입니다.',
+        });
+        return;
+      }
+
+      setRoute(target.route);
+      setSessionNotice({
+        tone: 'info',
+        title: '알림에서 이동',
+        message: `${getRouteLabel(target.route)} 화면으로 이동했습니다.`,
+      });
+    };
+
+    if (!initialNotificationOpenHandledRef.current) {
+      initialNotificationOpenHandledRef.current = true;
+      void getInitialNotificationOpenPayload().then((payload) => {
+        if (active && payload !== null && payload !== undefined) {
+          handlePayload(payload);
+        }
+      });
+    }
+
+    const unsubscribe = subscribeNotificationOpenPayload(handlePayload);
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [authState]);
 
   return (
     <SafeAreaView style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
@@ -2181,7 +2245,7 @@ function NotificationPermissionFlow({
       <Card>
         <Eyebrow>알림 권한</Eyebrow>
         <Title>알림을 켜둘까요?</Title>
-        <Body>중요한 공동체 알림을 받을 수 있어요.</Body>
+        <Body>기도, 투표, 납부처럼 놓치면 아쉬운 공동체 소식을 받을 수 있어요.</Body>
         <View style={styles.metaGrid}>
           <ListRow label="기도제목" supportingText="새 기도제목과 조별 업데이트" value="알림" />
           <ListRow label="투표" supportingText="수요예배, 토요모임, 커피 투표" value="알림" />
@@ -2207,11 +2271,11 @@ function NotificationPermissionFlow({
 
     return (
       <Card>
-        <Eyebrow>알림 설정 필요</Eyebrow>
+        <Eyebrow>알림 설정</Eyebrow>
         <Title>{blocked ? '알림이 꺼져 있어요' : '알림 권한이 거절됐어요'}</Title>
         <Body>
           {blocked
-            ? '설정에서 다시 켤 수 있어요.'
+            ? '기기 설정에서 FaithLog 알림을 다시 켤 수 있어요.'
             : '권한 요청을 다시 시도하거나 설정에서 알림을 허용해 주세요.'}
         </Body>
         <InlineError message={getNotificationPermissionMessage(state.permission)} />
@@ -2233,16 +2297,16 @@ function NotificationPermissionFlow({
     );
   }
 
+  const failure = state.status === 'error' ? getNotificationFailurePresentation(state.error) : null;
+
   return (
     <FcmTokenFailedCard
       busy={state.status === 'registering'}
-      message={
-        state.status === 'error'
-          ? getNotificationApiErrorMessage(state.error)
-          : '권한은 켜져 있지만 토큰 등록에 실패했어요.'
-      }
+      body={failure?.body ?? '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.'}
+      message={failure?.message ?? 'Firebase/FCM 연결 상태를 확인한 뒤 다시 시도해 주세요.'}
       onDismiss={() => setState({status: 'dismissed'})}
       onRetry={state.status === 'error' ? () => void inspect() : register}
+      title={failure?.title ?? '기기 알림 연결 실패'}
     />
   );
 }
@@ -2340,7 +2404,7 @@ function NotificationSettingsDetail({
   return (
     <View style={styles.notificationDetailCard}>
       <View style={styles.notificationDetailHeader}>
-        <Text style={styles.notificationDetailTitle}>알림 상세</Text>
+        <Text style={styles.notificationDetailTitle}>알림 권한</Text>
         <Text style={styles.notificationDetailBody}>
           알림 권한과 이 기기의 알림 연결 상태를 확인합니다.
         </Text>
@@ -2378,20 +2442,25 @@ function NotificationSettingsDetail({
 }
 
 function FcmTokenFailedCard({
+  body,
   busy,
   message,
   onDismiss,
   onRetry,
+  title,
 }: {
+  body: string;
   busy: boolean;
   message: string;
   onDismiss: () => void;
   onRetry: () => void;
+  title: string;
 }) {
   return (
     <View style={styles.notificationDetailCard}>
-      <Title>알림 등록 실패</Title>
-      <Body>기기 알림을 다시 연결해요.</Body>
+      <Eyebrow>기기 알림</Eyebrow>
+      <Title>{title}</Title>
+      <Body>{body}</Body>
       <InlineError message={message} />
       <View style={styles.notificationRowList}>
         <ListRow label="재시도" supportingText="네트워크가 안정적일 때 다시 등록" value="권장" />
@@ -2498,6 +2567,43 @@ function getNotificationApiErrorMessage(error: ApiError) {
     conflictMessage: '서버의 토큰 상태와 충돌했습니다. 알림 설정을 다시 확인해 주세요.',
     permissionMessage: '알림 토큰을 등록하거나 비활성화할 권한이 없습니다.',
   }).message;
+}
+
+function getNotificationFailurePresentation(error: ApiError) {
+  switch (error.kind) {
+    case 'sessionExpired':
+      return {
+        title: '다시 로그인해 주세요',
+        body: '세션이 만료되어 이 기기의 알림을 연결하지 못했어요.',
+        message: getNotificationApiErrorMessage(error),
+      };
+    case 'permissionDenied':
+      return {
+        title: '알림 연결 권한이 없어요',
+        body: '현재 계정으로는 이 기기의 알림 토큰을 등록할 수 없어요.',
+        message: getNotificationApiErrorMessage(error),
+      };
+    case 'offline':
+      return {
+        title: '네트워크 연결이 필요해요',
+        body: '오프라인 상태에서는 기기 알림 연결을 완료할 수 없어요.',
+        message: getNotificationApiErrorMessage(error),
+      };
+    case 'conflict':
+      return {
+        title: '알림 상태를 다시 확인해 주세요',
+        body: '서버의 최신 알림 토큰 상태와 맞지 않아 다시 확인이 필요해요.',
+        message: getNotificationApiErrorMessage(error),
+      };
+    case 'error':
+      return {
+        title: '기기 알림 연결 실패',
+        body: '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.',
+        message: getNotificationApiErrorMessage(error),
+      };
+    default:
+      return assertNever(error.kind);
+  }
 }
 
 function ProfileScreen({
