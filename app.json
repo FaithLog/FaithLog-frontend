@@ -9,13 +9,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.faithlog.frontend",
+      "bundleIdentifier": "com.faithlog.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.faithlog.frontend",
+      "package": "com.faithlog.app",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF"
       }
