@@ -27,6 +27,8 @@ export function validateLoginForm(values: LoginFormValues) {
 
   if (!password) {
     fieldErrors.password = '비밀번호를 입력해 주세요.';
+  } else if (password.length < MIN_PASSWORD_LENGTH) {
+    fieldErrors.password = `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상 입력해 주세요.`;
   } else if (password.length > MAX_PASSWORD_LENGTH) {
     fieldErrors.password = '비밀번호가 너무 깁니다.';
   }
