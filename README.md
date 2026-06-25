@@ -76,8 +76,9 @@ Preview/production의 실제 API URL, Firebase native config, service files, tok
 - `npm run ios`: iOS 대상으로 실행
 - `npm run web`: Web 대상으로 실행
 - `npm run typecheck`: TypeScript 타입 검사
-- lint script: 현재 `package.json`에 없음. 필요 시 [#76](https://github.com/FaithLog/FaithLog-frontend/issues/76)에서 추가합니다.
-- test script: 현재 `package.json`에 없음. 최소 API client 테스트와 함께 [#76](https://github.com/FaithLog/FaithLog-frontend/issues/76)에서 추가합니다.
+- `npm run lint`: ESLint 기반 TypeScript/TSX 정적 검사
+- `npm run test`: Vitest 기반 API client 단위 테스트
+- `npm run ci`: typecheck, lint, test 순차 실행
 
 ## 검증 명령
 
@@ -86,6 +87,8 @@ Clean checkout 또는 PR worktree에서 아래 순서로 기록합니다.
 ```bash
 npm ci
 npm run typecheck
+npm run lint
+npm run test
 npx expo export --platform web --output-dir /private/tmp/faithlog-web-export
 docker compose build
 npm audit --audit-level=moderate
@@ -95,6 +98,8 @@ npm audit --audit-level=moderate
 
 - `npm ci`: 설치 성공. 현재 Expo dependency chain의 `uuid` moderate audit 이슈가 보고될 수 있습니다.
 - `npm run typecheck`: `tsc --noEmit` 성공.
+- `npm run lint`: ESLint 검사 성공.
+- `npm run test`: API client 단위 테스트 성공.
 - `npx expo export --platform web`: web bundle export 성공.
 - `docker compose build`: frontend image build 성공.
 - `npm audit --audit-level=moderate`: 현재 known risk로 10 moderate vulnerabilities가 보고됩니다. `npm audit fix --force`가 Expo breaking downgrade를 제안하면 PR 범위 밖 위험으로 분리 기록합니다.
