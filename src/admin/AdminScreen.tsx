@@ -234,7 +234,6 @@ type PaymentAccountForm = {
   accountType: PaymentCategory;
   bankName: string;
   nickname: string;
-  ownerUserId: string;
 };
 
 type PenaltyRuleState =
@@ -365,6 +364,20 @@ const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
   'WAIVED',
   'CANCELED',
 ];
+const adminFigmaTokens = {
+  background: '#F7F8FA',
+  surface: '#FFFFFF',
+  primary: '#3182F6',
+  faith: '#5BA8B0',
+  mint: '#92C7CF',
+  danger: '#EF4444',
+  success: '#22C55E',
+  warning: '#F59E0B',
+  textPrimary: '#191F28',
+  textSecondary: '#4E5968',
+  textMuted: '#8B95A1',
+  borderSoft: '#EEF1F4',
+};
 
 const emptyPaymentAccountForm: PaymentAccountForm = {
   accountHolder: '',
@@ -372,7 +385,6 @@ const emptyPaymentAccountForm: PaymentAccountForm = {
   accountType: 'PENALTY',
   bankName: '',
   nickname: '',
-  ownerUserId: '',
 };
 
 const emptyPenaltyRuleForm: PenaltyRuleForm = {
@@ -457,6 +469,8 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
   });
   const [paymentAccountForm, setPaymentAccountForm] =
     useState<PaymentAccountForm>(emptyPaymentAccountForm);
+  const [selectedPaymentAccount, setSelectedPaymentAccount] =
+    useState<PaymentAccount | null>(null);
   const [paymentAccountDeactivateTarget, setPaymentAccountDeactivateTarget] =
     useState<PaymentAccount | null>(null);
   const [penaltyRuleState, setPenaltyRuleState] = useState<PenaltyRuleState>({
@@ -522,6 +536,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     setChargeDetailState({status: 'idle'});
     setPaymentAccountState({status: 'idle'});
     setPaymentAccountForm(emptyPaymentAccountForm);
+    setSelectedPaymentAccount(null);
     setPaymentAccountDeactivateTarget(null);
     setPenaltyRuleState({status: 'idle'});
     setPenaltyRuleForm(emptyPenaltyRuleForm);
@@ -765,9 +780,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         bankName: paymentAccountForm.bankName,
         accountNumber: paymentAccountForm.accountNumber,
         accountHolder: paymentAccountForm.accountHolder,
-        ownerUserId: paymentAccountForm.ownerUserId.trim()
-          ? Number(paymentAccountForm.ownerUserId)
-          : null,
+        ownerUserId: null,
       });
 
       setPaymentAccountForm(emptyPaymentAccountForm);
@@ -804,6 +817,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
 
       await deactivateAdminPaymentAccount(accessToken, target.id);
       setPaymentAccountDeactivateTarget(null);
+      setSelectedPaymentAccount(null);
       setPaymentAccountState({status: 'idle'});
       setNotice({
         tone: 'warning',
@@ -1649,6 +1663,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           }
           onChangeSection={(section) => {
             setSettlementSection(section);
+            setSelectedPaymentAccount(null);
             setActionError(null);
           }}
           onBackToSummary={() => setChargeDetailState({status: 'idle'})}
@@ -1656,6 +1671,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           onEditPenaltyRule={editPenaltyRule}
           onOpenMemberCharges={openMemberCharges}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
+          onSelectPaymentAccount={setSelectedPaymentAccount}
           onRequestStatusChange={requestChargeStatusChange}
           onRetryPaymentAccounts={() => void loadPaymentAccounts()}
           onRetryPenaltyRules={() => void loadPenaltyRules()}
@@ -1674,6 +1690,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           penaltyRuleForm={penaltyRuleForm}
           penaltyRuleState={penaltyRuleState}
           section={settlementSection}
+          selectedPaymentAccount={selectedPaymentAccount}
           settlementState={settlementState}
         />
       ) : tab === 'members' ? (
@@ -3875,12 +3892,14 @@ function AdminSettlement({
   onSavePaymentAccount,
   onSavePenaltyRule,
   onSearch,
+  onSelectPaymentAccount,
   onUpdateFilter,
   paymentAccountForm,
   paymentAccountState,
   penaltyRuleForm,
   penaltyRuleState,
   section,
+  selectedPaymentAccount,
   settlementState,
 }: {
   actionState: AdminActionState;
@@ -3904,6 +3923,7 @@ function AdminSettlement({
   onSavePaymentAccount: () => void;
   onSavePenaltyRule: () => void;
   onSearch: () => void;
+  onSelectPaymentAccount: (account: PaymentAccount | null) => void;
   onUpdateFilter: <Key extends keyof AdminChargeFilters>(
     key: Key,
     value: AdminChargeFilters[Key],
@@ -3913,24 +3933,18 @@ function AdminSettlement({
   penaltyRuleForm: PenaltyRuleForm;
   penaltyRuleState: PenaltyRuleState;
   section: AdminSettlementSection;
+  selectedPaymentAccount: PaymentAccount | null;
   settlementState: AdminSettlementState;
 }) {
   const busy = actionState.status !== 'idle';
 
   return (
     <>
-      <Card>
-        <Eyebrow>정산 운영</Eyebrow>
-        <Title>정산/계좌/벌금 관리</Title>
-        <Body>
-          청구 상태, 활성 납부 계좌, 벌금 규칙을 관리자 화면에서 분리해 관리합니다.
-        </Body>
-        <SegmentedControl
-          items={settlementSections}
-          selectedId={section}
-          onSelect={onChangeSection}
-        />
-      </Card>
+      <FigmaSegmentedControl
+        items={settlementSections}
+        selectedId={section}
+        onSelect={onChangeSection}
+      />
       {section === 'charges' ? (
         <AdminChargeSettlement
           actionState={actionState}
@@ -3952,9 +3966,12 @@ function AdminSettlement({
           busy={busy}
           form={paymentAccountForm}
           onChangeForm={onChangePaymentAccountForm}
+          onBackToList={() => onSelectPaymentAccount(null)}
           onRequestDeactivate={onRequestDeactivatePaymentAccount}
           onRetry={onRetryPaymentAccounts}
           onSave={onSavePaymentAccount}
+          onSelectAccount={onSelectPaymentAccount}
+          selectedAccount={selectedPaymentAccount}
           state={paymentAccountState}
         />
       ) : (
@@ -4007,18 +4024,14 @@ function AdminChargeSettlement({
 }) {
   return (
     <>
-      <Card>
-        <Eyebrow>청구 관리</Eyebrow>
-        <Title>청구 상태 관리</Title>
-        <Body>
-          전체 청구 집계와 회원별 상세 청구를 분리해 조회합니다.
-        </Body>
-        <SegmentedControl
+      <View style={styles.figmaFormCard}>
+        <Text style={styles.figmaScreenTitle}>정산 관리</Text>
+        <FigmaSegmentedControl
           items={chargeStatusFilters}
           selectedId={filters.status}
           onSelect={(status) => onUpdateFilter('status', status)}
         />
-        <SegmentedControl
+        <FigmaSegmentedControl
           items={paymentCategoryFilters}
           selectedId={filters.paymentCategory}
           onSelect={(paymentCategory) => onUpdateFilter('paymentCategory', paymentCategory)}
@@ -4027,24 +4040,12 @@ function AdminChargeSettlement({
           <View style={styles.filterField}>
             <TextField
               accessibilityLabel="정산 이름 또는 이메일 검색어"
-              label="검색어"
+              label="회원 검색"
               onChangeText={(keyword) => onUpdateFilter('keyword', keyword)}
               onSubmitEditing={onSearch}
               placeholder="이름 또는 이메일"
               returnKeyType="search"
               value={filters.keyword}
-            />
-          </View>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="정산 사용자 ID 필터"
-              keyboardType="number-pad"
-              label="사용자 ID"
-              onChangeText={(userId) => onUpdateFilter('userId', userId.replace(/\D/g, ''))}
-              onSubmitEditing={onSearch}
-              placeholder="숫자만"
-              returnKeyType="search"
-              value={filters.userId}
             />
           </View>
         </View>
@@ -4059,7 +4060,7 @@ function AdminChargeSettlement({
             초기화
           </Button>
         </View>
-      </Card>
+      </View>
       {renderSettlementSummary({
         onOpenMemberCharges,
         onRetrySummary,
@@ -4081,33 +4082,42 @@ function AdminPaymentAccounts({
   busy,
   form,
   onChangeForm,
+  onBackToList,
   onRequestDeactivate,
   onRetry,
   onSave,
+  onSelectAccount,
+  selectedAccount,
   state,
 }: {
   busy: boolean;
   form: PaymentAccountForm;
   onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
+  onBackToList: () => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSave: () => void;
+  onSelectAccount: (account: PaymentAccount) => void;
+  selectedAccount: PaymentAccount | null;
   state: PaymentAccountState;
 }) {
+  if (selectedAccount) {
+    return (
+      <PaymentAccountDetail
+        account={selectedAccount}
+        busy={busy}
+        onBack={onBackToList}
+        onRequestDeactivate={onRequestDeactivate}
+      />
+    );
+  }
+
   return (
     <>
-      <Card>
-        <Eyebrow>납부 계좌</Eyebrow>
-        <Title>활성 납부 계좌</Title>
-        <Body>
-          같은 계좌 유형으로 새 계좌를 등록하면 기존 활성 계좌는 자동으로 비활성화됩니다.
-        </Body>
-        {renderPaymentAccountList({busy, onRequestDeactivate, onRetry, state})}
-      </Card>
-      <Card>
-        <Eyebrow>계좌 등록</Eyebrow>
-        <Title>계좌 등록</Title>
-        <SegmentedControl
+      {renderPaymentAccountList({busy, onRetry, onSelectAccount, state})}
+      <View style={styles.figmaFormCard}>
+        <Text style={styles.figmaScreenTitle}>계좌 등록</Text>
+        <FigmaSegmentedControl
           items={paymentAccountTypeOptions}
           selectedId={form.accountType}
           onSelect={(accountType) => onChangeForm({accountType})}
@@ -4149,16 +4159,6 @@ function AdminPaymentAccounts({
               value={form.accountHolder}
             />
           </View>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="납부 계좌 담당자 사용자 ID"
-              keyboardType="number-pad"
-              label="담당자 사용자 ID"
-              onChangeText={(ownerUserId) => onChangeForm({ownerUserId: ownerUserId.replace(/\D/g, '')})}
-              placeholder="없으면 비워두기"
-              value={form.ownerUserId}
-            />
-          </View>
         </View>
         <Button
           accessibilityLabel="관리자 납부 계좌 등록"
@@ -4166,20 +4166,71 @@ function AdminPaymentAccounts({
           onPress={onSave}>
           {busy ? '저장 중...' : '계좌 저장'}
         </Button>
-      </Card>
+      </View>
+    </>
+  );
+}
+
+function PaymentAccountDetail({
+  account,
+  busy,
+  onBack,
+  onRequestDeactivate,
+}: {
+  account: PaymentAccount;
+  busy: boolean;
+  onBack: () => void;
+  onRequestDeactivate: (account: PaymentAccount) => void;
+}) {
+  return (
+    <>
+      <View style={styles.figmaHeroCard}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.figmaScreenTitle}>{account.nickname}</Text>
+            <Text style={styles.accountNumber}>{account.accountNumber}</Text>
+          </View>
+          <Chip label={getPaymentCategoryLabel(account.accountType)} tone="info" />
+        </View>
+        <Text style={styles.figmaBodyText}>
+          {account.bankName} · {account.accountHolder}
+        </Text>
+      </View>
+      <View style={styles.figmaListStack}>
+        <Text style={styles.sectionTitle}>최근 청구</Text>
+        <View style={styles.figmaListItem}>
+          <View style={styles.figmaListText}>
+            <Text style={styles.figmaCardTitle}>연결된 청구 내역</Text>
+            <Text style={styles.figmaBodyText}>청구 내역은 회원별 정산 상세에서 확인해 주세요</Text>
+          </View>
+          <Chip label="대기" tone="warning" />
+        </View>
+      </View>
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
+          disabled={busy}
+          onPress={() => onRequestDeactivate(account)}
+          variant="danger">
+          비활성화
+        </Button>
+        <Button accessibilityLabel="납부 계좌 목록으로 돌아가기" onPress={onBack} variant="secondary">
+          목록
+        </Button>
+      </View>
     </>
   );
 }
 
 function renderPaymentAccountList({
   busy,
-  onRequestDeactivate,
   onRetry,
+  onSelectAccount,
   state,
 }: {
   busy: boolean;
-  onRequestDeactivate: (account: PaymentAccount) => void;
   onRetry: () => void;
+  onSelectAccount: (account: PaymentAccount) => void;
   state: PaymentAccountState;
 }) {
   switch (state.status) {
@@ -4201,25 +4252,33 @@ function renderPaymentAccountList({
     case 'success':
       return (
         <>
+          <View style={styles.figmaHeroCard}>
+            <Text style={styles.figmaHeroLabel}>활성 납부 계좌</Text>
+            <View style={styles.figmaHeroRow}>
+              <Text style={styles.figmaHeroCount}>{state.accounts.length}개</Text>
+              <Text style={styles.figmaActionPill}>관리</Text>
+            </View>
+          </View>
           {state.accounts.map((account) => (
-            <View key={account.id} style={styles.roleRow}>
-              <View style={styles.headerRow}>
-                <View style={styles.headerText}>
-                  <Text style={styles.memberName}>{account.nickname}</Text>
-                  <Text style={styles.memberMeta}>
-                    {account.bankName} · {account.accountHolder}
-                  </Text>
-                  <Text style={styles.memberMeta}>{account.accountNumber}</Text>
-                </View>
-                <Chip label={account.accountType} tone="info" />
+            <View key={account.id} style={styles.figmaListItem}>
+              <View style={styles.figmaIconBox}>
+                <Text style={styles.figmaIconText}>●</Text>
               </View>
-              <Button
-                accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
-                disabled={busy}
-                onPress={() => onRequestDeactivate(account)}
-                variant="danger">
-                비활성화
-              </Button>
+              <View style={styles.figmaListContent}>
+                <View style={styles.figmaListText}>
+                  <Text style={styles.figmaCardTitle}>{account.nickname}</Text>
+                  <Text style={styles.figmaBodyText}>
+                    {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
+                  </Text>
+                </View>
+                <Button
+                  accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
+                  disabled={busy}
+                  onPress={() => onSelectAccount(account)}
+                  variant="secondary">
+                  상세
+                </Button>
+              </View>
             </View>
           ))}
         </>
@@ -4250,23 +4309,20 @@ function AdminPenaltyRules({
 }) {
   return (
     <>
-      <Card>
-        <Eyebrow>벌금 규칙</Eyebrow>
-        <Title>벌금 규칙</Title>
-        <Body>같은 규칙 타입의 새 ACTIVE 규칙이 생성되면 기존 ACTIVE 규칙은 비활성화됩니다.</Body>
+      <View style={styles.figmaListStack}>
+        <Text style={styles.figmaScreenTitle}>벌금 규칙</Text>
         {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
-      </Card>
-      <Card>
-        <Eyebrow>규칙 편집</Eyebrow>
-        <Title>{form.ruleId === null ? '규칙 등록' : '규칙 수정'}</Title>
+      </View>
+      <View style={styles.figmaFormCard}>
+        <Text style={styles.figmaScreenTitle}>{form.ruleId === null ? '규칙 등록' : '규칙 수정'}</Text>
         {form.ruleId === null ? (
           <>
-            <SegmentedControl
+            <FigmaSegmentedControl
               items={penaltyRuleTypeOptions}
               selectedId={form.ruleType}
               onSelect={(ruleType) => onChangeForm({ruleType})}
             />
-            <SegmentedControl
+            <FigmaSegmentedControl
               items={penaltyCalculationTypeOptions}
               selectedId={form.calculationType}
               onSelect={(calculationType) => onChangeForm({calculationType})}
@@ -4283,7 +4339,7 @@ function AdminPenaltyRules({
             <TextField
               accessibilityLabel="벌금 규칙 필수 기준 횟수"
               keyboardType="number-pad"
-              label="requiredCount"
+              label="필수 횟수"
               onChangeText={(requiredCount) => onChangeForm({requiredCount: requiredCount.replace(/\D/g, '')})}
               placeholder="0 이상"
               value={form.requiredCount}
@@ -4293,7 +4349,7 @@ function AdminPenaltyRules({
             <TextField
               accessibilityLabel="벌금 규칙 기본 금액"
               keyboardType="number-pad"
-              label="baseAmount"
+              label="기본 금액"
               onChangeText={(baseAmount) => onChangeForm({baseAmount: baseAmount.replace(/\D/g, '')})}
               placeholder="0 이상"
               value={form.baseAmount}
@@ -4303,7 +4359,7 @@ function AdminPenaltyRules({
             <TextField
               accessibilityLabel="벌금 규칙 단위당 금액"
               keyboardType="number-pad"
-              label="amountPerUnit"
+              label="단위당 금액"
               onChangeText={(amountPerUnit) => onChangeForm({amountPerUnit: amountPerUnit.replace(/\D/g, '')})}
               placeholder="0 이상"
               value={form.amountPerUnit}
@@ -4311,7 +4367,7 @@ function AdminPenaltyRules({
           </View>
         </View>
         {form.ruleId !== null ? (
-          <SegmentedControl
+          <FigmaSegmentedControl
             items={penaltyRuleActiveOptions}
             selectedId={form.isActive ? 'active' : 'inactive'}
             onSelect={(value) => onChangeForm({isActive: value === 'active'})}
@@ -4334,7 +4390,7 @@ function AdminPenaltyRules({
             </Button>
           ) : null}
         </View>
-      </Card>
+      </View>
     </>
   );
 }
@@ -4370,26 +4426,25 @@ function renderPenaltyRuleList({
       return (
         <>
           {state.rules.map((rule) => (
-            <View key={rule.id} style={styles.roleRow}>
-              <View style={styles.headerRow}>
-                <View style={styles.headerText}>
-                  <Text style={styles.memberName}>{getPenaltyRuleTypeLabel(rule.ruleType)}</Text>
-                  <Text style={styles.memberMeta}>
-                    {getPenaltyCalculationTypeLabel(rule.calculationType)} · 기준 {rule.requiredCount}
-                  </Text>
-                  <Text style={styles.memberMeta}>
-                    기본 {formatWon(rule.baseAmount)} · 단위 {formatWon(rule.amountPerUnit)}
+            <View key={rule.id} style={styles.figmaListItem}>
+              <View style={styles.figmaIconBox}>
+                <Text style={styles.figmaIconText}>●</Text>
+              </View>
+              <View style={styles.figmaListContent}>
+                <View style={styles.figmaListText}>
+                  <Text style={styles.figmaCardTitle}>{getPenaltyRuleTypeLabel(rule.ruleType)}</Text>
+                  <Text style={styles.figmaBodyText}>
+                    {getPenaltyRuleSummary(rule)}
                   </Text>
                 </View>
-                <Chip label={rule.isActive ? 'ACTIVE' : 'INACTIVE'} tone={rule.isActive ? 'success' : 'warning'} />
+                <Button
+                  accessibilityLabel={`${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙 수정`}
+                  disabled={busy}
+                  onPress={() => onEdit(rule)}
+                  variant="secondary">
+                  수정
+                </Button>
               </View>
-              <Button
-                accessibilityLabel={`${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙 수정`}
-                disabled={busy}
-                onPress={() => onEdit(rule)}
-                variant="secondary">
-                수정
-              </Button>
             </View>
           ))}
         </>
@@ -4420,7 +4475,7 @@ function renderSettlementSummary({
           <SettlementSummaryCard charges={settlementState.charges} />
           <Empty
             title="조건에 맞는 청구 회원이 없습니다"
-            message="상태, 정산 분류, 사용자 ID, 검색어 필터를 조정해 주세요."
+            message="상태, 유형, 검색어 필터를 조정해 주세요."
             actionLabel="다시 조회"
             actionAccessibilityLabel="관리자 정산 empty state에서 다시 조회"
             onActionPress={onRetrySummary}
@@ -4431,8 +4486,7 @@ function renderSettlementSummary({
       return (
         <>
           <SettlementSummaryCard charges={settlementState.charges} />
-          <Card>
-            <Eyebrow>회원별 청구 집계</Eyebrow>
+          <View style={styles.figmaListStack}>
             {settlementState.charges.members.map((member) => (
               <SettlementMemberRow
                 key={member.userId}
@@ -4440,7 +4494,7 @@ function renderSettlementSummary({
                 onPress={() => onOpenMemberCharges(member)}
               />
             ))}
-          </Card>
+          </View>
         </>
       );
     default:
@@ -4450,18 +4504,16 @@ function renderSettlementSummary({
 
 function SettlementSummaryCard({charges}: {charges: AdminCampusChargeSummary}) {
   return (
-    <Card>
-      <Eyebrow>{charges.region} {charges.campusName}</Eyebrow>
-      <Title>청구 집계</Title>
-      <View style={styles.metricGrid}>
-        <Metric label="전체" value={formatWon(charges.summary.totalAmount)} />
-        <Metric label="미납" value={formatWon(charges.summary.unpaidAmount)} />
-        <Metric label="납부" value={formatWon(charges.summary.paidAmount)} />
-        <Metric label="면제" value={formatWon(charges.summary.waivedAmount)} />
-        <Metric label="취소" value={formatWon(charges.summary.canceledAmount)} />
-        <Metric label="회원" value={`${charges.members.length}명`} />
+    <View style={styles.figmaHeroCard}>
+      <Text style={styles.figmaHeroLabel}>이번 달 총 미납</Text>
+      <View style={styles.figmaHeroRow}>
+        <Text style={styles.figmaHeroAmount}>{formatWon(charges.summary.unpaidAmount)}</Text>
+        <Text style={styles.figmaDangerPill}>미납 알림</Text>
       </View>
-    </Card>
+      <Text style={styles.figmaHeroMeta}>
+        {charges.region} {charges.campusName} · 총 {formatWon(charges.summary.totalAmount)}
+      </Text>
+    </View>
   );
 }
 
@@ -4483,19 +4535,20 @@ function SettlementMemberRow({
       accessibilityLabel={`${member.name} 청구 상세 보기`}
       accessibilityRole="button"
       onPress={onPress}
-      style={({pressed}) => [styles.roleRow, pressed ? styles.pressed : null]}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Text style={styles.memberName}>{member.name}</Text>
-          <Text style={styles.memberMeta}>{member.email}</Text>
-        </View>
-        <Chip label={`사용자 ID ${member.userId}`} tone="info" />
+      style={({pressed}) => [styles.figmaListItem, pressed ? styles.pressed : null]}>
+      <View style={styles.figmaIconBox}>
+        <Text style={styles.figmaIconText}>{member.unpaidAmount > 0 ? '○' : '✓'}</Text>
       </View>
-      <View style={styles.metricGrid}>
-        <Metric label="미납" value={formatWon(member.unpaidAmount)} />
-        <Metric label="납부" value={formatWon(member.paidAmount)} />
-        <Metric label="면제" value={formatWon(member.waivedAmount)} />
-        <Metric label="취소" value={formatWon(member.canceledAmount)} />
+      <View style={styles.figmaListContent}>
+        <View style={styles.figmaListText}>
+          <Text style={styles.figmaCardTitle}>{member.name}</Text>
+          <Text style={styles.figmaBodyText}>
+            {member.unpaidAmount > 0
+              ? `미납 ${formatWon(member.unpaidAmount)} · 납부 ${formatWon(member.paidAmount)}`
+              : `납부 완료 ${formatWon(member.paidAmount)}`}
+          </Text>
+        </View>
+        <Text style={styles.figmaActionPill}>상세</Text>
       </View>
     </Pressable>
   );
@@ -4521,7 +4574,7 @@ function renderChargeDetail({
       return (
         <Empty
           title="회원을 선택해 주세요"
-          message="전체 정산 목록에서 회원을 선택하면 청구 상세와 상태 변경 액션을 보여줍니다."
+          message="정산 목록에서 회원을 선택하면 청구 상세와 상태 변경 액션을 보여줍니다."
         />
       );
     case 'loading':
@@ -4566,30 +4619,24 @@ function AdminChargeDetail({
 
   return (
     <>
-      <Card>
-        <Eyebrow>청구 상세</Eyebrow>
+      <View style={styles.figmaHeroCard}>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
-            <Title>{charges.name}</Title>
-            <Body>{charges.email}</Body>
+            <Text style={styles.figmaScreenTitle}>{charges.name}</Text>
+            <Text style={styles.figmaBodyText}>
+              총 미납 {formatWon(charges.summary.unpaidAmount)} · 사용자가 직접 납부 완료 처리
+            </Text>
           </View>
           <Button accessibilityLabel="정산 집계로 돌아가기" onPress={onBackToSummary} variant="ghost">
             목록
           </Button>
         </View>
-        <View style={styles.metricGrid}>
-          <Metric label="전체" value={formatWon(charges.summary.totalAmount)} />
-          <Metric label="미납" value={formatWon(charges.summary.unpaidAmount)} />
-          <Metric label="납부" value={formatWon(charges.summary.paidAmount)} />
-          <Metric label="면제" value={formatWon(charges.summary.waivedAmount)} />
-        </View>
-        <Body>관리자는 PAID로 직접 변경할 수 없습니다. PAID 버튼은 차단 안내만 표시합니다.</Body>
-      </Card>
+      </View>
       {charges.items.length === 0 ? (
         <Empty title="청구 항목이 없습니다" message="선택한 필터에 맞는 회원별 청구 상세가 없습니다." />
       ) : (
-        <Card>
-          <Eyebrow>상태 변경</Eyebrow>
+        <View style={styles.figmaListStack}>
+          <Text style={styles.sectionTitle}>청구 항목</Text>
           {charges.items.map((charge) => (
             <ChargeItemRow
               busy={busy}
@@ -4599,7 +4646,7 @@ function AdminChargeDetail({
               onRequestStatusChange={(status) => onRequestStatusChange(charge, status)}
             />
           ))}
-        </Card>
+        </View>
       )}
     </>
   );
@@ -4617,29 +4664,28 @@ function ChargeItemRow({
   onRequestStatusChange: (status: AdminWritableChargeStatus) => void;
 }) {
   return (
-    <View style={styles.roleRow}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Text style={styles.memberName}>{charge.title}</Text>
-          <Text style={styles.memberMeta}>{charge.reason}</Text>
-          <Text style={styles.memberMeta}>
-            납부 기한 {charge.dueDate ?? '미정'} · 청구 ID {charge.id}
+    <View style={styles.figmaChargeItem}>
+      <View style={styles.figmaIconBox}>
+        <Text style={styles.figmaIconText}>{getChargeIcon(charge)}</Text>
+      </View>
+      <View style={styles.figmaListContent}>
+        <View style={styles.figmaListText}>
+          <Text style={styles.figmaCardTitle}>{charge.title}</Text>
+          <Text style={styles.figmaBodyText}>
+            {getChargeStatusLabel(charge.status)} · {getChargeDescription(charge)}
           </Text>
         </View>
-        <View style={styles.chipRow}>
-          <Chip label={charge.paymentCategory} tone="info" />
-          <Chip label={charge.status} tone={getChargeStatusTone(charge.status)} />
-        </View>
+        <Chip label={formatWon(charge.amount)} tone={getChargeStatusTone(charge.status)} />
       </View>
-      <ListRow
-        label="금액"
-        supportingText={charge.account ? `${charge.account.bankName} · ${charge.account.accountHolder}` : '계좌 정보 없음'}
-        value={formatWon(charge.amount)}
-      />
+      {charge.account ? (
+        <Text style={styles.accountMeta}>
+          {charge.account.bankName} · {charge.account.accountHolder}
+        </Text>
+      ) : null}
       <View style={styles.roleGrid}>
         {adminWritableChargeStatuses.map((status) => (
           <Button
-            accessibilityLabel={`청구 항목 ${charge.id} 상태를 ${status}로 변경 확인`}
+            accessibilityLabel={`${charge.title} 상태를 ${getChargeStatusLabel(status)}로 변경 확인`}
             disabled={busy || charge.status === status}
             key={status}
             onPress={() => onRequestStatusChange(status)}
@@ -4648,11 +4694,11 @@ function ChargeItemRow({
           </Button>
         ))}
         <Button
-          accessibilityLabel={`청구 항목 ${charge.id} PAID 직접 변경 불가 안내`}
+          accessibilityLabel={`${charge.title} 납부 완료 직접 변경 불가 안내`}
           disabled={busy}
           onPress={onBlockedPaid}
           variant="ghost">
-          PAID 불가
+          납부 완료
         </Button>
       </View>
     </View>
@@ -5017,19 +5063,18 @@ function ChargeStatusConfirmSheet({
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>청구 상태 변경</Eyebrow>
           <Title>
             {target
               ? `${target.charge.title}을 ${getChargeStatusLabel(target.status)} 처리할까요?`
               : '청구 상태 변경'}
           </Title>
           <Body>
-            WAIVED, CANCELED, UNPAID 변경만 관리자 권한으로 처리합니다. PAID 변경은 납부자 직접 처리 흐름에서만 가능합니다.
+            관리자 화면에서는 면제, 취소, 미납 복구만 처리할 수 있습니다. 납부 완료는 사용자가 직접 처리합니다.
           </Body>
           {target ? (
             <>
-              <ListRow label="현재 상태" value={target.charge.status} />
-              <ListRow label="변경 상태" value={target.status} />
+              <ListRow label="현재 상태" value={getChargeStatusLabel(target.charge.status)} />
+              <ListRow label="변경 상태" value={getChargeStatusLabel(target.status)} />
               <ListRow label="금액" value={formatWon(target.charge.amount)} />
             </>
           ) : null}
@@ -5067,19 +5112,18 @@ function PaidNotAllowedSheet({
     <Modal animationType="slide" transparent visible={charge !== null} onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>납부 완료 변경 제한</Eyebrow>
-          <Title>관리자는 PAID로 직접 변경할 수 없습니다</Title>
+          <Title>관리자는 납부 완료로 직접 변경할 수 없어요</Title>
           <Body>
-            관리자는 미납, 면제, 취소 상태만 직접 변경할 수 있습니다. 납부 완료는 납부자 처리 흐름에서만 가능합니다.
+            납부 완료는 사용자가 본인 화면에서 처리합니다. 관리자는 면제, 취소, 미납 복구만 진행할 수 있습니다.
           </Body>
           {charge ? (
             <ListRow
               label={charge.title}
-              supportingText={`현재 상태 ${charge.status} · 청구 ID ${charge.id}`}
+              supportingText={`현재 상태 ${getChargeStatusLabel(charge.status)}`}
               value={formatWon(charge.amount)}
             />
           ) : null}
-          <Button accessibilityLabel="PAID 직접 변경 불가 안내 닫기" onPress={onClose}>
+          <Button accessibilityLabel="납부 완료 직접 변경 불가 안내 닫기" onPress={onClose}>
             확인
           </Button>
         </View>
@@ -5105,14 +5149,13 @@ function DeactivatePaymentAccountSheet({
     <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>계좌 비활성화 확인</Eyebrow>
           <Title>{account ? `${account.nickname} 계좌를 비활성화할까요?` : '계좌 비활성화'}</Title>
           <Body>
-            기존 UNPAID 청구가 있어도 비활성화할 수 있습니다. 새 활성 계좌를 등록하면 미납 청구는 새 계좌로 재연결되고, 다음 정산 전에 계좌 연결 상태를 확인해야 합니다.
+            기존 미납 청구는 유지됩니다. 다음 정산 전에 새 활성 계좌 연결 상태를 확인해 주세요.
           </Body>
           {account ? (
             <>
-              <ListRow label="계좌 유형" value={account.accountType} />
+              <ListRow label="계좌 유형" value={getPaymentCategoryLabel(account.accountType)} />
               <ListRow
                 label={account.bankName}
                 supportingText={account.accountHolder}
@@ -5221,6 +5264,42 @@ function SegmentedControl<T extends string>({
               pressed ? styles.pressed : null,
             ]}>
             <Text style={[styles.segmentText, active ? styles.segmentTextActive : null]}>
+              {item.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function FigmaSegmentedControl<T extends string>({
+  items,
+  onSelect,
+  selectedId,
+}: {
+  items: Array<{id: T; label: string}>;
+  onSelect: (id: T) => void;
+  selectedId: T;
+}) {
+  return (
+    <View style={styles.figmaSegmented}>
+      {items.map((item) => {
+        const active = item.id === selectedId;
+
+        return (
+          <Pressable
+            accessibilityLabel={`${item.label} 필터 선택`}
+            accessibilityRole="button"
+            accessibilityState={{selected: active}}
+            key={item.id}
+            onPress={() => onSelect(item.id)}
+            style={({pressed}) => [
+              styles.figmaSegment,
+              active ? styles.figmaSegmentActive : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={[styles.figmaSegmentText, active ? styles.figmaSegmentTextActive : null]}>
               {item.label}
             </Text>
           </Pressable>
@@ -5785,10 +5864,30 @@ function getPenaltyCalculationTypeLabel(calculationType: PenaltyCalculationType)
   }
 }
 
-function getChargeStatusLabel(status: AdminWritableChargeStatus) {
+function getPaymentCategoryLabel(category: PaymentCategory) {
+  switch (category) {
+    case 'PENALTY':
+      return '벌금';
+    case 'COFFEE':
+      return '커피';
+    default:
+      return assertNever(category);
+  }
+}
+
+function getPenaltyRuleSummary(rule: PenaltyRule) {
+  const activeLabel = rule.isActive ? '활성' : '비활성';
+  const calculation = getPenaltyCalculationTypeLabel(rule.calculationType);
+
+  return `${activeLabel} · ${calculation} · 기준 ${rule.requiredCount} · ${formatWon(rule.baseAmount)} + ${formatWon(rule.amountPerUnit)}`;
+}
+
+function getChargeStatusLabel(status: ChargeStatus) {
   switch (status) {
     case 'UNPAID':
       return '미납';
+    case 'PAID':
+      return '납부 완료';
     case 'WAIVED':
       return '면제';
     case 'CANCELED':
@@ -5796,6 +5895,26 @@ function getChargeStatusLabel(status: AdminWritableChargeStatus) {
     default:
       return assertNever(status);
   }
+}
+
+function getChargeIcon(charge: ChargeItem) {
+  if (charge.status === 'PAID') {
+    return '✓';
+  }
+
+  return charge.paymentCategory === 'COFFEE' ? 'C' : '₩';
+}
+
+function getChargeDescription(charge: ChargeItem) {
+  if (charge.paidAt) {
+    return `납부일 ${charge.paidAt.slice(0, 10)}`;
+  }
+
+  if (charge.dueDate) {
+    return charge.dueDate;
+  }
+
+  return charge.reason;
 }
 
 function getChargeStatusTone(status: ChargeStatus) {
@@ -5874,6 +5993,22 @@ const styles = StyleSheet.create({
   adminAvatarText: {
     color: colors.teal,
   },
+  accountMeta: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 19,
+    marginLeft: 56,
+  },
+  accountNumber: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
   avatar: {
     alignItems: 'center',
     backgroundColor: colors.primarySoft,
@@ -5918,6 +6053,198 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.gap,
+  },
+  figmaActionPill: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 12,
+    color: adminFigmaTokens.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    minWidth: 58,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    textAlign: 'center',
+  },
+  figmaBodyText: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '400',
+    lineHeight: 20,
+  },
+  figmaCardTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  figmaChargeItem: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 24,
+    gap: 8,
+    minHeight: 72,
+    padding: 14,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+  },
+  figmaDangerPill: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 12,
+    color: adminFigmaTokens.danger,
+    fontSize: 12,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    textAlign: 'center',
+  },
+  figmaFormCard: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 24,
+    gap: spacing.gap,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+  },
+  figmaHeroAmount: {
+    color: adminFigmaTokens.danger,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 34,
+    fontWeight: '900',
+    lineHeight: 42,
+  },
+  figmaHeroCard: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 24,
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+  },
+  figmaHeroCount: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 32,
+    fontWeight: '900',
+    lineHeight: 38,
+  },
+  figmaHeroLabel: {
+    color: adminFigmaTokens.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  figmaHeroMeta: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  figmaHeroRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  figmaIconBox: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 16,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  figmaIconText: {
+    color: adminFigmaTokens.primary,
+    fontSize: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  figmaListContent: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+    minWidth: 0,
+  },
+  figmaListItem: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 24,
+    flexDirection: 'row',
+    gap: 14,
+    minHeight: 82,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+  },
+  figmaListStack: {
+    gap: spacing.gap,
+  },
+  figmaListText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  figmaScreenTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 32,
+  },
+  figmaSegment: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flexGrow: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  figmaSegmentActive: {
+    backgroundColor: adminFigmaTokens.surface,
+  },
+  figmaSegmented: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    padding: 4,
+  },
+  figmaSegmentText: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  figmaSegmentTextActive: {
+    color: adminFigmaTokens.primary,
   },
   formRow: {
     flexDirection: 'row',
@@ -6063,5 +6390,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.textMuted,
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  sectionTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 26,
   },
 });
