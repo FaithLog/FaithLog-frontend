@@ -3677,8 +3677,8 @@ function AdminNotificationLogs({
         <View style={styles.filterGrid}>
           <View style={styles.filterField}>
             <TextField
-              accessibilityLabel="알림 로그 요청 묶음 필터"
-              label="요청 묶음"
+              accessibilityLabel="알림 로그 발송 묶음 필터"
+              label="발송 묶음"
               onChangeText={(requestId) => onChangeFilter('requestId', requestId)}
               placeholder="발송 결과에서 자동 입력"
               returnKeyType="search"
@@ -3761,11 +3761,11 @@ function AdminNotificationSendResultSummary({
   return (
     <Card>
       <Eyebrow>발송 결과</Eyebrow>
-      <Title>{filters.requestId.trim() ? '요청 묶음 결과' : '현재 필터 결과'}</Title>
+      <Title>{filters.requestId.trim() ? '발송 묶음 결과' : '현재 필터 결과'}</Title>
       <Body>
         {filters.requestId.trim()
-          ? '발송 요청 묶음의 현재 페이지 결과입니다.'
-          : '발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
+          ? '선택한 발송 묶음의 현재 페이지 결과입니다.'
+          : '발송 결과의 로그 보기에서 발송 묶음별 결과를 확인할 수 있습니다.'}
       </Body>
       <View style={styles.metricGrid}>
         <Metric label="SENT" value={`${counts.SENT}건`} />
@@ -3798,7 +3798,7 @@ function AdminNotificationLogBody({
       return (
         <Empty
           title="알림 로그가 없습니다"
-          message="요청 ID, 발송 상태, 날짜 필터를 조정해 주세요."
+          message="발송 묶음, 발송 상태, 날짜 필터를 조정해 주세요."
           actionLabel="다시 조회"
           actionAccessibilityLabel="알림 로그 empty state에서 다시 조회"
           onActionPress={onRetry}
@@ -3881,7 +3881,7 @@ function AdminNotificationLogRow({
       ) : null}
       <ListRow
         accessibilityLabel={`${log.title} 알림 상세 보기`}
-        label="요청 묶음"
+        label="발송 묶음"
         onPress={onPress}
         supportingText={getNotificationLogSummary(log)}
         value="상세"
@@ -3961,7 +3961,7 @@ function renderNotificationResult(
             <Metric label="스킵" value={`${notificationState.result.skippedCount}명`} />
           </View>
           <Button
-            accessibilityLabel="발송 요청 묶음으로 알림 로그 보기"
+            accessibilityLabel="발송 묶음으로 알림 로그 보기"
             onPress={() => onOpenNotificationLogs(notificationState.result.notificationRequestId)}>
             로그 보기
           </Button>
