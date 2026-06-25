@@ -1369,7 +1369,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       setNotice({
         tone: 'success',
         title: '캠퍼스 역할 변경',
-        message: `${updated.name}님의 campus role을 ${updated.campusRole}로 변경했습니다.`,
+        message: `${updated.name}님의 캠퍼스 권한을 ${updated.campusRole}로 변경했습니다.`,
       });
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스 역할을 변경하지 못했습니다.');
@@ -1523,8 +1523,8 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         />
         <AdminHome summary={loadState.summary} onOpenMembers={() => setTab('members')} />
         <Empty
-          title="ACTIVE 멤버가 없습니다"
-          message="REST Docs 기준 관리자 멤버 목록은 ACTIVE 멤버만 반환합니다."
+          title="활성 멤버가 없습니다"
+          message="현재 캠퍼스에서 운영 중인 멤버만 목록에 표시됩니다."
           actionLabel="다시 불러오기"
           actionAccessibilityLabel="관리자 멤버 목록 다시 불러오기"
           onActionPress={loadAdmin}
@@ -1762,10 +1762,10 @@ function AdminShellHeader({
             <Chip label={campusLabel} tone="info" />
             <Chip label="관리자" tone="success" />
           </View>
-          <Eyebrow>Admin 01-03, 26</Eyebrow>
+          <Eyebrow>캠퍼스 운영</Eyebrow>
           <Title>관리자 홈</Title>
           <Body>
-            global role {globalRole}와 campus role {selectedCampusRole}를 분리해서 표시합니다.
+            전체 권한 {globalRole}와 캠퍼스 권한 {selectedCampusRole}를 기준으로 관리 범위를 나눠 보여줍니다.
           </Body>
         </View>
       </View>
@@ -1788,7 +1788,7 @@ function AdminHome({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 01 Home</Eyebrow>
+        <Eyebrow>운영 개요</Eyebrow>
         <Title>{summary.campus.campusName} 운영 체크</Title>
         <Body>경건 미제출, 투표 미응답, 미납을 한 화면에서 확인합니다.</Body>
         <View style={styles.metricGrid}>
@@ -1820,7 +1820,7 @@ function AdminHome({
         {onOpenRoles ? (
           <ListRow
             label="역할 관리"
-            supportingText="campus role 변경 전용. global role은 변경하지 않습니다."
+            supportingText="캠퍼스 권한 변경 전용입니다. 전체 권한은 변경하지 않습니다."
             value="보기"
             onPress={onOpenRoles}
             accessibilityLabel="관리자 역할 관리 화면으로 이동"
@@ -2254,10 +2254,10 @@ function AdminPollManagement({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 06-09 Poll Management</Eyebrow>
+        <Eyebrow>투표 운영</Eyebrow>
         <Title>투표 관리</Title>
         <Body>
-          템플릿 CRUD, 템플릿/직접 생성, 결과와 미응답자 조회를 REST Docs 경로로 처리합니다. 수동 닫기 API 없이 endsAt 이후 서버 CLOSED 상태를 안내합니다.
+          템플릿, 직접 생성, 결과와 미응답자 조회를 한곳에서 관리합니다. 종료 예정 시각 이후에는 서버 상태에 맞춰 닫힘으로 안내합니다.
         </Body>
         <SegmentedControl items={pollSections} selectedId={section} onSelect={setSection} />
       </Card>
@@ -2359,7 +2359,7 @@ function AdminPollList({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 06 Poll Manage</Eyebrow>
+        <Eyebrow>투표 목록</Eyebrow>
         <Title>최근 투표</Title>
         <View style={styles.metricGrid}>
           <Metric label="투표" value={`${polls.length}개`} />
@@ -2379,10 +2379,10 @@ function AdminPollList({
         ))}
       </Card>
       <Card>
-        <Eyebrow>Admin 06-4 Poll Close Confirm</Eyebrow>
+        <Eyebrow>닫힘 정책</Eyebrow>
         <Title>닫힘 정책</Title>
         <Body>
-          수동 닫기 버튼은 제공하지 않습니다. 생성 시 설정한 endsAt이 지나면 서버가 CLOSED로 전환하고, 화면은 status와 종료 시각만 안내합니다.
+          수동 닫기 버튼은 제공하지 않습니다. 생성 시 설정한 종료 예정 시각이 지나면 닫힘 상태와 종료 시각만 안내합니다.
         </Body>
       </Card>
     </>
@@ -2419,7 +2419,7 @@ function AdminPollTemplateEditor({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 06-1 Poll Templates</Eyebrow>
+        <Eyebrow>투표 템플릿</Eyebrow>
         <Title>템플릿 목록</Title>
         {templates.length === 0 ? (
           <Body>저장된 템플릿이 없습니다.</Body>
@@ -2459,7 +2459,7 @@ function AdminPollTemplateEditor({
         )}
       </Card>
       <Card>
-        <Eyebrow>Admin 06-2 Poll Template Edit</Eyebrow>
+        <Eyebrow>템플릿 편집</Eyebrow>
         <Title>{form.templateId === null ? '템플릿 생성' : '템플릿 수정'}</Title>
         <TextField
           label="템플릿 제목"
@@ -2521,7 +2521,7 @@ function AdminPollTemplateEditor({
         {form.chargeGenerationType === 'OPTION_PRICE' ? (
           <View style={styles.formRow}>
             <TextField
-              label="paymentCategory"
+              label="정산 분류"
               onChangeText={(value) =>
                 onChangeForm({paymentCategory: toAdminPollPaymentCategory(value)})
               }
@@ -2529,7 +2529,7 @@ function AdminPollTemplateEditor({
             />
             <TextField
               keyboardType="number-pad"
-              label="paymentAccountId"
+              label="납부 계좌 ID"
               onChangeText={(paymentAccountId) => onChangeForm({paymentAccountId})}
               value={form.paymentAccountId}
             />
@@ -2553,9 +2553,9 @@ function AdminPollTemplateEditor({
       </Card>
       {target ? (
         <Card>
-          <Eyebrow>Admin 06-2 Poll Template Deactivate Confirm</Eyebrow>
+          <Eyebrow>템플릿 비활성화 확인</Eyebrow>
           <Title>{target.title} 비활성화</Title>
-          <Body>DELETE API는 템플릿을 삭제하지 않고 isActive=false 상태로 비활성화합니다.</Body>
+          <Body>템플릿은 삭제하지 않고 비활성 상태로 전환합니다.</Body>
           <View style={styles.actionRow}>
             <Button
               accessibilityLabel="투표 템플릿 비활성화 실행"
@@ -2597,15 +2597,15 @@ function AdminPollCreatePanel({
 }) {
   return (
     <Card>
-      <Eyebrow>Admin 07 Poll Create - Type / Detail</Eyebrow>
+      <Eyebrow>투표 생성</Eyebrow>
       <Title>투표 생성</Title>
       <Body>
-        templateId가 있으면 템플릿 선택지를 복사하고, 없으면 직접 선택지를 보냅니다. 종료는 endsAt 기준 서버 자동 처리입니다.
+        템플릿을 선택하면 저장된 선택지를 복사하고, 직접 생성 시 입력한 선택지를 사용합니다. 종료는 종료 예정 시각 기준으로 자동 처리됩니다.
       </Body>
       <TextField
         helper="비우면 직접 생성입니다."
         keyboardType="number-pad"
-        label="templateId"
+        label="템플릿 ID"
         onChangeText={(templateId) => {
           const template = templates.find((item) => String(item.id) === templateId.trim());
           onChangeForm(
@@ -2652,12 +2652,12 @@ function AdminPollCreatePanel({
       />
       <View style={styles.formRow}>
         <TextField
-          label="startsAt"
+          label="시작 시각"
           onChangeText={(startsAt) => onChangeForm({startsAt})}
           value={form.startsAt}
         />
         <TextField
-          label="endsAt"
+          label="종료 예정"
           onChangeText={(endsAt) => onChangeForm({endsAt})}
           value={form.endsAt}
         />
@@ -2673,7 +2673,7 @@ function AdminPollCreatePanel({
       {form.chargeGenerationType === 'OPTION_PRICE' ? (
         <View style={styles.formRow}>
           <TextField
-            label="paymentCategory"
+            label="정산 분류"
             onChangeText={(value) =>
               onChangeForm({paymentCategory: toAdminPollPaymentCategory(value)})
             }
@@ -2681,7 +2681,7 @@ function AdminPollCreatePanel({
           />
           <TextField
             keyboardType="number-pad"
-            label="paymentAccountId"
+            label="납부 계좌 ID"
             onChangeText={(paymentAccountId) => onChangeForm({paymentAccountId})}
             value={form.paymentAccountId}
           />
@@ -2712,7 +2712,7 @@ function AdminPollCreatePanel({
         accessibilityLabel="투표 생성 실행"
         disabled={busy || coffeeWarning !== null}
         onPress={onCreate}>
-        {busy ? 'Status 10 Poll Create Loading' : '투표 생성'}
+        {busy ? '생성 중...' : '투표 생성'}
       </Button>
     </Card>
   );
@@ -2735,7 +2735,7 @@ function AdminPollResultsPanel({
     <>
       <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
       <Card>
-        <Eyebrow>Admin 08 Poll Result + Comments</Eyebrow>
+        <Eyebrow>투표 결과</Eyebrow>
         <Title>{selectedPoll ? selectedPoll.title : '투표를 선택해 주세요'}</Title>
         <Body>선택한 투표의 응답 결과와 댓글 흐름을 함께 확인합니다.</Body>
         <Button
@@ -2836,9 +2836,9 @@ function AdminPollMissingPanel({
     <>
       <AdminPollPicker polls={polls} selectedPoll={selectedPoll} onSelectPoll={onSelectPoll} />
       <Card>
-        <Eyebrow>Admin 09 Poll Missing</Eyebrow>
+        <Eyebrow>미응답자 관리</Eyebrow>
         <Title>{selectedPoll ? `${selectedPoll.title} 미응답자` : '투표를 선택해 주세요'}</Title>
-        <Body>미응답자 조회는 관리자 endpoint를 사용하고, 알림은 사용 가능한 notifications API에 연결합니다.</Body>
+        <Body>선택한 투표의 미응답자를 확인하고 필요한 경우 알림을 보냅니다.</Body>
         <View style={styles.actionRow}>
           <Button
             accessibilityLabel="선택한 투표 미응답자 불러오기"
@@ -2875,7 +2875,7 @@ function AdminPollMissingPanel({
               key={member.userId}
               label={member.name}
               supportingText={member.email}
-              value={`user ${member.userId}`}
+              value={`사용자 ID ${member.userId}`}
             />
           ))}
         </Card>
@@ -2944,10 +2944,10 @@ function AdminDevotionMissing({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 04 Devotion Status</Eyebrow>
+        <Eyebrow>경건 현황</Eyebrow>
         <Title>경건 제출 현황</Title>
         <Body>
-          {weekStartDate} 주차 기준으로 weekly devotion submitted_at이 없거나 null인 ACTIVE 멤버를 조회합니다.
+          {weekStartDate} 주차 기준으로 아직 경건생활을 제출하지 않은 활성 멤버를 조회합니다.
         </Body>
         <View style={styles.metricGrid}>
           <Metric label="선택 주차" value={formatShortWeekLabel(weekStartDate)} />
@@ -2956,7 +2956,7 @@ function AdminDevotionMissing({
             label="제출률"
             value={selectedWeekMatchesSummary ? `${summary.devotion.submitRate}%` : '조회 후 확인'}
           />
-          <Metric label="API" value="GET missing" />
+          <Metric label="조회" value="미제출자" />
         </View>
         <View style={styles.actionRow}>
           <Button
@@ -3028,7 +3028,7 @@ function renderMissingDevotionBody({
         <Card>
           <View style={styles.headerRow}>
             <View style={styles.headerText}>
-              <Eyebrow>Admin 05 Devotion Missing</Eyebrow>
+              <Eyebrow>미제출자 목록</Eyebrow>
               <Title>미제출자 {missingState.members.length}명</Title>
               <Body>발송 전 대상자를 확인한 뒤 알림을 큐잉합니다.</Body>
             </View>
@@ -3056,11 +3056,11 @@ function MissingDevotionMemberRow({member}: {member: AdminMissingDevotionMember}
       <View style={styles.headerText}>
         <Text style={styles.memberName}>{member.name}</Text>
         <Text style={styles.memberMeta}>
-          {member.region} {member.campusName} · member #{member.campusMemberId}
+          {member.region} {member.campusName} · 멤버 ID {member.campusMemberId}
         </Text>
         <Text style={styles.memberMeta}>{member.email}</Text>
       </View>
-      <Chip label={`user ${member.userId}`} tone="info" />
+      <Chip label={`사용자 ID ${member.userId}`} tone="info" />
     </View>
   );
 }
@@ -3100,10 +3100,10 @@ function AdminNotificationLogs({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 14 Notification Logs</Eyebrow>
+        <Eyebrow>알림 로그</Eyebrow>
         <Title>알림 로그</Title>
         <Body>
-          REST Docs의 notification_logs 목록을 requestId와 상태별로 확인합니다. target preview 전용 API는 없어 발송 전 대상 확인과 requestId 로그를 연결합니다.
+          발송 요청과 상태를 확인하고, 발송 전 대상 확인 결과와 요청 ID를 연결해 추적합니다.
         </Body>
         <View style={styles.metricGrid}>
           <Metric label="SENT" value={`${counts.SENT}건`} />
@@ -3127,8 +3127,8 @@ function AdminNotificationLogs({
         <View style={styles.filterGrid}>
           <View style={styles.filterField}>
             <TextField
-              accessibilityLabel="알림 로그 requestId 필터"
-              label="requestId"
+              accessibilityLabel="알림 로그 요청 ID 필터"
+              label="요청 ID"
               onChangeText={(requestId) => onChangeFilter('requestId', requestId)}
               placeholder="notificationRequestId"
               returnKeyType="search"
@@ -3139,7 +3139,7 @@ function AdminNotificationLogs({
             <TextField
               accessibilityLabel="알림 로그 대상 ID 필터"
               keyboardType="number-pad"
-              label="targetId"
+              label="대상 ID"
               onChangeText={(targetId) => onChangeFilter('targetId', targetId)}
               placeholder="숫자 ID"
               value={filters.targetId}
@@ -3148,7 +3148,7 @@ function AdminNotificationLogs({
           <View style={styles.filterField}>
             <TextField
               accessibilityLabel="알림 로그 대상 주차 필터"
-              label="targetWeekStartDate"
+              label="대상 주차"
               onChangeText={(targetWeekStartDate) =>
                 onChangeFilter('targetWeekStartDate', targetWeekStartDate)
               }
@@ -3159,7 +3159,7 @@ function AdminNotificationLogs({
           <View style={styles.filterField}>
             <TextField
               accessibilityLabel="알림 로그 시작일 필터"
-              label="startDate"
+              label="시작일"
               onChangeText={(startDate) => onChangeFilter('startDate', startDate)}
               placeholder="YYYY-MM-DD"
               value={filters.startDate}
@@ -3168,7 +3168,7 @@ function AdminNotificationLogs({
           <View style={styles.filterField}>
             <TextField
               accessibilityLabel="알림 로그 종료일 필터"
-              label="endDate"
+              label="종료일"
               onChangeText={(endDate) => onChangeFilter('endDate', endDate)}
               placeholder="YYYY-MM-DD"
               value={filters.endDate}
@@ -3220,12 +3220,12 @@ function AdminNotificationSendResultSummary({
 
   return (
     <Card>
-      <Eyebrow>Admin 14-3 Notification Send Result</Eyebrow>
-      <Title>{filters.requestId.trim() ? 'requestId 발송 결과' : '현재 필터 결과'}</Title>
+      <Eyebrow>발송 결과</Eyebrow>
+      <Title>{filters.requestId.trim() ? '요청 ID 발송 결과' : '현재 필터 결과'}</Title>
       <Body>
         {filters.requestId.trim()
           ? `${filters.requestId.trim()} 요청 묶음의 현재 페이지 결과입니다.`
-          : 'requestId를 입력하거나 발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
+          : '요청 ID를 입력하거나 발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
       </Body>
       <View style={styles.metricGrid}>
         <Metric label="SENT" value={`${counts.SENT}건`} />
@@ -3258,7 +3258,7 @@ function AdminNotificationLogBody({
       return (
         <Empty
           title="알림 로그가 없습니다"
-          message="requestId, sendStatus, 날짜 필터를 조정해 주세요."
+          message="요청 ID, 발송 상태, 날짜 필터를 조정해 주세요."
           actionLabel="다시 조회"
           actionAccessibilityLabel="알림 로그 empty state에서 다시 조회"
           onActionPress={onRetry}
@@ -3271,12 +3271,12 @@ function AdminNotificationLogBody({
         <Card>
           <View style={styles.headerRow}>
             <View style={styles.headerText}>
-              <Eyebrow>Admin 14 Notification Logs</Eyebrow>
+              <Eyebrow>로그 목록</Eyebrow>
               <Title>
                 {state.logs.totalElements}건 중 {state.logs.items.length}건
               </Title>
               <Body>
-                page {state.logs.page + 1}/{Math.max(state.logs.totalPages, 1)} · sort createdAt,desc
+                {state.logs.page + 1}/{Math.max(state.logs.totalPages, 1)} 페이지 · 최신순
               </Body>
             </View>
           </View>
@@ -3323,7 +3323,7 @@ function AdminNotificationLogRow({
         <View style={styles.headerText}>
           <Text style={styles.memberName}>{log.title}</Text>
           <Text style={styles.memberMeta}>
-            {log.name} · user {log.userId} · {formatDateTime(log.createdAt)}
+            {log.name} · 사용자 ID {log.userId} · {formatDateTime(log.createdAt)}
           </Text>
           <Text style={styles.memberMeta} numberOfLines={2}>
             {log.body}
@@ -3362,23 +3362,23 @@ function AdminNotificationLogDetail({
       <Card>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
-            <Eyebrow>Admin 14-1 Notification Log Detail</Eyebrow>
+            <Eyebrow>알림 상세</Eyebrow>
             <Title>{log.title}</Title>
             <Body>{formatDateTime(log.createdAt)} 생성된 알림 로그입니다.</Body>
           </View>
           <Chip label={getNotificationStatusLabel(log.sendStatus)} tone={getNotificationStatusTone(log.sendStatus)} />
         </View>
-        <ListRow label="requestId" supportingText={log.requestId} value={`log #${log.notificationLogId}`} />
-        <ListRow label="대상" supportingText={log.email} value={`${log.name} · user ${log.userId}`} />
-        <ListRow label="유형" supportingText={log.notificationType} value={`campus ${log.campusId}`} />
+        <ListRow label="요청 ID" supportingText={log.requestId} value={`로그 ID ${log.notificationLogId}`} />
+        <ListRow label="대상" supportingText={log.email} value={`${log.name} · 사용자 ID ${log.userId}`} />
+        <ListRow label="유형" supportingText={log.notificationType} value={`캠퍼스 ID ${log.campusId}`} />
         <ListRow
           label="대상 리소스"
-          supportingText={`week ${log.targetWeekStartDate ?? '-'} · target ${log.targetId ?? '-'}`}
+          supportingText={`주차 ${log.targetWeekStartDate ?? '-'} · 대상 ID ${log.targetId ?? '-'}`}
         />
         <ListRow label="본문" supportingText={log.body} />
-        <ListRow label="sentAt" value={log.sentAt ? formatDateTime(log.sentAt) : '-'} />
+        <ListRow label="발송 시각" value={log.sentAt ? formatDateTime(log.sentAt) : '-'} />
         <ListRow
-          label="failureReason"
+          label="실패 사유"
           supportingText={log.failureReason ?? '실패 또는 스킵 사유가 없습니다.'}
         />
         <Button accessibilityLabel="알림 로그 상세 닫기" onPress={onBack} variant="secondary">
@@ -3386,13 +3386,13 @@ function AdminNotificationLogDetail({
         </Button>
       </Card>
       <Card>
-        <Eyebrow>Admin 14-2 Notification Target Preview</Eyebrow>
+        <Eyebrow>대상 미리보기</Eyebrow>
         <Title>{log.name}</Title>
         <Body>
-          target preview 전용 API가 없어 notification_logs의 대상 필드로만 미리보기를 제공합니다.
+          발송 로그에 저장된 대상 정보를 기준으로 미리보기를 제공합니다.
         </Body>
-        <ListRow label="대상 이메일" supportingText={log.email} value={`user ${log.userId}`} />
-        <ListRow label="requestId" supportingText={log.requestId} />
+        <ListRow label="대상 이메일" supportingText={log.email} value={`사용자 ID ${log.userId}`} />
+        <ListRow label="요청 ID" supportingText={log.requestId} />
       </Card>
     </>
   );
@@ -3407,11 +3407,11 @@ function renderNotificationResult(
     case 'confirming':
       return null;
     case 'sending':
-      return <Loading message="Status 08 Notification Sending: 알림을 발송 큐에 넣고 있어요." />;
+      return <Loading message="알림 발송 요청을 처리하고 있어요." />;
     case 'sent':
       return (
         <Card>
-          <Eyebrow>Status 09 Notification Sent</Eyebrow>
+          <Eyebrow>발송 요청 완료</Eyebrow>
           <Title>알림 발송 요청이 접수되었습니다</Title>
           <View style={styles.metricGrid}>
             <Metric label="확인 대상" value={`${notificationState.targetCount}명`} />
@@ -3420,7 +3420,7 @@ function renderNotificationResult(
           </View>
           <ListRow
             label="요청 ID"
-            supportingText="notification_logs.request_id"
+            supportingText="로그에서 같은 요청 묶음으로 확인할 수 있습니다."
             value={notificationState.result.notificationRequestId}
           />
           <Button
@@ -3433,7 +3433,7 @@ function renderNotificationResult(
     case 'failed':
       return (
         <Card>
-          <Eyebrow>Status 09 Notification Sent</Eyebrow>
+          <Eyebrow>발송 요청 실패</Eyebrow>
           <Title>알림 발송에 실패했습니다</Title>
           <Body>확인 대상 {notificationState.targetCount}명에 대한 발송 요청이 완료되지 않았습니다.</Body>
           <AdminInlineError error={notificationState.error} />
@@ -3486,10 +3486,10 @@ function AdminPrayerManagement({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 15-21 Prayer</Eyebrow>
+        <Eyebrow>기도제목 운영</Eyebrow>
         <Title>기도제목 시즌/조 관리</Title>
         <Body>
-          시즌 생성, 조 생성/수정, 조원 전체 교체, 주간 제출 현황을 REST Docs prayer 계약으로 관리합니다.
+          시즌 생성, 조 편집, 조원 배정, 주간 제출 현황을 한 화면에서 관리합니다.
         </Body>
         <View style={styles.actionRow}>
           <Button
@@ -3554,7 +3554,7 @@ function renderAdminPrayerBoard({
   switch (boardState.status) {
     case 'idle':
     case 'loading':
-      return <Loading message="Admin 20 Prayer Weekly Status를 불러오고 있어요." />;
+      return <Loading message="기도제목 주간 현황을 불러오고 있어요." />;
     case 'error':
       return <AdminErrorState error={boardState.error} onRetry={onRetry} />;
     case 'empty':
@@ -3575,7 +3575,7 @@ function renderAdminPrayerBoard({
         <>
           <PrayerBoardSummaryCard board={boardState.board} />
           <Card>
-            <Eyebrow>Admin 15 Prayer Season - 조 관리</Eyebrow>
+            <Eyebrow>기도조 관리</Eyebrow>
             <Title>활성 기도조</Title>
             {boardState.board.groups
               .slice()
@@ -3586,7 +3586,7 @@ function renderAdminPrayerBoard({
                     <View style={styles.headerText}>
                       <Text style={styles.memberName}>{group.groupName}</Text>
                       <Text style={styles.memberMeta}>
-                        group #{group.groupId} · sort {group.sortOrder}
+                        기도조 ID {group.groupId} · 정렬 순서 {group.sortOrder}
                       </Text>
                     </View>
                     <Chip
@@ -3603,8 +3603,8 @@ function renderAdminPrayerBoard({
                         label={member.name}
                         supportingText={
                           member.submittedAt
-                            ? `version ${member.version} · ${formatDateTime(member.submittedAt)}`
-                            : `version ${member.version} · 미작성`
+                            ? `작성 시각 ${formatDateTime(member.submittedAt)}`
+                            : '미작성'
                         }
                         value={hasPrayerMemberSubmitted(member) ? '작성' : '미작성'}
                       />
@@ -3629,10 +3629,10 @@ function renderAdminPrayerBoard({
 function PrayerBoardSummaryCard({board}: {board: PrayerWeekSummary}) {
   return (
     <Card>
-      <Eyebrow>Admin 17 Prayer Dashboard</Eyebrow>
+      <Eyebrow>주간 제출 현황</Eyebrow>
       <Title>기도제목 주간 현황</Title>
       <Body>
-        별도 관리자 집계 endpoint가 없어 REST Docs 기준 week board 조회값으로 제출 현황을 계산합니다.
+        선택한 주차의 기도조별 작성 현황을 기준으로 제출률을 확인합니다.
       </Body>
       <View style={styles.metricGrid}>
         <Metric label="주차" value={formatShortWeekLabel(board.weekStartDate)} />
@@ -3659,7 +3659,7 @@ function AdminPrayerSeasonForm({
 }) {
   return (
     <Card>
-      <Eyebrow>Admin 18 Prayer Season Create</Eyebrow>
+      <Eyebrow>기도 시즌</Eyebrow>
       <Title>기도 시즌 생성/종료</Title>
       <Body>중복 ACTIVE 시즌은 서버가 409 `PRAYER_ACTIVE_SEASON_ALREADY_EXISTS`로 거부합니다.</Body>
       <TextField
@@ -3673,7 +3673,7 @@ function AdminPrayerSeasonForm({
         <View style={styles.filterField}>
           <TextField
             accessibilityLabel="기도 시즌 시작일"
-            label="startDate"
+            label="시작일"
             onChangeText={(startDate) => onChangeForm({startDate})}
             placeholder="YYYY-MM-DD"
             value={form.startDate}
@@ -3683,7 +3683,7 @@ function AdminPrayerSeasonForm({
           <TextField
             accessibilityLabel="종료할 기도 시즌 ID"
             keyboardType="number-pad"
-            label="seasonId"
+            label="시즌 ID"
             onChangeText={(seasonId) => onChangeForm({seasonId: seasonId.replace(/\D/g, '')})}
             placeholder="종료/조 생성에 사용"
             value={form.seasonId}
@@ -3692,7 +3692,7 @@ function AdminPrayerSeasonForm({
         <View style={styles.filterField}>
           <TextField
             accessibilityLabel="기도 시즌 종료일"
-            label="endDate"
+            label="종료일"
             onChangeText={(endDate) => onChangeForm({endDate})}
             placeholder="YYYY-MM-DD"
             value={form.endDate}
@@ -3731,14 +3731,14 @@ function AdminPrayerGroupForm({
 }) {
   return (
     <Card>
-      <Eyebrow>Admin 19 Prayer Group Create</Eyebrow>
+      <Eyebrow>기도조 편집</Eyebrow>
       <Title>{form.groupId ? '기도조 수정' : '기도조 생성'}</Title>
       <View style={styles.filterGrid}>
         <View style={styles.filterField}>
           <TextField
             accessibilityLabel="기도조 시즌 ID"
             keyboardType="number-pad"
-            label="seasonId"
+            label="시즌 ID"
             onChangeText={(seasonId) => onChangeForm({seasonId: seasonId.replace(/\D/g, '')})}
             placeholder="필수"
             value={form.seasonId}
@@ -3748,7 +3748,7 @@ function AdminPrayerGroupForm({
           <TextField
             accessibilityLabel="수정할 기도조 ID"
             keyboardType="number-pad"
-            label="groupId"
+            label="기도조 ID"
             onChangeText={(groupId) => onChangeForm({groupId: groupId.replace(/\D/g, '')})}
             placeholder="비우면 생성"
             value={form.groupId}
@@ -3769,7 +3769,7 @@ function AdminPrayerGroupForm({
           <TextField
             accessibilityLabel="기도조 정렬 순서"
             keyboardType="number-pad"
-            label="sortOrder"
+            label="정렬 순서"
             onChangeText={(sortOrder) => onChangeForm({sortOrder: sortOrder.replace(/\D/g, '')})}
             placeholder="1"
             value={form.sortOrder}
@@ -3811,23 +3811,23 @@ function AdminPrayerMembersForm({
 }) {
   return (
     <Card>
-      <Eyebrow>Admin 16, 21 Prayer Members - 배정</Eyebrow>
+      <Eyebrow>조원 배정</Eyebrow>
       <Title>조 멤버 전체 교체</Title>
       <Body>
-        `PUT /admin/prayer-groups/{'{groupId}'}/members`는 입력한 userId만 active로 남기고 빠진 멤버를 inactive 처리합니다. 빈 값 저장은 빈 조 상태로 저장됩니다.
+        입력한 사용자 ID만 조원으로 남기고 빠진 멤버는 배정에서 제외합니다. 빈 값으로 저장하면 빈 조 상태가 됩니다.
       </Body>
       <TextField
-        accessibilityLabel="기도조 멤버 배정 groupId"
+        accessibilityLabel="기도조 멤버 배정 기도조 ID"
         keyboardType="number-pad"
-        label="groupId"
+        label="기도조 ID"
         onChangeText={(groupId) => onChangeForm({groupId: groupId.replace(/\D/g, '')})}
         placeholder="필수"
         value={form.groupId}
       />
       <TextField
-        accessibilityLabel="기도조 멤버 userId 목록"
+        accessibilityLabel="기도조 멤버 사용자 ID 목록"
         helper="쉼표, 공백, 줄바꿈으로 구분합니다. 예: 98, 99, 100"
-        label="userIds"
+        label="사용자 ID 목록"
         onChangeText={(userIds) => onChangeForm({userIds})}
         placeholder="98, 99, 100"
         value={form.userIds}
@@ -3839,10 +3839,10 @@ function AdminPrayerMembersForm({
         {busy ? '저장 중...' : '멤버 저장'}
       </Button>
       <View style={styles.confirmTargetList}>
-        <Text style={styles.confirmTargetText}>ACTIVE 멤버 userId 참고</Text>
+        <Text style={styles.confirmTargetText}>활성 멤버 사용자 ID 참고</Text>
         {members.slice(0, 8).map((member) => (
           <Text key={member.userId} style={styles.confirmTargetText}>
-            {member.name} · user {member.userId}
+            {member.name} · 사용자 ID {member.userId}
           </Text>
         ))}
         {members.length > 8 ? (
@@ -3920,7 +3920,7 @@ function AdminSettlement({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 10, 22-25 Settlement</Eyebrow>
+        <Eyebrow>정산 운영</Eyebrow>
         <Title>정산/계좌/벌금 관리</Title>
         <Body>
           청구 상태, 활성 납부 계좌, 벌금 규칙을 관리자 화면에서 분리해 관리합니다.
@@ -4008,10 +4008,10 @@ function AdminChargeSettlement({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 10 Settlement</Eyebrow>
+        <Eyebrow>청구 관리</Eyebrow>
         <Title>청구 상태 관리</Title>
         <Body>
-          REST Docs 기준 전체 청구 집계는 summary와 members만 포함하고, 개별 청구는 회원 상세에서 조회합니다.
+          전체 청구 집계와 회원별 상세 청구를 분리해 조회합니다.
         </Body>
         <SegmentedControl
           items={chargeStatusFilters}
@@ -4039,7 +4039,7 @@ function AdminChargeSettlement({
             <TextField
               accessibilityLabel="정산 사용자 ID 필터"
               keyboardType="number-pad"
-              label="userId"
+              label="사용자 ID"
               onChangeText={(userId) => onUpdateFilter('userId', userId.replace(/\D/g, ''))}
               onSubmitEditing={onSearch}
               placeholder="숫자만"
@@ -4097,15 +4097,15 @@ function AdminPaymentAccounts({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 22 Payment Accounts</Eyebrow>
+        <Eyebrow>납부 계좌</Eyebrow>
         <Title>활성 납부 계좌</Title>
         <Body>
-          같은 계좌 유형으로 새 계좌를 등록하면 REST Docs 정책에 따라 기존 활성 계좌는 자동 비활성화됩니다.
+          같은 계좌 유형으로 새 계좌를 등록하면 기존 활성 계좌는 자동으로 비활성화됩니다.
         </Body>
         {renderPaymentAccountList({busy, onRequestDeactivate, onRetry, state})}
       </Card>
       <Card>
-        <Eyebrow>Admin 23 Payment Account Create Edit</Eyebrow>
+        <Eyebrow>계좌 등록</Eyebrow>
         <Title>계좌 등록</Title>
         <SegmentedControl
           items={paymentAccountTypeOptions}
@@ -4151,9 +4151,9 @@ function AdminPaymentAccounts({
           </View>
           <View style={styles.filterField}>
             <TextField
-              accessibilityLabel="납부 계좌 ownerUserId"
+              accessibilityLabel="납부 계좌 담당자 사용자 ID"
               keyboardType="number-pad"
-              label="ownerUserId"
+              label="담당자 사용자 ID"
               onChangeText={(ownerUserId) => onChangeForm({ownerUserId: ownerUserId.replace(/\D/g, '')})}
               placeholder="없으면 비워두기"
               value={form.ownerUserId}
@@ -4251,13 +4251,13 @@ function AdminPenaltyRules({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 24 Penalty Rules</Eyebrow>
+        <Eyebrow>벌금 규칙</Eyebrow>
         <Title>벌금 규칙</Title>
         <Body>같은 규칙 타입의 새 ACTIVE 규칙이 생성되면 기존 ACTIVE 규칙은 비활성화됩니다.</Body>
         {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
       </Card>
       <Card>
-        <Eyebrow>Admin 25 Penalty Rule Edit</Eyebrow>
+        <Eyebrow>규칙 편집</Eyebrow>
         <Title>{form.ruleId === null ? '규칙 등록' : '규칙 수정'}</Title>
         {form.ruleId === null ? (
           <>
@@ -4420,7 +4420,7 @@ function renderSettlementSummary({
           <SettlementSummaryCard charges={settlementState.charges} />
           <Empty
             title="조건에 맞는 청구 회원이 없습니다"
-            message="status, paymentCategory, userId, keyword 필터를 조정해 주세요."
+            message="상태, 정산 분류, 사용자 ID, 검색어 필터를 조정해 주세요."
             actionLabel="다시 조회"
             actionAccessibilityLabel="관리자 정산 empty state에서 다시 조회"
             onActionPress={onRetrySummary}
@@ -4489,7 +4489,7 @@ function SettlementMemberRow({
           <Text style={styles.memberName}>{member.name}</Text>
           <Text style={styles.memberMeta}>{member.email}</Text>
         </View>
-        <Chip label={`user ${member.userId}`} tone="info" />
+        <Chip label={`사용자 ID ${member.userId}`} tone="info" />
       </View>
       <View style={styles.metricGrid}>
         <Metric label="미납" value={formatWon(member.unpaidAmount)} />
@@ -4521,7 +4521,7 @@ function renderChargeDetail({
       return (
         <Empty
           title="회원을 선택해 주세요"
-          message="전체 정산 목록에서 회원을 선택하면 Admin 11 청구 상세와 상태 변경 액션을 보여줍니다."
+          message="전체 정산 목록에서 회원을 선택하면 청구 상세와 상태 변경 액션을 보여줍니다."
         />
       );
     case 'loading':
@@ -4567,7 +4567,7 @@ function AdminChargeDetail({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 11 Charge Detail - Direct Paid</Eyebrow>
+        <Eyebrow>청구 상세</Eyebrow>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Title>{charges.name}</Title>
@@ -4583,13 +4583,13 @@ function AdminChargeDetail({
           <Metric label="납부" value={formatWon(charges.summary.paidAmount)} />
           <Metric label="면제" value={formatWon(charges.summary.waivedAmount)} />
         </View>
-        <Body>관리자는 PAID로 직접 변경할 수 없습니다. PAID 버튼은 API 호출 없이 차단 안내만 표시합니다.</Body>
+        <Body>관리자는 PAID로 직접 변경할 수 없습니다. PAID 버튼은 차단 안내만 표시합니다.</Body>
       </Card>
       {charges.items.length === 0 ? (
         <Empty title="청구 항목이 없습니다" message="선택한 필터에 맞는 회원별 청구 상세가 없습니다." />
       ) : (
         <Card>
-          <Eyebrow>Admin 11-1 Charge Status Edit</Eyebrow>
+          <Eyebrow>상태 변경</Eyebrow>
           {charges.items.map((charge) => (
             <ChargeItemRow
               busy={busy}
@@ -4623,7 +4623,7 @@ function ChargeItemRow({
           <Text style={styles.memberName}>{charge.title}</Text>
           <Text style={styles.memberMeta}>{charge.reason}</Text>
           <Text style={styles.memberMeta}>
-            due {charge.dueDate ?? '미정'} · item #{charge.id}
+            납부 기한 {charge.dueDate ?? '미정'} · 청구 ID {charge.id}
           </Text>
         </View>
         <View style={styles.chipRow}>
@@ -4633,7 +4633,7 @@ function ChargeItemRow({
       </View>
       <ListRow
         label="금액"
-        supportingText={charge.account ? `${charge.account.bankName} · ${charge.account.accountHolder}` : '계좌 snapshot 없음'}
+        supportingText={charge.account ? `${charge.account.bankName} · ${charge.account.accountHolder}` : '계좌 정보 없음'}
         value={formatWon(charge.amount)}
       />
       <View style={styles.roleGrid}>
@@ -4678,7 +4678,7 @@ function AdminMembers({
     <Card>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <Eyebrow>Admin 02 Members</Eyebrow>
+          <Eyebrow>멤버 관리</Eyebrow>
           <Title>멤버 관리</Title>
           <Body>멤버 상세에서 역할 변경, 커피 담당자 지정, 위험 액션을 처리합니다.</Body>
         </View>
@@ -4731,7 +4731,7 @@ function AdminMemberDetail({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 03 Member Detail + Coffee Duty</Eyebrow>
+        <Eyebrow>멤버 상세</Eyebrow>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Title>{member.name}</Title>
@@ -4742,12 +4742,12 @@ function AdminMemberDetail({
           </Button>
         </View>
         <View style={styles.chipRow}>
-          <Chip label={`campus ${member.campusRole}`} tone="info" />
+          <Chip label={`캠퍼스 권한 ${member.campusRole}`} tone="info" />
           <Chip label={member.status} tone={member.status === 'ACTIVE' ? 'success' : 'warning'} />
         </View>
-        <ListRow label="현재 로그인 global role" value={globalRole} />
-        <ListRow label="현재 로그인 campus role" value={selectedCampusRole} />
-        <Body>이 화면의 역할 변경은 campus role만 변경하며, global role은 Service ADMIN 영역과 분리합니다.</Body>
+        <ListRow label="현재 로그인 전체 권한" value={globalRole} />
+        <ListRow label="현재 로그인 캠퍼스 권한" value={selectedCampusRole} />
+        <Body>이 화면의 역할 변경은 캠퍼스 권한만 변경하며, 전체 권한은 Service ADMIN 영역과 분리합니다.</Body>
       </Card>
       <Card>
         <Eyebrow>역할 변경</Eyebrow>
@@ -4792,7 +4792,7 @@ function AdminMemberDetail({
       <Card>
         <Eyebrow>위험 액션</Eyebrow>
         <Title>멤버 비활성화</Title>
-        <Body>REST Docs 기준 멤버 삭제는 물리 삭제가 아니라 membership status를 INACTIVE로 바꾸는 soft delete입니다.</Body>
+        <Body>멤버 비활성화는 기록을 삭제하지 않고 캠퍼스 멤버십 상태만 비활성으로 바꿉니다.</Body>
         <Button
           accessibilityLabel={`${member.name} 멤버 비활성화 확인 sheet 열기`}
           disabled={busy}
@@ -4830,12 +4830,12 @@ function AdminRoleManagement({
   return (
     <>
       <Card>
-        <Eyebrow>Admin 26 Role Management</Eyebrow>
+        <Eyebrow>역할 관리</Eyebrow>
         <Title>역할 관리</Title>
         <Body>
-          campus role 관리자 {adminCount}명. 현재 계정은 global {globalRole}, campus {selectedCampusRole}입니다.
+          캠퍼스 관리자 {adminCount}명. 현재 계정은 전체 권한 {globalRole}, 캠퍼스 권한 {selectedCampusRole}입니다.
         </Body>
-        <Body>global role 변경은 이 화면에서 하지 않습니다. 권한 위계 위반은 서버 403 UX로 분리합니다.</Body>
+        <Body>전체 권한 변경은 이 화면에서 하지 않습니다. 권한 위계 위반은 서버 403 UX로 분리합니다.</Body>
       </Card>
       <Card>
         <Eyebrow>역할별 보기</Eyebrow>
@@ -4960,17 +4960,17 @@ function NotificationConfirmSheet({
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>Admin 12 Notification Confirm</Eyebrow>
+          <Eyebrow>알림 발송 확인</Eyebrow>
           <Title>{targets.length}명에게 경건 알림을 보낼까요?</Title>
           <Body>
-            {weekStartDate} 주차 미제출자에게 REST Docs의 CUSTOM 알림 payload로 발송합니다.
+            {weekStartDate} 주차 미제출자에게 경건생활 제출 알림을 발송합니다.
           </Body>
           <ListRow label="제목" value="경건생활 제출 알림" />
           <ListRow label="본문" supportingText="이번 주 경건생활을 제출해 주세요." />
           <View style={styles.confirmTargetList}>
             {targets.slice(0, 4).map((target) => (
               <Text key={target.userId} style={styles.confirmTargetText}>
-                {target.name} · user {target.userId}
+                {target.name} · 사용자 ID {target.userId}
               </Text>
             ))}
             {targets.length > 4 ? (
@@ -5017,14 +5017,14 @@ function ChargeStatusConfirmSheet({
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>Admin 11-1 Charge Status Edit</Eyebrow>
+          <Eyebrow>청구 상태 변경</Eyebrow>
           <Title>
             {target
               ? `${target.charge.title}을 ${getChargeStatusLabel(target.status)} 처리할까요?`
               : '청구 상태 변경'}
           </Title>
           <Body>
-            WAIVED, CANCELED, UNPAID 변경만 관리자 API로 전송합니다. PAID 변경은 납부자 직접 처리 흐름에서만 가능합니다.
+            WAIVED, CANCELED, UNPAID 변경만 관리자 권한으로 처리합니다. PAID 변경은 납부자 직접 처리 흐름에서만 가능합니다.
           </Body>
           {target ? (
             <>
@@ -5067,15 +5067,15 @@ function PaidNotAllowedSheet({
     <Modal animationType="slide" transparent visible={charge !== null} onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>Admin 11-2 Charge Paid Not Allowed</Eyebrow>
+          <Eyebrow>납부 완료 변경 제한</Eyebrow>
           <Title>관리자는 PAID로 직접 변경할 수 없습니다</Title>
           <Body>
-            REST Docs 기준 관리자 상태 변경 요청은 UNPAID, WAIVED, CANCELED만 허용합니다. 이 버튼은 API 요청을 보내지 않습니다.
+            관리자는 미납, 면제, 취소 상태만 직접 변경할 수 있습니다. 납부 완료는 납부자 처리 흐름에서만 가능합니다.
           </Body>
           {charge ? (
             <ListRow
               label={charge.title}
-              supportingText={`현재 상태 ${charge.status} · item #${charge.id}`}
+              supportingText={`현재 상태 ${charge.status} · 청구 ID ${charge.id}`}
               value={formatWon(charge.amount)}
             />
           ) : null}
@@ -5105,7 +5105,7 @@ function DeactivatePaymentAccountSheet({
     <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>Admin 22-1 Payment Account Deactivate Confirm</Eyebrow>
+          <Eyebrow>계좌 비활성화 확인</Eyebrow>
           <Title>{account ? `${account.nickname} 계좌를 비활성화할까요?` : '계좌 비활성화'}</Title>
           <Body>
             기존 UNPAID 청구가 있어도 비활성화할 수 있습니다. 새 활성 계좌를 등록하면 미납 청구는 새 계좌로 재연결되고, 다음 정산 전에 계좌 연결 상태를 확인해야 합니다.
@@ -5160,15 +5160,15 @@ function PrayerSeasonCloseSheet({
     <Modal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>Admin 15 Prayer Season Close Confirm</Eyebrow>
-          <Title>{target ? `시즌 #${target.seasonId}을 종료할까요?` : '기도 시즌 종료'}</Title>
+          <Eyebrow>시즌 종료 확인</Eyebrow>
+          <Title>{target ? `시즌 ID ${target.seasonId}을 종료할까요?` : '기도 시즌 종료'}</Title>
           <Body>
             종료 후 해당 시즌은 CLOSED 상태가 됩니다. active season 중복 생성 409를 풀기 위한 위험 액션이라 확인 후 실행합니다.
           </Body>
           {target ? (
             <>
-              <ListRow label="seasonId" value={String(target.seasonId)} />
-              <ListRow label="endDate" value={target.endDate} />
+              <ListRow label="시즌 ID" value={String(target.seasonId)} />
+              <ListRow label="종료일" value={target.endDate} />
             </>
           ) : null}
           {error ? <AdminInlineError error={error} /> : null}
@@ -5326,7 +5326,7 @@ async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) 
   const {accessToken} = await getStoredTokens();
 
   if (!accessToken) {
-    setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+    setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
     return null;
   }
 
@@ -5354,7 +5354,7 @@ function toApiError(error: unknown, fallback: string): ApiError {
 function getAdminActionErrorMessage(error: ApiError) {
   switch (error.kind) {
     case 'permissionDenied':
-      return '권한이 부족합니다. 같은 단계 이상의 campus role 변경이나 멤버 비활성화는 서버가 403으로 거부할 수 있습니다.';
+      return '권한이 부족합니다. 같은 단계 이상의 캠퍼스 권한 변경이나 멤버 비활성화는 서버가 403으로 거부할 수 있습니다.';
     case 'conflict':
       return '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
     case 'offline':
@@ -5589,7 +5589,7 @@ function getAdminPollCoffeeWarning(
   }
 
   if (form.paymentCategory !== 'COFFEE' || !form.paymentAccountId.trim()) {
-    return '커피 선택가 투표는 COFFEE 계좌 paymentAccountId가 필요합니다.';
+    return '커피 선택가 투표는 COFFEE 납부 계좌 ID가 필요합니다.';
   }
 
   if (!coffeeDuty) {
@@ -5749,7 +5749,7 @@ function parseUserIdList(value: string) {
     if (seen.has(id)) {
       throw new FaithLogApiError({
         kind: 'error',
-        message: '기도조 멤버 userId가 중복되었습니다.',
+        message: '기도조 멤버 사용자 ID가 중복되었습니다.',
       });
     }
 
