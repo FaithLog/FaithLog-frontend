@@ -79,9 +79,11 @@ import type {
   WeeklyDevotionSummary,
 } from './types';
 import {getSafeApiErrorMessage} from './errorPolicy';
+import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 
 type RequestOptions = {
   accessToken?: string;
+  skipAuthRefresh?: boolean;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
 };
@@ -94,6 +96,8 @@ export class FaithLogApiError extends Error {
     this.detail = detail;
   }
 }
+
+let authRefreshInFlight: Promise<TokenPair> | null = null;
 
 export function getApiBaseUrl() {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
@@ -962,31 +966,127 @@ async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   return payload;
 }
 
-export async function apiRequest<T>(
+async function executeApiRequest<T>(
   path: string,
   {accessToken, method = 'GET', body}: RequestOptions = {},
 ): Promise<T> {
-  try {
-    const init: RequestInit = {
-      method,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...(accessToken ? {Authorization: `Bearer ${accessToken}`} : {}),
-      },
-      ...(body === undefined ? {} : {body: JSON.stringify(body)}),
-    };
-    const response = await fetch(buildApiUrl(path), init);
-    const envelope = await parseEnvelope<T>(response);
+  const init: RequestInit = {
+    method,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(accessToken ? {Authorization: `Bearer ${accessToken}`} : {}),
+    },
+    ...(body === undefined ? {} : {body: JSON.stringify(body)}),
+  };
+  const response = await fetch(buildApiUrl(path), init);
+  const envelope = await parseEnvelope<T>(response);
 
-    return envelope.data as T;
+  return envelope.data as T;
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  try {
+    return await executeApiRequest<T>(path, options);
   } catch (error) {
-    throw new FaithLogApiError(normalizeNetworkError(error));
+    const normalizedError = normalizeNetworkError(error);
+
+    if (shouldRetryWithRefreshedAccessToken(normalizedError, options)) {
+      return retryWithRefreshedAccessToken(path, options);
+    }
+
+    throw new FaithLogApiError(normalizedError);
   }
+}
+
+function shouldRetryWithRefreshedAccessToken(error: ApiError, options: RequestOptions) {
+  return (
+    error.kind === 'sessionExpired' &&
+    Boolean(options.accessToken) &&
+    options.skipAuthRefresh !== true
+  );
+}
+
+async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOptions) {
+  const previousAccessToken = options.accessToken;
+
+  if (!previousAccessToken) {
+    throw new FaithLogApiError(createSessionExpiredError());
+  }
+
+  const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken);
+
+  try {
+    return await executeApiRequest<T>(path, {
+      ...options,
+      accessToken: tokens.accessToken,
+      skipAuthRefresh: true,
+    });
+  } catch (retryError) {
+    const normalizedRetryError = normalizeNetworkError(retryError);
+
+    if (normalizedRetryError.kind === 'sessionExpired') {
+      await clearTokens();
+    }
+
+    throw new FaithLogApiError(normalizedRetryError);
+  }
+}
+
+async function getTokensAfterSingleFlightRefresh(previousAccessToken: string) {
+  const storedTokens = await getStoredTokens();
+
+  if (
+    storedTokens.accessToken &&
+    storedTokens.refreshToken &&
+    storedTokens.accessToken !== previousAccessToken
+  ) {
+    return {
+      accessToken: storedTokens.accessToken,
+      refreshToken: storedTokens.refreshToken,
+    };
+  }
+
+  if (!storedTokens.refreshToken) {
+    await clearTokens();
+    throw new FaithLogApiError(createSessionExpiredError());
+  }
+
+  if (!authRefreshInFlight) {
+    authRefreshInFlight = refreshAndPersistTokens(storedTokens.refreshToken).finally(() => {
+      authRefreshInFlight = null;
+    });
+  }
+
+  return authRefreshInFlight;
+}
+
+async function refreshAndPersistTokens(refreshToken: string) {
+  try {
+    const tokens = await refreshAuthToken(refreshToken);
+    await saveTokens(tokens);
+
+    return tokens;
+  } catch {
+    await clearTokens();
+    throw new FaithLogApiError(createSessionExpiredError());
+  }
+}
+
+function createSessionExpiredError(): ApiError {
+  return {
+    kind: 'sessionExpired',
+    status: 401,
+    message: '다시 로그인한 뒤 이용해 주세요.',
+  };
 }
 
 export function refreshAuthToken(refreshToken: string) {
   return apiRequest<TokenPair>('/api/v1/auth/refresh', {
+    skipAuthRefresh: true,
     method: 'POST',
     body: {refreshToken},
   });
