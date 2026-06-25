@@ -94,6 +94,15 @@ export function getSafeApiErrorMessage(error: ApiError) {
 }
 
 function getBasePresentation(error: ApiError): ApiErrorPresentation {
+  if (error.code === 'CONFIGURATION') {
+    return {
+      title: '앱 설정 확인이 필요합니다',
+      message: 'API 서버 주소 설정을 확인한 뒤 다시 시도해 주세요.',
+      actionLabel: '다시 확인',
+      retryable: true,
+    };
+  }
+
   if (error.status === 400 || error.status === 422) {
     return {
       title: '입력값을 확인해 주세요',
