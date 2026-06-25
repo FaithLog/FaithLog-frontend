@@ -79,6 +79,7 @@ import type {
   WeeklyDevotionSummary,
 } from './types';
 import {getSafeApiErrorMessage} from './errorPolicy';
+import {executeMockRequest} from './mockAdapter';
 import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 
 type RequestOptions = {
@@ -105,11 +106,7 @@ export function isMockModeEnabled() {
 
 export function validateRuntimeConfig() {
   if (isMockModeEnabled()) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      code: 'CONFIGURATION',
-      message: 'Mock mode는 fixture adapter가 연결된 빌드에서만 사용할 수 있습니다.',
-    });
+    return;
   }
 
   getApiBaseUrl();
@@ -997,7 +994,9 @@ async function executeApiRequest<T>(
     },
     ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   };
-  const response = await fetch(buildApiUrl(path), init);
+  const response = isMockModeEnabled()
+    ? await executeMockRequest(path, init)
+    : await fetch(buildApiUrl(path), init);
   const envelope = await parseEnvelope<T>(response);
 
   return envelope.data as T;

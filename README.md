@@ -37,7 +37,7 @@ EXPO_PUBLIC_MOCK_MODE=false
 
 EAS build profile은 `eas.json`의 `EXPO_PUBLIC_API_BASE_URL`을 사용합니다. `preview`와 `production` profile의 `<PREVIEW_API_BASE_URL>`, `<PRODUCTION_API_BASE_URL>`은 EAS/CI에서 실제 배포 API URL로 주입하고, PR 본문이나 문서에는 실제 private endpoint/token 값을 남기지 않습니다.
 
-`EXPO_PUBLIC_MOCK_MODE`는 fixture adapter 경계를 명확히 하기 위한 public flag입니다. MVP 앱은 live backend mode(`false`)만 지원하며, `true`로 설정하면 API 호출 대신 fixture adapter가 연결된 별도 빌드가 필요합니다.
+`EXPO_PUBLIC_MOCK_MODE=true`로 설정하면 API client 내부 mock adapter가 live backend 대신 도메인 fixture를 반환합니다. 화면 코드와 feature service는 live/mock 분기를 직접 알지 않아야 합니다. 기본 MVP QA는 live backend mode(`false`)를 기준으로 하고, mock QA는 fixture adapter 사용 여부와 scenario를 함께 기록합니다.
 
 API base URL이 비어 있거나 `http://` 또는 `https://` URL이 아니면 앱 시작 시 빈 화면 대신 복구 가능한 설정 오류 화면을 보여줍니다. 이 오류 화면은 token, request payload, endpoint 값을 로그나 화면에 노출하지 않습니다.
 
@@ -55,7 +55,7 @@ EXPO_PUBLIC_MOCK_MODE=false
 npm run start
 ```
 
-Mock QA는 `EXPO_PUBLIC_MOCK_MODE=true`만으로 완료되지 않습니다. MVP 현재 앱은 live backend mode가 기본이며, fixture adapter와 도메인 fixture 구축은 별도 이슈 [#79](https://github.com/FaithLog/FaithLog-frontend/issues/79) 범위입니다. Mock mode를 켠 빌드를 완료처럼 보고하지 말고, fixture adapter 연결 여부와 사용한 fixture 위치를 QA 결과에 함께 기록합니다.
+Mock QA는 `EXPO_PUBLIC_MOCK_MODE=true`로 실행합니다. 기본 fixture는 `src/api/mockFixtures.ts`, live/mock 전환 경계는 `src/api/mockAdapter.ts`와 `src/api/client.ts`에만 둡니다. 실패 상태는 `EXPO_PUBLIC_MOCK_SCENARIO=401|403|409|422|offline|invalid-envelope`로 재현할 수 있습니다. Mock 결과를 live backend 검증 완료처럼 보고하지 말고, 사용한 mode/scenario/fixture 위치를 QA 결과에 함께 기록합니다.
 
 ## EAS Preview 준비
 
@@ -114,7 +114,7 @@ npm audit --audit-level=moderate
 | Figma v2 대조 | PASS/FAIL/PARTIAL | 확인한 frame/node 또는 후속 issue |
 | local dev | PASS/FAIL/미실행 | `npm run start` 또는 Expo 실행 결과 |
 | live backend QA | PASS/FAIL/미실행 | 사용한 test account 범위와 endpoint, 민감값 제외 |
-| mock QA | PASS/FAIL/미실행 | fixture adapter 연결 여부 |
+| mock QA | PASS/FAIL/미실행 | `EXPO_PUBLIC_MOCK_MODE`, `EXPO_PUBLIC_MOCK_SCENARIO`, fixture 위치 |
 | simulator/device smoke | PASS/FAIL/미실행 | iOS/Android, 화면 크기, safe area, keyboard |
 | Docker | PASS/FAIL/미실행 | `docker compose build` 또는 `docker compose up --build` |
 | 미실행 항목 | N/A | 이유와 후속 이슈 |
