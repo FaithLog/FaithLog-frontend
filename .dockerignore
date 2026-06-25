@@ -10,6 +10,9 @@ coverage
 *.log
 .env
 .env.*
+google-services.json
+GoogleService-Info.plist
+firebase-debug.log*
 android/.gradle
 android/app/build
 ios/Pods

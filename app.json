@@ -19,9 +19,6 @@
     },
     "web": {
       "bundler": "metro"
-    },
-    "extra": {
-      "apiBaseUrl": "https://api.example.com"
     }
   }
 }
