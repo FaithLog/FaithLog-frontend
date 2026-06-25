@@ -166,10 +166,10 @@ type MissingDevotionState =
 
 type NotificationSendState =
   | {status: 'idle'}
-  | {status: 'confirming'; targets: AdminMissingDevotionMember[]}
-  | {status: 'sending'; targets: AdminMissingDevotionMember[]}
-  | {status: 'sent'; result: AdminNotificationResponse; targetCount: number}
-  | {status: 'failed'; error: ApiError; targetCount: number};
+  | {status: 'confirming'; draft: AdminNotificationDraft; targets: AdminNotificationTarget[]}
+  | {status: 'sending'; draft: AdminNotificationDraft; targets: AdminNotificationTarget[]}
+  | {status: 'sent'; draft: AdminNotificationDraft; result: AdminNotificationResponse; targetCount: number}
+  | {status: 'failed'; draft: AdminNotificationDraft; error: ApiError; targetCount: number};
 
 type NotificationLogState =
   | {status: 'idle'}
@@ -177,6 +177,31 @@ type NotificationLogState =
   | {status: 'success'; logs: AdminNotificationLogList}
   | {status: 'empty'; logs: AdminNotificationLogList}
   | {status: 'error'; error: ApiError};
+
+type AdminNotificationSection = 'send' | 'logs';
+type AdminNotificationTargetMode = 'ALL' | 'MISSING_DEVOTION' | 'SELECTED';
+
+type AdminNotificationSendForm = {
+  body: string;
+  selectedUserIds: number[];
+  targetMode: AdminNotificationTargetMode;
+  title: string;
+};
+
+type AdminNotificationTarget = {
+  email: string;
+  meta: string;
+  name: string;
+  userId: number;
+};
+
+type AdminNotificationDraft = {
+  body: string;
+  sourceLabel: string;
+  targetId: number | null;
+  targetWeekStartDate: string | null;
+  title: string;
+};
 
 type NotificationLogFilters = {
   endDate: string;
@@ -354,7 +379,18 @@ const notificationStatusFilters: Array<{id: NotificationSendStatusFilter; label:
 
 const notificationTypeFilters: Array<{id: NotificationTypeFilter; label: string}> = [
   {id: 'ALL', label: '전체'},
-  {id: 'CUSTOM', label: 'CUSTOM'},
+  {id: 'CUSTOM', label: '일반'},
+];
+
+const notificationSections: Array<{id: AdminNotificationSection; label: string}> = [
+  {id: 'send', label: '발송'},
+  {id: 'logs', label: '로그'},
+];
+
+const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: string}> = [
+  {id: 'ALL', label: '전체'},
+  {id: 'MISSING_DEVOTION', label: '미제출자'},
+  {id: 'SELECTED', label: '직접선택'},
 ];
 
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
@@ -428,6 +464,13 @@ const emptyNotificationLogFilters: NotificationLogFilters = {
   targetWeekStartDate: '',
 };
 
+const emptyNotificationSendForm: AdminNotificationSendForm = {
+  body: '이번 주 경건생활을 제출해 주세요.',
+  selectedUserIds: [],
+  targetMode: 'MISSING_DEVOTION',
+  title: '경건생활 제출 알림',
+};
+
 export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
@@ -442,6 +485,10 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
   const [notificationState, setNotificationState] = useState<NotificationSendState>({
     status: 'idle',
   });
+  const [notificationSection, setNotificationSection] =
+    useState<AdminNotificationSection>('send');
+  const [notificationSendForm, setNotificationSendForm] =
+    useState<AdminNotificationSendForm>(emptyNotificationSendForm);
   const [notificationLogFilters, setNotificationLogFilters] =
     useState<NotificationLogFilters>(emptyNotificationLogFilters);
   const [notificationLogState, setNotificationLogState] = useState<NotificationLogState>({
@@ -528,6 +575,8 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     setWeekStartDate(getWeekStartDate(new Date()));
     setMissingDevotionState({status: 'idle'});
     setNotificationState({status: 'idle'});
+    setNotificationSection('send');
+    setNotificationSendForm(emptyNotificationSendForm);
     setNotificationLogFilters(emptyNotificationLogFilters);
     setNotificationLogState({status: 'idle'});
     setSelectedNotificationLogId(null);
@@ -685,6 +734,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
 
     setSelectedMemberId(null);
     setSelectedNotificationLogId(null);
+    setNotificationSection('logs');
     setNotificationLogFilters(filters);
     setTab('notificationLogs');
     void loadNotificationLogs(filters);
@@ -1309,8 +1359,125 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       return;
     }
 
-    setNotificationState({status: 'confirming', targets});
+    setNotificationState({
+      status: 'confirming',
+      draft: {
+        body: '이번 주 경건생활을 제출해 주세요.',
+        sourceLabel: '경건 미제출',
+        targetId: null,
+        targetWeekStartDate: weekStartDate,
+        title: '경건생활 제출 알림',
+      },
+      targets: targets.map(toNotificationTargetFromMissingMember),
+    });
     setActionError(null);
+  };
+
+  const updateNotificationSendForm = (patch: Partial<AdminNotificationSendForm>) => {
+    setNotificationSendForm((current) => ({...current, ...patch}));
+  };
+
+  const toggleNotificationTarget = (userId: number) => {
+    setNotificationSendForm((current) => {
+      const selected = current.selectedUserIds.includes(userId)
+        ? current.selectedUserIds.filter((selectedUserId) => selectedUserId !== userId)
+        : [...current.selectedUserIds, userId];
+
+      return {...current, selectedUserIds: selected, targetMode: 'SELECTED'};
+    });
+  };
+
+  const openManualNotificationConfirm = async () => {
+    if (notificationState.status === 'sending') {
+      return;
+    }
+
+    setActionError(null);
+
+    try {
+      if (loadState.status !== 'success') {
+        throw new FaithLogApiError({
+          kind: 'error',
+          message: '알림 발송 대상 정보를 다시 불러와 주세요.',
+        });
+      }
+
+      const draft = toNotificationDraft(notificationSendForm, weekStartDate);
+      const targets = await resolveNotificationTargets(
+        notificationSendForm,
+        loadState.members,
+      );
+
+      if (targets.length === 0) {
+        throw new FaithLogApiError({
+          kind: 'error',
+          message: '알림을 받을 대상을 선택해 주세요.',
+        });
+      }
+
+      setNotificationState({status: 'confirming', draft, targets});
+    } catch (error) {
+      const apiError = toApiError(error, '알림 발송 입력값을 확인해 주세요.');
+      setNotificationState({
+        status: 'failed',
+        draft: {
+          body: notificationSendForm.body.trim() || '알림 본문',
+          sourceLabel: getNotificationTargetModeLabel(notificationSendForm.targetMode),
+          targetId: null,
+          targetWeekStartDate: weekStartDate,
+          title: notificationSendForm.title.trim() || '알림',
+        },
+        error: apiError,
+        targetCount: 0,
+      });
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  const resolveNotificationTargets = async (
+    form: AdminNotificationSendForm,
+    members: AdminCampusMember[],
+  ) => {
+    switch (form.targetMode) {
+      case 'ALL':
+        return members.map(toNotificationTargetFromCampusMember);
+      case 'SELECTED':
+        return members
+          .filter((member) => form.selectedUserIds.includes(member.userId))
+          .map(toNotificationTargetFromCampusMember);
+      case 'MISSING_DEVOTION': {
+        const missingMembers =
+          missingDevotionState.status === 'success'
+            ? missingDevotionState.members
+            : await fetchMissingDevotionTargets();
+
+        return missingMembers.map(toNotificationTargetFromMissingMember);
+      }
+      default:
+        return assertNever(form.targetMode);
+    }
+  };
+
+  const fetchMissingDevotionTargets = async () => {
+    const accessToken = await resolveAccessToken(setAuthState);
+
+    if (!accessToken) {
+      return [];
+    }
+
+    const missingMembers = await fetchAdminMissingDevotionMembers(
+      accessToken,
+      campusId,
+      weekStartDate,
+    );
+
+    setMissingDevotionState(
+      missingMembers.length === 0
+        ? {status: 'empty'}
+        : {status: 'success', members: missingMembers},
+    );
+
+    return missingMembers;
   };
 
   const cancelNotificationConfirm = () => {
@@ -1327,7 +1494,8 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
     }
 
     const targets = notificationState.targets;
-    setNotificationState({status: 'sending', targets});
+    const draft = notificationState.draft;
+    setNotificationState({status: 'sending', draft, targets});
     setActionError(null);
 
     try {
@@ -1340,21 +1508,21 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
       const result = await sendAdminNotification(accessToken, campusId, {
         notificationType: 'CUSTOM',
         targetUserIds: targets.map((target) => target.userId),
-        targetWeekStartDate: weekStartDate,
-        targetId: null,
-        title: '경건생활 제출 알림',
-        body: '이번 주 경건생활을 제출해 주세요.',
+        targetWeekStartDate: draft.targetWeekStartDate,
+        targetId: draft.targetId,
+        title: draft.title,
+        body: draft.body,
       });
 
-      setNotificationState({status: 'sent', result, targetCount: targets.length});
+      setNotificationState({status: 'sent', draft, result, targetCount: targets.length});
       setNotice({
         tone: result.skippedCount > 0 ? 'warning' : 'success',
-        title: '경건 미제출 알림 발송',
+        title: `${draft.sourceLabel} 알림 발송`,
         message: `${result.queuedCount}명 큐잉, ${result.skippedCount}명 스킵 처리되었습니다.`,
       });
     } catch (error) {
-      const apiError = toApiError(error, '경건 미제출 알림을 발송하지 못했습니다.');
-      setNotificationState({status: 'failed', error: apiError, targetCount: targets.length});
+      const apiError = toApiError(error, '알림을 발송하지 못했습니다.');
+      setNotificationState({status: 'failed', draft, error: apiError, targetCount: targets.length});
       void handleAuthError(apiError, setAuthState);
     }
   };
@@ -1604,15 +1772,24 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           setNotice={setNotice}
         />
       ) : tab === 'notificationLogs' ? (
-        <AdminNotificationLogs
+        <AdminNotificationCenter
           filters={notificationLogFilters}
+          form={notificationSendForm}
+          members={loadState.members}
           onChangeFilter={updateNotificationLogFilter}
           onChangePage={changeNotificationLogPage}
+          onChangeSection={(section) => {
+            setNotificationSection(section);
+            setSelectedNotificationLogId(null);
+          }}
+          onChangeSendForm={updateNotificationSendForm}
           onClearFilters={() => {
             setNotificationLogFilters(emptyNotificationLogFilters);
             setSelectedNotificationLogId(null);
             void loadNotificationLogs(emptyNotificationLogFilters);
           }}
+          onOpenConfirm={() => void openManualNotificationConfirm()}
+          onOpenResultLogs={openNotificationLogsForRequest}
           onRetry={() => void loadNotificationLogs()}
           onSearch={() => {
             const nextFilters = {...notificationLogFilters, page: 0};
@@ -1620,8 +1797,12 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
             void loadNotificationLogs(nextFilters);
           }}
           onSelectLog={setSelectedNotificationLogId}
+          onToggleTarget={toggleNotificationTarget}
+          section={notificationSection}
           selectedLogId={selectedNotificationLogId}
+          sendState={notificationState}
           state={notificationLogState}
+          weekStartDate={weekStartDate}
         />
       ) : tab === 'prayer' ? (
         <AdminPrayerManagement
@@ -3237,12 +3418,200 @@ function MissingDevotionMemberRow({member}: {member: AdminMissingDevotionMember}
       <View style={styles.headerText}>
         <Text style={styles.memberName}>{member.name}</Text>
         <Text style={styles.memberMeta}>
-          {member.region} {member.campusName} · 멤버 ID {member.campusMemberId}
+          {member.region} {member.campusName}
         </Text>
         <Text style={styles.memberMeta}>{member.email}</Text>
       </View>
-      <Chip label={`사용자 ID ${member.userId}`} tone="info" />
+      <Chip label="대상" tone="info" />
     </View>
+  );
+}
+
+function AdminNotificationCenter({
+  filters,
+  form,
+  members,
+  onChangeFilter,
+  onChangePage,
+  onChangeSection,
+  onChangeSendForm,
+  onClearFilters,
+  onOpenConfirm,
+  onOpenResultLogs,
+  onRetry,
+  onSearch,
+  onSelectLog,
+  onToggleTarget,
+  section,
+  selectedLogId,
+  sendState,
+  state,
+  weekStartDate,
+}: {
+  filters: NotificationLogFilters;
+  form: AdminNotificationSendForm;
+  members: AdminCampusMember[];
+  onChangeFilter: <K extends keyof NotificationLogFilters>(
+    key: K,
+    value: NotificationLogFilters[K],
+  ) => void;
+  onChangePage: (direction: -1 | 1) => void;
+  onChangeSection: (section: AdminNotificationSection) => void;
+  onChangeSendForm: (patch: Partial<AdminNotificationSendForm>) => void;
+  onClearFilters: () => void;
+  onOpenConfirm: () => void;
+  onOpenResultLogs: (requestId: string) => void;
+  onRetry: () => void;
+  onSearch: () => void;
+  onSelectLog: (logId: number | null) => void;
+  onToggleTarget: (userId: number) => void;
+  section: AdminNotificationSection;
+  selectedLogId: number | null;
+  sendState: NotificationSendState;
+  state: NotificationLogState;
+  weekStartDate: string;
+}) {
+  return (
+    <>
+      <Card>
+        <Eyebrow>알림</Eyebrow>
+        <Title>관리자 알림</Title>
+        <Body>대상을 고르고 발송한 뒤 로그에서 성공, 실패, 제외 상태를 확인합니다.</Body>
+        <FigmaSegmentedControl
+          items={notificationSections}
+          selectedId={section}
+          onSelect={onChangeSection}
+        />
+      </Card>
+      {section === 'send' ? (
+        <AdminNotificationSendForm
+          form={form}
+          members={members}
+          onChangeForm={onChangeSendForm}
+          onOpenConfirm={onOpenConfirm}
+          onOpenResultLogs={onOpenResultLogs}
+          onToggleTarget={onToggleTarget}
+          sendState={sendState}
+          weekStartDate={weekStartDate}
+        />
+      ) : (
+        <AdminNotificationLogs
+          filters={filters}
+          onChangeFilter={onChangeFilter}
+          onChangePage={onChangePage}
+          onClearFilters={onClearFilters}
+          onRetry={onRetry}
+          onSearch={onSearch}
+          onSelectLog={onSelectLog}
+          selectedLogId={selectedLogId}
+          state={state}
+        />
+      )}
+    </>
+  );
+}
+
+function AdminNotificationSendForm({
+  form,
+  members,
+  onChangeForm,
+  onOpenConfirm,
+  onOpenResultLogs,
+  onToggleTarget,
+  sendState,
+  weekStartDate,
+}: {
+  form: AdminNotificationSendForm;
+  members: AdminCampusMember[];
+  onChangeForm: (patch: Partial<AdminNotificationSendForm>) => void;
+  onOpenConfirm: () => void;
+  onOpenResultLogs: (requestId: string) => void;
+  onToggleTarget: (userId: number) => void;
+  sendState: NotificationSendState;
+  weekStartDate: string;
+}) {
+  const targetCount =
+    form.targetMode === 'ALL'
+      ? members.length
+      : form.targetMode === 'SELECTED'
+        ? form.selectedUserIds.length
+        : 0;
+  const disabled = sendState.status === 'sending';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>알림 발송</Eyebrow>
+        <Title>발송 내용을 확인해 주세요</Title>
+        <Body>제목과 본문은 수신자에게 그대로 표시됩니다.</Body>
+        <View style={styles.formRow}>
+          <View style={styles.formFieldFull}>
+            <TextField
+              accessibilityLabel="알림 제목"
+              label="제목"
+              onChangeText={(title) => onChangeForm({title})}
+              placeholder="알림 제목"
+              value={form.title}
+            />
+          </View>
+          <View style={styles.formFieldFull}>
+            <TextField
+              accessibilityLabel="알림 본문"
+              label="본문"
+              onChangeText={(body) => onChangeForm({body})}
+              placeholder="수신자에게 보낼 내용"
+              value={form.body}
+            />
+          </View>
+        </View>
+        <Text style={styles.memberName}>대상</Text>
+        <FigmaSegmentedControl
+          items={notificationTargetModes}
+          selectedId={form.targetMode}
+          onSelect={(targetMode) => onChangeForm({targetMode})}
+        />
+        <Body>
+          {form.targetMode === 'MISSING_DEVOTION'
+            ? `${weekStartDate} 주차 미제출자를 조회한 뒤 확인합니다.`
+            : `${targetCount}명을 대상으로 준비 중입니다.`}
+        </Body>
+        {form.targetMode === 'SELECTED' ? (
+          <View style={styles.figmaListStack}>
+            {members.slice(0, 8).map((member) => {
+              const selected = form.selectedUserIds.includes(member.userId);
+
+              return (
+                <Pressable
+                  accessibilityLabel={`${member.name} 알림 대상 ${selected ? '해제' : '선택'}`}
+                  accessibilityRole="button"
+                  accessibilityState={{selected}}
+                  key={member.membershipId}
+                  onPress={() => onToggleTarget(member.userId)}
+                  style={({pressed}) => [
+                    styles.figmaListItem,
+                    selected ? styles.notificationTargetSelected : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Avatar name={member.name} role={member.campusRole} />
+                  <View style={styles.figmaListText}>
+                    <Text style={styles.figmaCardTitle}>{member.name}</Text>
+                    <Text style={styles.figmaBodyText}>{member.email}</Text>
+                  </View>
+                  <Chip label={selected ? '발송' : '대기'} tone={selected ? 'success' : 'info'} />
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        <Button
+          accessibilityLabel="관리자 알림 발송 확인"
+          disabled={disabled}
+          onPress={onOpenConfirm}>
+          {disabled ? '발송 중...' : '발송'}
+        </Button>
+      </Card>
+      {renderNotificationResult(sendState, onOpenResultLogs)}
+    </>
   );
 }
 
@@ -3284,7 +3653,7 @@ function AdminNotificationLogs({
         <Eyebrow>알림 로그</Eyebrow>
         <Title>알림 로그</Title>
         <Body>
-          발송 요청과 상태를 확인하고, 발송 전 대상 확인 결과와 요청 ID를 연결해 추적합니다.
+          발송 요청 단위로 성공, 실패, 제외 상태를 확인합니다.
         </Body>
         <View style={styles.metricGrid}>
           <Metric label="SENT" value={`${counts.SENT}건`} />
@@ -3308,22 +3677,12 @@ function AdminNotificationLogs({
         <View style={styles.filterGrid}>
           <View style={styles.filterField}>
             <TextField
-              accessibilityLabel="알림 로그 요청 ID 필터"
-              label="요청 ID"
+              accessibilityLabel="알림 로그 요청 묶음 필터"
+              label="요청 묶음"
               onChangeText={(requestId) => onChangeFilter('requestId', requestId)}
-              placeholder="notificationRequestId"
+              placeholder="발송 결과에서 자동 입력"
               returnKeyType="search"
               value={filters.requestId}
-            />
-          </View>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="알림 로그 대상 ID 필터"
-              keyboardType="number-pad"
-              label="대상 ID"
-              onChangeText={(targetId) => onChangeFilter('targetId', targetId)}
-              placeholder="숫자 ID"
-              value={filters.targetId}
             />
           </View>
           <View style={styles.filterField}>
@@ -3402,11 +3761,11 @@ function AdminNotificationSendResultSummary({
   return (
     <Card>
       <Eyebrow>발송 결과</Eyebrow>
-      <Title>{filters.requestId.trim() ? '요청 ID 발송 결과' : '현재 필터 결과'}</Title>
+      <Title>{filters.requestId.trim() ? '요청 묶음 결과' : '현재 필터 결과'}</Title>
       <Body>
         {filters.requestId.trim()
-          ? `${filters.requestId.trim()} 요청 묶음의 현재 페이지 결과입니다.`
-          : '요청 ID를 입력하거나 발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
+          ? '발송 요청 묶음의 현재 페이지 결과입니다.'
+          : '발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
       </Body>
       <View style={styles.metricGrid}>
         <Metric label="SENT" value={`${counts.SENT}건`} />
@@ -3504,7 +3863,7 @@ function AdminNotificationLogRow({
         <View style={styles.headerText}>
           <Text style={styles.memberName}>{log.title}</Text>
           <Text style={styles.memberMeta}>
-            {log.name} · 사용자 ID {log.userId} · {formatDateTime(log.createdAt)}
+            {log.name} · {formatDateTime(log.createdAt)}
           </Text>
           <Text style={styles.memberMeta} numberOfLines={2}>
             {log.body}
@@ -3516,15 +3875,15 @@ function AdminNotificationLogRow({
         <AdminInlineError
           error={{
             kind: log.sendStatus === 'FAILED' ? 'error' : 'conflict',
-            message: log.failureReason,
+            message: getNotificationFailureMessage(log.failureReason, log.sendStatus),
           }}
         />
       ) : null}
       <ListRow
-        accessibilityLabel={`알림 로그 ${log.notificationLogId} 상세 보기`}
-        label="요청 ID"
+        accessibilityLabel={`${log.title} 알림 상세 보기`}
+        label="요청 묶음"
         onPress={onPress}
-        supportingText={log.requestId}
+        supportingText={getNotificationLogSummary(log)}
         value="상세"
       />
     </View>
@@ -3545,22 +3904,21 @@ function AdminNotificationLogDetail({
           <View style={styles.headerText}>
             <Eyebrow>알림 상세</Eyebrow>
             <Title>{log.title}</Title>
-            <Body>{formatDateTime(log.createdAt)} 생성된 알림 로그입니다.</Body>
+            <Body>{formatDateTime(log.createdAt)} 발송 요청의 상세 상태입니다.</Body>
           </View>
           <Chip label={getNotificationStatusLabel(log.sendStatus)} tone={getNotificationStatusTone(log.sendStatus)} />
         </View>
-        <ListRow label="요청 ID" supportingText={log.requestId} value={`로그 ID ${log.notificationLogId}`} />
-        <ListRow label="대상" supportingText={log.email} value={`${log.name} · 사용자 ID ${log.userId}`} />
-        <ListRow label="유형" supportingText={log.notificationType} value={`캠퍼스 ID ${log.campusId}`} />
+        <ListRow label="대상" supportingText={log.email} value={log.name} />
+        <ListRow label="유형" supportingText={getNotificationTypeLabel(log.notificationType)} />
         <ListRow
-          label="대상 리소스"
-          supportingText={`주차 ${log.targetWeekStartDate ?? '-'} · 대상 ID ${log.targetId ?? '-'}`}
+          label="대상 범위"
+          supportingText={getNotificationTargetSummary(log)}
         />
         <ListRow label="본문" supportingText={log.body} />
         <ListRow label="발송 시각" value={log.sentAt ? formatDateTime(log.sentAt) : '-'} />
         <ListRow
           label="실패 사유"
-          supportingText={log.failureReason ?? '실패 또는 스킵 사유가 없습니다.'}
+          supportingText={getNotificationFailureMessage(log.failureReason, log.sendStatus)}
         />
         <Button accessibilityLabel="알림 로그 상세 닫기" onPress={onBack} variant="secondary">
           목록으로
@@ -3572,8 +3930,8 @@ function AdminNotificationLogDetail({
         <Body>
           발송 로그에 저장된 대상 정보를 기준으로 미리보기를 제공합니다.
         </Body>
-        <ListRow label="대상 이메일" supportingText={log.email} value={`사용자 ID ${log.userId}`} />
-        <ListRow label="요청 ID" supportingText={log.requestId} />
+        <ListRow label="대상 이메일" supportingText={log.email} />
+        <ListRow label="상태" supportingText={getNotificationLogSummary(log)} />
       </Card>
     </>
   );
@@ -3588,24 +3946,22 @@ function renderNotificationResult(
     case 'confirming':
       return null;
     case 'sending':
-      return <Loading message="알림 발송 요청을 처리하고 있어요." />;
+      return <Loading message="알림을 보내고 있어요. 잠시만 기다려주세요." />;
     case 'sent':
       return (
         <Card>
           <Eyebrow>발송 요청 완료</Eyebrow>
-          <Title>알림 발송 요청이 접수되었습니다</Title>
+          <Title>알림을 보냈어요</Title>
+          <Body>
+            대상 {notificationState.targetCount}명 중 {notificationState.result.queuedCount}명에게 발송을 요청했습니다.
+          </Body>
           <View style={styles.metricGrid}>
             <Metric label="확인 대상" value={`${notificationState.targetCount}명`} />
             <Metric label="큐잉" value={`${notificationState.result.queuedCount}명`} />
             <Metric label="스킵" value={`${notificationState.result.skippedCount}명`} />
           </View>
-          <ListRow
-            label="요청 ID"
-            supportingText="로그에서 같은 요청 묶음으로 확인할 수 있습니다."
-            value={notificationState.result.notificationRequestId}
-          />
           <Button
-            accessibilityLabel="발송 요청 ID로 알림 로그 보기"
+            accessibilityLabel="발송 요청 묶음으로 알림 로그 보기"
             onPress={() => onOpenNotificationLogs(notificationState.result.notificationRequestId)}>
             로그 보기
           </Button>
@@ -5173,14 +5529,30 @@ function NotificationConfirmSheet({
           <Eyebrow>알림 발송 확인</Eyebrow>
           <Title>{targets.length}명에게 경건 알림을 보낼까요?</Title>
           <Body>
-            {weekStartDate} 주차 미제출자에게 경건생활 제출 알림을 발송합니다.
+            {state.status === 'confirming' || state.status === 'sending'
+              ? `${state.draft.sourceLabel} 대상에게 알림을 발송합니다.`
+              : `${weekStartDate} 주차 대상에게 알림을 발송합니다.`}
           </Body>
-          <ListRow label="제목" value="경건생활 제출 알림" />
-          <ListRow label="본문" supportingText="이번 주 경건생활을 제출해 주세요." />
+          <ListRow
+            label="제목"
+            value={
+              state.status === 'confirming' || state.status === 'sending'
+                ? state.draft.title
+                : '알림'
+            }
+          />
+          <ListRow
+            label="본문"
+            supportingText={
+              state.status === 'confirming' || state.status === 'sending'
+                ? state.draft.body
+                : '알림 본문'
+            }
+          />
           <View style={styles.confirmTargetList}>
             {targets.slice(0, 4).map((target) => (
               <Text key={target.userId} style={styles.confirmTargetText}>
-                {target.name} · 사용자 ID {target.userId}
+                {target.name} · {target.email}
               </Text>
             ))}
             {targets.length > 4 ? (
@@ -6167,6 +6539,127 @@ function getChargeStatusTone(status: ChargeStatus) {
   }
 }
 
+function toNotificationDraft(
+  form: AdminNotificationSendForm,
+  weekStartDate: string,
+): AdminNotificationDraft {
+  const title = form.title.trim();
+  const body = form.body.trim();
+
+  if (!title || !body) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '알림 제목과 본문을 입력해 주세요.',
+    });
+  }
+
+  if (title.length > 80 || body.length > 240) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '알림 제목은 80자, 본문은 240자 이내로 입력해 주세요.',
+    });
+  }
+
+  return {
+    body,
+    sourceLabel: getNotificationTargetModeLabel(form.targetMode),
+    targetId: null,
+    targetWeekStartDate: form.targetMode === 'MISSING_DEVOTION' ? weekStartDate : null,
+    title,
+  };
+}
+
+function toNotificationTargetFromCampusMember(member: AdminCampusMember): AdminNotificationTarget {
+  return {
+    email: member.email,
+    meta: member.email,
+    name: member.name,
+    userId: member.userId,
+  };
+}
+
+function toNotificationTargetFromMissingMember(
+  member: AdminMissingDevotionMember,
+): AdminNotificationTarget {
+  return {
+    email: member.email,
+    meta: `${member.region} ${member.campusName}`,
+    name: member.name,
+    userId: member.userId,
+  };
+}
+
+function getNotificationTargetModeLabel(mode: AdminNotificationTargetMode) {
+  switch (mode) {
+    case 'ALL':
+      return '전체';
+    case 'MISSING_DEVOTION':
+      return '경건 미제출';
+    case 'SELECTED':
+      return '선택 대상';
+    default:
+      return assertNever(mode);
+  }
+}
+
+function getNotificationTypeLabel(type: AdminNotificationType) {
+  switch (type) {
+    case 'CUSTOM':
+      return '일반 알림';
+    default:
+      return assertNever(type);
+  }
+}
+
+function getNotificationTargetSummary(log: AdminNotificationLog) {
+  if (log.targetWeekStartDate) {
+    return `${formatShortWeekLabel(log.targetWeekStartDate)} 주차 대상`;
+  }
+
+  if (log.targetId !== null) {
+    return '선택 대상';
+  }
+
+  return '직접 선택 대상';
+}
+
+function getNotificationLogSummary(log: AdminNotificationLog) {
+  const sentAt = log.sentAt ? formatDateTime(log.sentAt) : formatDateTime(log.createdAt);
+
+  return `${getNotificationStatusLabel(log.sendStatus)} · ${sentAt}`;
+}
+
+function getNotificationFailureMessage(
+  reason: string | null,
+  status: AdminNotificationSendStatus,
+) {
+  if (status === 'SENT') {
+    return '실패 또는 제외 사유가 없습니다.';
+  }
+
+  if (!reason) {
+    return status === 'SKIPPED'
+      ? '이미 처리된 대상은 자동으로 제외될 수 있습니다.'
+      : '발송 상태를 다시 확인해 주세요.';
+  }
+
+  const normalized = reason.toLowerCase();
+
+  if (normalized.includes('token')) {
+    return '알림 수신 정보가 없어 발송하지 못했습니다.';
+  }
+
+  if (normalized.includes('permission') || normalized.includes('403')) {
+    return '권한 확인이 필요해 발송하지 못했습니다.';
+  }
+
+  if (normalized.includes('duplicate') || normalized.includes('lock') || normalized.includes('already')) {
+    return '중복 발송 방지를 위해 제외되었습니다.';
+  }
+
+  return reason.length > 80 ? `${reason.slice(0, 80)}...` : reason;
+}
+
 function getNotificationStatusCounts(logs: AdminNotificationLog[]) {
   return logs.reduce(
     (counts, log) => ({
@@ -6486,6 +6979,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.gap,
   },
+  formFieldFull: {
+    flexBasis: '100%',
+    flexGrow: 1,
+  },
   headerRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -6564,6 +7061,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     lineHeight: 28,
+  },
+  notificationTargetSelected: {
+    borderColor: colors.primary,
+    borderWidth: 1,
   },
   pressed: {
     opacity: 0.72,
