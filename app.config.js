@@ -3,6 +3,8 @@ const path = require('path');
 
 const { expo: baseExpoConfig } = require('./app.json');
 
+const EAS_PROJECT_ID = 'd44726b8-2e0c-4be8-8c24-7911ff0c740b';
+
 function firebaseConfigFile(envName, fallbackPath, base64EnvName) {
   const configuredPath = process.env[envName]?.trim() || fallbackPath;
   if (!configuredPath) {
@@ -29,6 +31,7 @@ module.exports = () => {
 
   return {
     ...baseExpoConfig,
+    owner: 'josephuk77',
     ios: {
       ...baseExpoConfig.ios,
       ...(iosGoogleServicesFile
@@ -45,6 +48,10 @@ module.exports = () => {
       ...baseExpoConfig.extra,
       appEnv: process.env.EXPO_PUBLIC_APP_ENV || 'local',
       apiBaseUrlConfigured: Boolean(process.env.EXPO_PUBLIC_API_BASE_URL),
+      eas: {
+        ...baseExpoConfig.extra?.eas,
+        projectId: EAS_PROJECT_ID,
+      },
     },
   };
 };
