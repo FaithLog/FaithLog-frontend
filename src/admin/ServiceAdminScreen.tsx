@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {
@@ -23,7 +23,6 @@ import {
   Card,
   Chip,
   Conflict,
-  DangerConfirmSheet,
   Empty,
   ErrorState,
   Eyebrow,
@@ -56,6 +55,7 @@ type ServiceAdminScreenProps = {
 type RoleFilter = UserRole | 'ALL';
 type RoleOption = UserRole;
 type ServiceAdminSection = 'campuses' | 'users';
+type UserScreenView = 'list' | 'detail' | 'roleEdit';
 
 type UserListState =
   | {status: 'loading'}
@@ -71,7 +71,6 @@ type UserDetailState =
 
 type RoleChangeState =
   | {status: 'idle'}
-  | {status: 'confirming'; role: RoleOption; user: ServiceAdminUserDetail}
   | {status: 'submitting'; role: RoleOption; user: ServiceAdminUserDetail}
   | {status: 'failure'; error: ApiError; role: RoleOption; user: ServiceAdminUserDetail};
 
@@ -84,6 +83,7 @@ const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = 
 
 export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdminScreenProps) {
   const [activeSection, setActiveSection] = useState<ServiceAdminSection>('campuses');
+  const [userView, setUserView] = useState<UserScreenView>('list');
   const [nameFilter, setNameFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [userIdFilter, setUserIdFilter] = useState('');
@@ -91,10 +91,10 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
   const [listState, setListState] = useState<UserListState>({status: 'loading'});
   const [detailState, setDetailState] = useState<UserDetailState>({status: 'idle'});
   const [roleChangeState, setRoleChangeState] = useState<RoleChangeState>({status: 'idle'});
+  const [roleDraft, setRoleDraft] = useState<RoleOption>('USER');
   const [formError, setFormError] = useState<string | null>(null);
 
   const selectedUser = detailState.status === 'success' ? detailState.data : null;
-  const selectedRole = useMemo(() => selectedUser?.role ?? 'USER', [selectedUser?.role]);
 
   const loadUsers = async () => {
     if (state.user.role !== 'ADMIN') {
@@ -102,7 +102,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
         status: 'error',
         error: {
           kind: 'permissionDenied',
-          message: 'Service ADMIN 사용자 관리에는 전역 ADMIN 권한이 필요합니다.',
+          message: '서비스 관리자 사용자 관리에는 전역 관리자 권한이 필요합니다.',
         },
       });
       return;
@@ -111,7 +111,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
     const userId = toOptionalPositiveInteger(userIdFilter);
 
     if (userIdFilter.trim() && userId === null) {
-      setFormError('userId는 1 이상의 정수여야 합니다.');
+      setFormError('사용자 번호는 1 이상의 정수여야 합니다.');
       return;
     }
 
@@ -155,6 +155,7 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
 
       const data = await getServiceAdminUser(accessToken, userId);
       setDetailState({status: 'success', data});
+      setRoleDraft(data.role);
     } catch (error) {
       const apiError = toApiError(error, '서비스 관리자 사용자 상세를 불러오지 못했습니다.');
       setDetailState({status: 'error', error: apiError, userId});
@@ -162,20 +163,51 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
     }
   };
 
-  const openRoleConfirm = (role: RoleOption) => {
-    if (!selectedUser || selectedUser.role === role) {
+  const openUserDetail = (user: ServiceAdminUserListItem) => {
+    setUserView('detail');
+    void loadUserDetail(user.userId);
+  };
+
+  const openRoleEdit = () => {
+    if (!selectedUser) {
       return;
     }
 
-    setRoleChangeState({status: 'confirming', role, user: selectedUser});
+    setRoleDraft(selectedUser.role);
+    setRoleChangeState({status: 'idle'});
+    setUserView('roleEdit');
+  };
+
+  const selectRoleDraft = (role: RoleOption) => {
+    setRoleDraft(role);
+    setRoleChangeState({status: 'idle'});
   };
 
   const submitRoleChange = async () => {
-    if (roleChangeState.status !== 'confirming' && roleChangeState.status !== 'failure') {
+    if (
+      !selectedUser ||
+      selectedUser.role === roleDraft ||
+      roleChangeState.status === 'submitting'
+    ) {
       return;
     }
 
-    const {role, user} = roleChangeState;
+    if (selectedUser.userId === state.user.id && roleDraft !== 'ADMIN') {
+      setRoleChangeState({
+        status: 'failure',
+        error: {
+          kind: 'permissionDenied',
+          message:
+            '본인 전역 관리자 권한은 이 화면에서 일반 사용자 또는 캠퍼스 관리자로 낮출 수 없습니다.',
+        },
+        role: roleDraft,
+        user: selectedUser,
+      });
+      return;
+    }
+
+    const role = roleDraft;
+    const user = selectedUser;
     setRoleChangeState({status: 'submitting', role, user});
 
     try {
@@ -187,11 +219,13 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
 
       const updated = await updateServiceAdminUserRole(accessToken, user.userId, {role});
       setDetailState({status: 'success', data: updated});
+      setRoleDraft(updated.role);
       setRoleChangeState({status: 'idle'});
+      setUserView('detail');
       setNotice({
         tone: 'success',
         title: '역할 변경 완료',
-        message: `${updated.name}님의 전역 역할을 ${updated.role}로 변경했습니다.`,
+        message: `${updated.name}님의 전역 역할을 ${getRoleLabel(updated.role)}로 변경했습니다.`,
       });
       void loadUsers();
     } catch (error) {
@@ -210,10 +244,10 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
     return (
       <Screen>
         <PermissionDenied
-          title="Service ADMIN 권한이 필요합니다"
-          message="전역 ADMIN만 전체 사용자 조회와 역할 변경을 사용할 수 있습니다."
+          title="서비스 관리자 권한이 필요합니다"
+          message="전역 관리자만 전체 사용자 조회와 역할 변경을 사용할 수 있습니다."
           actionLabel="다시 확인"
-          actionAccessibilityLabel="Service ADMIN 권한 다시 확인"
+          actionAccessibilityLabel="서비스 관리자 권한 다시 확인"
           onActionPress={loadUsers}
         />
       </Screen>
@@ -223,9 +257,9 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
   return (
     <Screen>
       <ScreenHeader
-        eyebrow="Service ADMIN"
+        eyebrow="서비스 관리자"
         subtitle="전역 사용자와 캠퍼스 관리를 분리해 운영합니다."
-        title="Service ADMIN 관리"
+        title="서비스 관리자 관리"
       />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.segmentRow}>
@@ -247,109 +281,80 @@ export function ServiceAdminScreen({setAuthState, setNotice, state}: ServiceAdmi
           />
         ) : (
           <>
-            <Card>
-              <Eyebrow>사용자 필터</Eyebrow>
-              <TextField
-                label="이름"
-                onChangeText={setNameFilter}
-                placeholder="이름 검색"
-                returnKeyType="search"
-                value={nameFilter}
-              />
-              <TextField
-                label="이메일"
-                onChangeText={setEmailFilter}
-                placeholder="email@example.com"
-                returnKeyType="search"
-                textContentType="emailAddress"
-                value={emailFilter}
-              />
-              <TextField
-                error={formError ?? undefined}
-                keyboardType="number-pad"
-                label="userId"
-                onChangeText={setUserIdFilter}
-                placeholder="정확한 사용자 ID"
-                returnKeyType="search"
-                value={userIdFilter}
-              />
-              <View style={styles.segmentRow}>
-                {ROLE_FILTERS.map((role) => (
-                  <FilterButton
-                    active={roleFilter === role}
-                    key={role}
-                    label={role === 'ALL' ? '전체' : role}
-                    onPress={() => setRoleFilter(role)}
-                  />
-                ))}
-              </View>
-              <Button accessibilityLabel="Service ADMIN 사용자 목록 조회" onPress={loadUsers}>
-                조회
-              </Button>
-            </Card>
+            {userView === 'list' ? (
+              <Card>
+                <Eyebrow>사용자 필터</Eyebrow>
+                <TextField
+                  label="이름"
+                  onChangeText={setNameFilter}
+                  placeholder="이름 검색"
+                  returnKeyType="search"
+                  value={nameFilter}
+                />
+                <TextField
+                  label="이메일"
+                  onChangeText={setEmailFilter}
+                  placeholder="email@example.com"
+                  returnKeyType="search"
+                  textContentType="emailAddress"
+                  value={emailFilter}
+                />
+                <TextField
+                  error={formError ?? undefined}
+                  keyboardType="number-pad"
+                  label="사용자 번호"
+                  onChangeText={setUserIdFilter}
+                  placeholder="정확한 사용자 번호"
+                  returnKeyType="search"
+                  value={userIdFilter}
+                />
+                <View style={styles.segmentRow}>
+                  {ROLE_FILTERS.map((role) => (
+                    <FilterButton
+                      active={roleFilter === role}
+                      key={role}
+                      label={role === 'ALL' ? '전체' : getRoleLabel(role)}
+                      onPress={() => setRoleFilter(role)}
+                    />
+                  ))}
+                </View>
+                <Button accessibilityLabel="서비스 관리자 사용자 목록 조회" onPress={loadUsers}>
+                  조회
+                </Button>
+              </Card>
+            ) : null}
 
             <UserListSection
               listState={listState}
               onRetry={loadUsers}
-              onSelectUser={(user) => void loadUserDetail(user.userId)}
+              onSelectUser={openUserDetail}
+              userView={userView}
             />
 
             <UserDetailSection
               currentUserId={state.user.id}
               detailState={detailState}
+              onBack={() => setUserView('list')}
+              onEditRole={openRoleEdit}
               onRetry={(userId) => void loadUserDetail(userId)}
-              onRoleSelect={openRoleConfirm}
-              selectedRole={selectedRole}
+              userView={userView}
             />
 
+            <UserRoleEditSection
+              currentUserId={state.user.id}
+              detailState={detailState}
+              onBack={() => setUserView('detail')}
+              onRetry={(userId) => void loadUserDetail(userId)}
+              onRoleSelect={selectRoleDraft}
+              onSubmit={() => void submitRoleChange()}
+              roleChangeState={roleChangeState}
+              selectedRole={roleDraft}
+              userView={userView}
+            />
           </>
         )}
       </ScrollView>
-
-      <RoleChangeConfirmSheet
-        onCancel={() => setRoleChangeState({status: 'idle'})}
-        onConfirm={() => void submitRoleChange()}
-        state={roleChangeState}
-      />
     </Screen>
-  );
-}
-
-function RoleChangeConfirmSheet({
-  onCancel,
-  onConfirm,
-  state,
-}: {
-  onCancel: () => void;
-  onConfirm: () => void;
-  state: RoleChangeState;
-}) {
-  const visible =
-    state.status === 'confirming' ||
-    state.status === 'submitting' ||
-    state.status === 'failure';
-  const target = visible ? state : null;
-  const loading = state.status === 'submitting';
-
-  return (
-    <DangerConfirmSheet
-      accessibilityLabel="전역 역할 변경 위험 확인"
-      confirmAccessibilityLabel="전역 역할 변경 확정"
-      confirmLabel={state.status === 'failure' ? '다시 시도' : '변경'}
-      dangerSummary="권한 변경은 즉시 적용됩니다. 마지막 활성 ADMIN 강등은 서버에서 거부될 수 있습니다."
-      failureMessage={state.status === 'failure' ? getActionErrorMessage(state.error) : null}
-      loading={loading}
-      loadingLabel="변경 중..."
-      message={
-        target
-          ? `${target.user.name}님의 역할을 ${target.user.role}에서 ${target.role}로 변경합니다. 본인 ADMIN 권한 강등은 클라이언트에서 차단합니다.`
-          : ''
-      }
-      onCancel={onCancel}
-      onConfirm={onConfirm}
-      title="전역 역할을 변경할까요?"
-      visible={visible}
-    />
   );
 }
 
@@ -357,21 +362,27 @@ function UserListSection({
   listState,
   onRetry,
   onSelectUser,
+  userView,
 }: {
   listState: UserListState;
   onRetry: () => void;
   onSelectUser: (user: ServiceAdminUserListItem) => void;
+  userView: UserScreenView;
 }) {
+  if (userView !== 'list') {
+    return null;
+  }
+
   switch (listState.status) {
     case 'loading':
-      return <Loading message="Service ADMIN 사용자 목록을 불러오고 있어요." />;
+      return <Loading message="서비스 관리자 사용자 목록을 불러오고 있어요." />;
     case 'empty':
       return (
         <Empty
           title="조건에 맞는 사용자가 없습니다"
-          message="이름, 이메일, userId, 역할 필터를 조정해 다시 조회하세요."
+          message="이름, 이메일, 사용자 번호, 역할 필터를 조정해 다시 조회하세요."
           actionLabel="다시 조회"
-          actionAccessibilityLabel="Service ADMIN 사용자 목록 다시 조회"
+          actionAccessibilityLabel="서비스 관리자 사용자 목록 다시 조회"
           onActionPress={onRetry}
         />
       );
@@ -394,10 +405,12 @@ function UserListSection({
             <ListRow
               accessibilityLabel={`${user.name} 상세 보기`}
               key={user.userId}
-              label={`${user.name} #${user.userId}`}
+              label={user.name}
               onPress={() => onSelectUser(user)}
-              supportingText={`${user.email} · 캠퍼스 ${user.campusCount}개`}
-              value={user.role}
+              supportingText={
+                `${user.email} · 사용자 번호 ${user.userId} · 캠퍼스 ${user.campusCount}개`
+              }
+              value={getRoleLabel(user.role)}
             />
           ))}
         </Card>
@@ -410,16 +423,22 @@ function UserListSection({
 function UserDetailSection({
   currentUserId,
   detailState,
+  onBack,
+  onEditRole,
   onRetry,
-  onRoleSelect,
-  selectedRole,
+  userView,
 }: {
   currentUserId: number;
   detailState: UserDetailState;
+  onBack: () => void;
+  onEditRole: () => void;
   onRetry: (userId: number) => void;
-  onRoleSelect: (role: RoleOption) => void;
-  selectedRole: UserRole;
+  userView: UserScreenView;
 }) {
+  if (userView !== 'detail') {
+    return null;
+  }
+
   switch (detailState.status) {
     case 'idle':
       return (
@@ -429,7 +448,7 @@ function UserDetailSection({
         />
       );
     case 'loading':
-      return <Loading message={`#${detailState.userId} 사용자를 불러오고 있어요.`} />;
+      return <Loading message={`사용자 번호 ${detailState.userId} 정보를 불러오고 있어요.`} />;
     case 'error':
       return (
         <ServiceAdminErrorState
@@ -442,29 +461,28 @@ function UserDetailSection({
 
       return (
         <Card>
-          <Eyebrow>사용자 상세</Eyebrow>
-          <Title>{detailState.data.name}</Title>
-          <ListRow label="userId" value={String(detailState.data.userId)} />
+          <View style={styles.stepHeader}>
+            <View style={styles.sectionHeaderText}>
+              <Eyebrow>사용자 상세</Eyebrow>
+              <Title>{detailState.data.name}</Title>
+            </View>
+            <Chip label={getRoleLabel(detailState.data.role)} tone="info" />
+          </View>
+          <ListRow label="사용자 번호" value={String(detailState.data.userId)} />
           <ListRow label="이메일" value={detailState.data.email} />
           <ListRow
             label="활성 상태"
-            value={detailState.data.isActive ? 'ACTIVE' : 'INACTIVE'}
+            value={detailState.data.isActive ? '활성' : '비활성'}
           />
-          <View style={styles.segmentRow}>
-            {ROLE_OPTIONS.map((role) => (
-              <FilterButton
-                active={selectedRole === role}
-                disabled={isCurrentUser && role !== 'ADMIN'}
-                key={role}
-                label={role}
-                onPress={() => onRoleSelect(role)}
-              />
-            ))}
-          </View>
           <Body>
-            본인 ADMIN 권한은 이 화면에서 USER 또는 MANAGER로 강등할 수 없습니다. 마지막 활성
-            Service ADMIN 1명을 강등하면 서버가 409로 거부합니다.
+            {isCurrentUser
+              ? '본인 전역 관리자 권한은 일반 사용자 또는 캠퍼스 관리자로 낮출 수 없습니다.'
+              : '역할 관리는 별도 화면에서 현재 역할과 변경 요약을 확인한 뒤 저장합니다.'}
           </Body>
+          <View style={styles.actionRow}>
+            <ActionButton label="목록" onPress={onBack} variant="secondary" />
+            <ActionButton label="역할 수정" onPress={onEditRole} variant="primary" />
+          </View>
           <View style={styles.campusList}>
             <Eyebrow>소속 캠퍼스</Eyebrow>
             {detailState.data.campuses.length > 0 ? (
@@ -472,7 +490,7 @@ function UserDetailSection({
                 <ListRow
                   key={campus.membershipId}
                   label={campus.campusName}
-                  supportingText={`${campus.region} · membership #${campus.membershipId}`}
+                  supportingText={`${campus.region} · 소속 정보 ${campus.membershipId}`}
                   value={`${campus.campusRole}/${campus.status}`}
                 />
               ))
@@ -488,13 +506,249 @@ function UserDetailSection({
   }
 }
 
+function UserRoleEditSection({
+  currentUserId,
+  detailState,
+  onBack,
+  onRetry,
+  onRoleSelect,
+  onSubmit,
+  roleChangeState,
+  selectedRole,
+  userView,
+}: {
+  currentUserId: number;
+  detailState: UserDetailState;
+  onBack: () => void;
+  onRetry: (userId: number) => void;
+  onRoleSelect: (role: RoleOption) => void;
+  onSubmit: () => void;
+  roleChangeState: RoleChangeState;
+  selectedRole: RoleOption;
+  userView: UserScreenView;
+}) {
+  if (userView !== 'roleEdit') {
+    return null;
+  }
+
+  switch (detailState.status) {
+    case 'idle':
+      return (
+        <Empty
+          title="역할을 수정할 사용자를 선택하세요"
+          message="목록에서 사용자를 선택한 뒤 역할 관리 화면으로 이동할 수 있습니다."
+          actionLabel="목록으로"
+          actionAccessibilityLabel="사용자 목록으로 돌아가기"
+          onActionPress={onBack}
+        />
+      );
+    case 'loading':
+      return <Loading message={`사용자 번호 ${detailState.userId} 역할 정보를 불러오고 있어요.`} />;
+    case 'error':
+      return (
+        <ServiceAdminErrorState
+          error={detailState.error}
+          onRetry={() => onRetry(detailState.userId)}
+        />
+      );
+    case 'success': {
+      const user = detailState.data;
+      const isCurrentUser = user.userId === currentUserId;
+      const isSubmitting = roleChangeState.status === 'submitting';
+      const hasChanged = selectedRole !== user.role;
+      const blocksSelfDemotion = isCurrentUser && selectedRole !== 'ADMIN';
+      const canSubmit = hasChanged && !blocksSelfDemotion && !isSubmitting;
+
+      return (
+        <Card>
+          <View style={styles.stepHeader}>
+            <View style={styles.sectionHeaderText}>
+              <Eyebrow>서비스 관리자</Eyebrow>
+              <Title>역할 관리</Title>
+            </View>
+            <Chip label="관리자" tone="info" />
+          </View>
+
+          <View style={styles.roleProfileCard}>
+            <View style={styles.roleProfileText}>
+              <Title>{user.name}</Title>
+              <Body>{user.email}</Body>
+            </View>
+            <Chip label={getRoleLabel(user.role)} tone="default" />
+          </View>
+
+          <View style={styles.campusList}>
+            <View>
+              <Title>변경할 역할</Title>
+              <Body>전역 역할만 수정합니다</Body>
+            </View>
+            {ROLE_OPTIONS.map((role) => (
+              <RoleOptionRow
+                currentRole={user.role}
+                disabled={isSubmitting || (isCurrentUser && role !== 'ADMIN')}
+                key={role}
+                onPress={() => onRoleSelect(role)}
+                role={role}
+                selected={selectedRole === role}
+              />
+            ))}
+          </View>
+
+          <View style={styles.adminWarning}>
+            <Text style={styles.adminWarningTitle}>전역 관리자 변경 주의</Text>
+            <Text style={styles.adminWarningText}>
+              마지막 전역 관리자이거나 권한이 부족하면 저장할 수 없어요.
+            </Text>
+          </View>
+
+          {blocksSelfDemotion ? (
+            <View style={styles.inlinePolicy}>
+              <Text style={styles.inlinePolicyText}>
+                본인 전역 관리자 권한은 이 화면에서 일반 사용자 또는 캠퍼스 관리자로 낮출 수 없습니다.
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.roleSummary}>
+            <Text style={styles.summaryRole}>{getRoleLabel(user.role)}</Text>
+            <Text style={styles.summaryArrow}>→</Text>
+            <Text style={[styles.summaryRole, styles.summaryRoleTarget]}>
+              {getRoleLabel(selectedRole)}
+            </Text>
+          </View>
+
+          {roleChangeState.status === 'failure' ? (
+            <RoleChangeInlineError error={roleChangeState.error} />
+          ) : null}
+
+          <View style={styles.actionRow}>
+            <ActionButton
+              disabled={isSubmitting}
+              label="취소"
+              onPress={onBack}
+              variant="secondary"
+            />
+            <ActionButton
+              disabled={!canSubmit}
+              label={isSubmitting ? '저장 중...' : '저장'}
+              onPress={onSubmit}
+              variant="primary"
+            />
+          </View>
+        </Card>
+      );
+    }
+    default:
+      return assertNever(detailState);
+  }
+}
+
+function RoleOptionRow({
+  currentRole,
+  disabled,
+  onPress,
+  role,
+  selected,
+}: {
+  currentRole: UserRole;
+  disabled: boolean;
+  onPress: () => void;
+  role: RoleOption;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${getRoleLabel(role)} 역할 선택`}
+      accessibilityRole="button"
+      accessibilityState={{disabled, selected}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.roleOption,
+        selected ? styles.roleOptionSelected : null,
+        disabled ? styles.roleOptionDisabled : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text style={[styles.roleOptionIcon, selected ? styles.roleOptionIconSelected : null]}>
+        {selected ? '●' : '○'}
+      </Text>
+      <View style={styles.roleOptionText}>
+        <Text style={[styles.roleOptionTitle, role === 'ADMIN' ? styles.roleOptionAdmin : null]}>
+          {getRoleLabel(role)}
+        </Text>
+        <Text style={styles.roleOptionDescription}>{getRoleDescription(role)}</Text>
+      </View>
+      {selected && role !== currentRole ? (
+        <Text style={styles.roleOptionBadge}>변경 후</Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function RoleChangeInlineError({error}: {error: ApiError}) {
+  const presentation = getApiErrorPresentation(error, {
+    conflictTitle: '전역 관리자 정책과 충돌했습니다',
+    conflictMessage:
+      '마지막 활성 전역 관리자는 일반 사용자 또는 캠퍼스 관리자로 변경할 수 없습니다. 목록을 다시 불러온 뒤 최신 상태로 확인해 주세요.',
+    permissionTitle: '역할 변경 권한이 없습니다',
+    permissionMessage: '전역 관리자 권한이 없거나 본인 전역 관리자 강등이 차단되었습니다.',
+    defaultTitle: '역할을 저장하지 못했습니다',
+  });
+
+  return (
+    <View accessibilityRole="alert" style={styles.inlineError}>
+      <Text style={styles.inlineErrorTitle}>{presentation.title}</Text>
+      <Text style={styles.inlineErrorText}>{presentation.message}</Text>
+    </View>
+  );
+}
+
+function ActionButton({
+  disabled = false,
+  label,
+  onPress,
+  variant,
+}: {
+  disabled?: boolean;
+  label: string;
+  onPress: () => void;
+  variant: 'primary' | 'secondary';
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.actionButton,
+        variant === 'primary' ? styles.actionButtonPrimary : styles.actionButtonSecondary,
+        disabled ? styles.filterButtonDisabled : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text
+        style={[
+          styles.actionButtonText,
+          variant === 'primary'
+            ? styles.actionButtonTextPrimary
+            : styles.actionButtonTextSecondary,
+        ]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
   const presentation = getApiErrorPresentation(error, {
     conflictTitle: '역할 변경 정책과 충돌했습니다',
-    conflictMessage: '마지막 활성 ADMIN 정책과 충돌했습니다. 목록을 다시 불러온 뒤 진행해 주세요.',
-    permissionTitle: 'Service ADMIN 권한이 필요합니다',
-    permissionMessage: 'USER 또는 MANAGER는 Service ADMIN 사용자 관리를 사용할 수 없습니다.',
-    defaultTitle: 'Service ADMIN 정보를 처리하지 못했습니다',
+    conflictMessage:
+      '마지막 활성 전역 관리자 정책과 충돌했습니다. 목록을 다시 불러온 뒤 진행해 주세요.',
+    permissionTitle: '서비스 관리자 권한이 필요합니다',
+    permissionMessage:
+      '일반 사용자 또는 캠퍼스 관리자는 서비스 관리자 사용자 관리를 사용할 수 없습니다.',
+    defaultTitle: '서비스 관리자 정보를 처리하지 못했습니다',
   });
 
   switch (error.kind) {
@@ -504,7 +758,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           title={presentation.title}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="Service ADMIN 권한 오류 후 다시 확인"
+          actionAccessibilityLabel="서비스 관리자 권한 오류 후 다시 확인"
           onActionPress={onRetry}
         />
       );
@@ -514,7 +768,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           title={presentation.title}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="Service ADMIN 충돌 오류 후 다시 불러오기"
+          actionAccessibilityLabel="서비스 관리자 충돌 오류 후 다시 불러오기"
           onActionPress={onRetry}
         />
       );
@@ -524,7 +778,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           title={presentation.title}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="Service ADMIN 네트워크 오류 후 다시 시도"
+          actionAccessibilityLabel="서비스 관리자 네트워크 오류 후 다시 시도"
           onActionPress={onRetry}
         />
       );
@@ -534,7 +788,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           title={presentation.title}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="Service ADMIN 세션 만료 후 다시 확인"
+          actionAccessibilityLabel="서비스 관리자 세션 만료 후 다시 확인"
           onActionPress={onRetry}
         />
       );
@@ -544,7 +798,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           title={presentation.title}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="Service ADMIN 오류 후 다시 시도"
+          actionAccessibilityLabel="서비스 관리자 오류 후 다시 시도"
           onActionPress={onRetry}
         />
       );
@@ -593,7 +847,7 @@ async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) 
   const {accessToken} = await getStoredTokens();
 
   if (!accessToken) {
-    setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+    setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
     return null;
   }
 
@@ -618,11 +872,30 @@ function toApiError(error: unknown, fallback: string): ApiError {
   return {kind: 'error', message: fallback};
 }
 
-function getActionErrorMessage(error: ApiError) {
-  return getApiErrorPresentation(error, {
-    conflictMessage: '마지막 활성 ADMIN 강등 정책과 충돌했습니다. 목록을 다시 불러오세요.',
-    permissionMessage: '전역 ADMIN 권한이 없습니다. USER 또는 MANAGER는 Service ADMIN 사용자 관리를 사용할 수 없습니다.',
-  }).message;
+function getRoleDescription(role: RoleOption) {
+  switch (role) {
+    case 'USER':
+      return '일반 사용자';
+    case 'MANAGER':
+      return '캠퍼스 생성 가능';
+    case 'ADMIN':
+      return '서비스 전체 관리';
+    default:
+      return assertNever(role);
+  }
+}
+
+function getRoleLabel(role: RoleOption) {
+  switch (role) {
+    case 'USER':
+      return '일반 사용자';
+    case 'MANAGER':
+      return '캠퍼스 관리자';
+    case 'ADMIN':
+      return '전역 관리자';
+    default:
+      return assertNever(role);
+  }
 }
 
 function toOptionalPositiveInteger(value: string) {
@@ -663,6 +936,7 @@ const styles = StyleSheet.create({
   filterButton: {
     backgroundColor: colors.neutralSoft,
     borderRadius: radius.control,
+    minHeight: 44,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -696,6 +970,210 @@ const styles = StyleSheet.create({
   },
   campusList: {
     gap: spacing.gap,
+  },
+  stepHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+  },
+  actionButton: {
+    alignItems: 'center',
+    borderRadius: radius.control,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 124,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  actionButtonPrimary: {
+    backgroundColor: colors.primary,
+  },
+  actionButtonSecondary: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  actionButtonText: {
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  actionButtonTextPrimary: {
+    color: colors.surface,
+  },
+  actionButtonTextSecondary: {
+    color: colors.text,
+  },
+  roleProfileCard: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  roleProfileText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  roleOption: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.item,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  roleOptionSelected: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  roleOptionDisabled: {
+    opacity: 0.5,
+  },
+  roleOptionIcon: {
+    color: colors.mutedText,
+    flexShrink: 0,
+    fontSize: 15,
+    fontWeight: '800',
+    width: 18,
+  },
+  roleOptionIconSelected: {
+    color: colors.primary,
+  },
+  roleOptionText: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  roleOptionTitle: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 21,
+  },
+  roleOptionAdmin: {
+    color: colors.danger,
+  },
+  roleOptionDescription: {
+    color: colors.mutedText,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  roleOptionBadge: {
+    color: colors.primary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  adminWarning: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.item,
+    borderWidth: 1,
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  adminWarningTitle: {
+    color: colors.danger,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  adminWarningText: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  inlinePolicy: {
+    backgroundColor: colors.warningSoft,
+    borderRadius: radius.control,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  inlinePolicyText: {
+    color: colors.warning,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  roleSummary: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.item,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'center',
+    minHeight: 50,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  summaryRole: {
+    color: colors.text,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  summaryArrow: {
+    color: colors.mutedText,
+    fontSize: 13,
+  },
+  summaryRoleTarget: {
+    color: colors.primary,
+  },
+  inlineError: {
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.control,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  inlineErrorTitle: {
+    color: colors.danger,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  inlineErrorText: {
+    color: colors.danger,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 18,
   },
   pressed: {
     opacity: 0.8,
