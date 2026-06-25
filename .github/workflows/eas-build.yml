@@ -1,0 +1,148 @@
+name: EAS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      platform:
+        description: Target platform
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+      wait_for_build:
+        description: Wait for the EAS build result before completing the workflow
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  eas-build:
+    name: ${{ inputs.profile }} / ${{ inputs.platform }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.profile }}
+    env:
+      BUILD_PROFILE: ${{ inputs.profile }}
+      BUILD_PLATFORM: ${{ inputs.platform }}
+      WAIT_FOR_BUILD: ${{ inputs.wait_for_build }}
+      PREVIEW_API_BASE_URL: ${{ vars.PREVIEW_API_BASE_URL || secrets.PREVIEW_API_BASE_URL || 'https://faithlog-549871256004.asia-northeast3.run.app' }}
+      PRODUCTION_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL || secrets.PRODUCTION_API_BASE_URL || 'https://faithlog-549871256004.asia-northeast3.run.app' }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.1
+          cache: npm
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Select deployment environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$BUILD_PROFILE" in
+            preview)
+              API_BASE_URL="$PREVIEW_API_BASE_URL"
+              APP_ENV="preview"
+              ;;
+            production)
+              API_BASE_URL="$PRODUCTION_API_BASE_URL"
+              APP_ENV="production"
+              ;;
+            *)
+              echo "::error::Unsupported EAS profile: $BUILD_PROFILE"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error::API base URL is not configured for $BUILD_PROFILE."
+            exit 1
+          fi
+
+          {
+            echo "EXPO_PUBLIC_API_BASE_URL=$API_BASE_URL"
+            echo "EXPO_PUBLIC_APP_ENV=$APP_ENV"
+            echo "EXPO_PUBLIC_MOCK_MODE=false"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify backend reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          status_code="$(curl -sS -o /tmp/faithlog-backend-health.json -w "%{http_code}" \
+            "$EXPO_PUBLIC_API_BASE_URL/api/v1/users/me" || true)"
+
+          case "$status_code" in
+            200|401|403)
+              echo "Backend verification accepted HTTP $status_code from /api/v1/users/me."
+              ;;
+            *)
+              echo "::error::Backend verification failed with HTTP $status_code."
+              exit 1
+              ;;
+          esac
+
+      - name: Prepare transient EAS profile env
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require('fs');
+
+          const profile = process.env.BUILD_PROFILE;
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          const buildProfile = eas.build?.[profile];
+
+          if (!buildProfile) {
+            throw new Error(`Missing eas.json build profile: ${profile}`);
+          }
+
+          buildProfile.env = {
+            ...(buildProfile.env || {}),
+            EXPO_PUBLIC_APP_ENV: process.env.EXPO_PUBLIC_APP_ENV,
+            EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,
+            EXPO_PUBLIC_MOCK_MODE: 'false',
+          };
+
+          fs.writeFileSync('eas.json', `${JSON.stringify(eas, null, 2)}\n`);
+          NODE
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Start EAS build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$WAIT_FOR_BUILD" = "true" ]; then
+            eas build --profile "$BUILD_PROFILE" --platform "$BUILD_PLATFORM" --non-interactive
+          else
+            eas build --profile "$BUILD_PROFILE" --platform "$BUILD_PLATFORM" --non-interactive --no-wait
+          fi

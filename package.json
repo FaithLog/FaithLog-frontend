@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"App.tsx\" \"src/**/*.{ts,tsx}\"",
     "test": "vitest run",
-    "ci": "npm run typecheck && npm run lint && npm run test"
+    "ci": "npm run typecheck && npm run lint && npm run test",
+    "eas-build-pre-install": "node scripts/prepare-firebase-config.js"
   },
   "dependencies": {
     "expo": "~56.0.0",
