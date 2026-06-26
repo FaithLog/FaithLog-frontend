@@ -17,7 +17,6 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
-  Button,
   Conflict,
   ErrorState,
   Loading,
@@ -37,6 +36,7 @@ type Notice = {
 
 type MonthlyCalendarScreenProps = {
   onBackToHome: () => void;
+  onOpenWeeklyDevotion: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -61,6 +61,7 @@ const REQUIRED_DAYS = 5;
 
 export function MonthlyCalendarScreen({
   onBackToHome,
+  onOpenWeeklyDevotion,
   setAuthState,
   setNotice,
   state,
@@ -175,12 +176,12 @@ export function MonthlyCalendarScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>월간 캘린더</Text>
         <View style={styles.campusChip}>
           <Text style={styles.campusChipText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
         </View>
+        <Text style={styles.title}>월간 캘린더</Text>
       </View>
 
       <View style={styles.monthCard}>
@@ -238,7 +239,21 @@ export function MonthlyCalendarScreen({
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>{selectedDateLabel} 빠른 체크</Text>
+      <View style={styles.sectionHeaderRow}>
+        <View style={styles.sectionHeaderText}>
+          <Text style={styles.sectionTitle}>{selectedDateLabel} 빠른 체크</Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.sectionHelper}>
+            선택한 주차를 경건 탭에서 제출할 수 있어요
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel="주간 경건생활 제출 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onOpenWeeklyDevotion}
+          style={({pressed}) => [styles.weekSubmitButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.weekSubmitButtonText}>주간 제출</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.quickCard}>
         {selectedCheck ? (
@@ -266,12 +281,13 @@ export function MonthlyCalendarScreen({
       {actionError ? <MonthlyCalendarActionError error={actionError} onRetry={loadCalendar} /> : null}
 
       <View style={styles.saveRow}>
-        <Button
+        <Pressable
           accessibilityLabel="월간 캘린더에서 홈으로 이동"
+          accessibilityRole="button"
           onPress={onBackToHome}
-          variant="ghost">
-          홈
-        </Button>
+          style={({pressed}) => [styles.homeTextButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.homeTextButtonText}>홈</Text>
+        </Pressable>
         <Pressable
           accessibilityLabel="선택한 날짜 빠른 체크 저장"
           accessibilityRole="button"
@@ -763,7 +779,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     lineHeight: 23,
+  },
+  sectionHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
     marginTop: 16,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  sectionHelper: {
+    color: calendarColors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  weekSubmitButton: {
+    alignItems: 'center',
+    backgroundColor: calendarColors.chip,
+    borderRadius: 12,
+    flexShrink: 0,
+    height: 34,
+    justifyContent: 'center',
+    width: 82,
+  },
+  weekSubmitButtonText: {
+    color: calendarColors.button,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   quickCard: {
     backgroundColor: calendarColors.card,
@@ -826,6 +875,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: -8,
     paddingBottom: 8,
+  },
+  homeTextButton: {
+    alignItems: 'center',
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 44,
+  },
+  homeTextButtonText: {
+    color: calendarColors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   saveButton: {
     alignItems: 'center',

@@ -78,6 +78,7 @@ import {
   TextField,
   Title,
 } from '../components/ui';
+import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {
   getAvailableRoutes,
   getRouteLabel,
@@ -1886,6 +1887,7 @@ function AuthenticatedShell({
           userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
               onBackToHome={() => setUserHomeView('dashboard')}
+              onOpenWeeklyDevotion={() => setRoute('devotion')}
               setAuthState={setAuthState}
               setNotice={setNotice}
               state={state}
@@ -1934,6 +1936,7 @@ function AuthenticatedShell({
             onCampusSwitchPress={openCampusSwitch}
             canSwitchCampus={canManageCampuses}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onInviteCodePress={() => openEntryTarget('inviteCode')}
             onOpenPrayers={() => setRoute('prayers')}
             setAuthState={setAuthState}
             setNotice={setNotice}
@@ -2328,8 +2331,17 @@ function UserHomeDashboard({
   return (
     <View style={styles.userFrame}>
       <View style={styles.figmaHeader}>
-        <View style={styles.homeHeaderTopRow}>
-          <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
+        <View style={styles.figmaContextRow}>
+          <View style={styles.figmaContextLeft}>
+            <View style={styles.figmaCampusChip}>
+              <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
+                {state.selectedCampus.region} {state.selectedCampus.campusName}
+              </Text>
+            </View>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaContextName}>
+              {state.user.name}님
+            </Text>
+          </View>
           {canSwitchCampus ? (
             <Pressable
               accessibilityLabel="관리자 홈에서 캠퍼스 변경 시트 열기"
@@ -2343,11 +2355,7 @@ function UserHomeDashboard({
             </Pressable>
           ) : null}
         </View>
-        <View style={styles.figmaCampusChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
-        </View>
+        <Text style={styles.figmaTitle}>{state.user.name}님, 오늘의 FaithLog</Text>
       </View>
 
       <Pressable
@@ -2361,7 +2369,11 @@ function UserHomeDashboard({
             onOpenDevotion();
           }
         }}
-        style={({pressed}) => [styles.homeTodoCard, pressed ? styles.authButtonPressed : null]}>
+        style={({pressed}) => [
+          styles.homeTodoCard,
+          prayerEntryVariant === 'suggestion' ? styles.homeTodoCardCompact : null,
+          pressed ? styles.authButtonPressed : null,
+        ]}>
         <Text style={styles.homeTodoLabel}>오늘 해야 할 일</Text>
         <View style={styles.homeTodoRow}>
           <Text
@@ -2375,7 +2387,7 @@ function UserHomeDashboard({
             <Text style={styles.homeTodoButtonText}>전체보기</Text>
           </View>
         </View>
-        <Text style={styles.homeTodoSummary}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeTodoSummary}>
           {getHomeActionSummary({chargeState, devotionState, pollState, prayerState, today})}
         </Text>
       </Pressable>
@@ -2426,7 +2438,9 @@ function UserHomeDashboard({
           </View>
 
           <View style={styles.figmaSectionRow}>
-            <Text style={styles.figmaSectionTitle}>경건생활</Text>
+            <Text style={[styles.figmaSectionTitle, styles.figmaSectionTitleLeft]}>
+              경건생활
+            </Text>
             <Pressable
               accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
               accessibilityRole="button"
@@ -2781,14 +2795,34 @@ function getHomeActionSummary({
   today: Date;
 }) {
   const labels = getTodayActions({chargeState, devotionState, pollState, prayerState, today}).map(
-    (action) => action.target,
+    (action) => getHomeSummaryLabel(action.target),
   );
 
   if (labels.length === 0) {
     return '경건 · 투표 · 납부 흐름이 정리됐어요';
   }
 
-  return labels.slice(0, 3).join(' · ');
+  return labels.join(' · ');
+}
+
+function getHomeSummaryLabel(target: string) {
+  if (target === '경건생활') {
+    return '경건 제출';
+  }
+
+  if (target === '투표') {
+    return '수요예배 투표';
+  }
+
+  if (target === '기도제목') {
+    return '기도제목';
+  }
+
+  if (target === '납부') {
+    return '미납 확인';
+  }
+
+  return target;
 }
 
 function getTodayDevotionCheck(devotion: WeeklyDevotionSummary, today: Date) {
@@ -2803,10 +2837,10 @@ function isDevotionDayComplete(check: WeeklyDevotionSummary['dailyChecks'][numbe
 
 function getPrayerEntryPolicy(prayers: PrayerWeekSummary) {
   if (prayers.status === 'OPEN' && prayers.targetMemberCount > 0) {
-    return '기도제목 진입 제안';
+    return '이번 주 루틴';
   }
 
-  return '기도제목 상시 진입';
+  return '공동체 루틴';
 }
 
 function getHomePrayerEntryVariant(
@@ -3423,6 +3457,7 @@ function getCampusRoleDisplayLabel(role: string) {
 
 function ProfileScreen({
   canSwitchCampus,
+  onInviteCodePress,
   onCampusSwitchPress,
   onLogoutPress,
   onOpenPrayers,
@@ -3431,6 +3466,7 @@ function ProfileScreen({
   state,
 }: {
   canSwitchCampus: boolean;
+  onInviteCodePress: () => void;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
   onOpenPrayers: () => void;
@@ -3483,18 +3519,28 @@ function ProfileScreen({
   return (
     <View style={styles.userFrame}>
       <View style={styles.figmaHeader}>
-        <Text style={styles.figmaTitle}>내정보</Text>
-        <View style={styles.figmaCampusChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
+        <View style={styles.figmaContextRow}>
+          <View style={styles.figmaContextLeft}>
+            <View style={styles.figmaCampusChip}>
+              <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
+                {state.selectedCampus.region} {state.selectedCampus.campusName}
+              </Text>
+            </View>
+          </View>
         </View>
+        <Text style={styles.figmaTitle}>내정보</Text>
       </View>
 
       <View style={styles.profileCard}>
+        <View style={styles.profileAvatar}>
+          <IconexIcon color={colors.textPrimary} name="user" size={24} strokeWidth={1.7} />
+        </View>
         <View style={styles.profileInfo}>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
             {state.user.name}
+          </Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileEmail}>
+            {state.user.email}
           </Text>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileCampusText}>
             {state.selectedCampus.campusName} · {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
@@ -3511,31 +3557,60 @@ function ProfileScreen({
       <View style={styles.profileRowList}>
         <ProfileActionRow
           actionLabel="보기"
+          icon="users"
           onPress={onOpenPrayers}
           subtitle="전체 조별 기도제목 한 페이지 조회"
           title="조별 기도제목"
         />
         <ProfileActionRow
           actionLabel="작성"
+          icon="message-square"
           onPress={onOpenPrayers}
           subtitle="내 조 조원별 기도제목 작성"
           title="기도제목 입력"
         />
-        {canSwitchCampus ? (
-          <ProfileActionRow
-            actionLabel="전환"
-            onPress={onCampusSwitchPress}
-            subtitle="관리 중인 캠퍼스를 변경하거나 새 캠퍼스를 생성"
-            title="캠퍼스 전환"
-          />
-        ) : null}
+        <ProfileActionRow
+          actionLabel={canSwitchCampus ? '관리' : '입력'}
+          icon="add-user"
+          onPress={onInviteCodePress}
+          subtitle="다른 캠퍼스 초대코드 입력"
+          title="캠퍼스 참여 코드"
+        />
       </View>
 
       <Text style={styles.figmaSectionTitle}>계정</Text>
       <View style={styles.profileRowList}>
         <ProfileActionRow
+          actionLabel={canSwitchCampus ? '변경' : '보기'}
+          icon="category"
+          onPress={() => {
+            if (canSwitchCampus) {
+              onCampusSwitchPress();
+              return;
+            }
+
+            setNotice({
+              tone: 'info',
+              title: '내 캠퍼스',
+              message: `${state.selectedCampus.campusName} 캠퍼스에 ${getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}로 참여 중입니다.`,
+            });
+          }}
+          subtitle={state.selectedCampus.campusName}
+          title="내 캠퍼스"
+        />
+        {canSwitchCampus ? (
+          <ProfileActionRow
+            actionLabel="전환"
+            icon="settings"
+            onPress={onCampusSwitchPress}
+            subtitle="관리 중인 캠퍼스를 변경하거나 새 캠퍼스를 생성"
+            title="캠퍼스 전환"
+          />
+        ) : null}
+        <ProfileActionRow
           actionLabel="로그아웃"
           actionTone="danger"
+          icon="lock-open"
           onPress={onLogoutPress}
           subtitle="현재 기기에서 세션 종료"
           title="로그아웃"
@@ -3560,7 +3635,7 @@ function ProfileActionRow({
 }: {
   actionLabel: string;
   actionTone?: 'danger' | 'default';
-  icon?: string;
+  icon?: IconexIconName;
   onPress: () => void;
   subtitle: string;
   title: string;
@@ -3573,7 +3648,7 @@ function ProfileActionRow({
       style={({pressed}) => [styles.profileActionRow, pressed ? styles.authButtonPressed : null]}>
       {icon ? (
         <View style={styles.profileActionIcon}>
-          <Text style={styles.profileActionIconText}>{icon}</Text>
+          <IconexIcon color={colors.textPrimary} name={icon} size={22} strokeWidth={1.7} />
         </View>
       ) : null}
       <View style={styles.profileActionText}>
@@ -4313,6 +4388,29 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
   },
+  figmaContextRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    minHeight: 40,
+    width: '100%',
+  },
+  figmaContextLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  figmaContextName: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    minWidth: 0,
+  },
   homeHeaderTopRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -4367,13 +4465,21 @@ const styles = StyleSheet.create({
   figmaSectionRow: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 12,
     justifyContent: 'space-between',
+    width: '100%',
   },
   figmaSectionTitle: {
     color: authColors.text,
     fontSize: 19,
     fontWeight: '700',
     lineHeight: 28,
+    textAlign: 'left',
+  },
+  figmaSectionTitleLeft: {
+    alignSelf: 'flex-start',
+    flex: 1,
+    minWidth: 0,
   },
   figmaTextButton: {
     color: colors.primary,
@@ -4392,6 +4498,10 @@ const styles = StyleSheet.create({
     shadowOffset: {width: 0, height: 8},
     shadowOpacity: 0.03,
     shadowRadius: 14,
+  },
+  homeTodoCardCompact: {
+    minHeight: 132,
+    paddingVertical: 24,
   },
   homeTodoLabel: {
     color: colors.textMuted,
@@ -4678,6 +4788,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     lineHeight: 20,
+  },
+  profileEmail: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 18,
   },
   profileInfo: {
     flex: 1,
