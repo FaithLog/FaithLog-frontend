@@ -471,11 +471,13 @@ function renderPublicAuthEntry({
       onLoginComplete={(nextState) => {
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
-          openEntryTarget('campusSelect');
+          openEntryTarget(null);
           setNotice({
             tone: 'success',
             title: '로그인되었습니다',
-            message: '참여 중인 캠퍼스를 선택해 주세요.',
+            message: canCreateCampusWithRole(nextState.user.role)
+              ? '홈에서 캠퍼스 전환과 생성을 관리할 수 있어요.'
+              : '내 캠퍼스 홈으로 이동했습니다.',
           });
         }
         if (nextState.status === 'noCampus') {
@@ -515,12 +517,12 @@ function NoCampusOnboarding({
         clearNotice={clearNotice}
         onCancel={() => openEntryTarget(null)}
         onComplete={(nextState, campusName) => {
-          openEntryTarget('campusDetail');
+          openEntryTarget(null);
           setAuthState(nextState);
           setNotice({
             tone: 'success',
             title: '캠퍼스 참여 완료',
-            message: `${campusName} 캠퍼스를 확인해 주세요.`,
+            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
           });
         }}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -536,12 +538,12 @@ function NoCampusOnboarding({
         clearNotice={clearNotice}
         onCancel={() => openEntryTarget(null)}
         onComplete={(nextState, campusName) => {
-          openEntryTarget('campusDetail');
+          openEntryTarget(null);
           setAuthState(nextState);
           setNotice({
             tone: 'success',
             title: '캠퍼스 생성 완료',
-            message: `${campusName} 캠퍼스를 확인해 주세요.`,
+            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
           });
         }}
         onInvitePress={() => openEntryTarget('inviteCode')}
@@ -1530,6 +1532,7 @@ function AuthenticatedShell({
     status: 'idle',
   });
   const canCreateCampus = canCreateCampusWithRole(state.user.role);
+  const canManageCampuses = canCreateCampus;
   const navItems = useMemo(
     () =>
       USER_BOTTOM_NAV_ROUTES.map((availableRoute) => ({
@@ -1576,6 +1579,10 @@ function AuthenticatedShell({
   };
 
   const openCampusSwitch = () => {
+    if (!canManageCampuses) {
+      return;
+    }
+
     setCampusSwitchVisible(true);
     void refreshCampuses();
   };
@@ -1612,6 +1619,8 @@ function AuthenticatedShell({
       setCampusDetailState({status: 'success', data: detail});
       setAuthState(nextState);
       setCampusSwitchVisible(false);
+      setUserHomeView('dashboard');
+      setRoute('userHome');
       setNotice({
         tone: 'success',
         title: '캠퍼스 변경',
@@ -1724,11 +1733,13 @@ function AuthenticatedShell({
       setSelectedCampusDetail(detail);
       setCampusDetailState({status: 'success', data: detail});
       setAuthState(nextState);
-      openEntryTarget('campusDetail');
+      openEntryTarget(null);
+      setUserHomeView('dashboard');
+      setRoute('userHome');
       setNotice({
         tone: 'success',
         title: '캠퍼스 선택',
-        message: `${detail.name} 캠퍼스를 확인해 주세요.`,
+        message: `${detail.name} 캠퍼스 홈으로 이동했습니다.`,
       });
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스를 선택하지 못했습니다.');
@@ -1813,7 +1824,7 @@ function AuthenticatedShell({
             userId={state.user.id}
           />
         ) : null}
-        {entryTarget === 'campusSelect' ? (
+        {entryTarget === 'campusSelect' && canManageCampuses ? (
           <CampusSelectScreen
             campuses={state.activeCampuses}
             canCreateCampus={canCreateCampus}
@@ -1825,7 +1836,7 @@ function AuthenticatedShell({
             onRefresh={refreshCampuses}
             onSelect={selectCampusForOnboarding}
           />
-        ) : entryTarget === 'campusDetail' ? (
+        ) : entryTarget === 'campusDetail' && canManageCampuses ? (
           <CampusDetailScreen
             detailState={campusDetailState}
             onContinue={completeAuthenticatedOnboarding}
@@ -1836,14 +1847,16 @@ function AuthenticatedShell({
         ) : entryTarget === 'inviteCode' ? (
           <InviteCodeForm
             clearNotice={() => setNotice(null)}
-            onCancel={() => openEntryTarget('campusDetail')}
+            onCancel={() => openEntryTarget(null)}
             onComplete={(nextState, campusName) => {
               setAuthState(nextState);
-              openEntryTarget('campusDetail');
+              openEntryTarget(null);
+              setUserHomeView('dashboard');
+              setRoute('userHome');
               setNotice({
                 tone: 'success',
                 title: '캠퍼스 참여 완료',
-                message: `${campusName} 캠퍼스를 확인해 주세요.`,
+                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
               });
             }}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1853,14 +1866,16 @@ function AuthenticatedShell({
           <CampusCreateGate
             canCreateCampus={canCreateCampus}
             clearNotice={() => setNotice(null)}
-            onCancel={() => openEntryTarget('campusDetail')}
+            onCancel={() => openEntryTarget(null)}
             onComplete={(nextState, campusName) => {
               setAuthState(nextState);
-              openEntryTarget('campusDetail');
+              openEntryTarget(null);
+              setUserHomeView('dashboard');
+              setRoute('userHome');
               setNotice({
                 tone: 'success',
                 title: '캠퍼스 생성 완료',
-                message: `${campusName} 캠퍼스를 확인해 주세요.`,
+                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
               });
             }}
             onInvitePress={() => openEntryTarget('inviteCode')}
@@ -1883,6 +1898,7 @@ function AuthenticatedShell({
               onOpenPolls={() => setRoute('polls')}
               onOpenPrayers={() => setRoute('prayers')}
               onCampusSwitchPress={openCampusSwitch}
+              canSwitchCampus={canManageCampuses}
               setAuthState={setAuthState}
               setNotice={setNotice}
               state={state}
@@ -1916,6 +1932,7 @@ function AuthenticatedShell({
         ) : route === 'profile' ? (
           <ProfileScreen
             onCampusSwitchPress={openCampusSwitch}
+            canSwitchCampus={canManageCampuses}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
             onOpenPrayers={() => setRoute('prayers')}
             setAuthState={setAuthState}
@@ -1973,13 +1990,18 @@ function AuthenticatedShell({
       />
       <CampusSwitchSheet
         campuses={state.activeCampuses}
+        canCreateCampus={canCreateCampus}
         currentCampusId={state.selectedCampus.campusId}
         error={campusSwitchError}
         loading={campusSwitchLoading}
         onCancel={() => setCampusSwitchVisible(false)}
+        onCampusCreatePress={() => {
+          setCampusSwitchVisible(false);
+          openEntryTarget('campusCreate');
+        }}
         onRefresh={refreshCampuses}
         onSelect={selectCampus}
-        visible={campusSwitchVisible}
+        visible={canManageCampuses && campusSwitchVisible}
       />
     </View>
   );
@@ -2160,6 +2182,7 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
+  canSwitchCampus,
   onCampusSwitchPress,
   onOpenDevotion,
   onOpenMonthlyCalendar,
@@ -2170,6 +2193,7 @@ function UserHomeDashboard({
   setNotice,
   state,
 }: {
+  canSwitchCampus: boolean;
   onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
@@ -2306,9 +2330,11 @@ function UserHomeDashboard({
       <View style={styles.figmaHeader}>
         <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
         <Pressable
-          accessibilityLabel="홈에서 캠퍼스 변경 시트 열기"
+          accessibilityLabel={
+            canSwitchCampus ? '홈에서 캠퍼스 변경 시트 열기' : '현재 캠퍼스 확인'
+          }
           accessibilityRole="button"
-          disabled={state.activeCampuses.length <= 1}
+          disabled={!canSwitchCampus}
           onPress={onCampusSwitchPress}
           style={styles.figmaCampusChip}>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
@@ -3389,6 +3415,7 @@ function getCampusRoleDisplayLabel(role: string) {
 }
 
 function ProfileScreen({
+  canSwitchCampus,
   onCampusSwitchPress,
   onLogoutPress,
   onOpenPrayers,
@@ -3396,6 +3423,7 @@ function ProfileScreen({
   setNotice,
   state,
 }: {
+  canSwitchCampus: boolean;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
   onOpenPrayers: () => void;
@@ -3486,12 +3514,14 @@ function ProfileScreen({
           subtitle="내 조 조원별 기도제목 작성"
           title="기도제목 입력"
         />
-        <ProfileActionRow
-          actionLabel="관리"
-          onPress={onCampusSwitchPress}
-          subtitle="다른 캠퍼스 초대코드 입력"
-          title="캠퍼스 참여 코드"
-        />
+        {canSwitchCampus ? (
+          <ProfileActionRow
+            actionLabel="전환"
+            onPress={onCampusSwitchPress}
+            subtitle="관리 중인 캠퍼스를 변경하거나 새 캠퍼스를 생성"
+            title="캠퍼스 전환"
+          />
+        ) : null}
       </View>
 
       <Text style={styles.figmaSectionTitle}>계정</Text>
@@ -3562,19 +3592,23 @@ function ProfileActionRow({
 
 function CampusSwitchSheet({
   campuses,
+  canCreateCampus,
   currentCampusId,
   error,
   loading,
   onCancel,
+  onCampusCreatePress,
   onRefresh,
   onSelect,
   visible,
 }: {
   campuses: CampusMembershipSummary[];
+  canCreateCampus: boolean;
   currentCampusId: number;
   error: ApiError | null;
   loading: boolean;
   onCancel: () => void;
+  onCampusCreatePress: () => void;
   onRefresh: () => void;
   onSelect: (campus: CampusMembershipSummary) => void;
   visible: boolean;
@@ -3583,18 +3617,18 @@ function CampusSwitchSheet({
     <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalSheet}>
-          <Eyebrow>공동체</Eyebrow>
-          <Title>공동체 메뉴</Title>
-          <Body>현재 참여 중인 공동체를 확인하고 이동할 공동체를 선택할 수 있어요.</Body>
+          <View style={styles.sheetHandle} />
+          <Title>캠퍼스 변경</Title>
+          <Body>소속된 캠퍼스 중 이동할 캠퍼스를 선택할 수 있어요.</Body>
           {error ? <InlineError message={getCampusSwitchErrorMessage(error)} /> : null}
-          <View style={styles.metaGrid}>
+          <View style={styles.campusSwitchList}>
             {campuses.length > 0 ? (
               campuses.map((campus) => {
                 const selected = campus.campusId === currentCampusId;
 
                 return (
                   <ListRow
-                    accessibilityLabel={`${campus.campusName} 공동체로 변경`}
+                    accessibilityLabel={`${campus.campusName} 캠퍼스로 변경`}
                     key={campus.membershipId}
                     label={campus.campusName}
                     onPress={() => onSelect(campus)}
@@ -3604,20 +3638,28 @@ function CampusSwitchSheet({
                 );
               })
             ) : (
-              <Body>참여 중인 공동체가 없습니다.</Body>
+              <Body>관리 중인 캠퍼스가 없습니다.</Body>
             )}
           </View>
-          <Body>선택 후 해당 공동체의 홈 화면으로 이동합니다.</Body>
-          <View style={styles.actionRow}>
+          <Body>선택 후 해당 캠퍼스의 홈 화면으로 이동합니다.</Body>
+          {canCreateCampus ? (
             <Button
-              accessibilityLabel="공동체 목록 다시 불러오기"
+              accessibilityLabel="캠퍼스 생성 화면으로 이동"
+              disabled={loading}
+              onPress={onCampusCreatePress}>
+              캠퍼스 생성
+            </Button>
+          ) : null}
+          <View style={styles.sheetActionRow}>
+            <Button
+              accessibilityLabel="캠퍼스 목록 다시 불러오기"
               disabled={loading}
               onPress={onRefresh}
               variant="secondary">
               {loading ? '불러오는 중...' : '목록 갱신'}
             </Button>
             <Button
-              accessibilityLabel="공동체 메뉴 닫기"
+              accessibilityLabel="캠퍼스 전환 닫기"
               disabled={loading}
               onPress={onCancel}
               variant="ghost">
@@ -4646,6 +4688,14 @@ const styles = StyleSheet.create({
   metaGrid: {
     gap: 8,
   },
+  campusSwitchList: {
+    gap: 10,
+    marginTop: 2,
+  },
+  sheetActionRow: {
+    gap: 8,
+    marginTop: 2,
+  },
   inlineError: {
     backgroundColor: colors.dangerSoft,
     borderRadius: 12,
@@ -4695,8 +4745,19 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     gap: spacing.gap,
+    marginHorizontal: -spacing.screenX,
+    marginBottom: -spacing.screenX,
     padding: spacing.card,
+    paddingBottom: spacing.card + 4,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    height: 4,
+    width: 42,
   },
 });

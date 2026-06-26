@@ -58,12 +58,12 @@
 
 ## PR #144 Follow-up Verification - 2026-06-26
 
-- Login success now always opens `640:649` User 03-2 Campus Select first, even when the account has exactly one ACTIVE campus.
-- Selecting a campus from Campus Select opens `640:704` User 03-3 Campus Detail before the user enters the app home.
-- No Campus and Campus Select hide all `캠퍼스 만들기` actions when `canCreateCampusWithRole(user.role)` is false. General `USER` accounts only see invite-code entry.
-- `MANAGER` and `ADMIN` remain the only roles that can see the campus-create CTA.
-- Login, Signup, Invite Code, Campus Create, Campus Select, and Campus Detail CTA rows were moved onto shared lower-frame spacer positioning to match the Figma frame rhythm more closely.
-- Notification permission UI is delayed until authenticated onboarding is complete so it cannot push Campus Select or Campus Detail CTAs out of position.
+- Login success now sends general `USER` accounts directly into the authenticated home shell; it no longer opens `640:649` User 03-2 Campus Select for accounts with an ACTIVE campus.
+- General `USER` accounts are treated as single-campus users in the UI: Home/Profile do not expose campus switch/select controls, and campus creation CTAs remain fully hidden rather than disabled.
+- `MANAGER` and `ADMIN` are the only roles that can open the campus switch sheet and see the `캠퍼스 생성` CTA.
+- The admin campus switch sheet was rechecked against Figma `318:1443` (`관리자 홈 - 캠퍼스 전환 바텀시트`): handle, `캠퍼스 변경` title, campus rows, and “선택 후 해당 캠퍼스의 홈 화면으로 이동” flow are used, with a manager/admin-only `캠퍼스 생성` button added at the bottom.
+- Campus selection, invite-code completion, and campus creation completion now return directly to the selected campus home instead of showing the `앱 시작하기` campus detail step.
+- `example.test` example emails and 8+ character password validation remain unchanged.
 
 ### Follow-up Commands
 
@@ -80,3 +80,4 @@
   - `CI=1 npx expo start --web --port 8093 --host localhost`
 - Both attempts stayed in Expo offline startup without binding `127.0.0.1:8092` or `127.0.0.1:8093`; the sessions were stopped with Ctrl-C.
 - iOS simulator/live login flow was not captured because the local Expo dev server did not become reachable, and no backend/Docker process was started.
+- Current follow-up also tried `EXPO_PUBLIC_MOCK_MODE=true CI=1 npx expo start --web --port 8094 --host localhost --non-interactive`; Expo stayed in offline startup and `8094` did not reach LISTEN within 60 seconds, so the session was stopped with Ctrl-C.
