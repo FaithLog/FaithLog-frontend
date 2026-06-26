@@ -79,8 +79,7 @@ import {
   Title,
 } from '../components/ui';
 import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
-import {DevotionScreen} from '../devotion/DevotionScreen';
-import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
+import {DevotionScreen} from '../devotion/DevotionFlowScreen';
 import {
   deactivateCurrentFcmToken,
   inspectFcmRegistrationStatus,
@@ -1318,7 +1317,6 @@ function AuthenticatedShell({
   route: ShellRoute;
   setRoute: (route: ShellRoute) => void;
 }) {
-  const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
@@ -1457,10 +1455,6 @@ function AuthenticatedShell({
   };
 
   const selectRoute = (nextRoute: ShellRoute) => {
-    if (nextRoute === 'userHome') {
-      setUserHomeView('dashboard');
-    }
-
     setRoute(nextRoute);
   };
 
@@ -1472,29 +1466,21 @@ function AuthenticatedShell({
         userId={state.user.id}
       />
       {route === 'userHome' ? (
-        userHomeView === 'monthlyCalendar' ? (
-          <MonthlyCalendarScreen
-            onBackToHome={() => setUserHomeView('dashboard')}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
-        ) : (
-          <UserHomeDashboard
-            onOpenDevotion={() => setRoute('devotion')}
-            onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
-            onOpenPayments={() => setRoute('payments')}
-            onOpenPolls={() => setRoute('polls')}
-            onOpenPrayers={() => setRoute('prayers')}
-            onCampusSwitchPress={openCampusSwitch}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
-        )
+        <UserHomeDashboard
+          onOpenDevotion={() => setRoute('devotion')}
+          onOpenMonthlyCalendar={() => setRoute('devotion')}
+          onOpenPayments={() => setRoute('payments')}
+          onOpenPolls={() => setRoute('polls')}
+          onOpenPrayers={() => setRoute('prayers')}
+          onCampusSwitchPress={openCampusSwitch}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          state={state}
+        />
       ) : route === 'devotion' ? (
         <DevotionScreen
           onBackToHome={() => setRoute('userHome')}
+          onOpenPayments={() => setRoute('payments')}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
