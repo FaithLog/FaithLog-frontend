@@ -471,16 +471,11 @@ function renderPublicAuthEntry({
       onLoginComplete={(nextState) => {
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
-          openEntryTarget(
-            nextState.activeCampuses.length > 1 ? 'campusSelect' : 'campusDetail',
-          );
+          openEntryTarget('campusSelect');
           setNotice({
             tone: 'success',
             title: '로그인되었습니다',
-            message:
-              nextState.activeCampuses.length > 1
-                ? '참여 중인 캠퍼스를 선택해 주세요.'
-                : `${nextState.selectedCampus.campusName} 캠퍼스를 확인해 주세요.`,
+            message: '참여 중인 캠퍼스를 선택해 주세요.',
           });
         }
         if (nextState.status === 'noCampus') {
@@ -534,7 +529,7 @@ function NoCampusOnboarding({
     );
   }
 
-  if (entryTarget === 'campusCreate') {
+  if (entryTarget === 'campusCreate' && canCreateCampus) {
     return (
       <CampusCreateGate
         canCreateCampus={canCreateCampus}
@@ -646,12 +641,14 @@ function NoCampusEntryScreen({
           onPress={onInviteCodePress}>
           초대코드 입력
         </Button>
-        <Button
-          accessibilityLabel="캠퍼스 생성 화면으로 이동"
-          onPress={onCampusCreatePress}
-          variant="secondary">
-          캠퍼스 만들기
-        </Button>
+        {canCreateCampus ? (
+          <Button
+            accessibilityLabel="캠퍼스 생성 화면으로 이동"
+            onPress={onCampusCreatePress}
+            variant="secondary">
+            캠퍼스 만들기
+          </Button>
+        ) : null}
         <Text style={styles.centerStateHelper}>
           {canCreateCampus
             ? 'MANAGER 또는 ADMIN은 새 캠퍼스를 만들 수 있어요.'
@@ -821,6 +818,7 @@ function InviteCodeForm({
         value={values.inviteCode}
       />
       {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.onboardingActionSpacer} />
       <View style={styles.actionRow}>
         <Button
           accessibilityLabel="초대코드로 캠퍼스 참여"
@@ -920,43 +918,45 @@ function CampusCreateForm({
         <Text style={styles.campusFormBody}>
           MANAGER 또는 ADMIN 권한만 캠퍼스를 만들 수 있어요.
         </Text>
-      <TextField
-        accessibilityLabel="캠퍼스 이름 입력"
-        autoCapitalize="words"
-        error={fieldErrors.name}
-        label="캠퍼스 이름"
-        onChangeText={(name) => setValues((current) => ({...current, name}))}
-        placeholder="분당 1캠"
-        returnKeyType="next"
-        textContentType="none"
-        value={values.name}
-      />
-      <TextField
-        accessibilityLabel="캠퍼스 지역 입력"
-        autoCapitalize="words"
-        error={fieldErrors.region}
-        label="지역"
-        onChangeText={(region) => setValues((current) => ({...current, region}))}
-        placeholder="분당"
-        returnKeyType="next"
-        textContentType="none"
-        value={values.region}
-      />
-      <TextField
-        accessibilityLabel="캠퍼스 설명 입력"
-        autoCapitalize="sentences"
-        error={fieldErrors.description}
-        label="설명"
-        onChangeText={(description) =>
-          setValues((current) => ({...current, description}))
-        }
-        onSubmitEditing={submit}
-        placeholder="분당 대학부 1캠퍼스"
-        returnKeyType="done"
-        textContentType="none"
-        value={values.description}
-      />
-      {formError ? <InlineError message={formError} /> : null}
+        <TextField
+          accessibilityLabel="캠퍼스 이름 입력"
+          autoCapitalize="words"
+          error={fieldErrors.name}
+          label="캠퍼스 이름"
+          onChangeText={(name) => setValues((current) => ({...current, name}))}
+          placeholder="분당 1캠"
+          returnKeyType="next"
+          textContentType="none"
+          value={values.name}
+        />
+        <TextField
+          accessibilityLabel="캠퍼스 지역 입력"
+          autoCapitalize="words"
+          error={fieldErrors.region}
+          label="지역"
+          onChangeText={(region) => setValues((current) => ({...current, region}))}
+          placeholder="분당"
+          returnKeyType="next"
+          textContentType="none"
+          value={values.region}
+        />
+        <TextField
+          accessibilityLabel="캠퍼스 설명 입력"
+          autoCapitalize="sentences"
+          error={fieldErrors.description}
+          label="설명"
+          onChangeText={(description) =>
+            setValues((current) => ({...current, description}))
+          }
+          onSubmitEditing={submit}
+          placeholder="분당 대학부 1캠퍼스"
+          returnKeyType="done"
+          textContentType="none"
+          value={values.description}
+        />
+        {formError ? <InlineError message={formError} /> : null}
+      </View>
+      <View style={styles.onboardingActionSpacer} />
       <View style={styles.actionRow}>
         <Button
           accessibilityLabel="캠퍼스 생성 제출"
@@ -971,7 +971,6 @@ function CampusCreateForm({
           variant="secondary">
           취소
         </Button>
-      </View>
       </View>
     </View>
   );
@@ -1049,6 +1048,7 @@ function LoginForm({
         value={values.password}
       />
       {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.authActionSpacer} />
       <View style={styles.authActionRow}>
         <AuthButton
           accessibilityLabel="로그인 제출"
@@ -1177,6 +1177,7 @@ function SignupForm({
         value={values.passwordConfirm}
       />
       {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.authActionSpacer} />
       <View style={[styles.authActionRow, styles.signupAuthActionRow]}>
         <AuthButton
           accessibilityLabel="회원가입 제출"
@@ -1528,6 +1529,7 @@ function AuthenticatedShell({
   const [campusDetailState, setCampusDetailState] = useState<CardState<CampusDetail>>({
     status: 'idle',
   });
+  const canCreateCampus = canCreateCampusWithRole(state.user.role);
   const navItems = useMemo(
     () =>
       USER_BOTTOM_NAV_ROUTES.map((availableRoute) => ({
@@ -1804,14 +1806,17 @@ function AuthenticatedShell({
         showsVerticalScrollIndicator={false}
         style={styles.shellScroll}>
         {notice ? <NoticeCard notice={notice} /> : null}
-        <NotificationPermissionFlow
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          userId={state.user.id}
-        />
+        {entryTarget === null ? (
+          <NotificationPermissionFlow
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            userId={state.user.id}
+          />
+        ) : null}
         {entryTarget === 'campusSelect' ? (
           <CampusSelectScreen
             campuses={state.activeCampuses}
+            canCreateCampus={canCreateCampus}
             currentCampusId={state.selectedCampus.campusId}
             error={campusSwitchError}
             loading={campusSwitchLoading}
@@ -1844,9 +1849,9 @@ function AuthenticatedShell({
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
             user={state.user}
           />
-        ) : entryTarget === 'campusCreate' ? (
+        ) : entryTarget === 'campusCreate' && canCreateCampus ? (
           <CampusCreateGate
-            canCreateCampus={canCreateCampusWithRole(state.user.role)}
+            canCreateCampus={canCreateCampus}
             clearNotice={() => setNotice(null)}
             onCancel={() => openEntryTarget('campusDetail')}
             onComplete={(nextState, campusName) => {
@@ -1982,6 +1987,7 @@ function AuthenticatedShell({
 
 function CampusSelectScreen({
   campuses,
+  canCreateCampus,
   currentCampusId,
   error,
   loading,
@@ -1991,6 +1997,7 @@ function CampusSelectScreen({
   onSelect,
 }: {
   campuses: CampusMembershipSummary[];
+  canCreateCampus: boolean;
   currentCampusId: number;
   error: ApiError | null;
   loading: boolean;
@@ -2035,7 +2042,11 @@ function CampusSelectScreen({
         ) : (
           <Empty
             title="참여 중인 캠퍼스가 없어요"
-            message="초대코드를 입력하거나 권한이 있다면 캠퍼스를 만들 수 있어요."
+            message={
+              canCreateCampus
+                ? '초대코드를 입력하거나 새 캠퍼스를 만들 수 있어요.'
+                : '초대코드를 입력해 캠퍼스에 참여할 수 있어요.'
+            }
             actionLabel="목록 갱신"
             actionAccessibilityLabel="내 캠퍼스 목록 다시 불러오기"
             onActionPress={onRefresh}
@@ -2043,20 +2054,23 @@ function CampusSelectScreen({
         )}
       </View>
 
+      <View style={styles.userActionSpacer} />
       <View style={styles.authActionRow}>
         <AuthButton
           accessibilityLabel="초대코드 입력 화면으로 이동"
           disabled={loading}
           onPress={onInviteCodePress}
-          variant="secondary">
+          variant={canCreateCampus ? 'secondary' : 'primary'}>
           초대코드 입력
         </AuthButton>
-        <AuthButton
-          accessibilityLabel="캠퍼스 만들기 화면으로 이동"
-          disabled={loading}
-          onPress={onCampusCreatePress}>
-          캠퍼스 만들기
-        </AuthButton>
+        {canCreateCampus ? (
+          <AuthButton
+            accessibilityLabel="캠퍼스 만들기 화면으로 이동"
+            disabled={loading}
+            onPress={onCampusCreatePress}>
+            캠퍼스 만들기
+          </AuthButton>
+        ) : null}
       </View>
       {loading ? <Body>캠퍼스 목록을 확인하고 있어요.</Body> : null}
     </View>
@@ -2135,6 +2149,7 @@ function CampusDetailScreen({
         />
       </View>
 
+      <View style={styles.userActionSpacer} />
       <Button
         accessibilityLabel="캠퍼스 상세 확인 후 앱 홈으로 이동"
         onPress={onContinue}>
@@ -3864,8 +3879,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
+  authActionSpacer: {
+    flexGrow: 1,
+    minHeight: 34,
+  },
   signupAuthActionRow: {
-    marginTop: 34,
+    marginTop: 28,
   },
   authButton: {
     alignItems: 'center',
@@ -4163,6 +4182,10 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 6,
   },
+  onboardingActionSpacer: {
+    flexGrow: 1,
+    minHeight: 26,
+  },
   shell: {
     backgroundColor: colors.background,
     flex: 1,
@@ -4184,7 +4207,12 @@ const styles = StyleSheet.create({
   userFrame: {
     backgroundColor: colors.background,
     gap: 20,
+    minHeight: 620,
     paddingTop: 2,
+  },
+  userActionSpacer: {
+    flexGrow: 1,
+    minHeight: 20,
   },
   campusSummaryCard: {
     backgroundColor: colors.surface,

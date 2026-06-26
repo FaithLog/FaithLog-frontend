@@ -55,3 +55,28 @@
 - API endpoints, tokens, raw IDs, and debug strings are not shown in user-facing copy.
 - Notification disabled and FCM failure states include retry/settings and continue-later paths.
 - Bottom nav, authenticated shell, and Iconex-backed shared UI remain in place.
+
+## PR #144 Follow-up Verification - 2026-06-26
+
+- Login success now always opens `640:649` User 03-2 Campus Select first, even when the account has exactly one ACTIVE campus.
+- Selecting a campus from Campus Select opens `640:704` User 03-3 Campus Detail before the user enters the app home.
+- No Campus and Campus Select hide all `캠퍼스 만들기` actions when `canCreateCampusWithRole(user.role)` is false. General `USER` accounts only see invite-code entry.
+- `MANAGER` and `ADMIN` remain the only roles that can see the campus-create CTA.
+- Login, Signup, Invite Code, Campus Create, Campus Select, and Campus Detail CTA rows were moved onto shared lower-frame spacer positioning to match the Figma frame rhythm more closely.
+- Notification permission UI is delayed until authenticated onboarding is complete so it cannot push Campus Select or Campus Detail CTAs out of position.
+
+### Follow-up Commands
+
+- `git diff --check`: passed.
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with the same 5 warnings: 2 unused helpers in `PollScreen.tsx`, 3 unused helpers in `FaithLogApp.tsx`.
+- `npm run test`: passed, 5 files / 27 tests.
+
+### Follow-up Runtime Attempt
+
+- Installed dependencies with `npm ci` because this worktree initially had no `node_modules`.
+- Tried Expo mock web on fresh ports with `EXPO_PUBLIC_MOCK_MODE=true`:
+  - `npx expo start --web --port 8092 --host localhost --non-interactive`
+  - `CI=1 npx expo start --web --port 8093 --host localhost`
+- Both attempts stayed in Expo offline startup without binding `127.0.0.1:8092` or `127.0.0.1:8093`; the sessions were stopped with Ctrl-C.
+- iOS simulator/live login flow was not captured because the local Expo dev server did not become reachable, and no backend/Docker process was started.
