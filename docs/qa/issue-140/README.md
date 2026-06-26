@@ -19,6 +19,7 @@
 - `User 04`, `User 04-1`은 `UserHomeDashboard` 안에서 기도제목 API 상태에 따라 제안/상시 진입 variant를 렌더링한다.
 - `User 10`, `User 10-1`은 `ProfileScreen` 안에서 프로필 카드, 공동체 메뉴, 계정 메뉴를 같은 화면 섹션으로 렌더링한다.
 - 추가 route는 만들지 않았다.
+- 일반 USER 홈은 단일 캠퍼스 정책을 따른다. 상단 캠퍼스 chip은 소속 표시 전용이며, 홈 우측은 캠퍼스 변경이 아니라 알림 진입 아이콘이다.
 
 ## Design Checks
 
@@ -31,7 +32,7 @@
 
 - `user-04-home-prayer-suggestion.png`: iOS Simulator / Expo, mock 기도제목 OPEN 상태.
 - `user-04-home-prayer-always.png`: iOS Simulator / Expo, QA 중 mock 기도제목 CLOSED 임시 상태로 캡처 후 원복.
-- `user-04-home-rework.png`: iOS Simulator / Expo, 홈 재작업 후 Figma `User 04` 기본 구조와 기도제목 진입 card variant 확인.
+- `user-04-home-rework.png`: iOS Simulator / Expo, 홈 재작업 후 Figma `User 04` 기본 구조, 알림 진입, 기도제목 card variant 확인.
 - `user-05-monthly-calendar.png`: iOS Simulator / Expo, 7열 월간 캘린더 화면.
 - `user-10-profile-community-menu.png`: iOS Simulator / Expo production bundle mode, Profile 공동체 메뉴.
 

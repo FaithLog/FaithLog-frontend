@@ -1896,11 +1896,10 @@ function AuthenticatedShell({
             <UserHomeDashboard
               onOpenDevotion={() => setRoute('devotion')}
               onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenNotifications={() => setRoute('profile')}
               onOpenPayments={() => setRoute('payments')}
               onOpenPolls={() => setRoute('polls')}
               onOpenPrayers={() => setRoute('prayers')}
-              onCampusSwitchPress={openCampusSwitch}
-              canSwitchCampus={canManageCampuses}
               setAuthState={setAuthState}
               setNotice={setNotice}
               state={state}
@@ -2185,10 +2184,9 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
-  canSwitchCampus,
-  onCampusSwitchPress,
   onOpenDevotion,
   onOpenMonthlyCalendar,
+  onOpenNotifications,
   onOpenPayments,
   onOpenPolls,
   onOpenPrayers,
@@ -2196,10 +2194,9 @@ function UserHomeDashboard({
   setNotice,
   state,
 }: {
-  canSwitchCampus: boolean;
-  onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
+  onOpenNotifications: () => void;
   onOpenPayments: () => void;
   onOpenPolls: () => void;
   onOpenPrayers: () => void;
@@ -2348,18 +2345,17 @@ function UserHomeDashboard({
               {displayUserName}님
             </Text>
           </View>
-          {canSwitchCampus ? (
-            <Pressable
-              accessibilityLabel="관리자 홈에서 캠퍼스 변경 시트 열기"
-              accessibilityRole="button"
-              onPress={onCampusSwitchPress}
-              style={({pressed}) => [
-                styles.homeCampusChangeButton,
-                pressed ? styles.authButtonPressed : null,
-              ]}>
-              <Text style={styles.homeCampusChangeButtonText}>변경</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            accessibilityLabel="알림 설정 화면으로 이동"
+            accessibilityRole="button"
+            onPress={onOpenNotifications}
+            style={({pressed}) => [
+              styles.homeNotificationButton,
+              pressed ? styles.authButtonPressed : null,
+            ]}>
+            <IconexIcon color={colors.textPrimary} name="bell" size={20} strokeWidth={1.7} />
+            <View style={styles.homeNotificationDot} />
+          </Pressable>
         </View>
         <Text
           adjustsFontSizeToFit
@@ -4497,22 +4493,30 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
-  homeCampusChangeButton: {
+  homeNotificationButton: {
     alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
     flexShrink: 0,
-    height: 34,
+    height: 40,
     justifyContent: 'center',
-    minWidth: 54,
-    paddingHorizontal: 12,
+    position: 'relative',
+    shadowColor: colors.textPrimary,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    width: 40,
   },
-  homeCampusChangeButtonText: {
-    color: colors.surface,
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-    textAlign: 'center',
+  homeNotificationDot: {
+    backgroundColor: colors.danger,
+    borderColor: colors.surface,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    height: 8,
+    position: 'absolute',
+    right: 10,
+    top: 9,
+    width: 8,
   },
   figmaCampusChip: {
     alignItems: 'center',
