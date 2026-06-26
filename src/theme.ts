@@ -11,6 +11,7 @@ export const colors = {
   textSecondary: '#4E5968',
   textMuted: '#8B95A1',
   borderSoft: '#EEF1F4',
+  primaryActive: '#F2F7FF',
 
   // Backward-compatible semantic aliases. Values must remain mapped to the
   // Foundations/Tokens swatches above.

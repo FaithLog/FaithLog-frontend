@@ -359,35 +359,44 @@ export function BottomNav<T extends string>({
 }) {
   return (
     <View accessibilityRole="tablist" style={styles.bottomNav}>
-      {items.map((item) => {
-        const active = item.id === activeId;
+      <ScrollView
+        contentContainerStyle={styles.bottomNavContent}
+        horizontal
+        showsHorizontalScrollIndicator={false}>
+        {items.map((item) => {
+          const active = item.id === activeId;
 
-        return (
-          <Pressable
-            accessibilityLabel={item.accessibilityLabel}
-            accessibilityRole="tab"
-            accessibilityState={{selected: active}}
-            key={item.id}
-            onPress={() => onSelect(item.id)}
-            style={({pressed}) => [
-              styles.bottomNavItem,
-              active ? styles.bottomNavItemActive : null,
-              pressed ? styles.pressed : null,
-            ]}>
-            {item.icon ? (
+          return (
+            <Pressable
+              accessibilityLabel={item.accessibilityLabel}
+              accessibilityRole="tab"
+              accessibilityState={{selected: active}}
+              key={item.id}
+              onPress={() => onSelect(item.id)}
+              style={({pressed}) => [
+                styles.bottomNavItem,
+                active ? styles.bottomNavItemActive : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              {item.icon ? (
+                <Text
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                  numberOfLines={1}
+                  style={[styles.navIcon, active ? styles.navIconActive : null]}>
+                  {item.icon}
+                </Text>
+              ) : null}
               <Text
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-                style={[styles.navIcon, active ? styles.navIconActive : null]}>
-                {item.icon}
+                ellipsizeMode="tail"
+                numberOfLines={1}
+                style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>
+                {item.label}
               </Text>
-            ) : null}
-            <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -829,42 +838,51 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.border,
+    borderRadius: 22,
     borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    minHeight: 80,
-    marginHorizontal: -24,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    height: 62,
+    justifyContent: 'center',
+    maxWidth: 342,
+    overflow: 'hidden',
+    paddingHorizontal: 1,
+    paddingVertical: 6,
+    width: '100%',
+  },
+  bottomNavContent: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minWidth: '100%',
   },
   bottomNavItem: {
     alignItems: 'center',
     borderRadius: 18,
-    flex: 1,
     gap: 3,
+    height: 48,
     justifyContent: 'center',
-    minHeight: 48,
-    minWidth: 0,
     paddingHorizontal: 8,
     paddingVertical: 6,
+    width: 68,
   },
   bottomNavItemActive: {
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.primaryActive,
   },
   navIcon: {
     color: colors.mutedText,
-    ...typography.label,
+    fontSize: 18,
+    fontWeight: '600',
+    lineHeight: 22,
+    textAlign: 'center',
   },
   navIconActive: {
     color: colors.primary,
   },
   bottomNavLabel: {
     color: colors.mutedText,
-    flexShrink: 1,
-    flexWrap: 'wrap',
-    ...typography.caption,
+    fontSize: 12,
     fontWeight: '600',
+    lineHeight: 14,
     textAlign: 'center',
+    width: '100%',
   },
   bottomNavLabelActive: {
     color: colors.primary,
