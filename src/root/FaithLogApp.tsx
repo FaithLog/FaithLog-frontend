@@ -134,7 +134,7 @@ type CardState<T> =
 
 type HomeCardKey = 'overview' | 'devotion' | 'charges' | 'polls' | 'prayers';
 
-type HomePrayerEntryVariant = 'suggestion' | 'always';
+type HomePrayerEntryVariant = 'default' | 'suggestion' | 'always';
 
 type NotificationUiState =
   | {status: 'checking'}
@@ -2221,6 +2221,12 @@ function UserHomeDashboard({
   const [pollState, setPollState] = useState<CardState<PollSummary[]>>({status: 'idle'});
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
   const prayerEntryVariant = getHomePrayerEntryVariant(prayerState);
+  const todayActions = getTodayActions({chargeState, devotionState, pollState, prayerState, today});
+  const displayUserName = getCompactDisplayName(state.user.name, '사용자');
+  const campusLabel = getCompactCampusLabel(
+    state.selectedCampus.region,
+    state.selectedCampus.campusName,
+  );
 
   const runCardRequest = async <T,>(
     key: HomeCardKey,
@@ -2335,11 +2341,11 @@ function UserHomeDashboard({
           <View style={styles.figmaContextLeft}>
             <View style={styles.figmaCampusChip}>
               <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
-                {state.selectedCampus.region} {state.selectedCampus.campusName}
+                {campusLabel}
               </Text>
             </View>
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaContextName}>
-              {state.user.name}님
+              {displayUserName}님
             </Text>
           </View>
           {canSwitchCampus ? (
@@ -2355,16 +2361,22 @@ function UserHomeDashboard({
             </Pressable>
           ) : null}
         </View>
-        <Text style={styles.figmaTitle}>{state.user.name}님, 오늘의 FaithLog</Text>
+        <Text
+          adjustsFontSizeToFit
+          ellipsizeMode="tail"
+          minimumFontScale={0.82}
+          numberOfLines={1}
+          style={styles.figmaTitle}>
+          {displayUserName}님, 오늘의 FaithLog
+        </Text>
       </View>
 
       <Pressable
         accessibilityLabel="오늘 해야 할 일 전체 보기"
         accessibilityRole="button"
         onPress={() => {
-          const actions = getTodayActions({chargeState, devotionState, pollState, prayerState, today});
-          if (actions[0]) {
-            openHomeTarget(actions[0].target);
+          if (todayActions[0]) {
+            openHomeTarget(todayActions[0].target);
           } else {
             onOpenDevotion();
           }
@@ -2381,7 +2393,7 @@ function UserHomeDashboard({
             minimumFontScale={0.82}
             numberOfLines={1}
             style={styles.homeTodoTitle}>
-            {getTodayActions({chargeState, devotionState, pollState, prayerState, today}).length}개 남았어요
+            {todayActions.length}개 남았어요
           </Text>
           <View style={styles.homeTodoButton}>
             <Text style={styles.homeTodoButtonText}>전체보기</Text>
@@ -2392,81 +2404,78 @@ function UserHomeDashboard({
         </Text>
       </Pressable>
 
-      {prayerEntryVariant === 'suggestion' ? (
-        <>
-          <Text style={styles.figmaSectionTitle}>이번 주 루틴</Text>
-          <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
-          <HomeRoutineEntryCard
-            actionLabel="체크"
-            body={
-              devotionState.status === 'success'
-                ? `큐티 ${devotionState.data.quietTimeCount}/7 · 기도 ${devotionState.data.prayerCount}/7 · 말씀 ${devotionState.data.bibleReadingCount}/7`
-                : '경건생활 체크를 확인해요'
-            }
-            onPress={onOpenDevotion}
-            title="경건생활"
-          />
-          <HomeRoutineEntryCard
-            actionLabel="입금"
-            body={
-              chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
-                ? `이번 달 미납 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
-                : '이번 달 납부 흐름을 확인해요'
-            }
-            onPress={onOpenPayments}
-            title="최근 청구 항목"
-          />
-        </>
-      ) : (
-        <>
-          <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
-          <View style={styles.homeMetricRow}>
-            <HomeMetricTile
-              label="낸 금액"
-              value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyPaidAmount) : '확인 중'}
-            />
-            <HomeMetricTile
-              label="미납"
-              tone="danger"
-              value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyUnpaidAmount) : '확인 중'}
-            />
-            <HomeMetricTile
-              label="지각"
-              tone="warning"
-              value={devotionState.status === 'success' ? `${devotionState.data.saturdayLateMinutes}분` : '확인 중'}
-            />
-          </View>
+      <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
+      <View style={styles.homeMetricRow}>
+        <HomeMetricTile
+          label="낸 금액"
+          value={
+            chargeState.status === 'success'
+              ? formatCompactWon(chargeState.data.monthlyPaidAmount)
+              : '확인 중'
+          }
+        />
+        <HomeMetricTile
+          label="미납"
+          tone="danger"
+          value={
+            chargeState.status === 'success'
+              ? formatCompactWon(chargeState.data.monthlyUnpaidAmount)
+              : '확인 중'
+          }
+        />
+        <HomeMetricTile
+          label="지각"
+          tone="warning"
+          value={
+            devotionState.status === 'success'
+              ? `${devotionState.data.saturdayLateMinutes}분`
+              : '확인 중'
+          }
+        />
+      </View>
 
-          <View style={styles.figmaSectionRow}>
-            <Text style={[styles.figmaSectionTitle, styles.figmaSectionTitleLeft]}>
-              경건생활
-            </Text>
-            <Pressable
-              accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
-              accessibilityRole="button"
-              onPress={onOpenMonthlyCalendar}>
-              <Text style={styles.figmaTextButton}>캘린더</Text>
-            </Pressable>
-          </View>
-          <View style={styles.homeMetricRow}>
-            <HomeMetricTile
-              label="큐티"
-              value={devotionState.status === 'success' ? `${devotionState.data.quietTimeCount}회` : '확인 중'}
-              onPress={onOpenDevotion}
-            />
-            <HomeMetricTile
-              label="기도"
-              value={devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'}
-              onPress={onOpenDevotion}
-            />
-            <HomeMetricTile
-              label="말씀"
-              value={devotionState.status === 'success' ? `${devotionState.data.bibleReadingCount}회` : '확인 중'}
-              onPress={onOpenDevotion}
-            />
-          </View>
-          <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
-        </>
+      <View style={styles.figmaSectionRow}>
+        <Text style={[styles.figmaSectionTitle, styles.figmaSectionTitleLeft]}>
+          경건생활
+        </Text>
+        <Pressable
+          accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onOpenMonthlyCalendar}>
+          <Text style={styles.figmaTextButton}>캘린더</Text>
+        </Pressable>
+      </View>
+      <View style={styles.homeMetricRow}>
+        <HomeMetricTile
+          label="큐티"
+          value={
+            devotionState.status === 'success'
+              ? `${devotionState.data.quietTimeCount}회`
+              : '확인 중'
+          }
+          onPress={onOpenDevotion}
+        />
+        <HomeMetricTile
+          label="기도"
+          value={
+            devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'
+          }
+          onPress={onOpenDevotion}
+        />
+        <HomeMetricTile
+          label="말씀"
+          value={
+            devotionState.status === 'success'
+              ? `${devotionState.data.bibleReadingCount}회`
+              : '확인 중'
+          }
+          onPress={onOpenDevotion}
+        />
+      </View>
+      {prayerEntryVariant === 'suggestion' || prayerEntryVariant === 'always' ? (
+        <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
+      ) : (
+        <HomeChargeEntryCard chargeState={chargeState} onPress={onOpenPayments} />
       )}
 
       {overviewState.status === 'error' ||
@@ -2545,10 +2554,10 @@ function HomePrayerEntryCard({
       ]}>
       <View style={styles.homePrayerText}>
         <Text style={styles.homePrayerEyebrow}>{copy.eyebrow}</Text>
-        <Text numberOfLines={2} style={styles.homePrayerTitle}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homePrayerTitle}>
           {copy.title}
         </Text>
-        <Text numberOfLines={2} style={styles.homePrayerBody}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homePrayerBody}>
           {copy.body}
         </Text>
       </View>
@@ -2559,33 +2568,34 @@ function HomePrayerEntryCard({
   );
 }
 
-function HomeRoutineEntryCard({
-  actionLabel,
-  body,
+function HomeChargeEntryCard({
+  chargeState,
   onPress,
-  title,
 }: {
-  actionLabel: string;
-  body: string;
+  chargeState: CardState<ChargeSummary>;
   onPress: () => void;
-  title: string;
 }) {
+  const body =
+    chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
+      ? `경건생활 벌금 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
+      : '이번 달 납부 흐름을 확인해요';
+
   return (
     <Pressable
-      accessibilityLabel={`${title} ${actionLabel}`}
+      accessibilityLabel="최근 청구 항목 입금"
       accessibilityRole="button"
       onPress={onPress}
-      style={({pressed}) => [styles.homeRoutineCard, pressed ? styles.authButtonPressed : null]}>
-      <View style={styles.homeRoutineText}>
-        <Text numberOfLines={1} style={styles.homeRoutineTitle}>
-          {title}
+      style={({pressed}) => [styles.homeChargeCard, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.homeChargeText}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeChargeTitle}>
+          최근 청구 항목
         </Text>
-        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeRoutineBody}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeChargeBody}>
           {body}
         </Text>
       </View>
-      <View style={styles.homePrayerButton}>
-        <Text style={styles.homePrayerButtonText}>{actionLabel}</Text>
+      <View style={styles.homeChargeButton}>
+        <Text style={styles.homeChargeButtonText}>입금</Text>
       </View>
     </Pressable>
   );
@@ -2854,7 +2864,11 @@ function getHomePrayerEntryVariant(
     return 'suggestion';
   }
 
-  return 'always';
+  if (prayerState.status === 'success' && prayerState.data.targetMemberCount > 0) {
+    return 'always';
+  }
+
+  return 'default';
 }
 
 function getHomePrayerEntryCopy(
@@ -2888,10 +2902,19 @@ function getHomePrayerEntryCopy(
     };
   }
 
+  if (variant === 'always') {
+    return {
+      actionLabel: '보기',
+      body: getPrayerProgressSummary(prayerState.data),
+      eyebrow: getPrayerEntryPolicy(prayerState.data),
+      title: '이번 주 기도제목',
+    };
+  }
+
   return {
     actionLabel: '보기',
-    body: getPrayerProgressSummary(prayerState.data),
-    eyebrow: getPrayerEntryPolicy(prayerState.data),
+    body: '기도 탭에서 조별 입력 상태를 확인할 수 있어요.',
+    eyebrow: '기도제목',
     title: '이번 주 기도제목',
   };
 }
@@ -2905,7 +2928,53 @@ function getPrayerProgressSummary(prayers: PrayerWeekSummary) {
 
   const groupSubmittedCount = primaryGroup.members.filter((member) => member.submittedAt).length;
 
-  return `${primaryGroup.groupName} ${groupSubmittedCount}/${primaryGroup.members.length} 작성 · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+  const groupName = getCompactDisplayName(primaryGroup.groupName, '소그룹', 10);
+
+  return `${groupName} ${groupSubmittedCount}/${primaryGroup.members.length} 작성 · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+}
+
+function getCompactCampusLabel(region: string, campusName: string) {
+  const compactRegion = getCompactDisplayName(region, '', 12);
+  const compactCampus = getCompactDisplayName(campusName, '', 14);
+
+  if (!compactRegion && !compactCampus) {
+    return '내 캠퍼스';
+  }
+
+  if (!compactRegion) {
+    return compactCampus;
+  }
+
+  if (!compactCampus || compactCampus.startsWith(compactRegion)) {
+    return compactRegion;
+  }
+
+  if (compactRegion.startsWith('PERF') && compactCampus.startsWith('PERF')) {
+    return compactCampus;
+  }
+
+  return getCompactDisplayName(`${compactRegion} ${compactCampus}`, '내 캠퍼스', 18);
+}
+
+function getCompactDisplayName(value: string | null | undefined, fallback: string, maxLength = 12) {
+  const normalized = normalizeDisplayLabel(value);
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(1, maxLength - 3))}...`;
+}
+
+function normalizeDisplayLabel(value: string | null | undefined) {
+  return (value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/PERF_\d{8}_[A-Z0-9_]+/gi, 'PERF');
 }
 
 function getWeekStartDate(date: Date) {
@@ -4391,7 +4460,7 @@ const styles = StyleSheet.create({
   figmaContextRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     justifyContent: 'space-between',
     minHeight: 40,
     width: '100%',
@@ -4409,6 +4478,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 18,
+    maxWidth: 138,
     minWidth: 0,
   },
   homeHeaderTopRow: {
@@ -4420,12 +4490,12 @@ const styles = StyleSheet.create({
   },
   figmaTitle: {
     color: authColors.text,
-    flex: 1,
     flexShrink: 1,
     fontSize: 24,
     fontWeight: '700',
     lineHeight: 32,
     minWidth: 0,
+    width: '100%',
   },
   homeCampusChangeButton: {
     alignItems: 'center',
@@ -4434,8 +4504,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     height: 34,
     justifyContent: 'center',
-    minWidth: 62,
-    paddingHorizontal: 14,
+    minWidth: 54,
+    paddingHorizontal: 12,
   },
   homeCampusChangeButtonText: {
     color: colors.surface,
@@ -4448,10 +4518,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 12,
+    flexShrink: 1,
     height: 28,
     justifyContent: 'center',
-    maxWidth: '100%',
-    minWidth: 72,
+    maxWidth: 126,
+    minWidth: 0,
     paddingHorizontal: 10,
   },
   figmaCampusText: {
@@ -4460,7 +4531,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 16,
-    maxWidth: '100%',
+    maxWidth: 106,
   },
   figmaSectionRow: {
     alignItems: 'center',
@@ -4573,7 +4644,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: 96,
     paddingHorizontal: 24,
-    paddingVertical: 18,
+    paddingVertical: 20,
   },
   homePrayerCardSuggested: {
     borderColor: colors.borderSoft,
@@ -4586,7 +4657,7 @@ const styles = StyleSheet.create({
   },
   homePrayerText: {
     flex: 1,
-    gap: 7,
+    gap: 8,
     minWidth: 0,
   },
   homePrayerTitle: {

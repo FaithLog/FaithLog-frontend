@@ -31,10 +31,11 @@
 
 - `user-04-home-prayer-suggestion.png`: iOS Simulator / Expo, mock 기도제목 OPEN 상태.
 - `user-04-home-prayer-always.png`: iOS Simulator / Expo, QA 중 mock 기도제목 CLOSED 임시 상태로 캡처 후 원복.
+- `user-04-home-rework.png`: iOS Simulator / Expo, 홈 재작업 후 Figma `User 04` 기본 구조와 기도제목 진입 card variant 확인.
 - `user-05-monthly-calendar.png`: iOS Simulator / Expo, 7열 월간 캘린더 화면.
 - `user-10-profile-community-menu.png`: iOS Simulator / Expo production bundle mode, Profile 공동체 메뉴.
 
-Note: `user-05-monthly-calendar.png`는 기존 10열처럼 보이던 캘린더 캡처를 7열 최신 캡처로 교체했다. Expo Go tools overlay가 캡처에 남아 있어 코드/레이아웃 검증은 PM이 로컬 실행으로 재확인한다. QA용 임시 mock/route 변경은 최종 diff에 남기지 않았다.
+Note: `user-05-monthly-calendar.png`는 기존 10열처럼 보이던 캘린더 캡처를 7열 최신 캡처로 교체했다. `user-04-home-rework.png`와 월간 캘린더 캡처에는 Expo Go tools overlay가 남아 있어 코드/레이아웃 검증은 PM이 로컬 실행으로 재확인한다. QA용 임시 mock/route 변경은 최종 diff에 남기지 않았다.
 
 ## Validation
 
