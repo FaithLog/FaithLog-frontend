@@ -177,7 +177,7 @@ export function MonthlyCalendarScreen({
     <View style={styles.screen}>
       <View style={styles.header}>
         <View style={styles.campusChip}>
-          <Text style={styles.campusChipText}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.campusChipText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
         </View>
@@ -213,21 +213,25 @@ export function MonthlyCalendarScreen({
           ))}
         </View>
         <View style={styles.calendarGrid}>
-          {getMonthGridCells(visibleMonth.year, visibleMonth.month).map((cell, index) =>
-            cell ? (
-              <CalendarDay
-                date={cell.date}
-                day={cell.day}
-                key={cell.date}
-                monthly={loadState.monthly}
-                onPress={() => setSelectedDate(cell.date)}
-                selected={cell.date === selectedDate}
-                selectedWeekChecks={formChecks}
-              />
-            ) : (
-              <View key={`blank-${index}`} style={styles.calendarBlankCell} />
-            ),
-          )}
+          {getMonthGridRows(visibleMonth.year, visibleMonth.month).map((week, weekIndex) => (
+            <View key={`week-${weekIndex}`} style={styles.calendarWeekRow}>
+              {week.map((cell, dayIndex) =>
+                cell ? (
+                  <CalendarDay
+                    date={cell.date}
+                    day={cell.day}
+                    key={cell.date}
+                    monthly={loadState.monthly}
+                    onPress={() => setSelectedDate(cell.date)}
+                    selected={cell.date === selectedDate}
+                    selectedWeekChecks={formChecks}
+                  />
+                ) : (
+                  <View key={`blank-${weekIndex}-${dayIndex}`} style={styles.calendarBlankCell} />
+                )
+              )}
+            </View>
+          ))}
         </View>
         <View style={styles.legendRow}>
           {[0, 1, 2, 3].map((count) => (
@@ -508,6 +512,17 @@ function getMonthGridCells(year: number, month: number) {
   return cells;
 }
 
+function getMonthGridRows(year: number, month: number) {
+  const cells = getMonthGridCells(year, month);
+  const rows: Array<Array<{date: string; day: number} | null>> = [];
+
+  for (let index = 0; index < cells.length; index += 7) {
+    rows.push(cells.slice(index, index + 7));
+  }
+
+  return rows;
+}
+
 function getDailyCompletionCount(check: DailyFormCheck) {
   return Math.min(
     3,
@@ -651,15 +666,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: calendarColors.chip,
     borderRadius: 15,
-    height: 30,
+    alignSelf: 'flex-start',
+    minHeight: 30,
     justifyContent: 'center',
-    width: 86,
+    maxWidth: '100%',
+    paddingHorizontal: 14,
   },
   campusChipText: {
     color: calendarColors.muted,
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 20,
+    maxWidth: 240,
   },
   monthCard: {
     alignItems: 'center',
@@ -707,17 +726,18 @@ const styles = StyleSheet.create({
   },
   weekdayLabel: {
     color: calendarColors.text,
-    flex: 1,
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
     textAlign: 'center',
+    width: 30,
   },
   calendarGrid: {
+    gap: 10,
+  },
+  calendarWeekRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 10,
   },
   calendarCell: {
     alignItems: 'center',
