@@ -2328,19 +2328,26 @@ function UserHomeDashboard({
   return (
     <View style={styles.userFrame}>
       <View style={styles.figmaHeader}>
-        <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
-        <Pressable
-          accessibilityLabel={
-            canSwitchCampus ? '홈에서 캠퍼스 변경 시트 열기' : '현재 캠퍼스 확인'
-          }
-          accessibilityRole="button"
-          disabled={!canSwitchCampus}
-          onPress={onCampusSwitchPress}
-          style={styles.figmaCampusChip}>
+        <View style={styles.homeHeaderTopRow}>
+          <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
+          {canSwitchCampus ? (
+            <Pressable
+              accessibilityLabel="관리자 홈에서 캠퍼스 변경 시트 열기"
+              accessibilityRole="button"
+              onPress={onCampusSwitchPress}
+              style={({pressed}) => [
+                styles.homeCampusChangeButton,
+                pressed ? styles.authButtonPressed : null,
+              ]}>
+              <Text style={styles.homeCampusChangeButtonText}>변경</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View style={styles.figmaCampusChip}>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
-        </Pressable>
+        </View>
       </View>
 
       <Pressable
@@ -4306,11 +4313,38 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
   },
+  homeHeaderTopRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    width: '100%',
+  },
   figmaTitle: {
     color: authColors.text,
+    flex: 1,
+    flexShrink: 1,
     fontSize: 24,
     fontWeight: '700',
     lineHeight: 32,
+    minWidth: 0,
+  },
+  homeCampusChangeButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    flexShrink: 0,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 62,
+    paddingHorizontal: 14,
+  },
+  homeCampusChangeButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
   },
   figmaCampusChip: {
     alignItems: 'center',
