@@ -358,36 +358,51 @@ export function BottomNav<T extends string>({
   onSelect: (id: T) => void;
 }) {
   return (
-    <View accessibilityRole="tablist" style={styles.bottomNav}>
-      {items.map((item) => {
-        const active = item.id === activeId;
+    <View style={styles.bottomNav}>
+      <ScrollView
+        bounces={false}
+        contentContainerStyle={styles.bottomNavContent}
+        horizontal
+        keyboardShouldPersistTaps="handled"
+        showsHorizontalScrollIndicator={false}>
+        <View accessibilityRole="tablist" style={styles.bottomNavList}>
+          {items.map((item) => {
+            const active = item.id === activeId;
 
-        return (
-          <Pressable
-            accessibilityLabel={item.accessibilityLabel}
-            accessibilityRole="tab"
-            accessibilityState={{selected: active}}
-            key={item.id}
-            onPress={() => onSelect(item.id)}
-            style={({pressed}) => [
-              styles.bottomNavItem,
-              active ? styles.bottomNavItemActive : null,
-              pressed ? styles.pressed : null,
-            ]}>
-            {item.icon ? (
-              <Text
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-                style={[styles.navIcon, active ? styles.navIconActive : null]}>
-                {item.icon}
-              </Text>
-            ) : null}
-            <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+            return (
+              <Pressable
+                accessibilityLabel={item.accessibilityLabel}
+                accessibilityRole="tab"
+                accessibilityState={{selected: active}}
+                key={item.id}
+                onPress={() => onSelect(item.id)}
+                style={({pressed}) => [
+                  styles.bottomNavItem,
+                  active ? styles.bottomNavItemActive : null,
+                  pressed ? styles.pressed : null,
+                ]}>
+                {item.icon ? (
+                  <Text
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                    numberOfLines={1}
+                    style={[styles.navIcon, active ? styles.navIconActive : null]}>
+                    {item.icon}
+                  </Text>
+                ) : null}
+                <Text
+                  adjustsFontSizeToFit
+                  ellipsizeMode="tail"
+                  minimumFontScale={0.82}
+                  numberOfLines={1}
+                  style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -826,34 +841,45 @@ const styles = StyleSheet.create({
     ...typography.label,
   },
   bottomNav: {
-    alignItems: 'center',
     backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexShrink: 0,
+    minHeight: 76,
+    paddingBottom: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
+  bottomNavContent: {
+    flexGrow: 1,
+  },
+  bottomNavList: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
-    minHeight: 80,
-    marginHorizontal: -24,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    gap: 6,
+    minWidth: '100%',
   },
   bottomNavItem: {
     alignItems: 'center',
-    borderRadius: 18,
-    flex: 1,
-    gap: 3,
+    borderRadius: radius.control,
+    flexBasis: 56,
+    flexGrow: 1,
+    gap: 2,
     justifyContent: 'center',
-    minHeight: 48,
-    minWidth: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    minHeight: 54,
+    minWidth: 56,
+    paddingHorizontal: 5,
+    paddingVertical: 5,
   },
   bottomNavItemActive: {
     backgroundColor: colors.borderSoft,
   },
   navIcon: {
     color: colors.mutedText,
-    ...typography.label,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'center',
   },
   navIconActive: {
     color: colors.primary,
@@ -861,9 +887,10 @@ const styles = StyleSheet.create({
   bottomNavLabel: {
     color: colors.mutedText,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    ...typography.caption,
+    fontSize: 11,
     fontWeight: '600',
+    lineHeight: 14,
+    maxWidth: '100%',
     textAlign: 'center',
   },
   bottomNavLabelActive: {

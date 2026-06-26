@@ -255,6 +255,15 @@ export function FaithLogApp() {
               state: authState,
             })}
           </ScrollView>
+        ) : authState.status === 'authenticated' ? (
+          <AuthenticatedShell
+            notice={sessionNotice}
+            route={route}
+            setAuthState={setAuthState}
+            setNotice={setSessionNotice}
+            setRoute={setRoute}
+            state={authState}
+          />
         ) : (
           <Screen>
             <ScrollView
@@ -283,6 +292,7 @@ export function FaithLogApp() {
 function renderAuthState({
   clearNotice,
   entryTarget,
+  notice = null,
   openEntryTarget,
   retry,
   route,
@@ -293,6 +303,7 @@ function renderAuthState({
 }: {
   clearNotice: () => void;
   entryTarget: EntryTarget | null;
+  notice?: SessionNotice;
   openEntryTarget: (target: EntryTarget | null) => void;
   retry: () => void;
   route: ShellRoute;
@@ -402,6 +413,7 @@ function renderAuthState({
     case 'authenticated':
       return (
         <AuthenticatedShell
+          notice={notice}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1306,12 +1318,14 @@ function EntryTargetCard({target}: {target: EntryTarget}) {
 }
 
 function AuthenticatedShell({
+  notice,
   route,
   setAuthState,
   setNotice,
   setRoute,
   state,
 }: {
+  notice: SessionNotice;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -1466,105 +1480,112 @@ function AuthenticatedShell({
 
   return (
     <View style={styles.shell}>
-      <NotificationPermissionFlow
-        setAuthState={setAuthState}
-        setNotice={setNotice}
-        userId={state.user.id}
-      />
-      {route === 'userHome' ? (
-        userHomeView === 'monthlyCalendar' ? (
-          <MonthlyCalendarScreen
-            onBackToHome={() => setUserHomeView('dashboard')}
+      <ScrollView
+        contentContainerStyle={styles.shellScrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        style={styles.shellScroll}>
+        <NotificationPermissionFlow
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          userId={state.user.id}
+        />
+        {notice ? <NoticeCard notice={notice} /> : null}
+        {route === 'userHome' ? (
+          userHomeView === 'monthlyCalendar' ? (
+            <MonthlyCalendarScreen
+              onBackToHome={() => setUserHomeView('dashboard')}
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          ) : (
+            <UserHomeDashboard
+              onOpenDevotion={() => setRoute('devotion')}
+              onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenPayments={() => setRoute('payments')}
+              onOpenPolls={() => setRoute('polls')}
+              onOpenPrayers={() => setRoute('prayers')}
+              onCampusSwitchPress={openCampusSwitch}
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          )
+        ) : route === 'devotion' ? (
+          <DevotionScreen
+            onBackToHome={() => setRoute('userHome')}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'payments' ? (
+          <PaymentScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'polls' ? (
+          <PollScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'prayers' ? (
+          <PrayerScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'profile' ? (
+          <ProfileScreen
+            onCampusSwitchPress={openCampusSwitch}
+            onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onOpenPrayers={() => setRoute('prayers')}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'campusAdmin' ? (
+          <AdminScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'serviceAdmin' ? (
+          <ServiceAdminScreen
+            onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
           />
         ) : (
-          <UserHomeDashboard
-            onOpenDevotion={() => setRoute('devotion')}
-            onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
-            onOpenPayments={() => setRoute('payments')}
-            onOpenPolls={() => setRoute('polls')}
-            onOpenPrayers={() => setRoute('prayers')}
-            onCampusSwitchPress={openCampusSwitch}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
+          <RoutePlaceholder
+            activeCampusCount={state.activeCampuses.length}
+            route={route}
+            selectedCampusDetail={selectedCampusDetail}
             state={state}
+            onCampusSwitchPress={openCampusSwitch}
           />
-        )
-      ) : route === 'devotion' ? (
-        <DevotionScreen
-          onBackToHome={() => setRoute('userHome')}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'payments' ? (
-        <PaymentScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'polls' ? (
-        <PollScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'prayers' ? (
-        <PrayerScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'profile' ? (
-        <ProfileScreen
-          onCampusSwitchPress={openCampusSwitch}
-          onLogoutPress={() => setLogoutConfirmVisible(true)}
-          onOpenPrayers={() => setRoute('prayers')}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'campusAdmin' ? (
-        <AdminScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'serviceAdmin' ? (
-        <ServiceAdminScreen
-          onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : (
-        <RoutePlaceholder
-          activeCampusCount={state.activeCampuses.length}
-          route={route}
-          selectedCampusDetail={selectedCampusDetail}
-          state={state}
-          onCampusSwitchPress={openCampusSwitch}
-        />
-      )}
+        )}
+
+        {route === 'profile' ||
+        route === 'userHome' ||
+        route === 'devotion' ||
+        route === 'payments' ||
+        route === 'polls' ||
+        route === 'prayers' ||
+        route === 'campusAdmin' ||
+        route === 'serviceAdmin' ? null : (
+          <Card>
+            <Eyebrow>{getRouteLabel(route)}</Eyebrow>
+            <Title>{getRouteTitle(route)}</Title>
+            <Body>{getRouteDescription(route, state.activeCampuses.length)}</Body>
+          </Card>
+        )}
+      </ScrollView>
 
       <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
-
-      {route === 'profile' ||
-      route === 'userHome' ||
-      route === 'devotion' ||
-      route === 'payments' ||
-      route === 'polls' ||
-      route === 'prayers' ||
-      route === 'campusAdmin' ||
-      route === 'serviceAdmin' ? null : (
-        <Card>
-          <Eyebrow>{getRouteLabel(route)}</Eyebrow>
-          <Title>{getRouteTitle(route)}</Title>
-          <Body>{getRouteDescription(route, state.activeCampuses.length)}</Body>
-        </Card>
-      )}
 
       <LogoutConfirmSheet
         loading={loggingOut}
@@ -3401,7 +3422,18 @@ const styles = StyleSheet.create({
   },
   shell: {
     backgroundColor: colors.background,
-    gap: 16,
+    flex: 1,
+  },
+  shellScroll: {
+    flex: 1,
+  },
+  shellScrollContent: {
+    backgroundColor: colors.background,
+    flexGrow: 1,
+    gap: 20,
+    paddingBottom: 24,
+    paddingHorizontal: spacing.screenX,
+    paddingTop: 28,
   },
   userFrame: {
     backgroundColor: colors.background,

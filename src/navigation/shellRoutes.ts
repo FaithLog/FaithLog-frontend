@@ -46,7 +46,7 @@ export function getRouteLabel(route: ShellRoute) {
     case 'campusAdmin':
       return '관리자';
     case 'serviceAdmin':
-      return 'Service ADMIN';
+      return '서비스';
     default:
       return assertNever(route);
   }
