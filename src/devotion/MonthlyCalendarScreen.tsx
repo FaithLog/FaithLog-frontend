@@ -17,7 +17,6 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
-  Button,
   Conflict,
   ErrorState,
   Loading,
@@ -36,6 +35,7 @@ type Notice = {
 
 type MonthlyCalendarScreenProps = {
   onBackToHome: () => void;
+  onOpenWeeklyDevotion: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -60,6 +60,7 @@ const REQUIRED_DAYS = 5;
 
 export function MonthlyCalendarScreen({
   onBackToHome,
+  onOpenWeeklyDevotion,
   setAuthState,
   setNotice,
   state,
@@ -237,7 +238,19 @@ export function MonthlyCalendarScreen({
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>{selectedDateLabel} 빠른 체크</Text>
+      <View style={styles.quickHeader}>
+        <View style={styles.quickHeaderText}>
+          <Text style={styles.sectionTitle}>{selectedDateLabel} 빠른 체크</Text>
+          <Text style={styles.sectionHelp}>이번 주 기록은 7일 입력에서 제출해요</Text>
+        </View>
+        <Pressable
+          accessibilityLabel="월간 캘린더에서 주간 제출 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onOpenWeeklyDevotion}
+          style={({pressed}) => [styles.weeklyEntryButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.weeklyEntryButtonText}>주간 제출</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.quickCard}>
         {selectedCheck ? (
@@ -265,12 +278,13 @@ export function MonthlyCalendarScreen({
       {actionError ? <MonthlyCalendarActionError error={actionError} onRetry={loadCalendar} /> : null}
 
       <View style={styles.saveRow}>
-        <Button
+        <Pressable
           accessibilityLabel="월간 캘린더에서 홈으로 이동"
+          accessibilityRole="button"
           onPress={onBackToHome}
-          variant="ghost">
-          홈
-        </Button>
+          style={({pressed}) => [styles.homeButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.homeButtonText}>홈</Text>
+        </Pressable>
         <Pressable
           accessibilityLabel="선택한 날짜 빠른 체크 저장"
           accessibilityRole="button"
@@ -350,7 +364,9 @@ function QuickCheckButton({
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
       ]}>
-      <Text style={styles.quickButtonText}>{checked ? `✓ ${label}` : label}</Text>
+      <Text style={[styles.quickButtonText, checked ? styles.quickButtonCheckedText : null]}>
+        {checked ? `✓ ${label}` : label}
+      </Text>
     </Pressable>
   );
 }
@@ -757,7 +773,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     lineHeight: 23,
-    marginTop: 16,
+    marginTop: 0,
   },
   quickCard: {
     backgroundColor: calendarColors.card,
@@ -787,8 +803,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   quickButtonChecked: {
-    backgroundColor: calendarColors.card,
-    borderColor: calendarColors.border,
+    backgroundColor: '#E8F3FF',
+    borderColor: calendarColors.button,
+  },
+  quickButtonCheckedText: {
+    color: calendarColors.button,
   },
   quickButtonText: {
     color: calendarColors.text,
@@ -796,6 +815,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 20,
     textAlign: 'center',
+  },
+  quickHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  quickHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionHelp: {
+    color: calendarColors.muted,
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 18,
+    marginTop: 2,
   },
   lockedText: {
     color: calendarColors.muted,
@@ -811,6 +848,20 @@ const styles = StyleSheet.create({
     marginTop: -8,
     paddingBottom: 8,
   },
+  homeButton: {
+    alignItems: 'center',
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 52,
+    paddingHorizontal: 12,
+  },
+  homeButtonText: {
+    color: calendarColors.muted,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
   saveButton: {
     alignItems: 'center',
     backgroundColor: calendarColors.button,
@@ -824,6 +875,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 20,
+  },
+  weeklyEntryButton: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 17,
+    height: 34,
+    justifyContent: 'center',
+    width: 82,
+  },
+  weeklyEntryButtonText: {
+    color: calendarColors.button,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   disabled: {
     opacity: 0.52,
