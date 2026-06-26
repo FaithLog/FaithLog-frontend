@@ -11,6 +11,13 @@ export type ShellRoute =
   | 'serviceAdmin';
 
 const CAMPUS_ADMIN_ROLES = new Set(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
+export const USER_BOTTOM_NAV_ROUTES = [
+  'userHome',
+  'devotion',
+  'polls',
+  'payments',
+  'profile',
+] as const satisfies readonly ShellRoute[];
 
 export function getAvailableRoutes(
   user: CurrentUser,
@@ -32,7 +39,7 @@ export function getAvailableRoutes(
 export function getRouteLabel(route: ShellRoute) {
   switch (route) {
     case 'userHome':
-      return '내 홈';
+      return '홈';
     case 'devotion':
       return '경건';
     case 'payments':
