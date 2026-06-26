@@ -32,6 +32,7 @@ import {
   PermissionDenied,
   Title,
 } from '../components/ui';
+import {IconexIcon} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -590,9 +591,12 @@ function CheckPill({
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
       ]}>
-      <Text style={[styles.checkPillText, checked ? styles.checkPillTextChecked : null]}>
-        {checked ? `✓ ${label}` : label}
-      </Text>
+      <View style={styles.checkPillContent}>
+        {checked ? <IconexIcon color={colors.surface} name="check" size={14} strokeWidth={2.4} /> : null}
+        <Text style={[styles.checkPillText, checked ? styles.checkPillTextChecked : null]}>
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -901,6 +905,13 @@ const styles = StyleSheet.create({
   checkPillChecked: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+  },
+  checkPillContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    minWidth: 0,
   },
   checkPillRow: {
     flex: 1,

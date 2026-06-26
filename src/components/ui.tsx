@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import {colors, radius, spacing, typography} from '../theme';
+import {IconexIcon, type IconexIconName} from './IconexIcon';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type Tone = 'default' | 'info' | 'success' | 'warning' | 'danger';
@@ -231,7 +232,7 @@ export function IconButton({
   onPress,
 }: {
   accessibilityLabel: string;
-  icon: string;
+  icon: IconexIconName;
   onPress: () => void;
 }) {
   return (
@@ -241,9 +242,7 @@ export function IconButton({
       hitSlop={8}
       onPress={onPress}
       style={({pressed}) => [styles.iconButton, pressed ? styles.pressed : null]}>
-      <Text accessibilityElementsHidden importantForAccessibility="no" style={styles.iconText}>
-        {icon}
-      </Text>
+      <IconexIcon name={icon} size={22} />
     </Pressable>
   );
 }
@@ -447,9 +446,12 @@ function StateCard({
   return (
     <View style={styles.stateCard}>
       <View style={[styles.stateIcon, styles[`${tone}StateIcon`]]}>
-        <Text style={[styles.stateIconText, styles[`${tone}StateIconText`]]}>
-          {getStateToneGlyph(tone)}
-        </Text>
+        <IconexIcon
+          color={getStateToneIconColor(tone)}
+          name={getStateToneIcon(tone)}
+          size={34}
+          strokeWidth={2.2}
+        />
       </View>
       <Text style={styles.stateTitle}>{title}</Text>
       <Text style={styles.stateMessage}>{message}</Text>
@@ -473,18 +475,35 @@ function StateCard({
   );
 }
 
-function getStateToneGlyph(tone: Tone) {
+function getStateToneIcon(tone: Tone): IconexIconName {
   switch (tone) {
     case 'danger':
-      return '!';
+      return 'danger';
     case 'info':
-      return 'i';
+      return 'message-circle';
     case 'success':
-      return '✓';
+      return 'check';
     case 'warning':
-      return '!';
+      return 'danger';
     case 'default':
-      return '•';
+      return 'document';
+    default:
+      return tone satisfies never;
+  }
+}
+
+function getStateToneIconColor(tone: Tone) {
+  switch (tone) {
+    case 'danger':
+      return colors.danger;
+    case 'info':
+      return colors.primary;
+    case 'success':
+      return colors.success;
+    case 'warning':
+      return colors.warning;
+    case 'default':
+      return colors.textMuted;
     default:
       return tone satisfies never;
   }
@@ -913,26 +932,6 @@ const styles = StyleSheet.create({
   },
   dangerStateIcon: {
     backgroundColor: colors.borderSoft,
-  },
-  stateIconText: {
-    color: colors.primary,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  defaultStateIconText: {
-    color: colors.textMuted,
-  },
-  infoStateIconText: {
-    color: colors.primary,
-  },
-  successStateIconText: {
-    color: colors.success,
-  },
-  warningStateIconText: {
-    color: colors.warning,
-  },
-  dangerStateIconText: {
-    color: colors.danger,
   },
   stateTitle: {
     color: colors.text,

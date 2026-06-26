@@ -32,6 +32,7 @@ import {
   Offline,
   PermissionDenied,
 } from '../components/ui';
+import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -461,7 +462,7 @@ function PaymentAccountMissingState({
   return (
     <View accessibilityRole="alert" style={styles.accountMissingPanel}>
       <View style={styles.accountMissingIcon}>
-        <Text style={styles.accountMissingIconText}>!</Text>
+        <IconexIcon color={paymentColors.warning} name="danger" size={22} />
       </View>
       <View style={styles.accountMissingText}>
         <Text style={styles.accountMissingEyebrow}>계좌 미등록</Text>
@@ -499,7 +500,7 @@ function PaymentStatusNotice({
       style={[styles.paymentStatusNotice, complete ? styles.paymentStatusNoticeComplete : null]}>
       <View style={[styles.paymentStatusIcon, complete ? styles.paymentStatusIconComplete : null]}>
         {complete ? (
-          <Text style={styles.paymentStatusIconText}>✓</Text>
+          <IconexIcon color={paymentColors.success} name="check" size={22} strokeWidth={2.4} />
         ) : (
           <ActivityIndicator color={paymentColors.text} size="small" />
         )}
@@ -532,9 +533,12 @@ function ChargeCard({
     <View style={[styles.figmaChargeRow, compact ? styles.figmaChargeRowCompact : null]}>
       <View style={styles.figmaChargeMain}>
         <View style={styles.figmaChargeIcon}>
-          <Text style={styles.figmaChargeIconText}>
-            {charge.paymentCategory === 'COFFEE' ? 'C' : charge.status === 'PAID' ? '✓' : '₩'}
-          </Text>
+          <IconexIcon
+            color={paymentColors.text}
+            name={getPaymentChargeIcon(charge)}
+            size={22}
+            strokeWidth={2.1}
+          />
         </View>
         <View style={styles.figmaChargeText}>
           <Text style={styles.chargeTitle}>{charge.title}</Text>
@@ -714,6 +718,14 @@ function getPaymentCategoryFilterLabel(category: CategoryFilter) {
   return category === 'ALL' ? '전체' : getPaymentCategoryLabel(category);
 }
 
+function getPaymentChargeIcon(charge: ChargeItem): IconexIconName {
+  if (charge.status === 'PAID') {
+    return 'check';
+  }
+
+  return charge.paymentCategory === 'COFFEE' ? 'coins' : 'wallet';
+}
+
 function getYearMonth(date: Date) {
   return {
     year: date.getFullYear(),
@@ -738,6 +750,7 @@ const paymentColors = {
   dark: colors.primary,
   success: colors.success,
   successSoft: colors.borderSoft,
+  warning: colors.warning,
   warningSoft: colors.borderSoft,
 };
 

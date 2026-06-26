@@ -24,6 +24,7 @@ import {
   Offline,
   PermissionDenied,
 } from '../components/ui';
+import {IconexIcon} from '../components/IconexIcon';
 import {colors} from '../theme';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -350,7 +351,12 @@ function QuickCheckButton({
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
       ]}>
-      <Text style={styles.quickButtonText}>{checked ? `✓ ${label}` : label}</Text>
+      <View style={styles.quickButtonContent}>
+        {checked ? <IconexIcon color={calendarColors.card} name="check" size={14} strokeWidth={2.4} /> : null}
+        <Text style={[styles.quickButtonText, checked ? styles.quickButtonTextChecked : null]}>
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -787,8 +793,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   quickButtonChecked: {
-    backgroundColor: calendarColors.card,
-    borderColor: calendarColors.border,
+    backgroundColor: calendarColors.button,
+    borderColor: calendarColors.button,
+  },
+  quickButtonContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    minWidth: 0,
   },
   quickButtonText: {
     color: calendarColors.text,
@@ -796,6 +809,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 20,
     textAlign: 'center',
+  },
+  quickButtonTextChecked: {
+    color: calendarColors.card,
   },
   lockedText: {
     color: calendarColors.muted,

@@ -40,6 +40,7 @@ import {
   PermissionDenied,
   Title,
 } from '../components/ui';
+import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -615,9 +616,7 @@ function ResponsePanel({
                   selected ? styles.optionRowSelected : null,
                   pressed ? styles.pressed : null,
                 ]}>
-                <Text style={[styles.optionMark, selected ? styles.optionMarkSelected : null]}>
-                  {selected ? '✓' : detail.selectionType === 'SINGLE' ? '○' : '□'}
-                </Text>
+                <PollSelectionIcon selected={selected} type={detail.selectionType} />
                 <View style={styles.optionText}>
                   <Text style={styles.optionTitle}>{optionTitle}</Text>
                   {optionMeta ? <Text style={styles.optionMeta}>{optionMeta}</Text> : null}
@@ -874,7 +873,7 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
       onPress={onPress}
       style={({pressed}) => [styles.figmaPollRow, pressed ? styles.pressed : null]}>
       <View style={styles.figmaPollIcon}>
-        <Text style={styles.figmaPollIconText}>{getPollIcon(poll.pollType)}</Text>
+        <IconexIcon color={pollColors.text} name={getPollIcon(poll.pollType)} size={22} />
       </View>
       <View style={styles.figmaPollText}>
         <Text style={styles.figmaPollTitle}>{poll.title}</Text>
@@ -886,6 +885,28 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
         <Text style={styles.figmaPollButtonText}>{poll.responded ? '보기' : '투표'}</Text>
       </View>
     </Pressable>
+  );
+}
+
+function PollSelectionIcon({
+  selected,
+  type,
+}: {
+  selected: boolean;
+  type: PollDetail['selectionType'];
+}) {
+  if (type === 'SINGLE') {
+    return (
+      <View style={[styles.optionMark, styles.optionMarkRadio]}>
+        {selected ? <View style={styles.optionMarkRadioDot} /> : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.optionMark, selected ? styles.optionMarkSelected : null]}>
+      {selected ? <IconexIcon color={colors.surface} name="check" size={14} strokeWidth={2.4} /> : null}
+    </View>
   );
 }
 
@@ -1194,16 +1215,16 @@ function getPollSubmitLabel(detail: PollDetail) {
   return detail.pollType === 'COFFEE' ? '주문 저장' : '응답 제출';
 }
 
-function getPollIcon(type: string) {
+function getPollIcon(type: string): IconexIconName {
   switch (type) {
     case 'WEDNESDAY':
-      return '수';
+      return 'calendar';
     case 'SATURDAY':
-      return '토';
+      return 'calendar';
     case 'COFFEE':
-      return '커';
+      return 'receipt';
     default:
-      return '▤';
+      return 'document';
   }
 }
 
@@ -1598,13 +1619,26 @@ const styles = StyleSheet.create({
     marginTop: spacing.gap,
   },
   optionMark: {
-    color: colors.subtleText,
-    fontSize: 16,
-    fontWeight: '600',
+    alignItems: 'center',
+    borderColor: colors.textMuted,
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: 'center',
     width: 24,
   },
+  optionMarkRadio: {
+    borderRadius: 12,
+  },
+  optionMarkRadioDot: {
+    backgroundColor: pollColors.text,
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
   optionMarkSelected: {
-    color: pollColors.text,
+    backgroundColor: pollColors.text,
+    borderColor: pollColors.text,
   },
   optionMeta: {
     color: colors.mutedText,
