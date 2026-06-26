@@ -109,6 +109,7 @@ type Notice = {
 } | null;
 
 type AdminScreenProps = {
+  onReturnToUserHome: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -471,7 +472,12 @@ const emptyNotificationSendForm: AdminNotificationSendForm = {
   title: '경건생활 제출 알림',
 };
 
-export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
+export function AdminScreen({
+  onReturnToUserHome,
+  setAuthState,
+  setNotice,
+  state,
+}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
@@ -1700,6 +1706,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           activeTab={tab}
           campusLabel={getCampusLabel(state)}
           globalRole={state.user.role}
+          onReturnToUserHome={onReturnToUserHome}
           onSelectTab={setTab}
           selectedCampusRole={state.selectedCampus.campusRole}
         />
@@ -1726,6 +1733,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         activeTab={tab}
         campusLabel={getCampusLabel(state)}
         globalRole={state.user.role}
+        onReturnToUserHome={onReturnToUserHome}
         onSelectTab={(nextTab) => {
           setSelectedMemberId(null);
           setTab(nextTab);
@@ -1943,12 +1951,14 @@ function AdminShellHeader({
   activeTab,
   campusLabel,
   globalRole,
+  onReturnToUserHome,
   onSelectTab,
   selectedCampusRole,
 }: {
   activeTab: AdminTab;
   campusLabel: string;
   globalRole: string;
+  onReturnToUserHome: () => void;
   onSelectTab: (tab: AdminTab) => void;
   selectedCampusRole: CampusRole;
 }) {
@@ -1966,6 +1976,12 @@ function AdminShellHeader({
             전체 권한 {globalRole}와 캠퍼스 권한 {selectedCampusRole}를 기준으로 관리 범위를 나눠 보여줍니다.
           </Body>
         </View>
+        <Button
+          accessibilityLabel="관리자 화면에서 사용자 홈으로 돌아가기"
+          onPress={onReturnToUserHome}
+          variant="secondary">
+          사용자 홈
+        </Button>
       </View>
       <SegmentedControl items={adminTabs} selectedId={activeTab} onSelect={onSelectTab} />
     </Card>

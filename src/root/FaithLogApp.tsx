@@ -78,7 +78,12 @@ import {
   TextField,
   Title,
 } from '../components/ui';
-import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
+import {
+  getAvailableRoutes,
+  getDefaultAuthenticatedRoute,
+  getRouteLabel,
+  type ShellRoute,
+} from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {
@@ -168,7 +173,7 @@ export function FaithLogApp() {
 
     if (!initialAuthenticatedRouteAppliedRef.current) {
       initialAuthenticatedRouteAppliedRef.current = true;
-      setRoute(authState.user.role === 'ADMIN' ? 'serviceAdmin' : routes[0]!);
+      setRoute(getDefaultAuthenticatedRoute());
       return;
     }
 
@@ -1528,6 +1533,7 @@ function AuthenticatedShell({
         />
       ) : route === 'campusAdmin' ? (
         <AdminScreen
+          onReturnToUserHome={() => setRoute('userHome')}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1535,6 +1541,7 @@ function AuthenticatedShell({
       ) : route === 'serviceAdmin' ? (
         <ServiceAdminScreen
           onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
+          onReturnToUserHome={() => setRoute('userHome')}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
