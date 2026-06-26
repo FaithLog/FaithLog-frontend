@@ -1,4 +1,5 @@
 import {StyleSheet, type StyleProp, View, type ViewStyle} from 'react-native';
+import {SvgXml} from 'react-native-svg';
 
 import {colors} from '../theme';
 
@@ -39,312 +40,214 @@ type IconexIconProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-type BasePrimitive = {
-  x: number;
-  y: number;
+const ICONEX_SOURCE_COLOR = '#4E4F53';
+const ICONEX_SOURCE_STROKE_WIDTH = '1.5';
+
+export const iconexIconNodeIds: Record<IconexIconName, string> = {
+  'add-user': '191:1224',
+  bell: '191:962',
+  calendar: '191:716',
+  category: '191:923',
+  'category-2': '191:929',
+  check: '191:880',
+  close: '191:874',
+  coins: '191:661',
+  'credit-card': '191:648',
+  danger: '191:903',
+  document: '191:664',
+  'document-2': '191:670',
+  home: '191:957',
+  lock: '191:739',
+  'lock-check': '191:749',
+  'lock-open': '191:744',
+  'lock-x': '191:754',
+  'message-circle': '191:939',
+  'message-square': '191:948',
+  plus: '191:865',
+  receipt: '191:653',
+  send: '191:968',
+  settings: '191:1081',
+  'trash-can': '191:1059',
+  user: '191:1209',
+  users: '191:1213',
+  wallet: '191:641',
 };
-
-type LinePrimitive = BasePrimitive & {
-  h?: number;
-  kind: 'line';
-  rotate?: number;
-  w: number;
-};
-
-type BoxPrimitive = BasePrimitive & {
-  h: number;
-  kind: 'box';
-  radius?: number;
-  w: number;
-};
-
-type FilledBoxPrimitive = BasePrimitive & {
-  h: number;
-  kind: 'filledBox';
-  radius?: number;
-  w: number;
-};
-
-type CirclePrimitive = BasePrimitive & {
-  kind: 'circle';
-  size: number;
-};
-
-type FilledCirclePrimitive = BasePrimitive & {
-  kind: 'filledCircle';
-  size: number;
-};
-
-type Primitive =
-  | BoxPrimitive
-  | CirclePrimitive
-  | FilledBoxPrimitive
-  | FilledCirclePrimitive
-  | LinePrimitive;
-
-const ICONEX_VIEWBOX = 24;
 
 export function IconexIcon({
   color = colors.textPrimary,
   name,
   size = 24,
-  strokeWidth = 2,
+  strokeWidth = 1.5,
   style,
 }: IconexIconProps) {
-  const scale = size / ICONEX_VIEWBOX;
-  const stroke = Math.max(1, strokeWidth * scale);
-
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no"
       style={[styles.icon, {height: size, width: size}, style]}>
-      {getIconPrimitives(name).map((primitive, index) => (
-        <View key={`${name}-${index}`} style={getPrimitiveStyle(primitive, color, scale, stroke)} />
-      ))}
+      <SvgXml height={size} width={size} xml={getIconSvg(name, color, strokeWidth)} />
     </View>
   );
 }
 
-function getPrimitiveStyle(
-  primitive: Primitive,
-  color: string,
-  scale: number,
-  stroke: number,
-): ViewStyle {
-  const base: ViewStyle = {
-    position: 'absolute',
-    left: primitive.x * scale,
-    top: primitive.y * scale,
-  };
-
-  switch (primitive.kind) {
-    case 'box':
-      return {
-        ...base,
-        borderColor: color,
-        borderRadius: (primitive.radius ?? 3) * scale,
-        borderWidth: stroke,
-        height: primitive.h * scale,
-        width: primitive.w * scale,
-      };
-    case 'circle':
-      return {
-        ...base,
-        borderColor: color,
-        borderRadius: (primitive.size * scale) / 2,
-        borderWidth: stroke,
-        height: primitive.size * scale,
-        width: primitive.size * scale,
-      };
-    case 'filledBox':
-      return {
-        ...base,
-        backgroundColor: color,
-        borderRadius: (primitive.radius ?? primitive.h / 2) * scale,
-        height: primitive.h * scale,
-        width: primitive.w * scale,
-      };
-    case 'filledCircle':
-      return {
-        ...base,
-        backgroundColor: color,
-        borderRadius: (primitive.size * scale) / 2,
-        height: primitive.size * scale,
-        width: primitive.size * scale,
-      };
-    case 'line':
-      return {
-        ...base,
-        backgroundColor: color,
-        borderRadius: stroke / 2,
-        height: (primitive.h ?? 2) * scale,
-        transform: primitive.rotate ? [{rotate: `${primitive.rotate}deg`}] : undefined,
-        width: primitive.w * scale,
-      };
-    default:
-      return primitive satisfies never;
-  }
+function getIconSvg(name: IconexIconName, color: string, strokeWidth: number): string {
+  return iconexIconSvgs[name]
+    .replaceAll(ICONEX_SOURCE_COLOR, color)
+    .replaceAll(`stroke-width="${ICONEX_SOURCE_STROKE_WIDTH}"`, `stroke-width="${strokeWidth}"`);
 }
 
-function getIconPrimitives(name: IconexIconName): Primitive[] {
-  switch (name) {
-    case 'check':
-      return [
-        {kind: 'line', x: 5, y: 12.5, w: 7, rotate: 45},
-        {kind: 'line', x: 10, y: 11, w: 11, rotate: -45},
-      ];
-    case 'close':
-      return [
-        {kind: 'line', x: 6, y: 11, w: 12, rotate: 45},
-        {kind: 'line', x: 6, y: 11, w: 12, rotate: -45},
-      ];
-    case 'plus':
-      return [
-        {kind: 'line', x: 6, y: 11, w: 12},
-        {kind: 'line', x: 11, y: 6, w: 12, rotate: 90},
-      ];
-    case 'danger':
-      return [
-        {kind: 'circle', x: 3, y: 3, size: 18},
-        {kind: 'line', x: 11, y: 7, w: 7, rotate: 90},
-        {kind: 'filledCircle', x: 10.5, y: 16, size: 3},
-      ];
-    case 'document':
-      return [
-        {kind: 'box', x: 6, y: 3, w: 12, h: 18, radius: 2},
-        {kind: 'line', x: 9, y: 9, w: 6},
-        {kind: 'line', x: 9, y: 13, w: 6},
-        {kind: 'line', x: 9, y: 17, w: 4},
-      ];
-    case 'document-2':
-      return [
-        {kind: 'box', x: 7, y: 4, w: 11, h: 16, radius: 2},
-        {kind: 'line', x: 10, y: 8, w: 5},
-        {kind: 'line', x: 10, y: 12, w: 5},
-        {kind: 'line', x: 10, y: 16, w: 3},
-        {kind: 'line', x: 5, y: 7, w: 3, rotate: 90},
-      ];
-    case 'category':
-      return [
-        {kind: 'box', x: 4, y: 4, w: 6, h: 6, radius: 2},
-        {kind: 'box', x: 14, y: 4, w: 6, h: 6, radius: 2},
-        {kind: 'box', x: 4, y: 14, w: 6, h: 6, radius: 2},
-        {kind: 'box', x: 14, y: 14, w: 6, h: 6, radius: 2},
-      ];
-    case 'category-2':
-      return [
-        {kind: 'filledBox', x: 4, y: 5, w: 16, h: 3, radius: 2},
-        {kind: 'filledBox', x: 4, y: 11, w: 16, h: 3, radius: 2},
-        {kind: 'filledBox', x: 4, y: 17, w: 16, h: 3, radius: 2},
-      ];
-    case 'wallet':
-      return [
-        {kind: 'box', x: 3, y: 7, w: 18, h: 12, radius: 3},
-        {kind: 'line', x: 5, y: 7, w: 11, rotate: -14},
-        {kind: 'box', x: 14, y: 11, w: 5, h: 4, radius: 2},
-      ];
-    case 'credit-card':
-      return [
-        {kind: 'box', x: 3, y: 6, w: 18, h: 12, radius: 3},
-        {kind: 'filledBox', x: 4, y: 10, w: 16, h: 2, radius: 0},
-        {kind: 'line', x: 6, y: 15, w: 5},
-      ];
-    case 'receipt':
-      return [
-        {kind: 'box', x: 6, y: 3, w: 12, h: 18, radius: 2},
-        {kind: 'line', x: 9, y: 8, w: 6},
-        {kind: 'line', x: 9, y: 12, w: 6},
-        {kind: 'line', x: 9, y: 16, w: 4},
-      ];
-    case 'coins':
-      return [
-        {kind: 'circle', x: 4, y: 8, size: 9},
-        {kind: 'circle', x: 11, y: 5, size: 9},
-        {kind: 'line', x: 6, y: 18, w: 12},
-      ];
-    case 'calendar':
-      return [
-        {kind: 'box', x: 4, y: 5, w: 16, h: 15, radius: 3},
-        {kind: 'line', x: 4, y: 10, w: 16},
-        {kind: 'line', x: 8, y: 3, w: 5, rotate: 90},
-        {kind: 'line', x: 16, y: 3, w: 5, rotate: 90},
-      ];
-    case 'bell':
-      return [
-        {kind: 'box', x: 6, y: 6, w: 12, h: 10, radius: 5},
-        {kind: 'line', x: 5, y: 16, w: 14},
-        {kind: 'filledCircle', x: 10, y: 19, size: 4},
-      ];
-    case 'send':
-      return [
-        {kind: 'line', x: 4, y: 5, w: 16, rotate: 24},
-        {kind: 'line', x: 4, y: 18, w: 16, rotate: -24},
-        {kind: 'line', x: 9, y: 12, w: 9},
-      ];
-    case 'message-circle':
-      return [
-        {kind: 'circle', x: 4, y: 4, size: 16},
-        {kind: 'line', x: 7, y: 18, w: 4, rotate: 122},
-        {kind: 'line', x: 8, y: 11, w: 8},
-      ];
-    case 'message-square':
-      return [
-        {kind: 'box', x: 4, y: 5, w: 16, h: 12, radius: 3},
-        {kind: 'line', x: 8, y: 17, w: 4, rotate: 122},
-        {kind: 'line', x: 8, y: 11, w: 8},
-      ];
-    case 'user':
-      return [
-        {kind: 'circle', x: 8, y: 4, size: 8},
-        {kind: 'box', x: 5, y: 15, w: 14, h: 6, radius: 4},
-      ];
-    case 'users':
-      return [
-        {kind: 'circle', x: 5, y: 5, size: 7},
-        {kind: 'circle', x: 13, y: 6, size: 6},
-        {kind: 'box', x: 3, y: 15, w: 12, h: 5, radius: 4},
-        {kind: 'box', x: 13, y: 16, w: 8, h: 4, radius: 3},
-      ];
-    case 'add-user':
-      return [
-        {kind: 'circle', x: 6, y: 5, size: 7},
-        {kind: 'box', x: 3, y: 15, w: 12, h: 5, radius: 4},
-        {kind: 'line', x: 15, y: 10, w: 7},
-        {kind: 'line', x: 17.5, y: 7.5, w: 7, rotate: 90},
-      ];
-    case 'settings':
-      return [
-        {kind: 'circle', x: 8, y: 8, size: 8},
-        {kind: 'line', x: 11, y: 3, w: 5, rotate: 90},
-        {kind: 'line', x: 11, y: 16, w: 5, rotate: 90},
-        {kind: 'line', x: 3, y: 11, w: 5},
-        {kind: 'line', x: 16, y: 11, w: 5},
-        {kind: 'line', x: 5, y: 5, w: 5, rotate: 45},
-        {kind: 'line', x: 15, y: 15, w: 5, rotate: 45},
-      ];
-    case 'trash-can':
-      return [
-        {kind: 'line', x: 5, y: 7, w: 14},
-        {kind: 'line', x: 9, y: 4, w: 6},
-        {kind: 'box', x: 7, y: 8, w: 10, h: 12, radius: 2},
-        {kind: 'line', x: 10, y: 11, w: 6, rotate: 90},
-        {kind: 'line', x: 14, y: 11, w: 6, rotate: 90},
-      ];
-    case 'lock':
-    case 'lock-check':
-    case 'lock-x':
-      return [
-        {kind: 'box', x: 5, y: 10, w: 14, h: 10, radius: 3},
-        {kind: 'box', x: 8, y: 4, w: 8, h: 9, radius: 4},
-        ...(name === 'lock-check'
-          ? ([
-              {kind: 'line', x: 9, y: 15, w: 4, rotate: 45},
-              {kind: 'line', x: 12, y: 14, w: 5, rotate: -45},
-            ] satisfies Primitive[])
-          : name === 'lock-x'
-            ? ([
-                {kind: 'line', x: 10, y: 15, w: 5, rotate: 45},
-                {kind: 'line', x: 10, y: 15, w: 5, rotate: -45},
-              ] satisfies Primitive[])
-            : []),
-      ];
-    case 'lock-open':
-      return [
-        {kind: 'box', x: 5, y: 10, w: 14, h: 10, radius: 3},
-        {kind: 'box', x: 9, y: 4, w: 8, h: 8, radius: 4},
-        {kind: 'filledBox', x: 14, y: 8, w: 5, h: 3, radius: 1},
-      ];
-    case 'home':
-      return [
-        {kind: 'line', x: 4, y: 11, w: 10, rotate: -42},
-        {kind: 'line', x: 11.5, y: 3.5, w: 10, rotate: 42},
-        {kind: 'box', x: 6, y: 11, w: 12, h: 9, radius: 2},
-      ];
-    default:
-      return name satisfies never;
-  }
-}
+const iconexIconSvgs: Record<IconexIconName, string> = {
+  home: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.5 10.9384C2.5 9.71422 3.06058 8.55744 4.02142 7.79888L9.52142 3.45677C10.9747 2.30948 13.0253 2.30948 14.4786 3.45677L19.9786 7.79888C20.9394 8.55744 21.5 9.71422 21.5 10.9384V17.5C21.5 19.7091 19.7091 21.5 17.5 21.5H16C15.4477 21.5 15 21.0523 15 20.5V17.5C15 16.3954 14.1046 15.5 13 15.5H11C9.89543 15.5 9 16.3954 9 17.5V20.5C9 21.0523 8.55228 21.5 8 21.5H6.5C4.29086 21.5 2.5 19.7091 2.5 17.5L2.5 10.9384Z" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  check: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="2" width="20" height="20" rx="5" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M9.5 11.5L11.5 13.5L15.5 9.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  document: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="4" y="2" width="16" height="20" rx="4" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M8 7H16" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M8 12H16" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M8 17H12" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  'document-2': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M4 6C4 3.79086 5.79086 2 8 2H12H14.0633C14.6568 2 15.2197 2.26365 15.5997 2.71963L19.5364 7.44373C19.836 7.80316 20 8.25623 20 8.7241V12V18C20 20.2091 18.2091 22 16 22H8C5.79086 22 4 20.2091 4 18V6Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M15 2.5V6C15 7.10457 15.8954 8 17 8H19.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M8 12H16" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M8 17H12" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  category: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="3.5" y="4" width="7" height="7" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
+<rect x="3.5" y="14" width="7" height="7" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
+<rect x="13.5" y="4" width="7" height="7" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
+<rect x="13.5" y="14" width="7" height="7" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  'category-2': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="3.5" y="4" width="7" height="4" rx="2" stroke="#4E4F53" stroke-width="1.5"/>
+<rect x="3.5" y="11" width="7" height="10" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
+<rect x="13.5" y="4" width="7" height="10" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
+<rect x="13.5" y="17" width="7" height="4" rx="2" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  wallet: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="6" width="20" height="16" rx="5" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M19 6.5C19 4.17692 16.8678 2.43898 14.5924 2.90744L5.99174 4.67817C3.66769 5.15665 2 7.20267 2 9.57546L2 13" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M6 17.5H12" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M15 14C15 12.6193 16.1193 11.5 17.5 11.5H22V16.5H17.5C16.1193 16.5 15 15.3807 15 14Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M17.5 14H17.7" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  'credit-card': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="4" width="20" height="16" rx="5" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M2 9.5H22" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M6 15.5H11" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  receipt: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M5 3.5H19V19.4656C19 20.2959 18.0466 20.7645 17.3892 20.2574L16.0584 19.2307C15.7236 18.9725 15.2625 18.9527 14.9068 19.1813L13.0815 20.3547C12.4227 20.7783 11.5773 20.7783 10.9185 20.3547L9.0932 19.1813C8.73751 18.9527 8.27644 18.9725 7.94164 19.2307L6.6108 20.2574C5.95338 20.7645 5 20.2959 5 19.4656V3.5Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M9 9.5H12" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M3 3.5H21" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9 13.5H12" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M15 9.5H15.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M15 13.5H15.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  coins: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M19 6.5C19 7.88071 15.866 9 12 9C8.13401 9 5 7.88071 5 6.5M19 6.5C19 5.11929 15.866 4 12 4C8.13401 4 5 5.11929 5 6.5M19 6.5V18.5C19 19.8807 15.866 21 12 21C8.13401 21 5 19.8807 5 18.5V6.5M19 10.5C19 11.8807 15.866 13 12 13C8.13401 13 5 11.8807 5 10.5M19 14.5C19 15.8807 15.866 17 12 17C8.13401 17 5 15.8807 5 14.5" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  calendar: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="3" y="3.5" width="18" height="18" rx="5" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M3 8.5H21" stroke="#4E4F53" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M16.5 2L16.5 5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M7.5 2L7.5 5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M6.5 12.5H7.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M11.5 12.5H12.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16.5 12.5H17.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M6.5 16.5H7.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M11.5 16.5H12.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16.5 16.5H17.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  bell: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M11.8262 2L11.8262 1.25H11.8262V2ZM17.9131 8.08691H18.6631V8.08691L17.9131 8.08691ZM19.6523 14.8848H20.4023V14.8847L19.6523 14.8848ZM16.9189 18.083L17.022 18.8259L17.022 18.8259L16.9189 18.083ZM11.8262 18.5215V19.2715H11.8262L11.8262 18.5215ZM6.73242 18.083L6.62929 18.8259L6.62941 18.8259L6.73242 18.083ZM4 14.8848L3.25 14.8847V14.8848H4ZM5.73926 8.08691L4.98926 8.08691V8.08691H5.73926ZM4.46645 13.1864L3.8222 12.8024L4.46645 13.1864ZM11.8262 2L11.8262 2.75C14.7736 2.75004 17.1631 5.13945 17.1631 8.08692L17.9131 8.08691L18.6631 8.08691C18.6631 4.31101 15.6021 1.25006 11.8262 1.25L11.8262 2ZM17.9131 8.08691H17.1631V10.1779H17.9131H18.6631V8.08691H17.9131ZM19.1858 13.1864L18.5416 13.5704C18.7706 13.9545 18.9023 14.4032 18.9023 14.8848L19.6523 14.8848L20.4023 14.8847C20.4023 14.1254 20.1936 13.4123 19.83 12.8023L19.1858 13.1864ZM19.6523 14.8848H18.9023C18.9023 16.1307 18.0157 17.1737 16.8159 17.3401L16.9189 18.083L17.022 18.8259C18.9976 18.552 20.4023 16.8446 20.4023 14.8848H19.6523ZM16.9189 18.083L16.8159 17.3401C15.2454 17.5579 13.3181 17.7715 11.8262 17.7715L11.8262 18.5215L11.8262 19.2715C13.4268 19.2715 15.4392 19.0454 17.022 18.8259L16.9189 18.083ZM11.8262 18.5215V17.7715C10.3342 17.7715 8.40599 17.5579 6.83543 17.3401L6.73242 18.083L6.62941 18.8259C8.21222 19.0454 10.2255 19.2715 11.8262 19.2715V18.5215ZM6.73242 18.083L6.83556 17.3401C5.63612 17.1736 4.75 16.1308 4.75 14.8848H4H3.25C3.25 16.8442 4.65384 18.5516 6.62929 18.8259L6.73242 18.083ZM4 14.8848L4.75 14.8848C4.75005 14.4032 4.88177 13.9545 5.11069 13.5704L4.46645 13.1864L3.8222 12.8024C3.45868 13.4123 3.25008 14.1254 3.25 14.8847L4 14.8848ZM5.73926 10.1778H6.48926V8.08691H5.73926H4.98926V10.1778H5.73926ZM5.73926 8.08691L6.48926 8.08692C6.48928 5.13941 8.87867 2.75 11.8262 2.75V2V1.25C8.05023 1.25 4.98928 4.31099 4.98926 8.08691L5.73926 8.08691ZM4.46645 13.1864L5.11069 13.5704C5.36525 13.1433 5.72113 12.6043 5.98521 12.0752C6.25916 11.5264 6.48926 10.8908 6.48926 10.1778H5.73926H4.98926C4.98926 10.5654 4.86468 10.9614 4.6431 11.4054C4.41164 11.8691 4.13111 12.2841 3.8222 12.8024L4.46645 13.1864ZM17.9131 10.1779H17.1631C17.1631 10.8908 17.3931 11.5264 17.6671 12.0753C17.9312 12.6044 18.287 13.1433 18.5416 13.5704L19.1858 13.1864L19.83 12.8023C19.5212 12.2841 19.2406 11.8691 19.0092 11.4054C18.7876 10.9615 18.6631 10.5655 18.6631 10.1779H17.9131Z" fill="#4E4F53"/>
+<path d="M14 20.834C13.5326 21.5369 12.7335 22.0002 11.8261 22.0002C10.9187 22.0002 10.1195 21.5369 9.65218 20.834" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  send: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M19.7232 2.75895C20.6613 2.44624 21.5538 3.33873 21.2411 4.27684L16.1845 19.4467C15.8561 20.4318 14.5163 20.5631 14.0029 19.6603L10.9078 14.2172C10.6409 13.7478 10.2522 13.3591 9.78283 13.0922L4.33973 9.99712C3.437 9.4838 3.56824 8.14394 4.55342 7.81555L19.7232 2.75895Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M12.7856 11.2148L10.7856 13.2148" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  'message-circle': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M3.77051 21.5605L4.02038 22.2677L4.02045 22.2677L3.77051 21.5605ZM2.23926 20.0293L2.94641 20.2792L2.94644 20.2791L2.23926 20.0293ZM3.16852 17.3984L2.46133 17.1486L3.16852 17.3984ZM3.10227 16.5628L3.76926 16.2198L3.10227 16.5628ZM7.15953 20.7511L6.79585 21.4071L7.15953 20.7511ZM6.29421 20.6685L6.04427 19.9614L6.29421 20.6685ZM12 2V2.75C17.1086 2.75 21.25 6.89137 21.25 12H22H22.75C22.75 6.06294 17.9371 1.25 12 1.25V2ZM22 12H21.25C21.25 17.1086 17.1086 21.25 12 21.25V22V22.75C17.9371 22.75 22.75 17.9371 22.75 12H22ZM12 22V21.25C10.3745 21.25 8.84932 20.8305 7.52321 20.0952L7.15953 20.7511L6.79585 21.4071C8.33835 22.2623 10.1131 22.75 12 22.75V22ZM6.29421 20.6685L6.04427 19.9614L3.52057 20.8534L3.77051 21.5605L4.02045 22.2677L6.54415 21.3756L6.29421 20.6685ZM3.77051 21.5605L3.52063 20.8534C3.16396 20.9794 2.82037 20.6358 2.94641 20.2792L2.23926 20.0293L1.53211 19.7794C0.98596 21.325 2.47479 22.8138 4.02038 22.2677L3.77051 21.5605ZM2.23926 20.0293L2.94644 20.2791L3.8757 17.6481L3.16852 17.3984L2.46133 17.1486L1.53207 19.7795L2.23926 20.0293ZM3.10227 16.5628L3.76926 16.2198C3.11877 14.9548 2.75 13.5216 2.75 12H2H1.25C1.25 13.7669 1.67882 15.4346 2.43528 16.9058L3.10227 16.5628ZM2 12H2.75C2.75 6.89137 6.89137 2.75 12 2.75V2V1.25C6.06294 1.25 1.25 6.06294 1.25 12H2ZM3.16852 17.3984L3.8757 17.6481C4.04742 17.162 3.98834 16.6459 3.76926 16.2198L3.10227 16.5628L2.43528 16.9058C2.48254 16.9977 2.4836 17.0855 2.46133 17.1486L3.16852 17.3984ZM7.15953 20.7511L7.52321 20.0952C7.08754 19.8537 6.55016 19.7826 6.04427 19.9614L6.29421 20.6685L6.54415 21.3756C6.60966 21.3525 6.7015 21.3547 6.79585 21.4071L7.15953 20.7511Z" fill="#4E4F53"/>
+<circle cx="7.05005" cy="12.0498" r="1.25" fill="#4E4F53"/>
+<circle cx="12.05" cy="12.0498" r="1.25" fill="#4E4F53"/>
+<circle cx="17.05" cy="12.0498" r="1.25" fill="#4E4F53"/>
+</svg>`,
+  'message-square': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M3.625 21.7002L4.09352 22.2858L4.09354 22.2858L3.625 21.7002ZM6.45216 19.4383L6.9207 20.0239L6.45216 19.4383ZM17 3V3.75C19.3472 3.75 21.25 5.65279 21.25 8H22H22.75C22.75 4.82436 20.1756 2.25 17 2.25V3ZM22 8H21.25V14H22H22.75V8H22ZM22 14H21.25C21.25 16.3472 19.3472 18.25 17 18.25V19V19.75C20.1756 19.75 22.75 17.1756 22.75 14H22ZM17 19V18.25H7.7016V19V19.75H17V19ZM6.45216 19.4383L5.98361 18.8527L3.15646 21.1146L3.625 21.7002L4.09354 22.2858L6.9207 20.0239L6.45216 19.4383ZM3.625 21.7002L3.15648 21.1145C2.99305 21.2453 2.75 21.1289 2.75 20.9189H2H1.25C1.25 22.386 2.94742 23.2027 4.09352 22.2858L3.625 21.7002ZM2 20.9189H2.75V8H2H1.25V20.9189H2ZM2 8H2.75C2.75 5.65279 4.65279 3.75 7 3.75V3V2.25C3.82436 2.25 1.25 4.82436 1.25 8H2ZM7 3V3.75H17V3V2.25H7V3ZM7.7016 19V18.25C7.07712 18.25 6.47124 18.4625 5.98361 18.8527L6.45216 19.4383L6.9207 20.0239C7.14235 19.8466 7.41775 19.75 7.7016 19.75V19Z" fill="#4E4F53"/>
+<circle cx="7.05005" cy="11.0498" r="1.25" fill="#4E4F53"/>
+<circle cx="12.05" cy="11.0498" r="1.25" fill="#4E4F53"/>
+<circle cx="17.05" cy="11.0498" r="1.25" fill="#4E4F53"/>
+</svg>`,
+  user: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="4" cy="4" r="4" transform="matrix(-1 0 0 1 16 3)" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M5 16.9347C5 16.0743 5.54085 15.3068 6.35109 15.0175C10.004 13.7128 13.996 13.7128 17.6489 15.0175C18.4591 15.3068 19 16.0743 19 16.9347V18.2502C19 19.4376 17.9483 20.3498 16.7728 20.1818L15.8184 20.0455C13.2856 19.6837 10.7144 19.6837 8.18162 20.0455L7.22721 20.1818C6.0517 20.3498 5 19.4376 5 18.2502V16.9347Z" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  users: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="3.40426" cy="3.40426" r="3.40426" transform="matrix(-1 0 0 1 15.6172 5)" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M6.25537 16.8594C6.25537 16.1272 6.71567 15.474 7.40524 15.2277C10.5141 14.1174 13.9115 14.1174 17.0204 15.2277C17.71 15.474 18.1703 16.1272 18.1703 16.8594V17.979C18.1703 18.9896 17.2752 19.7659 16.2748 19.6229L15.9412 19.5753C13.4682 19.222 10.9575 19.222 8.48442 19.5753L8.15087 19.6229C7.15044 19.7659 6.25537 18.9896 6.25537 17.979V16.8594Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M17.3191 11.9023C18.7964 11.9023 19.9939 10.7047 19.9939 9.22751C19.9939 7.75027 18.7964 6.55273 17.3191 6.55273" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M20.2486 18.0046L20.5106 18.042C21.2967 18.1543 22 17.5444 22 16.7503V15.8707C22 15.2953 21.6383 14.7821 21.0965 14.5886C20.5561 14.3956 20.0045 14.2453 19.4468 14.1377" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M6.68088 11.9023C5.20364 11.9023 4.0061 10.7047 4.0061 9.22751C4.0061 7.75027 5.20364 6.55273 6.68088 6.55273" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M3.75143 18.0046L3.48935 18.042C2.7033 18.1543 2.00003 17.5444 2.00003 16.7503V15.8707C2.00003 15.2953 2.3617 14.7821 2.9035 14.5886C3.44395 14.3956 3.99549 14.2453 4.55322 14.1377" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  'add-user': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="4" cy="4" r="4" transform="matrix(-1 0 0 1 14 3)" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M3 16.9347C3 16.0743 3.54085 15.3068 4.35109 15.0175C8.00404 13.7128 11.996 13.7128 15.6489 15.0175C16.4591 15.3068 17 16.0743 17 16.9347V18.2502C17 19.4376 15.9483 20.3498 14.7728 20.1818L13.8184 20.0455C11.2856 19.6837 8.71435 19.6837 6.18162 20.0455L5.22721 20.1818C4.0517 20.3498 3 19.4376 3 18.2502V16.9347Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M17 11H21" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M19 9L19 13" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  settings: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="3" cy="3" r="3" transform="matrix(-1 0 0 1 15 9)" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M12.0005 2L12.0005 1.25H12.0005V2ZM16.5005 4.9375L16.1255 5.58702L16.1255 5.58705L16.5005 4.9375ZM16.5005 19.0625L16.1255 18.413L16.1255 18.413L16.5005 19.0625ZM12.0005 22V22.75H12.0005L12.0005 22ZM7.50049 19.0625L7.8756 18.413L7.87549 18.413L7.50049 19.0625ZM7.50049 4.9375L7.87549 5.58702L7.87556 5.58698L7.50049 4.9375ZM2.90771 9.68646L3.38476 9.10774L2.90771 9.68646ZM5.31636 18.7418L5.14442 18.0118L5.31636 18.7418ZM4.40899 18.5048L4.97824 18.0165L4.40899 18.5048ZM9.5352 21.6935L9.35083 22.4205L9.5352 21.6935ZM8.91971 20.9838L8.18889 21.1524L8.91971 20.9838ZM15.0795 20.9838L14.3487 20.8149L15.0795 20.9838ZM14.4637 21.6935L14.2794 20.9665V20.9665L14.4637 21.6935ZM19.5899 18.505L19.0208 18.0166L19.5899 18.505ZM21.4419 8.70679L22.1501 8.45987L21.4419 8.70679ZM21.0924 9.68652L21.5695 10.2651L21.0924 9.68652ZM2.90758 14.3127L2.43062 13.7339L2.90758 14.3127ZM19.591 5.49417L19.0218 5.9825L19.591 5.49417ZM21.442 15.2921L22.1502 15.539L21.442 15.2921ZM15.0794 3.01539L14.3486 3.18414L15.0794 3.01539ZM12.0005 2L12.0005 2.75C12.7879 2.75003 13.5513 2.84818 14.2794 3.03261L14.4636 2.30557L14.6477 1.57853C13.8001 1.36383 12.913 1.25004 12.0005 1.25L12.0005 2ZM15.0794 3.01539L14.3486 3.18414C14.5738 4.1595 15.1879 5.04568 16.1255 5.58702L16.5005 4.9375L16.8755 4.28798C16.3138 3.96368 15.9459 3.43468 15.8101 2.84665L15.0794 3.01539ZM16.5005 4.9375L16.1255 5.58705C16.9862 6.08386 17.9619 6.1982 18.8559 5.98729L18.6837 5.25733L18.5115 4.52736C17.9728 4.65446 17.3906 4.58534 16.8754 4.28795L16.5005 4.9375ZM19.591 5.49417L19.0218 5.9825C19.7653 6.84927 20.3504 7.85424 20.7337 8.9537L21.4419 8.70679L22.1501 8.45987C21.704 7.18047 21.0237 6.01231 20.1602 5.00583L19.591 5.49417ZM21.0924 9.68652L20.6152 9.1079C19.7833 9.79398 19.2505 10.8345 19.2505 12H20.0005H20.7505C20.7505 11.3017 21.068 10.6788 21.5695 10.2651L21.0924 9.68652ZM20.0005 12H19.2505C19.2505 13.1656 19.7836 14.2055 20.6154 14.8913L21.0925 14.3126L21.5696 13.7339C21.0679 13.3203 20.7505 12.698 20.7505 12H20.0005ZM21.442 15.2921L20.7338 15.0452C20.3504 16.1447 19.7648 17.1496 19.0208 18.0166L19.5899 18.505L20.1591 18.9935C21.0228 17.987 21.7039 16.8189 22.1502 15.539L21.442 15.2921ZM18.6829 18.742L18.8547 18.0119C17.9608 17.8015 16.9857 17.9164 16.1255 18.413L16.5005 19.0625L16.8755 19.712C17.3907 19.4146 17.9726 19.3453 18.511 19.472L18.6829 18.742ZM16.5005 19.0625L16.1255 18.413C15.1881 18.9542 14.5741 19.8398 14.3487 20.8149L15.0795 20.9838L15.8102 21.1527C15.946 20.565 16.3138 20.0363 16.8755 19.712L16.5005 19.0625ZM14.4637 21.6935L14.2794 20.9665C13.5509 21.1513 12.7876 21.25 12.0005 21.25L12.0005 22L12.0005 22.75C12.9135 22.75 13.8006 22.6355 14.6481 22.4205L14.4637 21.6935ZM12.0005 22V21.25C11.2126 21.25 10.4485 21.1514 9.71957 20.9665L9.5352 21.6935L9.35083 22.4205C10.1991 22.6356 11.087 22.75 12.0005 22.75V22ZM8.91971 20.9838L9.65053 20.8153C9.42575 19.8406 8.81315 18.9545 7.8756 18.413L7.50049 19.0625L7.12538 19.712C7.68637 20.036 8.05329 20.5644 8.18889 21.1524L8.91971 20.9838ZM7.50049 19.0625L7.87549 18.413C7.015 17.9162 6.03889 17.8011 5.14442 18.0118L5.31636 18.7418L5.48831 19.4718C6.02717 19.3449 6.60997 19.4144 7.12549 19.712L7.50049 19.0625ZM4.40899 18.5048L4.97824 18.0165C4.23459 17.1496 3.64946 16.1447 3.26619 15.0452L2.55799 15.2921L1.84979 15.539C2.29583 16.8186 2.97634 17.9866 3.83974 18.9931L4.40899 18.5048ZM2.90758 14.3127L3.38454 14.8915C4.21646 14.2059 4.75049 13.166 4.75049 12H4.00049H3.25049C3.25049 12.6977 2.93272 13.3201 2.43062 13.7339L2.90758 14.3127ZM4.00049 12H4.75049C4.75049 10.8341 4.21681 9.7936 3.38476 9.10774L2.90771 9.68646L2.43066 10.2652C2.93269 10.679 3.25049 11.302 3.25049 12H4.00049ZM2.55809 8.70676L3.26628 8.95368C3.6496 7.85426 4.23466 6.8493 4.97821 5.98253L4.40896 5.49421L3.83972 5.00588C2.97634 6.01234 2.29597 7.18048 1.8499 8.45984L2.55809 8.70676ZM5.31633 5.25738L5.14409 5.98733C6.03837 6.19834 7.01458 6.08406 7.87549 5.58702L7.50049 4.9375L7.12549 4.28798C6.61023 4.58546 6.02764 4.65462 5.48857 4.52742L5.31633 5.25738ZM7.50049 4.9375L7.87556 5.58698C8.81353 5.0453 9.42608 4.15867 9.65067 3.18371L8.91981 3.01535L8.18896 2.84699C8.05342 3.43533 7.68647 3.96401 7.12542 4.28802L7.50049 4.9375ZM9.53537 2.30557L9.7195 3.03261C10.4482 2.84807 11.2124 2.75 12.0005 2.75V2V1.25C11.0875 1.25 10.1996 1.36366 9.35123 1.57852L9.53537 2.30557ZM8.91981 3.01535L9.65067 3.18371C9.66614 3.11656 9.69244 3.06922 9.71281 3.04443C9.7303 3.02316 9.73336 3.0291 9.7195 3.03261L9.53537 2.30557L9.35123 1.57852C8.66035 1.7535 8.3034 2.35019 8.18896 2.84699L8.91981 3.01535ZM2.90771 9.68646L3.38476 9.10774C3.32409 9.05772 3.28885 9.00364 3.27472 8.96748C3.26284 8.93708 3.27159 8.93844 3.26628 8.95368L2.55809 8.70676L1.8499 8.45984C1.5845 9.22103 1.99565 9.9066 2.43066 10.2652L2.90771 9.68646ZM5.31636 18.7418L5.14442 18.0118C5.07753 18.0275 5.02358 18.0249 4.99232 18.0176C4.96544 18.0113 4.96914 18.0059 4.97824 18.0165L4.40899 18.5048L3.83974 18.9931C4.30226 19.5323 4.99289 19.5885 5.48831 19.4718L5.31636 18.7418ZM9.5352 21.6935L9.71957 20.9665C9.73335 20.97 9.73023 20.9759 9.71272 20.9546C9.69232 20.9298 9.66601 20.8824 9.65053 20.8153L8.91971 20.9838L8.18889 21.1524C8.30343 21.649 8.66032 22.2454 9.35083 22.4205L9.5352 21.6935ZM15.0795 20.9838L14.3487 20.8149C14.3332 20.8822 14.3068 20.9296 14.2863 20.9545C14.2688 20.9759 14.2656 20.97 14.2794 20.9665L14.4637 21.6935L14.6481 22.4205C15.3386 22.2454 15.6955 21.649 15.8102 21.1527L15.0795 20.9838ZM19.5899 18.505L19.0208 18.0166C19.0298 18.006 19.0335 18.0115 19.0067 18.0178C18.9754 18.025 18.9215 18.0277 18.8547 18.0119L18.6829 18.742L18.511 19.472C19.0064 19.5886 19.6967 19.5323 20.1591 18.9935L19.5899 18.505ZM21.4419 8.70679L20.7337 8.9537C20.7284 8.93846 20.7372 8.9371 20.7253 8.96753C20.7111 9.00371 20.6759 9.05784 20.6152 9.1079L21.0924 9.68652L21.5695 10.2651C22.0043 9.90655 22.4155 9.22104 22.1501 8.45987L21.4419 8.70679ZM2.55799 15.2921L3.26619 15.0452C3.27151 15.0605 3.26277 15.0619 3.27463 15.0315C3.28874 14.9954 3.32393 14.9414 3.38454 14.8915L2.90758 14.3127L2.43062 13.7339C1.9955 14.0924 1.58448 14.7779 1.84979 15.539L2.55799 15.2921ZM18.6837 5.25733L18.8559 5.98729C18.9227 5.97154 18.9766 5.97415 19.0078 5.98142C19.0346 5.98767 19.0309 5.99311 19.0218 5.9825L19.591 5.49417L20.1602 5.00583C19.6977 4.46667 19.0071 4.41046 18.5115 4.52736L18.6837 5.25733ZM4.40896 5.49421L4.97821 5.98253C4.96911 5.99314 4.96539 5.9877 4.99221 5.98145C5.02342 5.97418 5.0773 5.97157 5.14409 5.98733L5.31633 5.25738L5.48857 4.52742C4.99299 4.41048 4.30228 4.46667 3.83972 5.00588L4.40896 5.49421ZM21.0925 14.3126L20.6154 14.8913C20.676 14.9413 20.7113 14.9953 20.7254 15.0315C20.7372 15.0618 20.7285 15.0604 20.7338 15.0452L21.442 15.2921L22.1502 15.539C22.4156 14.7779 22.0045 14.0925 21.5696 13.7339L21.0925 14.3126ZM14.4636 2.30557L14.2794 3.03261C14.2656 3.0291 14.2687 3.02318 14.2863 3.04453C14.3067 3.0694 14.3331 3.11685 14.3486 3.18414L15.0794 3.01539L15.8101 2.84665C15.6955 2.35019 15.3386 1.75352 14.6477 1.57853L14.4636 2.30557Z" fill="#4E4F53"/>
+</svg>`,
+  plus: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="2" width="20" height="20" rx="5" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M9 12H15" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12 9L12 15" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  close: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="2" width="20" height="20" rx="5" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M9.8787 14.1215L14.1213 9.87891" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9.8787 9.87845L14.1213 14.1211" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  danger: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2 17.9261C2 17.3187 2.15479 16.7214 2.44975 16.1904L8.63566 5.0558C9.18399 4.06881 10.1381 3.37239 11.2452 3.15096C11.7435 3.05131 12.2565 3.05131 12.7548 3.15096C13.8619 3.37239 14.816 4.06881 15.3643 5.05581L21.5502 16.1904C21.8452 16.7214 22 17.3187 22 17.9261C22 19.8999 20.3999 21.5 18.4261 21.5H5.57391C3.60009 21.5 2 19.8999 2 17.9261Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M12 9L12 13" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12 16L12 16.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`,
+  'trash-can': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M5.05063 8.73418C4.20573 7.60763 5.00954 6 6.41772 6H17.5823C18.9905 6 19.7943 7.60763 18.9494 8.73418C18.3331 9.55584 18 10.5552 18 11.5823V18C18 20.2091 16.2091 22 14 22H10C7.79086 22 6 20.2091 6 18V11.5823C6 10.5552 5.66688 9.55584 5.05063 8.73418Z" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M14 17L14 11" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M10 17L10 11" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 6L15.4558 4.36754C15.1836 3.55086 14.4193 3 13.5585 3H10.4415C9.58066 3 8.81638 3.55086 8.54415 4.36754L8 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  lock: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="4" y="9" width="16" height="12" rx="4" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M12 16L12 14" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 9V7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7L8 9" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  'lock-open': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="4" y="9" width="16" height="12" rx="4" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M12 16L12 14" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M14.6667 5.14229C14.9035 5.48217 15.3709 5.56575 15.7108 5.32899C16.0507 5.09222 16.1343 4.62476 15.8975 4.28489L15.2821 4.71359L14.6667 5.14229ZM8.27819 4.04862C8.02082 4.37318 8.07528 4.84492 8.39984 5.10228C8.72439 5.35965 9.19613 5.30519 9.4535 4.98064L8.86584 4.51463L8.27819 4.04862ZM8 9H8.75V7H8H7.25V9H8ZM8 7H8.75C8.75 5.20508 10.2051 3.75 12 3.75V3V2.25C9.37665 2.25 7.25 4.37665 7.25 7H8ZM15.2821 4.71359L15.8975 4.28489C15.331 3.4717 14.5244 2.85606 13.5905 2.52421L13.3394 3.23091L13.0883 3.93762C13.7272 4.16467 14.2791 4.5859 14.6667 5.14229L15.2821 4.71359ZM13.3394 3.23091L13.5905 2.52421C12.6567 2.19236 11.6424 2.16091 10.6898 2.43426L10.8967 3.15517L11.1036 3.87607C11.7554 3.68904 12.4493 3.71056 13.0883 3.93762L13.3394 3.23091ZM10.8967 3.15517L10.6898 2.43426C9.73722 2.70762 8.89397 3.27209 8.27819 4.04862L8.86584 4.51463L9.4535 4.98064C9.87482 4.44933 10.4518 4.06311 11.1036 3.87607L10.8967 3.15517Z" fill="#4E4F53"/>
+</svg>`,
+  'lock-check': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="4" y="9" width="16" height="12" rx="4" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M10 15L11.5 16.5L14.5 13.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 9V7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7L8 9" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  'lock-x': String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="4" y="9" width="16" height="12" rx="4" stroke="#4E4F53" stroke-width="1.5"/>
+<path d="M10.1211 17L14.1211 13" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M10.1211 13L14.1211 17" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 9V7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7L8 9" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+};
 
 const styles = StyleSheet.create({
   icon: {
