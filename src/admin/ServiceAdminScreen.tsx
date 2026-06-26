@@ -50,6 +50,7 @@ type Notice = {
 
 type ServiceAdminScreenProps = {
   onOpenCampusAdminFeature: () => void;
+  onReturnToUserHome: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -99,6 +100,7 @@ const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = 
 
 export function ServiceAdminScreen({
   onOpenCampusAdminFeature,
+  onReturnToUserHome,
   setAuthState,
   setNotice,
   state,
@@ -323,6 +325,14 @@ export function ServiceAdminScreen({
   return (
     <Screen>
       <ScreenHeader
+        action={
+          <Button
+            accessibilityLabel="Service ADMIN에서 사용자 홈으로 돌아가기"
+            onPress={onReturnToUserHome}
+            variant="secondary">
+            사용자 홈
+          </Button>
+        }
         eyebrow="서비스 관리자"
         subtitle="전역 사용자와 캠퍼스 관리를 분리해 운영합니다."
         title="Service ADMIN"

@@ -1,4 +1,4 @@
-import type {CampusMembershipSummary, CurrentUser} from '../api/types';
+import type {CampusMembershipSummary, CampusRole, CurrentUser} from '../api/types';
 
 export type ShellRoute =
   | 'userHome'
@@ -10,13 +10,22 @@ export type ShellRoute =
   | 'campusAdmin'
   | 'serviceAdmin';
 
-const CAMPUS_ADMIN_ROLES = new Set(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
+const USER_ROUTES: ShellRoute[] = [
+  'userHome',
+  'devotion',
+  'payments',
+  'polls',
+  'prayers',
+  'profile',
+];
+
+const CAMPUS_ADMIN_ROLES = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 
 export function getAvailableRoutes(
   user: CurrentUser,
   campus: CampusMembershipSummary,
 ): ShellRoute[] {
-  const routes: ShellRoute[] = ['userHome', 'devotion', 'payments', 'polls', 'prayers', 'profile'];
+  const routes: ShellRoute[] = [...USER_ROUTES];
 
   if (user.role === 'ADMIN' || CAMPUS_ADMIN_ROLES.has(campus.campusRole)) {
     routes.push('campusAdmin');
@@ -27,6 +36,10 @@ export function getAvailableRoutes(
   }
 
   return routes;
+}
+
+export function getDefaultAuthenticatedRoute(): ShellRoute {
+  return 'userHome';
 }
 
 export function getRouteLabel(route: ShellRoute) {
