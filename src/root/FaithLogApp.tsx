@@ -111,7 +111,13 @@ const initialState: AuthGateState = {
   message: '저장된 세션을 확인하고 있어요.',
 };
 
-type EntryTarget = 'login' | 'signup' | 'inviteCode' | 'campusCreate';
+type EntryTarget =
+  | 'login'
+  | 'signup'
+  | 'inviteCode'
+  | 'campusCreate'
+  | 'campusSelect'
+  | 'campusDetail';
 
 type SessionNotice = {
   tone: 'info' | 'warning' | 'success';
@@ -263,7 +269,9 @@ export function FaithLogApp() {
         ) : authState.status === 'authenticated' ? (
           <Screen>
             <AuthenticatedShell
+              entryTarget={entryTarget}
               notice={sessionNotice}
+              openEntryTarget={setEntryTarget}
               route={route}
               setAuthState={setAuthState}
               setNotice={setSessionNotice}
@@ -319,7 +327,7 @@ function renderAuthState({
 }) {
   switch (state.status) {
     case 'loading':
-      return <Loading message={state.message} />;
+      return <LaunchAuthCheckScreen message={state.message} />;
     case 'signedOut':
       return renderPublicAuthEntry({
         clearNotice,
@@ -329,28 +337,22 @@ function renderAuthState({
         setNotice,
       });
     case 'sessionExpired':
+      if (entryTarget === 'login' || entryTarget === 'signup') {
+        return renderPublicAuthEntry({
+          clearNotice,
+          entryTarget,
+          openEntryTarget,
+          setAuthState,
+          setNotice,
+        });
+      }
+
       return (
-        <>
-          <StatusCard
-            eyebrow="세션 만료"
-            title="다시 로그인해 주세요"
-            message={state.message}
-            primaryLabel="로그인 계속하기"
-            primaryAccessibilityLabel="세션 만료 후 로그인 폼으로 이동"
-            onPrimaryPress={() => openEntryTarget('login')}
-            secondaryLabel="회원가입"
-            secondaryAccessibilityLabel="회원가입 폼으로 이동"
-            onSecondaryPress={() => openEntryTarget('signup')}
-            tone="danger"
-          />
-          {renderPublicAuthEntry({
-            clearNotice,
-            entryTarget: entryTarget === 'signup' ? 'signup' : 'login',
-            openEntryTarget,
-            setAuthState,
-            setNotice,
-          })}
-        </>
+        <SessionExpiredScreen
+          message={state.message}
+          onLoginPress={() => openEntryTarget('login')}
+          onSignupPress={() => openEntryTarget('signup')}
+        />
       );
     case 'noCampus':
       return (
@@ -418,7 +420,9 @@ function renderAuthState({
     case 'authenticated':
       return (
         <AuthenticatedShell
+          entryTarget={entryTarget}
           notice={null}
+          openEntryTarget={openEntryTarget}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -467,13 +471,17 @@ function renderPublicAuthEntry({
       onLoginComplete={(nextState) => {
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
+          openEntryTarget(null);
           setNotice({
             tone: 'success',
             title: '로그인되었습니다',
-            message: `${nextState.selectedCampus.campusName} 캠퍼스로 진입했습니다.`,
+            message: canCreateCampusWithRole(nextState.user.role)
+              ? '홈에서 캠퍼스 전환과 생성을 관리할 수 있어요.'
+              : '내 캠퍼스 홈으로 이동했습니다.',
           });
         }
         if (nextState.status === 'noCampus') {
+          openEntryTarget(null);
           setNotice({
             tone: 'info',
             title: '캠퍼스 연결 필요',
@@ -503,61 +511,225 @@ function NoCampusOnboarding({
 }) {
   const canCreateCampus = canCreateCampusWithRole(user.role);
 
-  return (
-    <>
-      <Empty
-        title={`${user.name}님, 참여 중인 캠퍼스가 없어요`}
-        message="ACTIVE 캠퍼스가 없어 초대코드 입력 또는 캠퍼스 생성 흐름으로 안내합니다."
-        actionLabel="초대코드 입력"
-        actionAccessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
-        onActionPress={() => openEntryTarget('inviteCode')}
-        {...(canCreateCampus
-          ? {
-              secondaryActionLabel: '캠퍼스 생성',
-              secondaryActionAccessibilityLabel: '캠퍼스 생성 화면으로 이동',
-              onSecondaryActionPress: () => openEntryTarget('campusCreate'),
-            }
-          : {})}
+  if (entryTarget === 'inviteCode') {
+    return (
+      <InviteCodeForm
+        clearNotice={clearNotice}
+        onCancel={() => openEntryTarget(null)}
+        onComplete={(nextState, campusName) => {
+          openEntryTarget(null);
+          setAuthState(nextState);
+          setNotice({
+            tone: 'success',
+            title: '캠퍼스 참여 완료',
+            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
+          });
+        }}
+        onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
+        user={user}
       />
-      {canCreateCampus ? null : (
-        <PermissionDenied
-          title="캠퍼스 생성 권한이 없습니다"
-          message="일반 USER는 초대코드로 참여할 수 있고, 캠퍼스 생성은 MANAGER 또는 ADMIN에게만 열립니다."
-        />
-      )}
-      {entryTarget === 'inviteCode' ? (
-        <InviteCodeForm
-          clearNotice={clearNotice}
-          onCancel={() => openEntryTarget(null)}
-          onComplete={(nextState, campusName) => {
-            setAuthState(nextState);
-            setNotice({
-              tone: 'success',
-              title: '캠퍼스 참여 완료',
-              message: `${campusName} 캠퍼스로 진입했습니다.`,
-            });
-          }}
-          onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
-          user={user}
-        />
-      ) : null}
-      {entryTarget === 'campusCreate' && canCreateCampus ? (
-        <CampusCreateForm
-          clearNotice={clearNotice}
-          onCancel={() => openEntryTarget(null)}
-          onComplete={(nextState, campusName) => {
-            setAuthState(nextState);
-            setNotice({
-              tone: 'success',
-              title: '캠퍼스 생성 완료',
-              message: `${campusName} 캠퍼스로 진입했습니다.`,
-            });
-          }}
-          onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
-          user={user}
-        />
-      ) : null}
-    </>
+    );
+  }
+
+  if (entryTarget === 'campusCreate' && canCreateCampus) {
+    return (
+      <CampusCreateGate
+        canCreateCampus={canCreateCampus}
+        clearNotice={clearNotice}
+        onCancel={() => openEntryTarget(null)}
+        onComplete={(nextState, campusName) => {
+          openEntryTarget(null);
+          setAuthState(nextState);
+          setNotice({
+            tone: 'success',
+            title: '캠퍼스 생성 완료',
+            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
+          });
+        }}
+        onInvitePress={() => openEntryTarget('inviteCode')}
+        onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
+        user={user}
+      />
+    );
+  }
+
+  return (
+    <NoCampusEntryScreen
+      canCreateCampus={canCreateCampus}
+      userName={user.name}
+      onCampusCreatePress={() => openEntryTarget('campusCreate')}
+      onInviteCodePress={() => openEntryTarget('inviteCode')}
+    />
+  );
+}
+
+function LaunchAuthCheckScreen({message}: {message: string}) {
+  return (
+    <View style={styles.launchFrame}>
+      <View style={styles.launchIcon}>
+        <Text style={styles.launchIconText}>F</Text>
+      </View>
+      <Text style={styles.launchTitle}>FaithLog</Text>
+      <Text style={styles.launchSubtitle}>경건생활과 공동체 운영을 확인하고 있어요</Text>
+      <View style={styles.launchLoadingCard}>
+        <View style={styles.loadingDot} />
+        <View style={styles.launchLoadingText}>
+          <Text style={styles.launchLoadingTitle}>세션 확인 중</Text>
+          <Text style={styles.launchLoadingHelper}>{message}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SessionExpiredScreen({
+  message,
+  onLoginPress,
+  onSignupPress,
+}: {
+  message: string;
+  onLoginPress: () => void;
+  onSignupPress: () => void;
+}) {
+  return (
+    <View style={styles.onboardingFrame}>
+      <OnboardingHeader title="세션 만료" />
+      <View style={styles.centerStateCard}>
+        <View style={styles.centerStateIcon}>
+          <Text style={styles.centerStateIconText}>!</Text>
+        </View>
+        <Text style={styles.centerStateTitle}>다시 로그인해 주세요</Text>
+        <Text style={styles.centerStateMessage}>{message}</Text>
+        <Button
+          accessibilityLabel="세션 만료 후 로그인 화면으로 이동"
+          onPress={onLoginPress}>
+          로그인 계속하기
+        </Button>
+        <Button
+          accessibilityLabel="세션 만료 후 회원가입 화면으로 이동"
+          onPress={onSignupPress}
+          variant="ghost">
+          회원가입
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+function NoCampusEntryScreen({
+  canCreateCampus,
+  onCampusCreatePress,
+  onInviteCodePress,
+  userName,
+}: {
+  canCreateCampus: boolean;
+  onCampusCreatePress: () => void;
+  onInviteCodePress: () => void;
+  userName: string;
+}) {
+  return (
+    <View style={styles.onboardingFrame}>
+      <OnboardingHeader title="캠퍼스 필요" />
+      <View style={styles.centerStateCard}>
+        <View style={styles.centerStateIcon}>
+          <Text style={styles.centerStateIconText}>F</Text>
+        </View>
+        <Text style={styles.centerStateTitle}>{userName}님, 참여 중인 캠퍼스가 없어요</Text>
+        <Text style={styles.centerStateMessage}>
+          ACTIVE 캠퍼스가 있어야 FaithLog를 시작할 수 있어요.
+        </Text>
+        <Button
+          accessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
+          onPress={onInviteCodePress}>
+          초대코드 입력
+        </Button>
+        {canCreateCampus ? (
+          <Button
+            accessibilityLabel="캠퍼스 생성 화면으로 이동"
+            onPress={onCampusCreatePress}
+            variant="secondary">
+            캠퍼스 만들기
+          </Button>
+        ) : null}
+        <Text style={styles.centerStateHelper}>
+          {canCreateCampus
+            ? 'MANAGER 또는 ADMIN은 새 캠퍼스를 만들 수 있어요.'
+            : '일반 USER는 초대코드로 참여할 수 있어요.'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function CampusCreateGate({
+  canCreateCampus,
+  clearNotice,
+  onCancel,
+  onComplete,
+  onInvitePress,
+  onSessionExpired,
+  user,
+}: {
+  canCreateCampus: boolean;
+  clearNotice: () => void;
+  onCancel: () => void;
+  onComplete: (
+    state: Extract<AuthGateState, {status: 'authenticated'}>,
+    campusName: string,
+  ) => void;
+  onInvitePress: () => void;
+  onSessionExpired: (message: string) => void;
+  user: CurrentUser;
+}) {
+  if (!canCreateCampus) {
+    return (
+      <View style={styles.onboardingFrame}>
+        <OnboardingHeader title="캠퍼스 만들기" />
+        <View style={styles.roleGateCard}>
+          <Text style={styles.roleGateTitle}>생성 권한</Text>
+          <View style={styles.roleGateChip}>
+            <Text style={styles.roleGateChipText}>MANAGER · ADMIN 전용</Text>
+          </View>
+          <Text style={styles.roleGateMessage}>
+            일반 USER는 초대코드로 참여만 가능해요.
+          </Text>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="권한 안내 후 초대코드 입력으로 이동"
+              onPress={onInvitePress}>
+              초대코드 입력
+            </Button>
+            <Button
+              accessibilityLabel="캠퍼스 생성 권한 안내 닫기"
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <CampusCreateForm
+      clearNotice={clearNotice}
+      onCancel={onCancel}
+      onComplete={onComplete}
+      onSessionExpired={onSessionExpired}
+      user={user}
+    />
+  );
+}
+
+function OnboardingHeader({context, title}: {context?: string; title: string}) {
+  return (
+    <View style={styles.onboardingHeader}>
+      <View style={styles.authBrandChip}>
+        <Text style={styles.authBrandChipText}>{context ?? 'FaithLog'}</Text>
+      </View>
+      <Text style={styles.onboardingTitle}>{title}</Text>
+    </View>
   );
 }
 
@@ -575,7 +747,7 @@ function InviteCodeForm({
     campusName: string,
   ) => void;
   onSessionExpired: (message: string) => void;
-  user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
+  user: CurrentUser;
 }) {
   const [values, setValues] = useState<InviteCodeFormValues>({inviteCode: ''});
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors<keyof InviteCodeFormValues>>({});
@@ -626,10 +798,14 @@ function InviteCodeForm({
   };
 
   return (
-    <Card>
-      <Eyebrow>초대코드</Eyebrow>
-      <Title>초대코드를 입력해주세요</Title>
-      <Body>관리자에게 받은 초대코드로 캠퍼스에 참여할 수 있어요.</Body>
+    <View style={styles.onboardingFrame}>
+      <OnboardingHeader title="캠퍼스 참여" />
+      <View style={styles.inviteIntroCard}>
+        <Text style={styles.inviteIntroTitle}>초대코드를 입력해주세요</Text>
+        <Text style={styles.inviteIntroBody}>
+          관리자에게 받은 초대코드로 캠퍼스에 참여할 수 있어요
+        </Text>
+      </View>
       <TextField
         accessibilityLabel="캠퍼스 초대코드 입력"
         autoCapitalize="characters"
@@ -638,12 +814,13 @@ function InviteCodeForm({
         label="초대코드"
         onChangeText={(inviteCode) => setValues({inviteCode})}
         onSubmitEditing={submit}
-        placeholder="FL-5BLKUSSH"
+        placeholder="BD-1CAMP-A8F2"
         returnKeyType="done"
         textContentType="none"
         value={values.inviteCode}
       />
       {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.onboardingActionSpacer} />
       <View style={styles.actionRow}>
         <Button
           accessibilityLabel="초대코드로 캠퍼스 참여"
@@ -659,7 +836,7 @@ function InviteCodeForm({
           나중에
         </Button>
       </View>
-    </Card>
+    </View>
   );
 }
 
@@ -677,7 +854,7 @@ function CampusCreateForm({
     campusName: string,
   ) => void;
   onSessionExpired: (message: string) => void;
-  user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
+  user: CurrentUser;
 }) {
   const [values, setValues] = useState<CampusCreateFormValues>({
     description: '',
@@ -730,47 +907,58 @@ function CampusCreateForm({
   };
 
   return (
-    <Card>
-      <Eyebrow>캠퍼스 만들기</Eyebrow>
-      <Title>새 캠퍼스 정보</Title>
-      <Body>MANAGER 또는 ADMIN 권한만 캠퍼스를 만들 수 있어요.</Body>
-      <TextField
-        accessibilityLabel="캠퍼스 이름 입력"
-        autoCapitalize="words"
-        error={fieldErrors.name}
-        label="캠퍼스 이름"
-        onChangeText={(name) => setValues((current) => ({...current, name}))}
-        placeholder="분당 1캠"
-        returnKeyType="next"
-        textContentType="none"
-        value={values.name}
-      />
-      <TextField
-        accessibilityLabel="캠퍼스 지역 입력"
-        autoCapitalize="words"
-        error={fieldErrors.region}
-        label="지역"
-        onChangeText={(region) => setValues((current) => ({...current, region}))}
-        placeholder="분당"
-        returnKeyType="next"
-        textContentType="none"
-        value={values.region}
-      />
-      <TextField
-        accessibilityLabel="캠퍼스 설명 입력"
-        autoCapitalize="sentences"
-        error={fieldErrors.description}
-        label="설명"
-        onChangeText={(description) =>
-          setValues((current) => ({...current, description}))
-        }
-        onSubmitEditing={submit}
-        placeholder="분당 대학부 1캠퍼스"
-        returnKeyType="done"
-        textContentType="none"
-        value={values.description}
-      />
-      {formError ? <InlineError message={formError} /> : null}
+    <View style={styles.onboardingFrame}>
+      <OnboardingHeader title="캠퍼스 만들기" />
+      <View style={styles.roleGateCard}>
+        <Text style={styles.roleGateTitle}>생성 권한</Text>
+        <View style={styles.roleGateChip}>
+          <Text style={styles.roleGateChipText}>MANAGER · ADMIN 전용</Text>
+        </View>
+      </View>
+      <View style={styles.campusFormCard}>
+        <Text style={styles.campusFormTitle}>새 캠퍼스 정보</Text>
+        <Text style={styles.campusFormBody}>
+          MANAGER 또는 ADMIN 권한만 캠퍼스를 만들 수 있어요.
+        </Text>
+        <TextField
+          accessibilityLabel="캠퍼스 이름 입력"
+          autoCapitalize="words"
+          error={fieldErrors.name}
+          label="캠퍼스 이름"
+          onChangeText={(name) => setValues((current) => ({...current, name}))}
+          placeholder="분당 1캠"
+          returnKeyType="next"
+          textContentType="none"
+          value={values.name}
+        />
+        <TextField
+          accessibilityLabel="캠퍼스 지역 입력"
+          autoCapitalize="words"
+          error={fieldErrors.region}
+          label="지역"
+          onChangeText={(region) => setValues((current) => ({...current, region}))}
+          placeholder="분당"
+          returnKeyType="next"
+          textContentType="none"
+          value={values.region}
+        />
+        <TextField
+          accessibilityLabel="캠퍼스 설명 입력"
+          autoCapitalize="sentences"
+          error={fieldErrors.description}
+          label="설명"
+          onChangeText={(description) =>
+            setValues((current) => ({...current, description}))
+          }
+          onSubmitEditing={submit}
+          placeholder="분당 대학부 1캠퍼스"
+          returnKeyType="done"
+          textContentType="none"
+          value={values.description}
+        />
+        {formError ? <InlineError message={formError} /> : null}
+      </View>
+      <View style={styles.onboardingActionSpacer} />
       <View style={styles.actionRow}>
         <Button
           accessibilityLabel="캠퍼스 생성 제출"
@@ -786,7 +974,7 @@ function CampusCreateForm({
           취소
         </Button>
       </View>
-    </Card>
+    </View>
   );
 }
 
@@ -862,6 +1050,7 @@ function LoginForm({
         value={values.password}
       />
       {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.authActionSpacer} />
       <View style={styles.authActionRow}>
         <AuthButton
           accessibilityLabel="로그인 제출"
@@ -990,6 +1179,7 @@ function SignupForm({
         value={values.passwordConfirm}
       />
       {formError ? <InlineError message={formError} /> : null}
+      <View style={styles.authActionSpacer} />
       <View style={[styles.authActionRow, styles.signupAuthActionRow]}>
         <AuthButton
           accessibilityLabel="회원가입 제출"
@@ -1123,7 +1313,7 @@ function InlineError({message}: {message: string}) {
 
 async function resolveAuthenticatedCampusState(
   accessToken: string,
-  fallbackUser: Extract<AuthGateState, {status: 'noCampus'}>['user'],
+  fallbackUser: CurrentUser,
   preferredCampusId: number,
 ): Promise<Extract<AuthGateState, {status: 'authenticated'}>> {
   const [user, campuses] = await Promise.all([
@@ -1312,25 +1502,19 @@ function StatusCard({
   );
 }
 
-function EntryTargetCard({target}: {target: EntryTarget}) {
-  return (
-    <Card>
-      <Eyebrow>다음 화면 진입</Eyebrow>
-      <Title>{getEntryTargetTitle(target)}</Title>
-      <Body>{getEntryTargetDescription(target)}</Body>
-    </Card>
-  );
-}
-
 function AuthenticatedShell({
+  entryTarget,
   notice,
+  openEntryTarget,
   route,
   setAuthState,
   setNotice,
   setRoute,
   state,
 }: {
+  entryTarget: EntryTarget | null;
   notice: SessionNotice;
+  openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -1344,6 +1528,11 @@ function AuthenticatedShell({
   const [campusSwitchLoading, setCampusSwitchLoading] = useState(false);
   const [campusSwitchError, setCampusSwitchError] = useState<ApiError | null>(null);
   const [selectedCampusDetail, setSelectedCampusDetail] = useState<CampusDetail | null>(null);
+  const [campusDetailState, setCampusDetailState] = useState<CardState<CampusDetail>>({
+    status: 'idle',
+  });
+  const canCreateCampus = canCreateCampusWithRole(state.user.role);
+  const canManageCampuses = canCreateCampus;
   const navItems = useMemo(
     () =>
       USER_BOTTOM_NAV_ROUTES.map((availableRoute) => ({
@@ -1390,6 +1579,10 @@ function AuthenticatedShell({
   };
 
   const openCampusSwitch = () => {
+    if (!canManageCampuses) {
+      return;
+    }
+
     setCampusSwitchVisible(true);
     void refreshCampuses();
   };
@@ -1423,8 +1616,11 @@ function AuthenticatedShell({
       }
 
       setSelectedCampusDetail(detail);
+      setCampusDetailState({status: 'success', data: detail});
       setAuthState(nextState);
       setCampusSwitchVisible(false);
+      setUserHomeView('dashboard');
+      setRoute('userHome');
       setNotice({
         tone: 'success',
         title: '캠퍼스 변경',
@@ -1472,12 +1668,146 @@ function AuthenticatedShell({
   };
 
   const selectRoute = (nextRoute: ShellRoute) => {
+    openEntryTarget(null);
+
     if (nextRoute === 'userHome') {
       setUserHomeView('dashboard');
     }
 
     setRoute(nextRoute);
   };
+
+  const refreshCampusDetail = async () => {
+    setCampusDetailState({status: 'loading'});
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
+        return;
+      }
+
+      const detail = await fetchCampusDetail(accessToken, state.selectedCampus.campusId);
+      setSelectedCampusDetail(detail);
+      setCampusDetailState({status: 'success', data: detail});
+    } catch (error) {
+      const apiError = toApiError(error, '캠퍼스 상세를 불러오지 못했습니다.');
+      setCampusDetailState({status: 'error', error: apiError});
+
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+      }
+    }
+  };
+
+  const selectCampusForOnboarding = async (campus: CampusMembershipSummary) => {
+    if (campusSwitchLoading) {
+      return;
+    }
+
+    setCampusSwitchLoading(true);
+    setCampusSwitchError(null);
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
+        return;
+      }
+
+      const detail = await fetchCampusDetail(accessToken, campus.campusId);
+      const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
+
+      if (nextState.status === 'noCampus') {
+        setAuthState(nextState);
+        openEntryTarget(null);
+        return;
+      }
+
+      setSelectedCampusDetail(detail);
+      setCampusDetailState({status: 'success', data: detail});
+      setAuthState(nextState);
+      openEntryTarget(null);
+      setUserHomeView('dashboard');
+      setRoute('userHome');
+      setNotice({
+        tone: 'success',
+        title: '캠퍼스 선택',
+        message: `${detail.name} 캠퍼스 홈으로 이동했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '캠퍼스를 선택하지 못했습니다.');
+      setCampusSwitchError(apiError);
+
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+      }
+    } finally {
+      setCampusSwitchLoading(false);
+    }
+  };
+
+  const completeAuthenticatedOnboarding = () => {
+    openEntryTarget(null);
+    setRoute('userHome');
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    if (entryTarget !== 'campusDetail') {
+      return undefined;
+    }
+
+    if (selectedCampusDetail?.campusId === state.selectedCampus.campusId) {
+      setCampusDetailState({status: 'success', data: selectedCampusDetail});
+      return undefined;
+    }
+
+    setCampusDetailState({status: 'loading'});
+    void getStoredTokens()
+      .then(({accessToken}) => {
+        if (!accessToken) {
+          setAuthState({
+            status: 'sessionExpired',
+            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          });
+          return null;
+        }
+
+        return fetchCampusDetail(accessToken, state.selectedCampus.campusId);
+      })
+      .then((detail) => {
+        if (!active || !detail) {
+          return;
+        }
+
+        setSelectedCampusDetail(detail);
+        setCampusDetailState({status: 'success', data: detail});
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+
+        const apiError = toApiError(error, '캠퍼스 상세를 불러오지 못했습니다.');
+        setCampusDetailState({status: 'error', error: apiError});
+
+        if (apiError.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: apiError.message});
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [entryTarget, selectedCampusDetail, setAuthState, state.selectedCampus.campusId]);
 
   return (
     <View style={styles.shell}>
@@ -1487,12 +1817,72 @@ function AuthenticatedShell({
         showsVerticalScrollIndicator={false}
         style={styles.shellScroll}>
         {notice ? <NoticeCard notice={notice} /> : null}
-        <NotificationPermissionFlow
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          userId={state.user.id}
-        />
-        {route === 'userHome' ? (
+        {entryTarget === null ? (
+          <NotificationPermissionFlow
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            userId={state.user.id}
+          />
+        ) : null}
+        {entryTarget === 'campusSelect' && canManageCampuses ? (
+          <CampusSelectScreen
+            campuses={state.activeCampuses}
+            canCreateCampus={canCreateCampus}
+            currentCampusId={state.selectedCampus.campusId}
+            error={campusSwitchError}
+            loading={campusSwitchLoading}
+            onCampusCreatePress={() => openEntryTarget('campusCreate')}
+            onInviteCodePress={() => openEntryTarget('inviteCode')}
+            onRefresh={refreshCampuses}
+            onSelect={selectCampusForOnboarding}
+          />
+        ) : entryTarget === 'campusDetail' && canManageCampuses ? (
+          <CampusDetailScreen
+            detailState={campusDetailState}
+            onContinue={completeAuthenticatedOnboarding}
+            onInviteCodePress={() => openEntryTarget('inviteCode')}
+            onRefresh={refreshCampusDetail}
+            selectedCampus={state.selectedCampus}
+          />
+        ) : entryTarget === 'inviteCode' ? (
+          <InviteCodeForm
+            clearNotice={() => setNotice(null)}
+            onCancel={() => openEntryTarget(null)}
+            onComplete={(nextState, campusName) => {
+              setAuthState(nextState);
+              openEntryTarget(null);
+              setUserHomeView('dashboard');
+              setRoute('userHome');
+              setNotice({
+                tone: 'success',
+                title: '캠퍼스 참여 완료',
+                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
+              });
+            }}
+            onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
+            user={state.user}
+          />
+        ) : entryTarget === 'campusCreate' && canCreateCampus ? (
+          <CampusCreateGate
+            canCreateCampus={canCreateCampus}
+            clearNotice={() => setNotice(null)}
+            onCancel={() => openEntryTarget(null)}
+            onComplete={(nextState, campusName) => {
+              setAuthState(nextState);
+              openEntryTarget(null);
+              setUserHomeView('dashboard');
+              setRoute('userHome');
+              setNotice({
+                tone: 'success',
+                title: '캠퍼스 생성 완료',
+                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
+              });
+            }}
+            onInvitePress={() => openEntryTarget('inviteCode')}
+            onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
+            user={state.user}
+          />
+        ) : route === 'userHome' ? (
           userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
               onBackToHome={() => setUserHomeView('dashboard')}
@@ -1508,6 +1898,7 @@ function AuthenticatedShell({
               onOpenPolls={() => setRoute('polls')}
               onOpenPrayers={() => setRoute('prayers')}
               onCampusSwitchPress={openCampusSwitch}
+              canSwitchCampus={canManageCampuses}
               setAuthState={setAuthState}
               setNotice={setNotice}
               state={state}
@@ -1541,6 +1932,7 @@ function AuthenticatedShell({
         ) : route === 'profile' ? (
           <ProfileScreen
             onCampusSwitchPress={openCampusSwitch}
+            canSwitchCampus={canManageCampuses}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
             onOpenPrayers={() => setRoute('prayers')}
             setAuthState={setAuthState}
@@ -1598,19 +1990,199 @@ function AuthenticatedShell({
       />
       <CampusSwitchSheet
         campuses={state.activeCampuses}
+        canCreateCampus={canCreateCampus}
         currentCampusId={state.selectedCampus.campusId}
         error={campusSwitchError}
         loading={campusSwitchLoading}
         onCancel={() => setCampusSwitchVisible(false)}
+        onCampusCreatePress={() => {
+          setCampusSwitchVisible(false);
+          openEntryTarget('campusCreate');
+        }}
         onRefresh={refreshCampuses}
         onSelect={selectCampus}
-        visible={campusSwitchVisible}
+        visible={canManageCampuses && campusSwitchVisible}
       />
     </View>
   );
 }
 
+function CampusSelectScreen({
+  campuses,
+  canCreateCampus,
+  currentCampusId,
+  error,
+  loading,
+  onCampusCreatePress,
+  onInviteCodePress,
+  onRefresh,
+  onSelect,
+}: {
+  campuses: CampusMembershipSummary[];
+  canCreateCampus: boolean;
+  currentCampusId: number;
+  error: ApiError | null;
+  loading: boolean;
+  onCampusCreatePress: () => void;
+  onInviteCodePress: () => void;
+  onRefresh: () => void;
+  onSelect: (campus: CampusMembershipSummary) => void;
+}) {
+  return (
+    <View style={styles.userFrame}>
+      <View style={styles.figmaHeader}>
+        <View style={styles.figmaCampusChip}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
+            {getCampusSelectContext(campuses, currentCampusId)}
+          </Text>
+        </View>
+        <Text style={styles.figmaTitle}>캠퍼스 선택</Text>
+      </View>
+
+      <View style={styles.campusSummaryCard}>
+        <Text style={styles.campusSummaryTitle}>내 캠퍼스</Text>
+        <Text style={styles.campusSummaryBody}>ACTIVE 멤버십만 표시돼요.</Text>
+      </View>
+
+      {error ? <InlineError message={getCampusSwitchErrorMessage(error)} /> : null}
+      <View style={styles.campusList}>
+        {campuses.length > 0 ? (
+          campuses.map((campus) => {
+            const selected = campus.campusId === currentCampusId;
+
+            return (
+              <ListRow
+                accessibilityLabel={`${campus.campusName} 캠퍼스 선택`}
+                key={campus.membershipId}
+                label={campus.campusName}
+                onPress={() => onSelect(campus)}
+                supportingText={`${campus.campusRole} · ${campus.status}`}
+                value={selected ? '현재' : '선택'}
+              />
+            );
+          })
+        ) : (
+          <Empty
+            title="참여 중인 캠퍼스가 없어요"
+            message={
+              canCreateCampus
+                ? '초대코드를 입력하거나 새 캠퍼스를 만들 수 있어요.'
+                : '초대코드를 입력해 캠퍼스에 참여할 수 있어요.'
+            }
+            actionLabel="목록 갱신"
+            actionAccessibilityLabel="내 캠퍼스 목록 다시 불러오기"
+            onActionPress={onRefresh}
+          />
+        )}
+      </View>
+
+      <View style={styles.userActionSpacer} />
+      <View style={styles.authActionRow}>
+        <AuthButton
+          accessibilityLabel="초대코드 입력 화면으로 이동"
+          disabled={loading}
+          onPress={onInviteCodePress}
+          variant={canCreateCampus ? 'secondary' : 'primary'}>
+          초대코드 입력
+        </AuthButton>
+        {canCreateCampus ? (
+          <AuthButton
+            accessibilityLabel="캠퍼스 만들기 화면으로 이동"
+            disabled={loading}
+            onPress={onCampusCreatePress}>
+            캠퍼스 만들기
+          </AuthButton>
+        ) : null}
+      </View>
+      {loading ? <Body>캠퍼스 목록을 확인하고 있어요.</Body> : null}
+    </View>
+  );
+}
+
+function CampusDetailScreen({
+  detailState,
+  onContinue,
+  onInviteCodePress,
+  onRefresh,
+  selectedCampus,
+}: {
+  detailState: CardState<CampusDetail>;
+  onContinue: () => void;
+  onInviteCodePress: () => void;
+  onRefresh: () => void;
+  selectedCampus: CampusMembershipSummary;
+}) {
+  const detail = detailState.status === 'success' ? detailState.data : null;
+  const title = detail?.name ?? selectedCampus.campusName;
+  const region = detail?.region ?? selectedCampus.region;
+  const role = detail?.myCampusRole ?? selectedCampus.campusRole;
+  const status = detail?.membershipStatus ?? selectedCampus.status;
+  const inviteCodeMessage = detail?.inviteCode
+    ? '관리 권한으로 초대코드를 확인할 수 있어요.'
+    : '일반 멤버는 초대코드를 볼 수 없어요.';
+
+  return (
+    <View style={styles.userFrame}>
+      <View style={styles.figmaHeader}>
+        <View style={styles.figmaCampusChip}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
+            {selectedCampus.region} {selectedCampus.campusName}
+          </Text>
+        </View>
+        <Text style={styles.figmaTitle}>캠퍼스 상세</Text>
+      </View>
+
+      <View style={styles.campusDetailCard}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.campusDetailTitle}>
+          {title}
+        </Text>
+        <Text style={styles.campusDetailMeta}>
+          지역 {region} · {role} · {status}
+        </Text>
+        <Text style={styles.campusDetailHelper}>{inviteCodeMessage}</Text>
+      </View>
+
+      {detailState.status === 'loading' || detailState.status === 'idle' ? (
+        <Loading message="캠퍼스 상세를 불러오고 있어요." />
+      ) : null}
+      {detailState.status === 'error' ? (
+        <ErrorState
+          title="캠퍼스 상세를 불러오지 못했어요"
+          message={getCampusSwitchErrorMessage(detailState.error)}
+          actionLabel="다시 불러오기"
+          actionAccessibilityLabel="캠퍼스 상세 다시 불러오기"
+          onActionPress={onRefresh}
+        />
+      ) : null}
+
+      <View style={styles.profileRowList}>
+        <ListRow
+          accessibilityLabel="멤버십 상태 보기"
+          label="멤버십 상태"
+          supportingText="내 역할과 소속 상태 확인"
+          value="보기"
+        />
+        <ListRow
+          accessibilityLabel="다른 캠퍼스 초대코드 입력"
+          label="다른 캠퍼스 참여"
+          onPress={onInviteCodePress}
+          supportingText="초대코드로 추가 가입"
+          value="입력"
+        />
+      </View>
+
+      <View style={styles.userActionSpacer} />
+      <Button
+        accessibilityLabel="캠퍼스 상세 확인 후 앱 홈으로 이동"
+        onPress={onContinue}>
+        앱 시작하기
+      </Button>
+    </View>
+  );
+}
+
 function UserHomeDashboard({
+  canSwitchCampus,
   onCampusSwitchPress,
   onOpenDevotion,
   onOpenMonthlyCalendar,
@@ -1621,6 +2193,7 @@ function UserHomeDashboard({
   setNotice,
   state,
 }: {
+  canSwitchCampus: boolean;
   onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
@@ -1755,17 +2328,26 @@ function UserHomeDashboard({
   return (
     <View style={styles.userFrame}>
       <View style={styles.figmaHeader}>
-        <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
-        <Pressable
-          accessibilityLabel="홈에서 캠퍼스 변경 시트 열기"
-          accessibilityRole="button"
-          disabled={state.activeCampuses.length <= 1}
-          onPress={onCampusSwitchPress}
-          style={styles.figmaCampusChip}>
+        <View style={styles.homeHeaderTopRow}>
+          <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
+          {canSwitchCampus ? (
+            <Pressable
+              accessibilityLabel="관리자 홈에서 캠퍼스 변경 시트 열기"
+              accessibilityRole="button"
+              onPress={onCampusSwitchPress}
+              style={({pressed}) => [
+                styles.homeCampusChangeButton,
+                pressed ? styles.authButtonPressed : null,
+              ]}>
+              <Text style={styles.homeCampusChangeButtonText}>변경</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View style={styles.figmaCampusChip}>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
-        </Pressable>
+        </View>
       </View>
 
       <Pressable
@@ -2810,6 +3392,20 @@ function getNotificationFailurePresentation(error: ApiError) {
   }
 }
 
+function getCampusSelectContext(
+  campuses: CampusMembershipSummary[],
+  currentCampusId: number,
+) {
+  const currentCampus =
+    campuses.find((campus) => campus.campusId === currentCampusId) ?? campuses[0];
+
+  if (!currentCampus) {
+    return 'FaithLog';
+  }
+
+  return `${currentCampus.region} ${currentCampus.campusName}`;
+}
+
 function getCampusRoleDisplayLabel(role: string) {
   switch (role) {
     case 'CAMPUS_LEADER':
@@ -2826,6 +3422,7 @@ function getCampusRoleDisplayLabel(role: string) {
 }
 
 function ProfileScreen({
+  canSwitchCampus,
   onCampusSwitchPress,
   onLogoutPress,
   onOpenPrayers,
@@ -2833,6 +3430,7 @@ function ProfileScreen({
   setNotice,
   state,
 }: {
+  canSwitchCampus: boolean;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
   onOpenPrayers: () => void;
@@ -2923,12 +3521,14 @@ function ProfileScreen({
           subtitle="내 조 조원별 기도제목 작성"
           title="기도제목 입력"
         />
-        <ProfileActionRow
-          actionLabel="관리"
-          onPress={onCampusSwitchPress}
-          subtitle="다른 캠퍼스 초대코드 입력"
-          title="캠퍼스 참여 코드"
-        />
+        {canSwitchCampus ? (
+          <ProfileActionRow
+            actionLabel="전환"
+            onPress={onCampusSwitchPress}
+            subtitle="관리 중인 캠퍼스를 변경하거나 새 캠퍼스를 생성"
+            title="캠퍼스 전환"
+          />
+        ) : null}
       </View>
 
       <Text style={styles.figmaSectionTitle}>계정</Text>
@@ -2999,19 +3599,23 @@ function ProfileActionRow({
 
 function CampusSwitchSheet({
   campuses,
+  canCreateCampus,
   currentCampusId,
   error,
   loading,
   onCancel,
+  onCampusCreatePress,
   onRefresh,
   onSelect,
   visible,
 }: {
   campuses: CampusMembershipSummary[];
+  canCreateCampus: boolean;
   currentCampusId: number;
   error: ApiError | null;
   loading: boolean;
   onCancel: () => void;
+  onCampusCreatePress: () => void;
   onRefresh: () => void;
   onSelect: (campus: CampusMembershipSummary) => void;
   visible: boolean;
@@ -3020,18 +3624,18 @@ function CampusSwitchSheet({
     <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalSheet}>
-          <Eyebrow>공동체</Eyebrow>
-          <Title>공동체 메뉴</Title>
-          <Body>현재 참여 중인 공동체를 확인하고 이동할 공동체를 선택할 수 있어요.</Body>
+          <View style={styles.sheetHandle} />
+          <Title>캠퍼스 변경</Title>
+          <Body>소속된 캠퍼스 중 이동할 캠퍼스를 선택할 수 있어요.</Body>
           {error ? <InlineError message={getCampusSwitchErrorMessage(error)} /> : null}
-          <View style={styles.metaGrid}>
+          <View style={styles.campusSwitchList}>
             {campuses.length > 0 ? (
               campuses.map((campus) => {
                 const selected = campus.campusId === currentCampusId;
 
                 return (
                   <ListRow
-                    accessibilityLabel={`${campus.campusName} 공동체로 변경`}
+                    accessibilityLabel={`${campus.campusName} 캠퍼스로 변경`}
                     key={campus.membershipId}
                     label={campus.campusName}
                     onPress={() => onSelect(campus)}
@@ -3041,20 +3645,28 @@ function CampusSwitchSheet({
                 );
               })
             ) : (
-              <Body>참여 중인 공동체가 없습니다.</Body>
+              <Body>관리 중인 캠퍼스가 없습니다.</Body>
             )}
           </View>
-          <Body>선택 후 해당 공동체의 홈 화면으로 이동합니다.</Body>
-          <View style={styles.actionRow}>
+          <Body>선택 후 해당 캠퍼스의 홈 화면으로 이동합니다.</Body>
+          {canCreateCampus ? (
             <Button
-              accessibilityLabel="공동체 목록 다시 불러오기"
+              accessibilityLabel="캠퍼스 생성 화면으로 이동"
+              disabled={loading}
+              onPress={onCampusCreatePress}>
+              캠퍼스 생성
+            </Button>
+          ) : null}
+          <View style={styles.sheetActionRow}>
+            <Button
+              accessibilityLabel="캠퍼스 목록 다시 불러오기"
               disabled={loading}
               onPress={onRefresh}
               variant="secondary">
               {loading ? '불러오는 중...' : '목록 갱신'}
             </Button>
             <Button
-              accessibilityLabel="공동체 메뉴 닫기"
+              accessibilityLabel="캠퍼스 전환 닫기"
               disabled={loading}
               onPress={onCancel}
               variant="ghost">
@@ -3176,36 +3788,6 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return '전역 ADMIN 사용자에게만 노출되는 Service ADMIN shell입니다.';
     default:
       return assertNever(route);
-  }
-}
-
-function getEntryTargetTitle(target: EntryTarget) {
-  switch (target) {
-    case 'login':
-      return '로그인 화면 shell';
-    case 'signup':
-      return '회원가입 화면 shell';
-    case 'inviteCode':
-      return '초대코드 입력 shell';
-    case 'campusCreate':
-      return '캠퍼스 생성 shell';
-    default:
-      return assertNever(target);
-  }
-}
-
-function getEntryTargetDescription(target: EntryTarget) {
-  switch (target) {
-    case 'login':
-      return '이메일과 비밀번호로 로그인하고 세션을 안전하게 저장합니다.';
-    case 'signup':
-      return '이름, 이메일, 비밀번호를 확인하고 오류를 안내합니다.';
-    case 'inviteCode':
-      return 'ACTIVE 캠퍼스가 없을 때 초대코드 입력 흐름으로 이동할 수 있는 진입점입니다.';
-    case 'campusCreate':
-      return 'ACTIVE 캠퍼스가 없을 때 캠퍼스 생성 흐름으로 이동할 수 있는 진입점입니다.';
-    default:
-      return assertNever(target);
   }
 }
 
@@ -3346,8 +3928,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
+  authActionSpacer: {
+    flexGrow: 1,
+    minHeight: 34,
+  },
   signupAuthActionRow: {
-    marginTop: 34,
+    marginTop: 28,
   },
   authButton: {
     alignItems: 'center',
@@ -3419,9 +4005,235 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
+  launchFrame: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    gap: 10,
+    justifyContent: 'center',
+    maxWidth: 390,
+    minHeight: 650,
+    width: '100%',
+  },
+  launchIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.faith,
+    borderRadius: 24,
+    height: 112,
+    justifyContent: 'center',
+    marginBottom: 8,
+    width: 112,
+  },
+  launchIconText: {
+    color: colors.surface,
+    fontSize: 42,
+    fontWeight: '700',
+    lineHeight: 48,
+  },
+  launchTitle: {
+    color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 32,
+    textAlign: 'center',
+  },
+  launchSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+    marginBottom: 34,
+    textAlign: 'center',
+  },
+  launchLoadingCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    maxWidth: 342,
+    minHeight: 96,
+    paddingHorizontal: 32,
+    width: '100%',
+  },
+  loadingDot: {
+    backgroundColor: colors.primary,
+    borderRadius: 7,
+    height: 14,
+    width: 14,
+  },
+  launchLoadingText: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  launchLoadingTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  launchLoadingHelper: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  onboardingFrame: {
+    alignSelf: 'center',
+    gap: 14,
+    maxWidth: 390,
+    minHeight: 640,
+    paddingTop: 30,
+    width: '100%',
+  },
+  onboardingHeader: {
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 8,
+  },
+  onboardingTitle: {
+    color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 34,
+  },
+  centerStateCard: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 22,
+    gap: 14,
+    marginTop: 54,
+    maxWidth: 342,
+    minHeight: 300,
+    paddingHorizontal: 24,
+    paddingVertical: 36,
+    width: '100%',
+  },
+  centerStateIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 32,
+    height: 64,
+    justifyContent: 'center',
+    marginBottom: 8,
+    width: 64,
+  },
+  centerStateIconText: {
+    color: colors.primary,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 30,
+  },
+  centerStateTitle: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 24,
+    textAlign: 'center',
+  },
+  centerStateMessage: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  centerStateHelper: {
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  inviteIntroCard: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    gap: 8,
+    maxWidth: 342,
+    minHeight: 150,
+    paddingHorizontal: 24,
+    paddingVertical: 30,
+    width: '100%',
+  },
+  inviteIntroTitle: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 28,
+  },
+  inviteIntroBody: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  roleGateCard: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    gap: 10,
+    maxWidth: 342,
+    minHeight: 82,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    width: '100%',
+  },
+  roleGateTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  roleGateChip: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    minHeight: 28,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  roleGateChipText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  roleGateMessage: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  campusFormCard: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    gap: 12,
+    maxWidth: 342,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    width: '100%',
+  },
+  campusFormTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  campusFormBody: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
   actionRow: {
     gap: 10,
     marginTop: 6,
+  },
+  onboardingActionSpacer: {
+    flexGrow: 1,
+    minHeight: 26,
   },
   shell: {
     backgroundColor: colors.background,
@@ -3444,17 +4256,95 @@ const styles = StyleSheet.create({
   userFrame: {
     backgroundColor: colors.background,
     gap: 20,
+    minHeight: 620,
     paddingTop: 2,
+  },
+  userActionSpacer: {
+    flexGrow: 1,
+    minHeight: 20,
+  },
+  campusSummaryCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    gap: 8,
+    minHeight: 82,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  campusSummaryTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  campusSummaryBody: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  campusList: {
+    gap: 14,
+  },
+  campusDetailCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    gap: 8,
+    minHeight: 112,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  campusDetailTitle: {
+    color: colors.textPrimary,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 30,
+  },
+  campusDetailMeta: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  campusDetailHelper: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 20,
   },
   figmaHeader: {
     alignItems: 'flex-start',
     gap: 10,
   },
+  homeHeaderTopRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    width: '100%',
+  },
   figmaTitle: {
     color: authColors.text,
+    flex: 1,
+    flexShrink: 1,
     fontSize: 24,
     fontWeight: '700',
     lineHeight: 32,
+    minWidth: 0,
+  },
+  homeCampusChangeButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    flexShrink: 0,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 62,
+    paddingHorizontal: 14,
+  },
+  homeCampusChangeButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
   },
   figmaCampusChip: {
     alignItems: 'center',
@@ -3832,6 +4722,14 @@ const styles = StyleSheet.create({
   metaGrid: {
     gap: 8,
   },
+  campusSwitchList: {
+    gap: 10,
+    marginTop: 2,
+  },
+  sheetActionRow: {
+    gap: 8,
+    marginTop: 2,
+  },
   inlineError: {
     backgroundColor: colors.dangerSoft,
     borderRadius: 12,
@@ -3881,8 +4779,19 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     gap: spacing.gap,
+    marginHorizontal: -spacing.screenX,
+    marginBottom: -spacing.screenX,
     padding: spacing.card,
+    paddingBottom: spacing.card + 4,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    height: 4,
+    width: 42,
   },
 });
