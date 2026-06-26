@@ -98,6 +98,7 @@ import {
   TextField,
   Title,
 } from '../components/ui';
+import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -401,18 +402,18 @@ const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
   'CANCELED',
 ];
 const adminFigmaTokens = {
-  background: '#F7F8FA',
-  surface: '#FFFFFF',
-  primary: '#3182F6',
-  faith: '#5BA8B0',
-  mint: '#92C7CF',
-  danger: '#EF4444',
-  success: '#22C55E',
-  warning: '#F59E0B',
-  textPrimary: '#191F28',
-  textSecondary: '#4E5968',
-  textMuted: '#8B95A1',
-  borderSoft: '#EEF1F4',
+  background: colors.background,
+  surface: colors.surface,
+  primary: colors.primary,
+  faith: colors.faith,
+  mint: colors.mint,
+  danger: colors.danger,
+  success: colors.success,
+  warning: colors.warning,
+  textPrimary: colors.textPrimary,
+  textSecondary: colors.textSecondary,
+  textMuted: colors.textMuted,
+  borderSoft: colors.borderSoft,
 };
 
 const emptyPaymentAccountForm: PaymentAccountForm = {
@@ -4782,7 +4783,11 @@ function renderPaymentAccountList({
           {state.accounts.map((account) => (
             <View key={account.id} style={styles.figmaListItem}>
               <View style={styles.figmaIconBox}>
-                <Text style={styles.figmaIconText}>●</Text>
+                <IconexIcon
+                  color={adminFigmaTokens.primary}
+                  name={account.accountType === 'COFFEE' ? 'credit-card' : 'wallet'}
+                  size={22}
+                />
               </View>
               <View style={styles.figmaListContent}>
                 <View style={styles.figmaListText}>
@@ -4948,7 +4953,7 @@ function renderPenaltyRuleList({
           {state.rules.map((rule) => (
             <View key={rule.id} style={styles.figmaListItem}>
               <View style={styles.figmaIconBox}>
-                <Text style={styles.figmaIconText}>●</Text>
+                <IconexIcon color={adminFigmaTokens.primary} name="settings" size={22} />
               </View>
               <View style={styles.figmaListContent}>
                 <View style={styles.figmaListText}>
@@ -5057,7 +5062,12 @@ function SettlementMemberRow({
       onPress={onPress}
       style={({pressed}) => [styles.figmaListItem, pressed ? styles.pressed : null]}>
       <View style={styles.figmaIconBox}>
-        <Text style={styles.figmaIconText}>{member.unpaidAmount > 0 ? '○' : '✓'}</Text>
+        <IconexIcon
+          color={adminFigmaTokens.primary}
+          name={member.unpaidAmount > 0 ? 'wallet' : 'check'}
+          size={22}
+          strokeWidth={2.2}
+        />
       </View>
       <View style={styles.figmaListContent}>
         <View style={styles.figmaListText}>
@@ -5186,7 +5196,12 @@ function ChargeItemRow({
   return (
     <View style={styles.figmaChargeItem}>
       <View style={styles.figmaIconBox}>
-        <Text style={styles.figmaIconText}>{getChargeIcon(charge)}</Text>
+        <IconexIcon
+          color={adminFigmaTokens.primary}
+          name={getChargeIcon(charge)}
+          size={22}
+          strokeWidth={2.2}
+        />
       </View>
       <View style={styles.figmaListContent}>
         <View style={styles.figmaListText}>
@@ -6504,12 +6519,12 @@ function getChargeStatusLabel(status: ChargeStatus) {
   }
 }
 
-function getChargeIcon(charge: ChargeItem) {
+function getChargeIcon(charge: ChargeItem): IconexIconName {
   if (charge.status === 'PAID') {
-    return '✓';
+    return 'check';
   }
 
-  return charge.paymentCategory === 'COFFEE' ? 'C' : '₩';
+  return charge.paymentCategory === 'COFFEE' ? 'coins' : 'wallet';
 }
 
 function getChargeDescription(charge: ChargeItem) {

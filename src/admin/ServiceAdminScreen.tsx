@@ -959,9 +959,9 @@ function RoleOptionRow({
         disabled ? styles.roleOptionDisabled : null,
         pressed ? styles.pressed : null,
       ]}>
-      <Text style={[styles.roleOptionIcon, selected ? styles.roleOptionIconSelected : null]}>
-        {selected ? '●' : '○'}
-      </Text>
+      <View style={[styles.roleOptionIcon, selected ? styles.roleOptionIconSelected : null]}>
+        {selected ? <View style={styles.roleOptionIconDot} /> : null}
+      </View>
       <View style={styles.roleOptionText}>
         <Text style={[styles.roleOptionTitle, role === 'ADMIN' ? styles.roleOptionAdmin : null]}>
           {getRoleLabel(role)}
@@ -1402,14 +1402,23 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   roleOptionIcon: {
-    color: colors.mutedText,
+    alignItems: 'center',
+    borderColor: colors.textMuted,
+    borderRadius: 9,
+    borderWidth: 1,
     flexShrink: 0,
-    fontSize: 15,
-    fontWeight: '600',
+    height: 18,
+    justifyContent: 'center',
     width: 18,
   },
+  roleOptionIconDot: {
+    backgroundColor: colors.primary,
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
   roleOptionIconSelected: {
-    color: colors.primary,
+    borderColor: colors.primary,
   },
   roleOptionText: {
     flex: 1,
