@@ -378,11 +378,15 @@ export function BottomNav<T extends string>({
               <Text
                 accessibilityElementsHidden
                 importantForAccessibility="no"
+                numberOfLines={1}
                 style={[styles.navIcon, active ? styles.navIconActive : null]}>
                 {item.icon}
               </Text>
             ) : null}
-            <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>
+            <Text
+              ellipsizeMode="tail"
+              numberOfLines={1}
+              style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>
               {item.label}
             </Text>
           </Pressable>
@@ -828,32 +832,40 @@ const styles = StyleSheet.create({
   bottomNav: {
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderColor: colors.border,
+    borderColor: colors.borderSoft,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
-    minHeight: 80,
-    marginHorizontal: -24,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    height: 62,
+    justifyContent: 'space-between',
+    overflow: 'hidden',
+    paddingHorizontal: 1,
+    paddingVertical: 7,
+    width: '100%',
   },
   bottomNavItem: {
     alignItems: 'center',
     borderRadius: 18,
-    flex: 1,
+    flexBasis: 68,
+    flexGrow: 1,
+    flexShrink: 1,
     gap: 3,
+    height: 48,
     justifyContent: 'center',
-    minHeight: 48,
     minWidth: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    maxWidth: 68,
+    paddingHorizontal: 4,
+    paddingVertical: 5,
   },
   bottomNavItemActive: {
-    backgroundColor: colors.borderSoft,
+    backgroundColor: '#F2F7FF',
   },
   navIcon: {
     color: colors.mutedText,
-    ...typography.label,
+    fontSize: 18,
+    fontWeight: '600',
+    lineHeight: 22,
+    textAlign: 'center',
   },
   navIconActive: {
     color: colors.primary,
@@ -861,9 +873,10 @@ const styles = StyleSheet.create({
   bottomNavLabel: {
     color: colors.mutedText,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    ...typography.caption,
+    fontSize: 12,
     fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: '100%',
     textAlign: 'center',
   },
   bottomNavLabelActive: {

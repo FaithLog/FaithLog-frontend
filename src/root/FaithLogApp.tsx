@@ -78,7 +78,12 @@ import {
   TextField,
   Title,
 } from '../components/ui';
-import {getAvailableRoutes, getRouteLabel, type ShellRoute} from '../navigation/shellRoutes';
+import {
+  getAvailableRoutes,
+  getRouteLabel,
+  type ShellRoute,
+  USER_BOTTOM_NAV_ROUTES,
+} from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {
@@ -168,7 +173,7 @@ export function FaithLogApp() {
 
     if (!initialAuthenticatedRouteAppliedRef.current) {
       initialAuthenticatedRouteAppliedRef.current = true;
-      setRoute(authState.user.role === 'ADMIN' ? 'serviceAdmin' : routes[0]!);
+      setRoute(routes[0]!);
       return;
     }
 
@@ -255,6 +260,17 @@ export function FaithLogApp() {
               state: authState,
             })}
           </ScrollView>
+        ) : authState.status === 'authenticated' ? (
+          <Screen>
+            <AuthenticatedShell
+              notice={sessionNotice}
+              route={route}
+              setAuthState={setAuthState}
+              setNotice={setSessionNotice}
+              setRoute={setRoute}
+              state={authState}
+            />
+          </Screen>
         ) : (
           <Screen>
             <ScrollView
@@ -402,6 +418,7 @@ function renderAuthState({
     case 'authenticated':
       return (
         <AuthenticatedShell
+          notice={null}
           setAuthState={setAuthState}
           setNotice={setNotice}
           state={state}
@@ -1306,12 +1323,14 @@ function EntryTargetCard({target}: {target: EntryTarget}) {
 }
 
 function AuthenticatedShell({
+  notice,
   route,
   setAuthState,
   setNotice,
   setRoute,
   state,
 }: {
+  notice: SessionNotice;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -1325,19 +1344,15 @@ function AuthenticatedShell({
   const [campusSwitchLoading, setCampusSwitchLoading] = useState(false);
   const [campusSwitchError, setCampusSwitchError] = useState<ApiError | null>(null);
   const [selectedCampusDetail, setSelectedCampusDetail] = useState<CampusDetail | null>(null);
-  const routes = useMemo(
-    () => getAvailableRoutes(state.user, state.selectedCampus),
-    [state.selectedCampus, state.user],
-  );
   const navItems = useMemo(
     () =>
-      routes.map((availableRoute) => ({
+      USER_BOTTOM_NAV_ROUTES.map((availableRoute) => ({
         accessibilityLabel: `${getRouteLabel(availableRoute)} 탭으로 이동`,
         icon: getRouteIcon(availableRoute),
         id: availableRoute,
         label: getRouteLabel(availableRoute),
       })),
-    [routes],
+    [],
   );
 
   const refreshCampuses = async () => {
@@ -1466,105 +1481,114 @@ function AuthenticatedShell({
 
   return (
     <View style={styles.shell}>
-      <NotificationPermissionFlow
-        setAuthState={setAuthState}
-        setNotice={setNotice}
-        userId={state.user.id}
-      />
-      {route === 'userHome' ? (
-        userHomeView === 'monthlyCalendar' ? (
-          <MonthlyCalendarScreen
-            onBackToHome={() => setUserHomeView('dashboard')}
+      <ScrollView
+        contentContainerStyle={styles.shellContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        style={styles.shellScroll}>
+        {notice ? <NoticeCard notice={notice} /> : null}
+        <NotificationPermissionFlow
+          setAuthState={setAuthState}
+          setNotice={setNotice}
+          userId={state.user.id}
+        />
+        {route === 'userHome' ? (
+          userHomeView === 'monthlyCalendar' ? (
+            <MonthlyCalendarScreen
+              onBackToHome={() => setUserHomeView('dashboard')}
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          ) : (
+            <UserHomeDashboard
+              onOpenDevotion={() => setRoute('devotion')}
+              onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenPayments={() => setRoute('payments')}
+              onOpenPolls={() => setRoute('polls')}
+              onOpenPrayers={() => setRoute('prayers')}
+              onCampusSwitchPress={openCampusSwitch}
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          )
+        ) : route === 'devotion' ? (
+          <DevotionScreen
+            onBackToHome={() => setRoute('userHome')}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'payments' ? (
+          <PaymentScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'polls' ? (
+          <PollScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'prayers' ? (
+          <PrayerScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'profile' ? (
+          <ProfileScreen
+            onCampusSwitchPress={openCampusSwitch}
+            onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onOpenPrayers={() => setRoute('prayers')}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'campusAdmin' ? (
+          <AdminScreen
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : route === 'serviceAdmin' ? (
+          <ServiceAdminScreen
+            onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
           />
         ) : (
-          <UserHomeDashboard
-            onOpenDevotion={() => setRoute('devotion')}
-            onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
-            onOpenPayments={() => setRoute('payments')}
-            onOpenPolls={() => setRoute('polls')}
-            onOpenPrayers={() => setRoute('prayers')}
-            onCampusSwitchPress={openCampusSwitch}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
+          <RoutePlaceholder
+            activeCampusCount={state.activeCampuses.length}
+            route={route}
+            selectedCampusDetail={selectedCampusDetail}
             state={state}
+            onCampusSwitchPress={openCampusSwitch}
           />
-        )
-      ) : route === 'devotion' ? (
-        <DevotionScreen
-          onBackToHome={() => setRoute('userHome')}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'payments' ? (
-        <PaymentScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'polls' ? (
-        <PollScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'prayers' ? (
-        <PrayerScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'profile' ? (
-        <ProfileScreen
-          onCampusSwitchPress={openCampusSwitch}
-          onLogoutPress={() => setLogoutConfirmVisible(true)}
-          onOpenPrayers={() => setRoute('prayers')}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'campusAdmin' ? (
-        <AdminScreen
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : route === 'serviceAdmin' ? (
-        <ServiceAdminScreen
-          onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
-          setAuthState={setAuthState}
-          setNotice={setNotice}
-          state={state}
-        />
-      ) : (
-        <RoutePlaceholder
-          activeCampusCount={state.activeCampuses.length}
-          route={route}
-          selectedCampusDetail={selectedCampusDetail}
-          state={state}
-          onCampusSwitchPress={openCampusSwitch}
-        />
-      )}
+        )}
 
-      <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
+        {route === 'profile' ||
+        route === 'userHome' ||
+        route === 'devotion' ||
+        route === 'payments' ||
+        route === 'polls' ||
+        route === 'prayers' ||
+        route === 'campusAdmin' ||
+        route === 'serviceAdmin' ? null : (
+          <Card>
+            <Eyebrow>{getRouteLabel(route)}</Eyebrow>
+            <Title>{getRouteTitle(route)}</Title>
+            <Body>{getRouteDescription(route, state.activeCampuses.length)}</Body>
+          </Card>
+        )}
+      </ScrollView>
 
-      {route === 'profile' ||
-      route === 'userHome' ||
-      route === 'devotion' ||
-      route === 'payments' ||
-      route === 'polls' ||
-      route === 'prayers' ||
-      route === 'campusAdmin' ||
-      route === 'serviceAdmin' ? null : (
-        <Card>
-          <Eyebrow>{getRouteLabel(route)}</Eyebrow>
-          <Title>{getRouteTitle(route)}</Title>
-          <Body>{getRouteDescription(route, state.activeCampuses.length)}</Body>
-        </Card>
-      )}
+      <View style={styles.bottomNavFrame}>
+        <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
+      </View>
 
       <LogoutConfirmSheet
         loading={loggingOut}
@@ -3112,17 +3136,17 @@ function getRouteTitle(route: ShellRoute) {
 function getRouteIcon(route: ShellRoute) {
   switch (route) {
     case 'userHome':
-      return 'H';
+      return '⌂';
     case 'devotion':
-      return 'D';
+      return '✓';
     case 'payments':
-      return 'W';
+      return '₩';
     case 'polls':
-      return 'V';
+      return '▤';
     case 'prayers':
       return 'R';
     case 'profile':
-      return 'P';
+      return '○';
     case 'campusAdmin':
       return 'A';
     case 'serviceAdmin':
@@ -3401,7 +3425,21 @@ const styles = StyleSheet.create({
   },
   shell: {
     backgroundColor: colors.background,
+    flex: 1,
+    gap: 14,
+    minHeight: 0,
+  },
+  shellScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  shellContent: {
+    flexGrow: 1,
     gap: 16,
+    paddingBottom: 10,
+  },
+  bottomNavFrame: {
+    flexShrink: 0,
   },
   userFrame: {
     backgroundColor: colors.background,
