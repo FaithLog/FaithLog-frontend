@@ -78,6 +78,7 @@ import {
   TextField,
   Title,
 } from '../components/ui';
+import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {
   getAvailableRoutes,
   getRouteLabel,
@@ -133,7 +134,7 @@ type CardState<T> =
 
 type HomeCardKey = 'overview' | 'devotion' | 'charges' | 'polls' | 'prayers';
 
-type HomePrayerEntryVariant = 'suggestion' | 'always';
+type HomePrayerEntryVariant = 'default' | 'suggestion' | 'always';
 
 type NotificationUiState =
   | {status: 'checking'}
@@ -472,13 +473,7 @@ function renderPublicAuthEntry({
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
           openEntryTarget(null);
-          setNotice({
-            tone: 'success',
-            title: '로그인되었습니다',
-            message: canCreateCampusWithRole(nextState.user.role)
-              ? '홈에서 캠퍼스 전환과 생성을 관리할 수 있어요.'
-              : '내 캠퍼스 홈으로 이동했습니다.',
-          });
+          setNotice(null);
         }
         if (nextState.status === 'noCampus') {
           openEntryTarget(null);
@@ -516,14 +511,10 @@ function NoCampusOnboarding({
       <InviteCodeForm
         clearNotice={clearNotice}
         onCancel={() => openEntryTarget(null)}
-        onComplete={(nextState, campusName) => {
+        onComplete={(nextState, _campusName) => {
           openEntryTarget(null);
           setAuthState(nextState);
-          setNotice({
-            tone: 'success',
-            title: '캠퍼스 참여 완료',
-            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-          });
+          setNotice(null);
         }}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
         user={user}
@@ -537,14 +528,10 @@ function NoCampusOnboarding({
         canCreateCampus={canCreateCampus}
         clearNotice={clearNotice}
         onCancel={() => openEntryTarget(null)}
-        onComplete={(nextState, campusName) => {
+        onComplete={(nextState, _campusName) => {
           openEntryTarget(null);
           setAuthState(nextState);
-          setNotice({
-            tone: 'success',
-            title: '캠퍼스 생성 완료',
-            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-          });
+          setNotice(null);
         }}
         onInvitePress={() => openEntryTarget('inviteCode')}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1522,6 +1509,7 @@ function AuthenticatedShell({
   setRoute: (route: ShellRoute) => void;
 }) {
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
+  const [profileView, setProfileView] = useState<'main' | 'notifications'>('main');
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
@@ -1620,12 +1608,9 @@ function AuthenticatedShell({
       setAuthState(nextState);
       setCampusSwitchVisible(false);
       setUserHomeView('dashboard');
+      setProfileView('main');
       setRoute('userHome');
-      setNotice({
-        tone: 'success',
-        title: '캠퍼스 변경',
-        message: `${detail.name} 캠퍼스로 전환했습니다.`,
-      });
+      setNotice(null);
     } catch (error) {
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
@@ -1672,6 +1657,10 @@ function AuthenticatedShell({
 
     if (nextRoute === 'userHome') {
       setUserHomeView('dashboard');
+    }
+
+    if (nextRoute === 'profile') {
+      setProfileView('main');
     }
 
     setRoute(nextRoute);
@@ -1735,12 +1724,9 @@ function AuthenticatedShell({
       setAuthState(nextState);
       openEntryTarget(null);
       setUserHomeView('dashboard');
+      setProfileView('main');
       setRoute('userHome');
-      setNotice({
-        tone: 'success',
-        title: '캠퍼스 선택',
-        message: `${detail.name} 캠퍼스 홈으로 이동했습니다.`,
-      });
+      setNotice(null);
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스를 선택하지 못했습니다.');
       setCampusSwitchError(apiError);
@@ -1817,13 +1803,6 @@ function AuthenticatedShell({
         showsVerticalScrollIndicator={false}
         style={styles.shellScroll}>
         {notice ? <NoticeCard notice={notice} /> : null}
-        {entryTarget === null ? (
-          <NotificationPermissionFlow
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            userId={state.user.id}
-          />
-        ) : null}
         {entryTarget === 'campusSelect' && canManageCampuses ? (
           <CampusSelectScreen
             campuses={state.activeCampuses}
@@ -1848,16 +1827,13 @@ function AuthenticatedShell({
           <InviteCodeForm
             clearNotice={() => setNotice(null)}
             onCancel={() => openEntryTarget(null)}
-            onComplete={(nextState, campusName) => {
+            onComplete={(nextState, _campusName) => {
               setAuthState(nextState);
               openEntryTarget(null);
               setUserHomeView('dashboard');
+              setProfileView('main');
               setRoute('userHome');
-              setNotice({
-                tone: 'success',
-                title: '캠퍼스 참여 완료',
-                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-              });
+              setNotice(null);
             }}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
             user={state.user}
@@ -1867,16 +1843,13 @@ function AuthenticatedShell({
             canCreateCampus={canCreateCampus}
             clearNotice={() => setNotice(null)}
             onCancel={() => openEntryTarget(null)}
-            onComplete={(nextState, campusName) => {
+            onComplete={(nextState, _campusName) => {
               setAuthState(nextState);
               openEntryTarget(null);
               setUserHomeView('dashboard');
+              setProfileView('main');
               setRoute('userHome');
-              setNotice({
-                tone: 'success',
-                title: '캠퍼스 생성 완료',
-                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-              });
+              setNotice(null);
             }}
             onInvitePress={() => openEntryTarget('inviteCode')}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1885,7 +1858,7 @@ function AuthenticatedShell({
         ) : route === 'userHome' ? (
           userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
-              onBackToHome={() => setUserHomeView('dashboard')}
+              onOpenWeeklyDevotion={() => setRoute('devotion')}
               setAuthState={setAuthState}
               setNotice={setNotice}
               state={state}
@@ -1894,11 +1867,13 @@ function AuthenticatedShell({
             <UserHomeDashboard
               onOpenDevotion={() => setRoute('devotion')}
               onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenNotifications={() => {
+                setProfileView('notifications');
+                setRoute('profile');
+              }}
               onOpenPayments={() => setRoute('payments')}
               onOpenPolls={() => setRoute('polls')}
               onOpenPrayers={() => setRoute('prayers')}
-              onCampusSwitchPress={openCampusSwitch}
-              canSwitchCampus={canManageCampuses}
               setAuthState={setAuthState}
               setNotice={setNotice}
               state={state}
@@ -1933,8 +1908,12 @@ function AuthenticatedShell({
           <ProfileScreen
             onCampusSwitchPress={openCampusSwitch}
             canSwitchCampus={canManageCampuses}
+            onBackToProfile={() => setProfileView('main')}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onInviteCodePress={() => openEntryTarget('inviteCode')}
+            onOpenNotifications={() => setProfileView('notifications')}
             onOpenPrayers={() => setRoute('prayers')}
+            profileView={profileView}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
@@ -2182,10 +2161,9 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
-  canSwitchCampus,
-  onCampusSwitchPress,
   onOpenDevotion,
   onOpenMonthlyCalendar,
+  onOpenNotifications,
   onOpenPayments,
   onOpenPolls,
   onOpenPrayers,
@@ -2193,10 +2171,9 @@ function UserHomeDashboard({
   setNotice,
   state,
 }: {
-  canSwitchCampus: boolean;
-  onCampusSwitchPress: () => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
+  onOpenNotifications: () => void;
   onOpenPayments: () => void;
   onOpenPolls: () => void;
   onOpenPrayers: () => void;
@@ -2218,6 +2195,12 @@ function UserHomeDashboard({
   const [pollState, setPollState] = useState<CardState<PollSummary[]>>({status: 'idle'});
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
   const prayerEntryVariant = getHomePrayerEntryVariant(prayerState);
+  const todayActions = getTodayActions({chargeState, devotionState, pollState, prayerState, today});
+  const displayUserName = getCompactDisplayName(state.user.name, '사용자');
+  const campusLabel = getCompactCampusLabel(
+    state.selectedCampus.region,
+    state.selectedCampus.campusName,
+  );
 
   const runCardRequest = async <T,>(
     key: HomeCardKey,
@@ -2328,40 +2311,54 @@ function UserHomeDashboard({
   return (
     <View style={styles.userFrame}>
       <View style={styles.figmaHeader}>
-        <View style={styles.homeHeaderTopRow}>
-          <Text style={styles.figmaTitle}>오늘의 FaithLog</Text>
-          {canSwitchCampus ? (
-            <Pressable
-              accessibilityLabel="관리자 홈에서 캠퍼스 변경 시트 열기"
-              accessibilityRole="button"
-              onPress={onCampusSwitchPress}
-              style={({pressed}) => [
-                styles.homeCampusChangeButton,
-                pressed ? styles.authButtonPressed : null,
-              ]}>
-              <Text style={styles.homeCampusChangeButtonText}>변경</Text>
-            </Pressable>
-          ) : null}
+        <View style={styles.figmaContextRow}>
+          <View style={styles.figmaContextLeft}>
+            <View style={styles.figmaCampusChip}>
+              <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
+                {campusLabel}
+              </Text>
+            </View>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaContextName}>
+              {displayUserName}님
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="알림 설정 화면으로 이동"
+            accessibilityRole="button"
+            onPress={onOpenNotifications}
+            style={({pressed}) => [
+              styles.homeNotificationButton,
+              pressed ? styles.authButtonPressed : null,
+            ]}>
+            <IconexIcon color={colors.textPrimary} name="bell" size={20} strokeWidth={1.7} />
+            <View style={styles.homeNotificationDot} />
+          </Pressable>
         </View>
-        <View style={styles.figmaCampusChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
-        </View>
+        <Text
+          adjustsFontSizeToFit
+          ellipsizeMode="tail"
+          minimumFontScale={0.82}
+          numberOfLines={1}
+          style={styles.figmaTitle}>
+          {displayUserName}님, 오늘의 FaithLog
+        </Text>
       </View>
 
       <Pressable
         accessibilityLabel="오늘 해야 할 일 전체 보기"
         accessibilityRole="button"
         onPress={() => {
-          const actions = getTodayActions({chargeState, devotionState, pollState, prayerState, today});
-          if (actions[0]) {
-            openHomeTarget(actions[0].target);
+          if (todayActions[0]) {
+            openHomeTarget(todayActions[0].target);
           } else {
             onOpenDevotion();
           }
         }}
-        style={({pressed}) => [styles.homeTodoCard, pressed ? styles.authButtonPressed : null]}>
+        style={({pressed}) => [
+          styles.homeTodoCard,
+          prayerEntryVariant === 'suggestion' ? styles.homeTodoCardCompact : null,
+          pressed ? styles.authButtonPressed : null,
+        ]}>
         <Text style={styles.homeTodoLabel}>오늘 해야 할 일</Text>
         <View style={styles.homeTodoRow}>
           <Text
@@ -2369,90 +2366,89 @@ function UserHomeDashboard({
             minimumFontScale={0.82}
             numberOfLines={1}
             style={styles.homeTodoTitle}>
-            {getTodayActions({chargeState, devotionState, pollState, prayerState, today}).length}개 남았어요
+            {todayActions.length}개 남았어요
           </Text>
           <View style={styles.homeTodoButton}>
             <Text style={styles.homeTodoButtonText}>전체보기</Text>
           </View>
         </View>
-        <Text style={styles.homeTodoSummary}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeTodoSummary}>
           {getHomeActionSummary({chargeState, devotionState, pollState, prayerState, today})}
         </Text>
       </Pressable>
 
-      {prayerEntryVariant === 'suggestion' ? (
-        <>
-          <Text style={styles.figmaSectionTitle}>이번 주 루틴</Text>
-          <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
-          <HomeRoutineEntryCard
-            actionLabel="체크"
-            body={
-              devotionState.status === 'success'
-                ? `큐티 ${devotionState.data.quietTimeCount}/7 · 기도 ${devotionState.data.prayerCount}/7 · 말씀 ${devotionState.data.bibleReadingCount}/7`
-                : '경건생활 체크를 확인해요'
-            }
-            onPress={onOpenDevotion}
-            title="경건생활"
-          />
-          <HomeRoutineEntryCard
-            actionLabel="입금"
-            body={
-              chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
-                ? `이번 달 미납 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
-                : '이번 달 납부 흐름을 확인해요'
-            }
-            onPress={onOpenPayments}
-            title="최근 청구 항목"
-          />
-        </>
-      ) : (
-        <>
-          <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
-          <View style={styles.homeMetricRow}>
-            <HomeMetricTile
-              label="낸 금액"
-              value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyPaidAmount) : '확인 중'}
-            />
-            <HomeMetricTile
-              label="미납"
-              tone="danger"
-              value={chargeState.status === 'success' ? formatCompactWon(chargeState.data.monthlyUnpaidAmount) : '확인 중'}
-            />
-            <HomeMetricTile
-              label="지각"
-              tone="warning"
-              value={devotionState.status === 'success' ? `${devotionState.data.saturdayLateMinutes}분` : '확인 중'}
-            />
-          </View>
+      <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
+      <View style={styles.homeMetricRow}>
+        <HomeMetricTile
+          label="낸 금액"
+          value={
+            chargeState.status === 'success'
+              ? formatCompactWon(chargeState.data.monthlyPaidAmount)
+              : '확인 중'
+          }
+        />
+        <HomeMetricTile
+          label="미납"
+          tone="danger"
+          value={
+            chargeState.status === 'success'
+              ? formatCompactWon(chargeState.data.monthlyUnpaidAmount)
+              : '확인 중'
+          }
+        />
+        <HomeMetricTile
+          label="지각"
+          tone="warning"
+          value={
+            devotionState.status === 'success'
+              ? `${devotionState.data.saturdayLateMinutes}분`
+              : '확인 중'
+          }
+        />
+      </View>
 
-          <View style={styles.figmaSectionRow}>
-            <Text style={styles.figmaSectionTitle}>경건생활</Text>
-            <Pressable
-              accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
-              accessibilityRole="button"
-              onPress={onOpenMonthlyCalendar}>
-              <Text style={styles.figmaTextButton}>캘린더</Text>
-            </Pressable>
-          </View>
-          <View style={styles.homeMetricRow}>
-            <HomeMetricTile
-              label="큐티"
-              value={devotionState.status === 'success' ? `${devotionState.data.quietTimeCount}회` : '확인 중'}
-              onPress={onOpenDevotion}
-            />
-            <HomeMetricTile
-              label="기도"
-              value={devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'}
-              onPress={onOpenDevotion}
-            />
-            <HomeMetricTile
-              label="말씀"
-              value={devotionState.status === 'success' ? `${devotionState.data.bibleReadingCount}회` : '확인 중'}
-              onPress={onOpenDevotion}
-            />
-          </View>
-          <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
-        </>
+      <View style={styles.figmaSectionRow}>
+        <Text style={[styles.figmaSectionTitle, styles.figmaSectionTitleLeft]}>
+          경건생활
+        </Text>
+        <Pressable
+          accessibilityLabel="월간 경건생활 캘린더 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onOpenMonthlyCalendar}>
+          <Text style={styles.figmaTextButton}>캘린더</Text>
+        </Pressable>
+      </View>
+      <View style={styles.homeMetricRow}>
+        <HomeMetricTile
+          label="큐티"
+          value={
+            devotionState.status === 'success'
+              ? `${devotionState.data.quietTimeCount}회`
+              : '확인 중'
+          }
+          onPress={onOpenDevotion}
+        />
+        <HomeMetricTile
+          label="기도"
+          value={
+            devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'
+          }
+          onPress={onOpenDevotion}
+        />
+        <HomeMetricTile
+          label="말씀"
+          value={
+            devotionState.status === 'success'
+              ? `${devotionState.data.bibleReadingCount}회`
+              : '확인 중'
+          }
+          onPress={onOpenDevotion}
+        />
+      </View>
+      {prayerEntryVariant === 'suggestion' || prayerEntryVariant === 'always' ? (
+        <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
+      ) : (
+        <HomeChargeEntryCard chargeState={chargeState} onPress={onOpenPayments} />
       )}
 
       {overviewState.status === 'error' ||
@@ -2531,10 +2527,10 @@ function HomePrayerEntryCard({
       ]}>
       <View style={styles.homePrayerText}>
         <Text style={styles.homePrayerEyebrow}>{copy.eyebrow}</Text>
-        <Text numberOfLines={2} style={styles.homePrayerTitle}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homePrayerTitle}>
           {copy.title}
         </Text>
-        <Text numberOfLines={2} style={styles.homePrayerBody}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homePrayerBody}>
           {copy.body}
         </Text>
       </View>
@@ -2545,33 +2541,34 @@ function HomePrayerEntryCard({
   );
 }
 
-function HomeRoutineEntryCard({
-  actionLabel,
-  body,
+function HomeChargeEntryCard({
+  chargeState,
   onPress,
-  title,
 }: {
-  actionLabel: string;
-  body: string;
+  chargeState: CardState<ChargeSummary>;
   onPress: () => void;
-  title: string;
 }) {
+  const body =
+    chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
+      ? `경건생활 벌금 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
+      : '이번 달 납부 흐름을 확인해요';
+
   return (
     <Pressable
-      accessibilityLabel={`${title} ${actionLabel}`}
+      accessibilityLabel="최근 청구 항목 입금"
       accessibilityRole="button"
       onPress={onPress}
-      style={({pressed}) => [styles.homeRoutineCard, pressed ? styles.authButtonPressed : null]}>
-      <View style={styles.homeRoutineText}>
-        <Text numberOfLines={1} style={styles.homeRoutineTitle}>
-          {title}
+      style={({pressed}) => [styles.homeChargeCard, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.homeChargeText}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeChargeTitle}>
+          최근 청구 항목
         </Text>
-        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeRoutineBody}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeChargeBody}>
           {body}
         </Text>
       </View>
-      <View style={styles.homePrayerButton}>
-        <Text style={styles.homePrayerButtonText}>{actionLabel}</Text>
+      <View style={styles.homeChargeButton}>
+        <Text style={styles.homeChargeButtonText}>입금</Text>
       </View>
     </Pressable>
   );
@@ -2781,14 +2778,34 @@ function getHomeActionSummary({
   today: Date;
 }) {
   const labels = getTodayActions({chargeState, devotionState, pollState, prayerState, today}).map(
-    (action) => action.target,
+    (action) => getHomeSummaryLabel(action.target),
   );
 
   if (labels.length === 0) {
     return '경건 · 투표 · 납부 흐름이 정리됐어요';
   }
 
-  return labels.slice(0, 3).join(' · ');
+  return labels.join(' · ');
+}
+
+function getHomeSummaryLabel(target: string) {
+  if (target === '경건생활') {
+    return '경건 제출';
+  }
+
+  if (target === '투표') {
+    return '수요예배 투표';
+  }
+
+  if (target === '기도제목') {
+    return '기도제목';
+  }
+
+  if (target === '납부') {
+    return '미납 확인';
+  }
+
+  return target;
 }
 
 function getTodayDevotionCheck(devotion: WeeklyDevotionSummary, today: Date) {
@@ -2803,10 +2820,10 @@ function isDevotionDayComplete(check: WeeklyDevotionSummary['dailyChecks'][numbe
 
 function getPrayerEntryPolicy(prayers: PrayerWeekSummary) {
   if (prayers.status === 'OPEN' && prayers.targetMemberCount > 0) {
-    return '기도제목 진입 제안';
+    return '이번 주 루틴';
   }
 
-  return '기도제목 상시 진입';
+  return '공동체 루틴';
 }
 
 function getHomePrayerEntryVariant(
@@ -2820,7 +2837,11 @@ function getHomePrayerEntryVariant(
     return 'suggestion';
   }
 
-  return 'always';
+  if (prayerState.status === 'success' && prayerState.data.targetMemberCount > 0) {
+    return 'always';
+  }
+
+  return 'default';
 }
 
 function getHomePrayerEntryCopy(
@@ -2854,10 +2875,19 @@ function getHomePrayerEntryCopy(
     };
   }
 
+  if (variant === 'always') {
+    return {
+      actionLabel: '보기',
+      body: getPrayerProgressSummary(prayerState.data),
+      eyebrow: getPrayerEntryPolicy(prayerState.data),
+      title: '이번 주 기도제목',
+    };
+  }
+
   return {
     actionLabel: '보기',
-    body: getPrayerProgressSummary(prayerState.data),
-    eyebrow: getPrayerEntryPolicy(prayerState.data),
+    body: '기도 탭에서 조별 입력 상태를 확인할 수 있어요.',
+    eyebrow: '기도제목',
     title: '이번 주 기도제목',
   };
 }
@@ -2871,7 +2901,53 @@ function getPrayerProgressSummary(prayers: PrayerWeekSummary) {
 
   const groupSubmittedCount = primaryGroup.members.filter((member) => member.submittedAt).length;
 
-  return `${primaryGroup.groupName} ${groupSubmittedCount}/${primaryGroup.members.length} 작성 · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+  const groupName = getCompactDisplayName(primaryGroup.groupName, '소그룹', 10);
+
+  return `${groupName} ${groupSubmittedCount}/${primaryGroup.members.length} 작성 · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+}
+
+function getCompactCampusLabel(region: string, campusName: string) {
+  const compactRegion = getCompactDisplayName(region, '', 12);
+  const compactCampus = getCompactDisplayName(campusName, '', 14);
+
+  if (!compactRegion && !compactCampus) {
+    return '내 캠퍼스';
+  }
+
+  if (!compactRegion) {
+    return compactCampus;
+  }
+
+  if (!compactCampus || compactCampus.startsWith(compactRegion)) {
+    return compactRegion;
+  }
+
+  if (compactRegion.startsWith('PERF') && compactCampus.startsWith('PERF')) {
+    return compactCampus;
+  }
+
+  return getCompactDisplayName(`${compactRegion} ${compactCampus}`, '내 캠퍼스', 18);
+}
+
+function getCompactDisplayName(value: string | null | undefined, fallback: string, maxLength = 12) {
+  const normalized = normalizeDisplayLabel(value);
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(1, maxLength - 3))}...`;
+}
+
+function normalizeDisplayLabel(value: string | null | undefined) {
+  return (value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/PERF_\d{8}_[A-Z0-9_]+/gi, 'PERF');
 }
 
 function getWeekStartDate(date: Date) {
@@ -2942,153 +3018,6 @@ function getHomeCardErrorMessage(error: ApiError) {
     conflictMessage: '최신 데이터와 충돌했습니다. 다시 불러와 주세요.',
     permissionMessage: '이 카드의 데이터를 조회할 권한이 없습니다.',
   }).message;
-}
-
-function NotificationPermissionFlow({
-  setAuthState,
-  setNotice,
-  userId,
-}: {
-  setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
-  userId: number;
-}) {
-  const [state, setState] = useState<NotificationUiState>({status: 'checking'});
-
-  const inspect = async (silent = false) => {
-    if (!silent) {
-      setState({status: 'checking'});
-    }
-
-    try {
-      setState(await inspectFcmRegistrationStatus());
-    } catch {
-      setState({
-        status: 'error',
-        error: {kind: 'error', message: '알림 권한 상태를 확인하지 못했습니다.'},
-      });
-    }
-  };
-
-  const register = async () => {
-    if (state.status === 'registering') {
-      return;
-    }
-
-    setState({status: 'registering'});
-    try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
-        setAuthState({
-          status: 'sessionExpired',
-          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-        });
-        return;
-      }
-
-      const result = await registerCurrentFcmToken(accessToken);
-      setState(result);
-
-      if (result.status === 'registered') {
-        setNotice({
-          tone: 'success',
-          title: '알림 설정 완료',
-          message: '이 기기의 알림 연결을 완료했습니다.',
-        });
-      }
-    } catch (error) {
-      const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
-      setState({status: 'error', error: apiError});
-
-      if (apiError.kind === 'sessionExpired') {
-        setAuthState({status: 'sessionExpired', message: apiError.message});
-      }
-    }
-  };
-
-  useEffect(() => {
-    void inspect(true);
-  }, [userId]);
-
-  if (
-    state.status === 'checking' ||
-    state.status === 'dismissed' ||
-    state.status === 'registered' ||
-    state.status === 'registeredLocal'
-  ) {
-    return null;
-  }
-
-  if (state.status === 'permissionPrompt') {
-    return (
-      <Card>
-        <Eyebrow>알림 권한</Eyebrow>
-        <Title>알림을 켜둘까요?</Title>
-        <Body>기도, 투표, 납부처럼 놓치면 아쉬운 공동체 소식을 받을 수 있어요.</Body>
-        <View style={styles.metaGrid}>
-          <ListRow label="기도제목" supportingText="새 기도제목과 조별 업데이트" value="알림" />
-          <ListRow label="투표" supportingText="수요예배, 토요모임, 커피 투표" value="알림" />
-          <ListRow label="납부" supportingText="미납 또는 납부 확인 안내" value="알림" />
-        </View>
-        <View style={styles.actionRow}>
-          <Button accessibilityLabel="알림 권한 요청 후 기기 알림 연결" onPress={register}>
-            알림 켜기
-          </Button>
-          <Button
-            accessibilityLabel="알림 권한 요청 나중에 하기"
-            onPress={() => setState({status: 'dismissed'})}
-            variant="secondary">
-            나중에
-          </Button>
-        </View>
-      </Card>
-    );
-  }
-
-  if (state.status === 'permissionDenied') {
-    const blocked = state.permission === 'blocked' || state.permission === 'unavailable';
-
-    return (
-      <Card>
-        <Eyebrow>알림 설정</Eyebrow>
-        <Title>{blocked ? '알림이 꺼져 있어요' : '알림 권한이 거절됐어요'}</Title>
-        <Body>
-          {blocked
-            ? '기기 설정에서 FaithLog 알림을 다시 켤 수 있어요.'
-            : '권한 요청을 다시 시도하거나 설정에서 알림을 허용해 주세요.'}
-        </Body>
-        <InlineError message={getNotificationPermissionMessage(state.permission)} />
-        <View style={styles.actionRow}>
-          <Button
-            accessibilityLabel={blocked ? 'OS 알림 설정 열기' : '알림 권한 다시 요청'}
-            onPress={blocked ? () => void openNotificationSettings() : register}
-            variant="secondary">
-            {blocked ? '설정 열기' : '다시 요청'}
-          </Button>
-          <Button
-            accessibilityLabel="알림 비활성 안내 닫기"
-            onPress={() => setState({status: 'dismissed'})}
-            variant="ghost">
-            닫기
-          </Button>
-        </View>
-      </Card>
-    );
-  }
-
-  const failure = state.status === 'error' ? getNotificationFailurePresentation(state.error) : null;
-
-  return (
-    <FcmTokenFailedCard
-      busy={state.status === 'registering'}
-      body={failure?.body ?? '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.'}
-      message={failure?.message ?? '기기 알림 연결 상태를 확인한 뒤 다시 시도해 주세요.'}
-      onDismiss={() => setState({status: 'dismissed'})}
-      onRetry={state.status === 'error' ? () => void inspect() : register}
-      title={failure?.title ?? '기기 알림 연결 실패'}
-    />
-  );
 }
 
 function NotificationSettingsDetail({
@@ -3187,6 +3116,14 @@ function NotificationSettingsDetail({
     void inspect();
   }, []);
 
+  const openSystemSettings =
+    state.status === 'permissionDenied' &&
+    (state.permission === 'blocked' || state.permission === 'unavailable');
+  const busy =
+    state.status === 'checking' ||
+    state.status === 'registering' ||
+    state.status === 'deactivating';
+
   return (
     <View style={styles.notificationDetailCard}>
       <View style={styles.notificationDetailHeader}>
@@ -3204,64 +3141,23 @@ function NotificationSettingsDetail({
       <View style={styles.notificationActionRow}>
         <Button
           accessibilityLabel="알림 설정 다시 확인"
-          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          disabled={busy}
           onPress={inspect}
           variant="secondary">
           {state.status === 'checking' ? '확인 중...' : '다시 확인'}
         </Button>
         <Button
-          accessibilityLabel="기기 알림 등록 다시 시도"
-          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
-          onPress={register}>
-          {state.status === 'registering' ? '등록 중...' : '알림 켜기'}
+          accessibilityLabel={openSystemSettings ? 'OS 알림 설정 열기' : '기기 알림 등록 다시 시도'}
+          disabled={busy}
+          onPress={openSystemSettings ? () => void openNotificationSettings() : register}>
+          {openSystemSettings ? '설정 열기' : state.status === 'registering' ? '등록 중...' : '알림 켜기'}
         </Button>
         <Button
           accessibilityLabel="이 기기 알림 연결 해제"
-          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          disabled={busy}
           onPress={deactivate}
           variant="danger">
           {state.status === 'deactivating' ? '비활성화 중...' : '비활성화'}
-        </Button>
-      </View>
-    </View>
-  );
-}
-
-function FcmTokenFailedCard({
-  body,
-  busy,
-  message,
-  onDismiss,
-  onRetry,
-  title,
-}: {
-  body: string;
-  busy: boolean;
-  message: string;
-  onDismiss: () => void;
-  onRetry: () => void;
-  title: string;
-}) {
-  return (
-    <View style={styles.notificationDetailCard}>
-      <Eyebrow>기기 알림</Eyebrow>
-      <Title>{title}</Title>
-      <Body>{body}</Body>
-      <InlineError message={message} />
-      <View style={styles.notificationRowList}>
-        <ListRow label="재시도" supportingText="네트워크가 안정적일 때 다시 등록" value="권장" />
-        <ListRow label="나중에 하기" supportingText="앱 사용은 계속할 수 있어요" value="선택" />
-      </View>
-      <View style={styles.notificationActionRow}>
-        <Button accessibilityLabel="기기 알림 등록 다시 시도" disabled={busy} onPress={onRetry}>
-          {busy ? '다시 시도 중...' : '다시 시도'}
-        </Button>
-        <Button
-          accessibilityLabel="알림 등록 실패 안내 닫기"
-          disabled={busy}
-          onPress={onDismiss}
-          variant="secondary">
-          나중에
         </Button>
       </View>
     </View>
@@ -3355,43 +3251,6 @@ function getNotificationApiErrorMessage(error: ApiError) {
   }).message;
 }
 
-function getNotificationFailurePresentation(error: ApiError) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return {
-        title: '다시 로그인해 주세요',
-        body: '세션이 만료되어 이 기기의 알림을 연결하지 못했어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'permissionDenied':
-      return {
-        title: '알림 연결 권한이 없어요',
-        body: '현재 계정으로는 이 기기의 알림을 연결할 수 없어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'offline':
-      return {
-        title: '네트워크 연결이 필요해요',
-        body: '오프라인 상태에서는 기기 알림 연결을 완료할 수 없어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'conflict':
-      return {
-        title: '알림 상태를 다시 확인해 주세요',
-        body: '서버의 최신 알림 연결 상태와 맞지 않아 다시 확인이 필요해요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'error':
-      return {
-        title: '기기 알림 연결 실패',
-        body: '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    default:
-      return assertNever(error.kind);
-  }
-}
-
 function getCampusSelectContext(
   campuses: CampusMembershipSummary[],
   currentCampusId: number,
@@ -3423,17 +3282,25 @@ function getCampusRoleDisplayLabel(role: string) {
 
 function ProfileScreen({
   canSwitchCampus,
+  onBackToProfile,
+  onInviteCodePress,
   onCampusSwitchPress,
   onLogoutPress,
+  onOpenNotifications,
   onOpenPrayers,
+  profileView,
   setAuthState,
   setNotice,
   state,
 }: {
   canSwitchCampus: boolean;
+  onBackToProfile: () => void;
+  onInviteCodePress: () => void;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
+  onOpenNotifications: () => void;
   onOpenPrayers: () => void;
+  profileView: 'main' | 'notifications';
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -3480,21 +3347,54 @@ function ProfileScreen({
     }
   };
 
+  if (profileView === 'notifications') {
+    return (
+      <View style={styles.userFrame}>
+        <View style={styles.figmaHeader}>
+          <View style={styles.figmaContextRow}>
+            <Pressable
+              accessibilityLabel="내정보 화면으로 돌아가기"
+              accessibilityRole="button"
+              onPress={onBackToProfile}
+              style={({pressed}) => [
+                styles.profileBackButton,
+                pressed ? styles.authButtonPressed : null,
+              ]}>
+              <Text style={styles.profileBackButtonText}>‹</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.figmaTitle}>알림 설정</Text>
+        </View>
+        <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.userFrame}>
       <View style={styles.figmaHeader}>
-        <Text style={styles.figmaTitle}>내정보</Text>
-        <View style={styles.figmaCampusChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
+        <View style={styles.figmaContextRow}>
+          <View style={styles.figmaContextLeft}>
+            <View style={styles.figmaCampusChip}>
+              <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCampusText}>
+                {state.selectedCampus.region} {state.selectedCampus.campusName}
+              </Text>
+            </View>
+          </View>
         </View>
+        <Text style={styles.figmaTitle}>내정보</Text>
       </View>
 
       <View style={styles.profileCard}>
+        <View style={styles.profileAvatar}>
+          <IconexIcon color={colors.textPrimary} name="user" size={24} strokeWidth={1.7} />
+        </View>
         <View style={styles.profileInfo}>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
             {state.user.name}
+          </Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileEmail}>
+            {state.user.email}
           </Text>
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileCampusText}>
             {state.selectedCampus.campusName} · {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
@@ -3511,31 +3411,67 @@ function ProfileScreen({
       <View style={styles.profileRowList}>
         <ProfileActionRow
           actionLabel="보기"
+          icon="users"
           onPress={onOpenPrayers}
           subtitle="전체 조별 기도제목 한 페이지 조회"
           title="조별 기도제목"
         />
         <ProfileActionRow
           actionLabel="작성"
+          icon="message-square"
           onPress={onOpenPrayers}
           subtitle="내 조 조원별 기도제목 작성"
           title="기도제목 입력"
         />
-        {canSwitchCampus ? (
-          <ProfileActionRow
-            actionLabel="전환"
-            onPress={onCampusSwitchPress}
-            subtitle="관리 중인 캠퍼스를 변경하거나 새 캠퍼스를 생성"
-            title="캠퍼스 전환"
-          />
-        ) : null}
+        <ProfileActionRow
+          actionLabel={canSwitchCampus ? '관리' : '입력'}
+          icon="add-user"
+          onPress={onInviteCodePress}
+          subtitle="다른 캠퍼스 초대코드 입력"
+          title="캠퍼스 참여 코드"
+        />
       </View>
 
       <Text style={styles.figmaSectionTitle}>계정</Text>
       <View style={styles.profileRowList}>
         <ProfileActionRow
+          actionLabel="설정"
+          icon="bell"
+          onPress={onOpenNotifications}
+          subtitle="권한과 이 기기의 알림 연결 상태"
+          title="알림 설정"
+        />
+        <ProfileActionRow
+          actionLabel={canSwitchCampus ? '변경' : '보기'}
+          icon="category"
+          onPress={() => {
+            if (canSwitchCampus) {
+              onCampusSwitchPress();
+              return;
+            }
+
+            setNotice({
+              tone: 'info',
+              title: '내 캠퍼스',
+              message: `${state.selectedCampus.campusName} 캠퍼스에 ${getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}로 참여 중입니다.`,
+            });
+          }}
+          subtitle={state.selectedCampus.campusName}
+          title="내 캠퍼스"
+        />
+        {canSwitchCampus ? (
+          <ProfileActionRow
+            actionLabel="전환"
+            icon="settings"
+            onPress={onCampusSwitchPress}
+            subtitle="관리 중인 캠퍼스를 변경하거나 새 캠퍼스를 생성"
+            title="캠퍼스 전환"
+          />
+        ) : null}
+        <ProfileActionRow
           actionLabel="로그아웃"
           actionTone="danger"
+          icon="lock-open"
           onPress={onLogoutPress}
           subtitle="현재 기기에서 세션 종료"
           title="로그아웃"
@@ -3544,7 +3480,6 @@ function ProfileScreen({
         {refreshError ? (
           <InlineError message={getProfileRefreshMessage(refreshError)} />
         ) : null}
-      <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
       {refreshing ? <Body>내 정보를 다시 불러오고 있어요.</Body> : null}
     </View>
   );
@@ -3560,7 +3495,7 @@ function ProfileActionRow({
 }: {
   actionLabel: string;
   actionTone?: 'danger' | 'default';
-  icon?: string;
+  icon?: IconexIconName;
   onPress: () => void;
   subtitle: string;
   title: string;
@@ -3573,7 +3508,7 @@ function ProfileActionRow({
       style={({pressed}) => [styles.profileActionRow, pressed ? styles.authButtonPressed : null]}>
       {icon ? (
         <View style={styles.profileActionIcon}>
-          <Text style={styles.profileActionIconText}>{icon}</Text>
+          <IconexIcon color={colors.textPrimary} name={icon} size={22} strokeWidth={1.7} />
         </View>
       ) : null}
       <View style={styles.profileActionText}>
@@ -4313,6 +4248,30 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
   },
+  figmaContextRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 40,
+    width: '100%',
+  },
+  figmaContextLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  figmaContextName: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    maxWidth: 138,
+    minWidth: 0,
+  },
   homeHeaderTopRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -4322,38 +4281,47 @@ const styles = StyleSheet.create({
   },
   figmaTitle: {
     color: authColors.text,
-    flex: 1,
     flexShrink: 1,
     fontSize: 24,
     fontWeight: '700',
     lineHeight: 32,
     minWidth: 0,
+    width: '100%',
   },
-  homeCampusChangeButton: {
+  homeNotificationButton: {
     alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
     flexShrink: 0,
-    height: 34,
+    height: 40,
     justifyContent: 'center',
-    minWidth: 62,
-    paddingHorizontal: 14,
+    position: 'relative',
+    shadowColor: colors.textPrimary,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    width: 40,
   },
-  homeCampusChangeButtonText: {
-    color: colors.surface,
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-    textAlign: 'center',
+  homeNotificationDot: {
+    backgroundColor: colors.danger,
+    borderColor: colors.surface,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    height: 8,
+    position: 'absolute',
+    right: 10,
+    top: 9,
+    width: 8,
   },
   figmaCampusChip: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 12,
+    flexShrink: 1,
     height: 28,
     justifyContent: 'center',
-    maxWidth: '100%',
-    minWidth: 72,
+    maxWidth: 126,
+    minWidth: 0,
     paddingHorizontal: 10,
   },
   figmaCampusText: {
@@ -4362,18 +4330,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 16,
-    maxWidth: '100%',
+    maxWidth: 106,
   },
   figmaSectionRow: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 12,
     justifyContent: 'space-between',
+    width: '100%',
   },
   figmaSectionTitle: {
     color: authColors.text,
     fontSize: 19,
     fontWeight: '700',
     lineHeight: 28,
+    textAlign: 'left',
+  },
+  figmaSectionTitleLeft: {
+    alignSelf: 'flex-start',
+    flex: 1,
+    minWidth: 0,
   },
   figmaTextButton: {
     color: colors.primary,
@@ -4392,6 +4368,10 @@ const styles = StyleSheet.create({
     shadowOffset: {width: 0, height: 8},
     shadowOpacity: 0.03,
     shadowRadius: 14,
+  },
+  homeTodoCardCompact: {
+    minHeight: 132,
+    paddingVertical: 24,
   },
   homeTodoLabel: {
     color: colors.textMuted,
@@ -4463,7 +4443,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: 96,
     paddingHorizontal: 24,
-    paddingVertical: 18,
+    paddingVertical: 20,
   },
   homePrayerCardSuggested: {
     borderColor: colors.borderSoft,
@@ -4476,7 +4456,7 @@ const styles = StyleSheet.create({
   },
   homePrayerText: {
     flex: 1,
-    gap: 7,
+    gap: 8,
     minWidth: 0,
   },
   homePrayerTitle: {
@@ -4588,6 +4568,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 16,
   },
+  profileBackButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  profileBackButtonText: {
+    color: colors.textPrimary,
+    fontSize: 28,
+    fontWeight: '600',
+    lineHeight: 32,
+    textAlign: 'center',
+  },
   profileActionButton: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
@@ -4678,6 +4673,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     lineHeight: 20,
+  },
+  profileEmail: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 18,
   },
   profileInfo: {
     flex: 1,

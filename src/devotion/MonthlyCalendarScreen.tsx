@@ -17,7 +17,6 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
-  Button,
   Conflict,
   ErrorState,
   Loading,
@@ -36,7 +35,7 @@ type Notice = {
 } | null;
 
 type MonthlyCalendarScreenProps = {
-  onBackToHome: () => void;
+  onOpenWeeklyDevotion: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -60,7 +59,7 @@ const DEVOTION_FIELD_LABELS = [
 const REQUIRED_DAYS = 5;
 
 export function MonthlyCalendarScreen({
-  onBackToHome,
+  onOpenWeeklyDevotion,
   setAuthState,
   setNotice,
   state,
@@ -175,12 +174,12 @@ export function MonthlyCalendarScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>월간 캘린더</Text>
         <View style={styles.campusChip}>
-          <Text style={styles.campusChipText}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.campusChipText}>
             {state.selectedCampus.region} {state.selectedCampus.campusName}
           </Text>
         </View>
+        <Text style={styles.title}>월간 캘린더</Text>
       </View>
 
       <View style={styles.monthCard}>
@@ -212,21 +211,25 @@ export function MonthlyCalendarScreen({
           ))}
         </View>
         <View style={styles.calendarGrid}>
-          {getMonthGridCells(visibleMonth.year, visibleMonth.month).map((cell, index) =>
-            cell ? (
-              <CalendarDay
-                date={cell.date}
-                day={cell.day}
-                key={cell.date}
-                monthly={loadState.monthly}
-                onPress={() => setSelectedDate(cell.date)}
-                selected={cell.date === selectedDate}
-                selectedWeekChecks={formChecks}
-              />
-            ) : (
-              <View key={`blank-${index}`} style={styles.calendarBlankCell} />
-            ),
-          )}
+          {getMonthGridRows(visibleMonth.year, visibleMonth.month).map((week, weekIndex) => (
+            <View key={`week-${weekIndex}`} style={styles.calendarWeekRow}>
+              {week.map((cell, dayIndex) =>
+                cell ? (
+                  <CalendarDay
+                    date={cell.date}
+                    day={cell.day}
+                    key={cell.date}
+                    monthly={loadState.monthly}
+                    onPress={() => setSelectedDate(cell.date)}
+                    selected={cell.date === selectedDate}
+                    selectedWeekChecks={formChecks}
+                  />
+                ) : (
+                  <View key={`blank-${weekIndex}-${dayIndex}`} style={styles.calendarBlankCell} />
+                )
+              )}
+            </View>
+          ))}
         </View>
         <View style={styles.legendRow}>
           {[0, 1, 2, 3].map((count) => (
@@ -238,7 +241,21 @@ export function MonthlyCalendarScreen({
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>{selectedDateLabel} 빠른 체크</Text>
+      <View style={styles.sectionHeaderRow}>
+        <View style={styles.sectionHeaderText}>
+          <Text style={styles.sectionTitle}>{selectedDateLabel} 빠른 체크</Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.sectionHelper}>
+            선택한 주차를 경건 탭에서 제출할 수 있어요
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel="주간 경건생활 제출 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onOpenWeeklyDevotion}
+          style={({pressed}) => [styles.weekSubmitButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.weekSubmitButtonText}>주간 제출</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.quickCard}>
         {selectedCheck ? (
@@ -266,12 +283,6 @@ export function MonthlyCalendarScreen({
       {actionError ? <MonthlyCalendarActionError error={actionError} onRetry={loadCalendar} /> : null}
 
       <View style={styles.saveRow}>
-        <Button
-          accessibilityLabel="월간 캘린더에서 홈으로 이동"
-          onPress={onBackToHome}
-          variant="ghost">
-          홈
-        </Button>
         <Pressable
           accessibilityLabel="선택한 날짜 빠른 체크 저장"
           accessibilityRole="button"
@@ -492,6 +503,17 @@ function getMonthGridCells(year: number, month: number) {
   return cells;
 }
 
+function getMonthGridRows(year: number, month: number) {
+  const cells = getMonthGridCells(year, month);
+  const rows: Array<Array<{date: string; day: number} | null>> = [];
+
+  for (let index = 0; index < cells.length; index += 7) {
+    rows.push(cells.slice(index, index + 7));
+  }
+
+  return rows;
+}
+
 function getDailyCompletionCount(check: DailyFormCheck) {
   return Math.min(
     3,
@@ -605,10 +627,10 @@ const calendarColors = {
   muted: colors.textSecondary,
   border: colors.borderSoft,
   button: colors.primary,
-  completion0: colors.borderSoft,
-  completion1: colors.mint,
-  completion2: colors.faith,
-  completion3: colors.primary,
+  completion0: '#EEF1F4',
+  completion1: '#D9EAEC',
+  completion2: '#AAD7D9',
+  completion3: '#92C7CF',
 };
 
 const styles = StyleSheet.create({
@@ -635,15 +657,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: calendarColors.chip,
     borderRadius: 15,
-    height: 30,
+    alignSelf: 'flex-start',
+    minHeight: 30,
     justifyContent: 'center',
-    width: 86,
+    maxWidth: '100%',
+    paddingHorizontal: 14,
   },
   campusChipText: {
     color: calendarColors.muted,
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 20,
+    maxWidth: 240,
   },
   monthCard: {
     alignItems: 'center',
@@ -691,17 +717,18 @@ const styles = StyleSheet.create({
   },
   weekdayLabel: {
     color: calendarColors.text,
-    flex: 1,
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
     textAlign: 'center',
+    width: 30,
   },
   calendarGrid: {
+    gap: 10,
+  },
+  calendarWeekRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 10,
   },
   calendarCell: {
     alignItems: 'center',
@@ -763,7 +790,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     lineHeight: 23,
+  },
+  sectionHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
     marginTop: 16,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  sectionHelper: {
+    color: calendarColors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  weekSubmitButton: {
+    alignItems: 'center',
+    backgroundColor: calendarColors.chip,
+    borderRadius: 12,
+    flexShrink: 0,
+    height: 34,
+    justifyContent: 'center',
+    width: 82,
+  },
+  weekSubmitButtonText: {
+    color: calendarColors.button,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   quickCard: {
     backgroundColor: calendarColors.card,
@@ -823,7 +883,7 @@ const styles = StyleSheet.create({
   saveRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     marginTop: -8,
     paddingBottom: 8,
   },
