@@ -1858,7 +1858,6 @@ function AuthenticatedShell({
         ) : route === 'userHome' ? (
           userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
-              onBackToHome={() => setUserHomeView('dashboard')}
               onOpenWeeklyDevotion={() => setRoute('devotion')}
               setAuthState={setAuthState}
               setNotice={setNotice}

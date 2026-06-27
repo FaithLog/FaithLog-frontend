@@ -25,7 +25,7 @@
 
 - 홈 `경건생활` 섹션 제목은 `figmaSectionTitleLeft`를 적용해 왼쪽 정렬을 명시했다.
 - 하단 메뉴바는 shell의 고정 영역으로 유지하며 콘텐츠와 분리했다.
-- 월간 캘린더는 0/1/2/3개 완료 단계 범례와 셀 tone 함수를 유지해 #126 heatmap 규칙을 수용한다.
+- 월간 캘린더는 0/1/2/3개 완료 단계 범례와 셀 tone 함수를 유지해 #126 heatmap 규칙을 수용한다. `User 05 Monthly Calendar` node screenshot에서 샘플링한 셀 색상은 0개 `#EEF1F4`, 1개 `#D9EAEC`, 2개 `#AAD7D9`, 3개 `#92C7CF`다.
 - API Docs 확인 결과 홈 전용 집계 API는 없으므로 기존 사용자/캠퍼스/경건/청구/투표/기도제목 API 조합만 사용했다.
 
 ## Screenshots
@@ -35,6 +35,7 @@
 - `user-04-home-rework.png`: iOS Simulator / Expo, 홈 재작업 후 Figma `User 04` 기본 구조, 알림 진입, 기도제목 card variant 확인.
 - `user-04-home-no-entry-cards.png`: iOS Simulator / Expo, 로그인 성공 배너와 자동 알림 권한 prompt 없이 진입한 홈.
 - `user-05-monthly-calendar.png`: iOS Simulator / Expo, 7열 월간 캘린더 화면.
+- `user-05-monthly-calendar-figma-colors.png`: Expo web mock, Figma `User 05` 색상 토큰 반영 및 본문 하단 `홈` CTA 제거 확인.
 - `user-10-profile-community-menu.png`: iOS Simulator / Expo production bundle mode, Profile 공동체 메뉴.
 - `user-10-profile-notification-row.png`: iOS Simulator / Expo, Profile 계정 섹션의 알림 설정 row.
 - `user-10-profile-notification-settings.png`: iOS Simulator / Expo, 별도 알림 설정 subview.

@@ -35,7 +35,6 @@ type Notice = {
 } | null;
 
 type MonthlyCalendarScreenProps = {
-  onBackToHome: () => void;
   onOpenWeeklyDevotion: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
@@ -60,7 +59,6 @@ const DEVOTION_FIELD_LABELS = [
 const REQUIRED_DAYS = 5;
 
 export function MonthlyCalendarScreen({
-  onBackToHome,
   onOpenWeeklyDevotion,
   setAuthState,
   setNotice,
@@ -285,13 +283,6 @@ export function MonthlyCalendarScreen({
       {actionError ? <MonthlyCalendarActionError error={actionError} onRetry={loadCalendar} /> : null}
 
       <View style={styles.saveRow}>
-        <Pressable
-          accessibilityLabel="월간 캘린더에서 홈으로 이동"
-          accessibilityRole="button"
-          onPress={onBackToHome}
-          style={({pressed}) => [styles.homeTextButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.homeTextButtonText}>홈</Text>
-        </Pressable>
         <Pressable
           accessibilityLabel="선택한 날짜 빠른 체크 저장"
           accessibilityRole="button"
@@ -636,10 +627,10 @@ const calendarColors = {
   muted: colors.textSecondary,
   border: colors.borderSoft,
   button: colors.primary,
-  completion0: colors.borderSoft,
-  completion1: colors.mint,
-  completion2: colors.faith,
-  completion3: colors.primary,
+  completion0: '#EEF1F4',
+  completion1: '#D9EAEC',
+  completion2: '#AAD7D9',
+  completion3: '#92C7CF',
 };
 
 const styles = StyleSheet.create({
@@ -892,21 +883,9 @@ const styles = StyleSheet.create({
   saveRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     marginTop: -8,
     paddingBottom: 8,
-  },
-  homeTextButton: {
-    alignItems: 'center',
-    height: 34,
-    justifyContent: 'center',
-    minWidth: 44,
-  },
-  homeTextButtonText: {
-    color: calendarColors.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
   },
   saveButton: {
     alignItems: 'center',
