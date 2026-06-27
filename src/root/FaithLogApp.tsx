@@ -95,7 +95,6 @@ import {
 } from '../notifications/fcmRegistration';
 import {
   getInitialNotificationOpenPayload,
-  openNotificationSettings,
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
@@ -473,13 +472,7 @@ function renderPublicAuthEntry({
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
           openEntryTarget(null);
-          setNotice({
-            tone: 'success',
-            title: '로그인되었습니다',
-            message: canCreateCampusWithRole(nextState.user.role)
-              ? '홈에서 캠퍼스 전환과 생성을 관리할 수 있어요.'
-              : '내 캠퍼스 홈으로 이동했습니다.',
-          });
+          setNotice(null);
         }
         if (nextState.status === 'noCampus') {
           openEntryTarget(null);
@@ -517,14 +510,10 @@ function NoCampusOnboarding({
       <InviteCodeForm
         clearNotice={clearNotice}
         onCancel={() => openEntryTarget(null)}
-        onComplete={(nextState, campusName) => {
+        onComplete={(nextState, _campusName) => {
           openEntryTarget(null);
           setAuthState(nextState);
-          setNotice({
-            tone: 'success',
-            title: '캠퍼스 참여 완료',
-            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-          });
+          setNotice(null);
         }}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
         user={user}
@@ -538,14 +527,10 @@ function NoCampusOnboarding({
         canCreateCampus={canCreateCampus}
         clearNotice={clearNotice}
         onCancel={() => openEntryTarget(null)}
-        onComplete={(nextState, campusName) => {
+        onComplete={(nextState, _campusName) => {
           openEntryTarget(null);
           setAuthState(nextState);
-          setNotice({
-            tone: 'success',
-            title: '캠퍼스 생성 완료',
-            message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-          });
+          setNotice(null);
         }}
         onInvitePress={() => openEntryTarget('inviteCode')}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1523,6 +1508,7 @@ function AuthenticatedShell({
   setRoute: (route: ShellRoute) => void;
 }) {
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
+  const [profileView, setProfileView] = useState<'main' | 'notifications'>('main');
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
@@ -1621,12 +1607,9 @@ function AuthenticatedShell({
       setAuthState(nextState);
       setCampusSwitchVisible(false);
       setUserHomeView('dashboard');
+      setProfileView('main');
       setRoute('userHome');
-      setNotice({
-        tone: 'success',
-        title: '캠퍼스 변경',
-        message: `${detail.name} 캠퍼스로 전환했습니다.`,
-      });
+      setNotice(null);
     } catch (error) {
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
@@ -1673,6 +1656,10 @@ function AuthenticatedShell({
 
     if (nextRoute === 'userHome') {
       setUserHomeView('dashboard');
+    }
+
+    if (nextRoute === 'profile') {
+      setProfileView('main');
     }
 
     setRoute(nextRoute);
@@ -1736,12 +1723,9 @@ function AuthenticatedShell({
       setAuthState(nextState);
       openEntryTarget(null);
       setUserHomeView('dashboard');
+      setProfileView('main');
       setRoute('userHome');
-      setNotice({
-        tone: 'success',
-        title: '캠퍼스 선택',
-        message: `${detail.name} 캠퍼스 홈으로 이동했습니다.`,
-      });
+      setNotice(null);
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스를 선택하지 못했습니다.');
       setCampusSwitchError(apiError);
@@ -1818,13 +1802,6 @@ function AuthenticatedShell({
         showsVerticalScrollIndicator={false}
         style={styles.shellScroll}>
         {notice ? <NoticeCard notice={notice} /> : null}
-        {entryTarget === null ? (
-          <NotificationPermissionFlow
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            userId={state.user.id}
-          />
-        ) : null}
         {entryTarget === 'campusSelect' && canManageCampuses ? (
           <CampusSelectScreen
             campuses={state.activeCampuses}
@@ -1849,16 +1826,13 @@ function AuthenticatedShell({
           <InviteCodeForm
             clearNotice={() => setNotice(null)}
             onCancel={() => openEntryTarget(null)}
-            onComplete={(nextState, campusName) => {
+            onComplete={(nextState, _campusName) => {
               setAuthState(nextState);
               openEntryTarget(null);
               setUserHomeView('dashboard');
+              setProfileView('main');
               setRoute('userHome');
-              setNotice({
-                tone: 'success',
-                title: '캠퍼스 참여 완료',
-                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-              });
+              setNotice(null);
             }}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
             user={state.user}
@@ -1868,16 +1842,13 @@ function AuthenticatedShell({
             canCreateCampus={canCreateCampus}
             clearNotice={() => setNotice(null)}
             onCancel={() => openEntryTarget(null)}
-            onComplete={(nextState, campusName) => {
+            onComplete={(nextState, _campusName) => {
               setAuthState(nextState);
               openEntryTarget(null);
               setUserHomeView('dashboard');
+              setProfileView('main');
               setRoute('userHome');
-              setNotice({
-                tone: 'success',
-                title: '캠퍼스 생성 완료',
-                message: `${campusName} 캠퍼스 홈으로 이동했습니다.`,
-              });
+              setNotice(null);
             }}
             onInvitePress={() => openEntryTarget('inviteCode')}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1896,7 +1867,10 @@ function AuthenticatedShell({
             <UserHomeDashboard
               onOpenDevotion={() => setRoute('devotion')}
               onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
-              onOpenNotifications={() => setRoute('profile')}
+              onOpenNotifications={() => {
+                setProfileView('notifications');
+                setRoute('profile');
+              }}
               onOpenPayments={() => setRoute('payments')}
               onOpenPolls={() => setRoute('polls')}
               onOpenPrayers={() => setRoute('prayers')}
@@ -1934,9 +1908,12 @@ function AuthenticatedShell({
           <ProfileScreen
             onCampusSwitchPress={openCampusSwitch}
             canSwitchCampus={canManageCampuses}
+            onBackToProfile={() => setProfileView('main')}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
             onInviteCodePress={() => openEntryTarget('inviteCode')}
+            onOpenNotifications={() => setProfileView('notifications')}
             onOpenPrayers={() => setRoute('prayers')}
+            profileView={profileView}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
@@ -3043,153 +3020,6 @@ function getHomeCardErrorMessage(error: ApiError) {
   }).message;
 }
 
-function NotificationPermissionFlow({
-  setAuthState,
-  setNotice,
-  userId,
-}: {
-  setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
-  userId: number;
-}) {
-  const [state, setState] = useState<NotificationUiState>({status: 'checking'});
-
-  const inspect = async (silent = false) => {
-    if (!silent) {
-      setState({status: 'checking'});
-    }
-
-    try {
-      setState(await inspectFcmRegistrationStatus());
-    } catch {
-      setState({
-        status: 'error',
-        error: {kind: 'error', message: '알림 권한 상태를 확인하지 못했습니다.'},
-      });
-    }
-  };
-
-  const register = async () => {
-    if (state.status === 'registering') {
-      return;
-    }
-
-    setState({status: 'registering'});
-    try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
-        setAuthState({
-          status: 'sessionExpired',
-          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-        });
-        return;
-      }
-
-      const result = await registerCurrentFcmToken(accessToken);
-      setState(result);
-
-      if (result.status === 'registered') {
-        setNotice({
-          tone: 'success',
-          title: '알림 설정 완료',
-          message: '이 기기의 알림 연결을 완료했습니다.',
-        });
-      }
-    } catch (error) {
-      const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
-      setState({status: 'error', error: apiError});
-
-      if (apiError.kind === 'sessionExpired') {
-        setAuthState({status: 'sessionExpired', message: apiError.message});
-      }
-    }
-  };
-
-  useEffect(() => {
-    void inspect(true);
-  }, [userId]);
-
-  if (
-    state.status === 'checking' ||
-    state.status === 'dismissed' ||
-    state.status === 'registered' ||
-    state.status === 'registeredLocal'
-  ) {
-    return null;
-  }
-
-  if (state.status === 'permissionPrompt') {
-    return (
-      <Card>
-        <Eyebrow>알림 권한</Eyebrow>
-        <Title>알림을 켜둘까요?</Title>
-        <Body>기도, 투표, 납부처럼 놓치면 아쉬운 공동체 소식을 받을 수 있어요.</Body>
-        <View style={styles.metaGrid}>
-          <ListRow label="기도제목" supportingText="새 기도제목과 조별 업데이트" value="알림" />
-          <ListRow label="투표" supportingText="수요예배, 토요모임, 커피 투표" value="알림" />
-          <ListRow label="납부" supportingText="미납 또는 납부 확인 안내" value="알림" />
-        </View>
-        <View style={styles.actionRow}>
-          <Button accessibilityLabel="알림 권한 요청 후 기기 알림 연결" onPress={register}>
-            알림 켜기
-          </Button>
-          <Button
-            accessibilityLabel="알림 권한 요청 나중에 하기"
-            onPress={() => setState({status: 'dismissed'})}
-            variant="secondary">
-            나중에
-          </Button>
-        </View>
-      </Card>
-    );
-  }
-
-  if (state.status === 'permissionDenied') {
-    const blocked = state.permission === 'blocked' || state.permission === 'unavailable';
-
-    return (
-      <Card>
-        <Eyebrow>알림 설정</Eyebrow>
-        <Title>{blocked ? '알림이 꺼져 있어요' : '알림 권한이 거절됐어요'}</Title>
-        <Body>
-          {blocked
-            ? '기기 설정에서 FaithLog 알림을 다시 켤 수 있어요.'
-            : '권한 요청을 다시 시도하거나 설정에서 알림을 허용해 주세요.'}
-        </Body>
-        <InlineError message={getNotificationPermissionMessage(state.permission)} />
-        <View style={styles.actionRow}>
-          <Button
-            accessibilityLabel={blocked ? 'OS 알림 설정 열기' : '알림 권한 다시 요청'}
-            onPress={blocked ? () => void openNotificationSettings() : register}
-            variant="secondary">
-            {blocked ? '설정 열기' : '다시 요청'}
-          </Button>
-          <Button
-            accessibilityLabel="알림 비활성 안내 닫기"
-            onPress={() => setState({status: 'dismissed'})}
-            variant="ghost">
-            닫기
-          </Button>
-        </View>
-      </Card>
-    );
-  }
-
-  const failure = state.status === 'error' ? getNotificationFailurePresentation(state.error) : null;
-
-  return (
-    <FcmTokenFailedCard
-      busy={state.status === 'registering'}
-      body={failure?.body ?? '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.'}
-      message={failure?.message ?? '기기 알림 연결 상태를 확인한 뒤 다시 시도해 주세요.'}
-      onDismiss={() => setState({status: 'dismissed'})}
-      onRetry={state.status === 'error' ? () => void inspect() : register}
-      title={failure?.title ?? '기기 알림 연결 실패'}
-    />
-  );
-}
-
 function NotificationSettingsDetail({
   setAuthState,
   setNotice,
@@ -3326,47 +3156,6 @@ function NotificationSettingsDetail({
   );
 }
 
-function FcmTokenFailedCard({
-  body,
-  busy,
-  message,
-  onDismiss,
-  onRetry,
-  title,
-}: {
-  body: string;
-  busy: boolean;
-  message: string;
-  onDismiss: () => void;
-  onRetry: () => void;
-  title: string;
-}) {
-  return (
-    <View style={styles.notificationDetailCard}>
-      <Eyebrow>기기 알림</Eyebrow>
-      <Title>{title}</Title>
-      <Body>{body}</Body>
-      <InlineError message={message} />
-      <View style={styles.notificationRowList}>
-        <ListRow label="재시도" supportingText="네트워크가 안정적일 때 다시 등록" value="권장" />
-        <ListRow label="나중에 하기" supportingText="앱 사용은 계속할 수 있어요" value="선택" />
-      </View>
-      <View style={styles.notificationActionRow}>
-        <Button accessibilityLabel="기기 알림 등록 다시 시도" disabled={busy} onPress={onRetry}>
-          {busy ? '다시 시도 중...' : '다시 시도'}
-        </Button>
-        <Button
-          accessibilityLabel="알림 등록 실패 안내 닫기"
-          disabled={busy}
-          onPress={onDismiss}
-          variant="secondary">
-          나중에
-        </Button>
-      </View>
-    </View>
-  );
-}
-
 function renderNotificationSettingRows(state: NotificationUiState) {
   switch (state.status) {
     case 'checking':
@@ -3454,43 +3243,6 @@ function getNotificationApiErrorMessage(error: ApiError) {
   }).message;
 }
 
-function getNotificationFailurePresentation(error: ApiError) {
-  switch (error.kind) {
-    case 'sessionExpired':
-      return {
-        title: '다시 로그인해 주세요',
-        body: '세션이 만료되어 이 기기의 알림을 연결하지 못했어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'permissionDenied':
-      return {
-        title: '알림 연결 권한이 없어요',
-        body: '현재 계정으로는 이 기기의 알림을 연결할 수 없어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'offline':
-      return {
-        title: '네트워크 연결이 필요해요',
-        body: '오프라인 상태에서는 기기 알림 연결을 완료할 수 없어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'conflict':
-      return {
-        title: '알림 상태를 다시 확인해 주세요',
-        body: '서버의 최신 알림 연결 상태와 맞지 않아 다시 확인이 필요해요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    case 'error':
-      return {
-        title: '기기 알림 연결 실패',
-        body: '권한은 켜져 있지만 이 기기를 알림 서버에 연결하지 못했어요.',
-        message: getNotificationApiErrorMessage(error),
-      };
-    default:
-      return assertNever(error.kind);
-  }
-}
-
 function getCampusSelectContext(
   campuses: CampusMembershipSummary[],
   currentCampusId: number,
@@ -3522,19 +3274,25 @@ function getCampusRoleDisplayLabel(role: string) {
 
 function ProfileScreen({
   canSwitchCampus,
+  onBackToProfile,
   onInviteCodePress,
   onCampusSwitchPress,
   onLogoutPress,
+  onOpenNotifications,
   onOpenPrayers,
+  profileView,
   setAuthState,
   setNotice,
   state,
 }: {
   canSwitchCampus: boolean;
+  onBackToProfile: () => void;
   onInviteCodePress: () => void;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
+  onOpenNotifications: () => void;
   onOpenPrayers: () => void;
+  profileView: 'main' | 'notifications';
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -3580,6 +3338,29 @@ function ProfileScreen({
       setRefreshing(false);
     }
   };
+
+  if (profileView === 'notifications') {
+    return (
+      <View style={styles.userFrame}>
+        <View style={styles.figmaHeader}>
+          <View style={styles.figmaContextRow}>
+            <Pressable
+              accessibilityLabel="내정보 화면으로 돌아가기"
+              accessibilityRole="button"
+              onPress={onBackToProfile}
+              style={({pressed}) => [
+                styles.profileBackButton,
+                pressed ? styles.authButtonPressed : null,
+              ]}>
+              <Text style={styles.profileBackButtonText}>‹</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.figmaTitle}>알림 설정</Text>
+        </View>
+        <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.userFrame}>
@@ -3646,6 +3427,13 @@ function ProfileScreen({
       <Text style={styles.figmaSectionTitle}>계정</Text>
       <View style={styles.profileRowList}>
         <ProfileActionRow
+          actionLabel="설정"
+          icon="bell"
+          onPress={onOpenNotifications}
+          subtitle="권한과 이 기기의 알림 연결 상태"
+          title="알림 설정"
+        />
+        <ProfileActionRow
           actionLabel={canSwitchCampus ? '변경' : '보기'}
           icon="category"
           onPress={() => {
@@ -3684,7 +3472,6 @@ function ProfileScreen({
         {refreshError ? (
           <InlineError message={getProfileRefreshMessage(refreshError)} />
         ) : null}
-      <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
       {refreshing ? <Body>내 정보를 다시 불러오고 있어요.</Body> : null}
     </View>
   );
@@ -4772,6 +4559,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 16,
+  },
+  profileBackButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  profileBackButtonText: {
+    color: colors.textPrimary,
+    fontSize: 28,
+    fontWeight: '600',
+    lineHeight: 32,
+    textAlign: 'center',
   },
   profileActionButton: {
     alignItems: 'center',
