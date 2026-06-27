@@ -95,6 +95,7 @@ import {
 } from '../notifications/fcmRegistration';
 import {
   getInitialNotificationOpenPayload,
+  openNotificationSettings,
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
@@ -3116,6 +3117,14 @@ function NotificationSettingsDetail({
     void inspect();
   }, []);
 
+  const openSystemSettings =
+    state.status === 'permissionDenied' &&
+    (state.permission === 'blocked' || state.permission === 'unavailable');
+  const busy =
+    state.status === 'checking' ||
+    state.status === 'registering' ||
+    state.status === 'deactivating';
+
   return (
     <View style={styles.notificationDetailCard}>
       <View style={styles.notificationDetailHeader}>
@@ -3133,20 +3142,20 @@ function NotificationSettingsDetail({
       <View style={styles.notificationActionRow}>
         <Button
           accessibilityLabel="알림 설정 다시 확인"
-          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          disabled={busy}
           onPress={inspect}
           variant="secondary">
           {state.status === 'checking' ? '확인 중...' : '다시 확인'}
         </Button>
         <Button
-          accessibilityLabel="기기 알림 등록 다시 시도"
-          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
-          onPress={register}>
-          {state.status === 'registering' ? '등록 중...' : '알림 켜기'}
+          accessibilityLabel={openSystemSettings ? 'OS 알림 설정 열기' : '기기 알림 등록 다시 시도'}
+          disabled={busy}
+          onPress={openSystemSettings ? () => void openNotificationSettings() : register}>
+          {openSystemSettings ? '설정 열기' : state.status === 'registering' ? '등록 중...' : '알림 켜기'}
         </Button>
         <Button
           accessibilityLabel="이 기기 알림 연결 해제"
-          disabled={state.status === 'checking' || state.status === 'registering' || state.status === 'deactivating'}
+          disabled={busy}
           onPress={deactivate}
           variant="danger">
           {state.status === 'deactivating' ? '비활성화 중...' : '비활성화'}
