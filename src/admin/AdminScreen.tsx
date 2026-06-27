@@ -111,6 +111,7 @@ type Notice = {
 } | null;
 
 type AdminScreenProps = {
+  onBackToUserMode: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -473,7 +474,12 @@ const emptyNotificationSendForm: AdminNotificationSendForm = {
   title: '경건생활 제출 알림',
 };
 
-export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) {
+export function AdminScreen({
+  onBackToUserMode,
+  setAuthState,
+  setNotice,
+  state,
+}: AdminScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
@@ -1702,6 +1708,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
           activeTab={tab}
           campusLabel={getCampusLabel(state)}
           globalRole={state.user.role}
+          onBackToUserMode={onBackToUserMode}
           onSelectTab={setTab}
           selectedCampusRole={state.selectedCampus.campusRole}
         />
@@ -1728,6 +1735,7 @@ export function AdminScreen({setAuthState, setNotice, state}: AdminScreenProps) 
         activeTab={tab}
         campusLabel={getCampusLabel(state)}
         globalRole={state.user.role}
+        onBackToUserMode={onBackToUserMode}
         onSelectTab={(nextTab) => {
           setSelectedMemberId(null);
           setTab(nextTab);
@@ -1945,12 +1953,14 @@ function AdminShellHeader({
   activeTab,
   campusLabel,
   globalRole,
+  onBackToUserMode,
   onSelectTab,
   selectedCampusRole,
 }: {
   activeTab: AdminTab;
   campusLabel: string;
   globalRole: string;
+  onBackToUserMode: () => void;
   onSelectTab: (tab: AdminTab) => void;
   selectedCampusRole: CampusRole;
 }) {
@@ -1968,6 +1978,17 @@ function AdminShellHeader({
             전체 권한 {globalRole}와 캠퍼스 권한 {selectedCampusRole}를 기준으로 관리 범위를 나눠 보여줍니다.
           </Body>
         </View>
+        <Pressable
+          accessibilityLabel="일반 모드로 전환"
+          accessibilityRole="button"
+          onPress={onBackToUserMode}
+          style={({pressed}) => [
+            styles.modeReturnButton,
+            pressed ? styles.modeReturnButtonPressed : null,
+          ]}>
+          <IconexIcon color={adminFigmaTokens.primary} name="user" size={18} strokeWidth={1.7} />
+          <Text style={styles.modeReturnButtonText}>일반 모드</Text>
+        </Pressable>
       </View>
       <SegmentedControl items={adminTabs} selectedId={activeTab} onSelect={onSelectTab} />
     </Card>
@@ -6998,6 +7019,27 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
     minWidth: 0,
+  },
+  modeReturnButton: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 18,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  modeReturnButtonPressed: {
+    opacity: 0.72,
+  },
+  modeReturnButtonText: {
+    color: adminFigmaTokens.primary,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   inlineError: {
     backgroundColor: colors.dangerSoft,

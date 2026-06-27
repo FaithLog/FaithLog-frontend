@@ -64,7 +64,6 @@ import {
   BottomNav,
   Button,
   Card,
-  Chip,
   Conflict,
   DangerConfirmSheet,
   Empty,
@@ -80,6 +79,8 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {
+  type AdminModeRoute,
+  getAdminModeRoutes,
   getAvailableRoutes,
   getRouteLabel,
   type ShellRoute,
@@ -99,7 +100,6 @@ import {
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
-  getPushNavigationInvalidMessage,
   parsePushNotificationOpenPayload,
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
@@ -121,7 +121,7 @@ type EntryTarget =
   | 'campusSelect'
   | 'campusDetail';
 
-type SessionNotice = {
+type AppMessage = {
   tone: 'info' | 'warning' | 'success';
   title: string;
   message: string;
@@ -150,10 +150,11 @@ const HOME_TODAY_REFRESH_INTERVAL_MS = 60 * 1000;
 export function FaithLogApp() {
   const [authState, setAuthState] = useState<AuthGateState>(initialState);
   const [entryTarget, setEntryTarget] = useState<EntryTarget | null>(null);
-  const [sessionNotice, setSessionNotice] = useState<SessionNotice>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
+  const clearAppMessage = () => {};
+  const ignoreAppMessage = (_notice: AppMessage) => {};
   const publicAuthMode =
     authState.status === 'signedOut' ||
     authState.status === 'sessionExpired' ||
@@ -161,7 +162,7 @@ export function FaithLogApp() {
 
   const retryBootstrap = () => {
     setEntryTarget(null);
-    setSessionNotice(null);
+    clearAppMessage();
     setAuthState({status: 'loading', message: '세션을 다시 확인하고 있어요.'});
     void bootstrapAuthGate().then(setAuthState);
   };
@@ -201,31 +202,16 @@ export function FaithLogApp() {
       const target = parsePushNotificationOpenPayload(payload);
 
       if (target.status === 'invalid') {
-        setSessionNotice({
-          tone: 'warning',
-          title: '알림 이동 제한',
-          message: getPushNavigationInvalidMessage(target.reason),
-        });
         return;
       }
 
       const routes = getAvailableRoutes(authState.user, authState.selectedCampus);
 
       if (!routes.includes(target.route)) {
-        setSessionNotice({
-          tone: 'warning',
-          title: '알림 이동 권한 없음',
-          message: '현재 계정에서 열 수 없는 화면입니다.',
-        });
         return;
       }
 
       setRoute(target.route);
-      setSessionNotice({
-        tone: 'info',
-        title: '알림에서 이동',
-        message: `${getRouteLabel(target.route)} 화면으로 이동했습니다.`,
-      });
     };
 
     if (!initialNotificationOpenHandledRef.current) {
@@ -255,15 +241,14 @@ export function FaithLogApp() {
             contentContainerStyle={styles.authScrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
-            {sessionNotice ? <AuthNotice notice={sessionNotice} /> : null}
             {renderAuthState({
-              clearNotice: () => setSessionNotice(null),
+              clearNotice: clearAppMessage,
               entryTarget,
               openEntryTarget: setEntryTarget,
               retry: retryBootstrap,
               route,
               setAuthState,
-              setNotice: setSessionNotice,
+              setNotice: ignoreAppMessage,
               setRoute,
               state: authState,
             })}
@@ -272,11 +257,10 @@ export function FaithLogApp() {
           <Screen>
             <AuthenticatedShell
               entryTarget={entryTarget}
-              notice={sessionNotice}
               openEntryTarget={setEntryTarget}
               route={route}
               setAuthState={setAuthState}
-              setNotice={setSessionNotice}
+              setNotice={ignoreAppMessage}
               setRoute={setRoute}
               state={authState}
             />
@@ -286,15 +270,14 @@ export function FaithLogApp() {
             <ScrollView
               contentContainerStyle={styles.content}
               keyboardShouldPersistTaps="handled">
-              {sessionNotice ? <NoticeCard notice={sessionNotice} /> : null}
               {renderAuthState({
-                clearNotice: () => setSessionNotice(null),
+                clearNotice: clearAppMessage,
                 entryTarget,
                 openEntryTarget: setEntryTarget,
                 retry: retryBootstrap,
                 route,
                 setAuthState,
-                setNotice: setSessionNotice,
+                setNotice: ignoreAppMessage,
                 setRoute,
                 state: authState,
               })}
@@ -323,7 +306,7 @@ function renderAuthState({
   retry: () => void;
   route: ShellRoute;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
+  setNotice: (notice: AppMessage) => void;
   setRoute: (route: ShellRoute) => void;
   state: AuthGateState;
 }) {
@@ -336,7 +319,6 @@ function renderAuthState({
         entryTarget: entryTarget === 'signup' ? 'signup' : 'login',
         openEntryTarget,
         setAuthState,
-        setNotice,
       });
     case 'sessionExpired':
       if (entryTarget === 'login' || entryTarget === 'signup') {
@@ -345,7 +327,6 @@ function renderAuthState({
           entryTarget,
           openEntryTarget,
           setAuthState,
-          setNotice,
         });
       }
 
@@ -363,7 +344,6 @@ function renderAuthState({
           entryTarget={entryTarget}
           openEntryTarget={openEntryTarget}
           setAuthState={setAuthState}
-          setNotice={setNotice}
           user={state.user}
         />
       );
@@ -423,7 +403,6 @@ function renderAuthState({
       return (
         <AuthenticatedShell
           entryTarget={entryTarget}
-          notice={null}
           openEntryTarget={openEntryTarget}
           setAuthState={setAuthState}
           setNotice={setNotice}
@@ -442,24 +421,17 @@ function renderPublicAuthEntry({
   entryTarget,
   openEntryTarget,
   setAuthState,
-  setNotice,
 }: {
   clearNotice: () => void;
   entryTarget: 'login' | 'signup';
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
 }) {
   if (entryTarget === 'signup') {
     return (
       <SignupForm
         clearNotice={clearNotice}
-        onSignupComplete={(name) => {
-          setNotice({
-            tone: 'success',
-            title: '회원가입 완료',
-            message: `${name}님, 가입이 완료되었습니다. 이제 로그인해 주세요.`,
-          });
+        onSignupComplete={() => {
           openEntryTarget('login');
         }}
         switchToLogin={() => openEntryTarget('login')}
@@ -474,15 +446,9 @@ function renderPublicAuthEntry({
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
           openEntryTarget(null);
-          setNotice(null);
         }
         if (nextState.status === 'noCampus') {
           openEntryTarget(null);
-          setNotice({
-            tone: 'info',
-            title: '캠퍼스 연결 필요',
-            message: '로그인은 완료됐고 ACTIVE 캠퍼스가 없어 온보딩으로 안내합니다.',
-          });
         }
       }}
       switchToSignup={() => openEntryTarget('signup')}
@@ -495,14 +461,12 @@ function NoCampusOnboarding({
   entryTarget,
   openEntryTarget,
   setAuthState,
-  setNotice,
   user,
 }: {
   clearNotice: () => void;
   entryTarget: EntryTarget | null;
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
   user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
 }) {
   const canCreateCampus = canCreateCampusWithRole(user.role);
@@ -515,7 +479,6 @@ function NoCampusOnboarding({
         onComplete={(nextState, _campusName) => {
           openEntryTarget(null);
           setAuthState(nextState);
-          setNotice(null);
         }}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
         user={user}
@@ -532,7 +495,6 @@ function NoCampusOnboarding({
         onComplete={(nextState, _campusName) => {
           openEntryTarget(null);
           setAuthState(nextState);
-          setNotice(null);
         }}
         onInvitePress={() => openEntryTarget('inviteCode')}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1273,24 +1235,6 @@ function AuthButton({
   );
 }
 
-function AuthNotice({notice}: {notice: NonNullable<SessionNotice>}) {
-  return (
-    <View style={styles.authNotice}>
-      <Text style={styles.authNoticeTitle}>{notice.title}</Text>
-      <Text style={styles.authNoticeMessage}>{notice.message}</Text>
-    </View>
-  );
-}
-
-function NoticeCard({notice}: {notice: NonNullable<SessionNotice>}) {
-  return (
-    <Card>
-      <Chip label={notice.title} tone={notice.tone} />
-      <Body>{notice.message}</Body>
-    </Card>
-  );
-}
-
 function InlineError({message}: {message: string}) {
   return (
     <View accessibilityRole="alert" style={styles.inlineError}>
@@ -1492,7 +1436,6 @@ function StatusCard({
 
 function AuthenticatedShell({
   entryTarget,
-  notice,
   openEntryTarget,
   route,
   setAuthState,
@@ -1501,10 +1444,9 @@ function AuthenticatedShell({
   state,
 }: {
   entryTarget: EntryTarget | null;
-  notice: SessionNotice;
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
+  setNotice: (notice: AppMessage) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   route: ShellRoute;
   setRoute: (route: ShellRoute) => void;
@@ -1517,12 +1459,17 @@ function AuthenticatedShell({
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
   const [campusSwitchLoading, setCampusSwitchLoading] = useState(false);
   const [campusSwitchError, setCampusSwitchError] = useState<ApiError | null>(null);
+  const [adminModeSelectorVisible, setAdminModeSelectorVisible] = useState(false);
   const [selectedCampusDetail, setSelectedCampusDetail] = useState<CampusDetail | null>(null);
   const [campusDetailState, setCampusDetailState] = useState<CardState<CampusDetail>>({
     status: 'idle',
   });
   const canCreateCampus = canCreateCampusWithRole(state.user.role);
   const canManageCampuses = canCreateCampus;
+  const adminModeRoutes = useMemo(
+    () => getAdminModeRoutes(state.user, state.selectedCampus),
+    [state.selectedCampus, state.user],
+  );
   const navItems = useMemo(
     () =>
       USER_BOTTOM_NAV_ROUTES.map((availableRoute) => ({
@@ -1612,7 +1559,6 @@ function AuthenticatedShell({
       setUserHomeView('dashboard');
       setProfileView('main');
       setRoute('userHome');
-      setNotice(null);
     } catch (error) {
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
@@ -1633,29 +1579,16 @@ function AuthenticatedShell({
     }
 
     setLoggingOut(true);
-    const result = await logoutCurrentSession();
+    await logoutCurrentSession();
     setLoggingOut(false);
     setLogoutConfirmVisible(false);
     setRoute('userHome');
     setAuthState({status: 'signedOut'});
-
-    if (result.status === 'signedOutWithRemoteWarning') {
-      setNotice({
-        tone: 'warning',
-        title: '로그아웃 완료',
-        message: result.message,
-      });
-    } else {
-      setNotice({
-        tone: 'success',
-        title: '로그아웃 완료',
-        message: '이 기기의 로그인 정보를 정리했습니다.',
-      });
-    }
   };
 
   const selectRoute = (nextRoute: ShellRoute) => {
     openEntryTarget(null);
+    setAdminModeSelectorVisible(false);
 
     if (nextRoute === 'devotion') {
       setDevotionInitialDate(null);
@@ -1670,6 +1603,35 @@ function AuthenticatedShell({
     }
 
     setRoute(nextRoute);
+  };
+
+  const enterAdminMode = (nextRoute: AdminModeRoute) => {
+    openEntryTarget(null);
+    setAdminModeSelectorVisible(false);
+    setUserHomeView('dashboard');
+    setProfileView('main');
+    setRoute(nextRoute);
+  };
+
+  const openAdminMode = () => {
+    if (adminModeRoutes.length === 0) {
+      return;
+    }
+
+    if (adminModeRoutes.length === 1) {
+      enterAdminMode(adminModeRoutes[0]!);
+      return;
+    }
+
+    setAdminModeSelectorVisible(true);
+  };
+
+  const returnToUserMode = () => {
+    openEntryTarget(null);
+    setAdminModeSelectorVisible(false);
+    setUserHomeView('dashboard');
+    setProfileView('main');
+    setRoute('userHome');
   };
 
   const refreshCampusDetail = async () => {
@@ -1732,7 +1694,6 @@ function AuthenticatedShell({
       setUserHomeView('dashboard');
       setProfileView('main');
       setRoute('userHome');
-      setNotice(null);
     } catch (error) {
       const apiError = toApiError(error, '캠퍼스를 선택하지 못했습니다.');
       setCampusSwitchError(apiError);
@@ -1808,7 +1769,6 @@ function AuthenticatedShell({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         style={styles.shellScroll}>
-        {notice ? <NoticeCard notice={notice} /> : null}
         {entryTarget === 'campusSelect' && canManageCampuses ? (
           <CampusSelectScreen
             campuses={state.activeCampuses}
@@ -1831,7 +1791,7 @@ function AuthenticatedShell({
           />
         ) : entryTarget === 'inviteCode' ? (
           <InviteCodeForm
-            clearNotice={() => setNotice(null)}
+            clearNotice={() => {}}
             onCancel={() => openEntryTarget(null)}
             onComplete={(nextState, _campusName) => {
               setAuthState(nextState);
@@ -1839,7 +1799,6 @@ function AuthenticatedShell({
               setUserHomeView('dashboard');
               setProfileView('main');
               setRoute('userHome');
-              setNotice(null);
             }}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
             user={state.user}
@@ -1847,7 +1806,7 @@ function AuthenticatedShell({
         ) : entryTarget === 'campusCreate' && canCreateCampus ? (
           <CampusCreateGate
             canCreateCampus={canCreateCampus}
-            clearNotice={() => setNotice(null)}
+            clearNotice={() => {}}
             onCancel={() => openEntryTarget(null)}
             onComplete={(nextState, _campusName) => {
               setAuthState(nextState);
@@ -1855,7 +1814,6 @@ function AuthenticatedShell({
               setUserHomeView('dashboard');
               setProfileView('main');
               setRoute('userHome');
-              setNotice(null);
             }}
             onInvitePress={() => openEntryTarget('inviteCode')}
             onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
@@ -1882,11 +1840,12 @@ function AuthenticatedShell({
                 setProfileView('notifications');
                 setRoute('profile');
               }}
+              canOpenAdminMode={adminModeRoutes.length > 0}
+              onOpenAdminMode={openAdminMode}
               onOpenPayments={() => setRoute('payments')}
               onOpenPolls={() => setRoute('polls')}
               onOpenPrayers={() => setRoute('prayers')}
               setAuthState={setAuthState}
-              setNotice={setNotice}
               state={state}
             />
           )
@@ -1930,17 +1889,18 @@ function AuthenticatedShell({
             onOpenPrayers={() => setRoute('prayers')}
             profileView={profileView}
             setAuthState={setAuthState}
-            setNotice={setNotice}
             state={state}
           />
         ) : route === 'campusAdmin' ? (
           <AdminScreen
+            onBackToUserMode={returnToUserMode}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
           />
         ) : route === 'serviceAdmin' ? (
           <ServiceAdminScreen
+            onBackToUserMode={returnToUserMode}
             onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
@@ -1996,6 +1956,12 @@ function AuthenticatedShell({
         onRefresh={refreshCampuses}
         onSelect={selectCampus}
         visible={canManageCampuses && campusSwitchVisible}
+      />
+      <AdminModeSelectorSheet
+        onCancel={() => setAdminModeSelectorVisible(false)}
+        onSelect={enterAdminMode}
+        routes={adminModeRoutes}
+        visible={adminModeSelectorVisible}
       />
     </View>
   );
@@ -2176,6 +2142,8 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
+  canOpenAdminMode,
+  onOpenAdminMode,
   onOpenDevotion,
   onOpenMonthlyCalendar,
   onOpenNotifications,
@@ -2183,9 +2151,10 @@ function UserHomeDashboard({
   onOpenPolls,
   onOpenPrayers,
   setAuthState,
-  setNotice,
   state,
 }: {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
   onOpenNotifications: () => void;
@@ -2193,7 +2162,6 @@ function UserHomeDashboard({
   onOpenPolls: () => void;
   onOpenPrayers: () => void;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
   const [today, setToday] = useState(() => new Date());
@@ -2315,12 +2283,6 @@ function UserHomeDashboard({
       onOpenPayments();
       return;
     }
-
-    setNotice({
-      tone: 'info',
-      title: '화면 준비 중',
-      message: `${target} 상세 화면은 후속 이슈에서 연결됩니다. 홈 CTA 상태는 API 응답 기준으로 먼저 표시합니다.`,
-    });
   };
 
   return (
@@ -2337,17 +2299,25 @@ function UserHomeDashboard({
               {displayUserName}님
             </Text>
           </View>
-          <Pressable
-            accessibilityLabel="알림 설정 화면으로 이동"
-            accessibilityRole="button"
-            onPress={onOpenNotifications}
-            style={({pressed}) => [
-              styles.homeNotificationButton,
-              pressed ? styles.authButtonPressed : null,
-            ]}>
-            <IconexIcon color={colors.textPrimary} name="bell" size={20} strokeWidth={1.7} />
-            <View style={styles.homeNotificationDot} />
-          </Pressable>
+          <View style={styles.homeHeaderActions}>
+            <Pressable
+              accessibilityLabel="알림 설정 화면으로 이동"
+              accessibilityRole="button"
+              onPress={onOpenNotifications}
+              style={({pressed}) => [
+                styles.homeNotificationButton,
+                pressed ? styles.authButtonPressed : null,
+              ]}>
+              <IconexIcon color={colors.textPrimary} name="bell" size={20} strokeWidth={1.7} />
+              <View style={styles.homeNotificationDot} />
+            </Pressable>
+            {canOpenAdminMode ? (
+              <ModeSwitchPillButton
+                accessibilityLabel="관리자 모드 전환"
+                onPress={onOpenAdminMode}
+              />
+            ) : null}
+          </View>
         </View>
         <Text
           adjustsFontSizeToFit
@@ -2474,6 +2444,105 @@ function UserHomeDashboard({
         <InlineError message="일부 정보를 불러오지 못했습니다. 각 탭에서 다시 확인할 수 있어요." />
       ) : null}
     </View>
+  );
+}
+
+function ModeSwitchPillButton({
+  accessibilityLabel,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.modeSwitchPillButton,
+        pressed ? styles.authButtonPressed : null,
+      ]}>
+      <Text style={styles.modeSwitchPillText}>관리자</Text>
+      <Text
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={styles.modeSwitchPillChevron}>
+        ▾
+      </Text>
+    </Pressable>
+  );
+}
+
+function AdminModeSelectorSheet({
+  onCancel,
+  onSelect,
+  routes,
+  visible,
+}: {
+  onCancel: () => void;
+  onSelect: (route: AdminModeRoute) => void;
+  routes: AdminModeRoute[];
+  visible: boolean;
+}) {
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onCancel}
+      transparent
+      visible={visible && routes.length > 0}>
+      <View style={styles.modeSheetRoot}>
+        <Pressable
+          accessibilityLabel="관리자 모드 선택 닫기"
+          accessibilityRole="button"
+          onPress={onCancel}
+          style={styles.modeSheetBackdrop}
+        />
+        <View style={styles.modeSheetContainer}>
+          <View style={styles.modeSheet}>
+            <Eyebrow>모드 전환</Eyebrow>
+            <Title>관리자 모드 선택</Title>
+            <Body>사용할 관리자 화면을 선택해 주세요.</Body>
+            <View style={styles.modeSheetOptionList}>
+              {routes.map((route) => (
+                <Pressable
+                  accessibilityLabel={`${getRouteLabel(route)} 모드로 전환`}
+                  accessibilityRole="button"
+                  key={route}
+                  onPress={() => onSelect(route)}
+                  style={({pressed}) => [
+                    styles.modeSheetOption,
+                    pressed ? styles.authButtonPressed : null,
+                  ]}>
+                  <View style={styles.modeSheetOptionIcon}>
+                    <IconexIcon
+                      color={colors.primary}
+                      name="settings"
+                      size={20}
+                      strokeWidth={1.7}
+                    />
+                  </View>
+                  <View style={styles.modeSheetOptionText}>
+                    <Text style={styles.modeSheetOptionTitle}>{getRouteLabel(route)}</Text>
+                    <Text style={styles.modeSheetOptionBody}>
+                      {route === 'serviceAdmin'
+                        ? '전역 사용자와 캠퍼스를 관리합니다.'
+                        : '선택한 캠퍼스 운영을 관리합니다.'}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+            <Button
+              accessibilityLabel="관리자 모드 선택 취소"
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -3021,13 +3090,7 @@ function getHomeCardErrorMessage(error: ApiError) {
   }).message;
 }
 
-function NotificationSettingsDetail({
-  setAuthState,
-  setNotice,
-}: {
-  setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
-}) {
+function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthGateState) => void}) {
   const [state, setState] = useState<NotificationUiState>({status: 'checking'});
 
   const inspect = async () => {
@@ -3061,14 +3124,6 @@ function NotificationSettingsDetail({
 
       const result = await registerCurrentFcmToken(accessToken);
       setState(result);
-
-      if (result.status === 'registered') {
-        setNotice({
-          tone: 'success',
-          title: '알림 등록 완료',
-          message: '이 기기의 알림 연결을 완료했습니다.',
-        });
-      }
     } catch (error) {
       const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
       setState({status: 'error', error: apiError});
@@ -3097,11 +3152,6 @@ function NotificationSettingsDetail({
       }
 
       await deactivateCurrentFcmToken(accessToken);
-      setNotice({
-        tone: 'success',
-        title: '알림 비활성화',
-        message: '이 기기의 알림 연결을 해제했습니다.',
-      });
       await inspect();
     } catch (error) {
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
@@ -3291,7 +3341,6 @@ function ProfileScreen({
   onOpenPrayers,
   profileView,
   setAuthState,
-  setNotice,
   state,
 }: {
   canSwitchCampus: boolean;
@@ -3303,7 +3352,6 @@ function ProfileScreen({
   onOpenPrayers: () => void;
   profileView: 'main' | 'notifications';
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: SessionNotice) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
   const [refreshing, setRefreshing] = useState(false);
@@ -3329,11 +3377,6 @@ function ProfileScreen({
 
       const nextState = await refreshAuthenticatedCampusState(accessToken, state);
       setAuthState(nextState);
-      setNotice({
-        tone: 'success',
-        title: '프로필 갱신',
-        message: '내 정보와 캠퍼스 목록을 다시 불러왔습니다.',
-      });
     } catch (error) {
       if (error instanceof FaithLogApiError) {
         setRefreshError(error.detail);
@@ -3366,7 +3409,7 @@ function ProfileScreen({
           </View>
           <Text style={styles.figmaTitle}>알림 설정</Text>
         </View>
-        <NotificationSettingsDetail setAuthState={setAuthState} setNotice={setNotice} />
+        <NotificationSettingsDetail setAuthState={setAuthState} />
       </View>
     );
   }
@@ -3451,11 +3494,7 @@ function ProfileScreen({
               return;
             }
 
-            setNotice({
-              tone: 'info',
-              title: '내 캠퍼스',
-              message: `${state.selectedCampus.campusName} 캠퍼스에 ${getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}로 참여 중입니다.`,
-            });
+            return;
           }}
           subtitle={state.selectedCampus.campusName}
           title="내 캠퍼스"
@@ -3918,29 +3957,6 @@ const styles = StyleSheet.create({
     maxWidth: 318,
     width: '100%',
   },
-  authNotice: {
-    backgroundColor: authColors.input,
-    borderColor: authColors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 4,
-    marginTop: 18,
-    maxWidth: 342,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    width: '100%',
-  },
-  authNoticeTitle: {
-    color: authColors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
-  },
-  authNoticeMessage: {
-    color: authColors.textMuted,
-    fontSize: 15,
-    lineHeight: 20,
-  },
   launchFrame: {
     alignSelf: 'center',
     alignItems: 'center',
@@ -4280,6 +4296,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
   },
+  homeHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 8,
+  },
   figmaTitle: {
     color: authColors.text,
     flexShrink: 1,
@@ -4313,6 +4335,98 @@ const styles = StyleSheet.create({
     right: 10,
     top: 9,
     width: 8,
+  },
+  modeSwitchPillButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+    height: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+  },
+  modeSwitchPillChevron: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    marginTop: 1,
+  },
+  modeSwitchPillText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  modeSheetBackdrop: {
+    backgroundColor: colors.textPrimary,
+    bottom: 0,
+    left: 0,
+    opacity: 0.34,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  modeSheet: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    width: '100%',
+  },
+  modeSheetContainer: {
+    bottom: 0,
+    left: 0,
+    padding: 16,
+    paddingBottom: spacing.bottomSafe,
+    position: 'absolute',
+    right: 0,
+  },
+  modeSheetOption: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 70,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  modeSheetOptionBody: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  modeSheetOptionIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  modeSheetOptionList: {
+    gap: 8,
+  },
+  modeSheetOptionText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  modeSheetOptionTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  modeSheetRoot: {
+    flex: 1,
   },
   figmaCampusChip: {
     alignItems: 'center',
