@@ -1,4 +1,4 @@
-import type {CampusMembershipSummary, CurrentUser} from '../api/types';
+import type {CampusMembershipSummary, CurrentUser, UserRole} from '../api/types';
 
 export type ShellRoute =
   | 'userHome'
@@ -11,6 +11,7 @@ export type ShellRoute =
   | 'serviceAdmin';
 
 const CAMPUS_ADMIN_ROLES = new Set(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
+const GLOBAL_CAMPUS_ADMIN_ROLES = new Set<UserRole>(['ADMIN', 'MANAGER']);
 export const USER_BOTTOM_NAV_ROUTES = [
   'userHome',
   'devotion',
@@ -19,21 +20,39 @@ export const USER_BOTTOM_NAV_ROUTES = [
   'profile',
 ] as const satisfies readonly ShellRoute[];
 
+export type AdminModeRoute = Extract<ShellRoute, 'campusAdmin' | 'serviceAdmin'>;
+
+export function canUseCampusAdmin(user: CurrentUser, campus: CampusMembershipSummary) {
+  return GLOBAL_CAMPUS_ADMIN_ROLES.has(user.role) || CAMPUS_ADMIN_ROLES.has(campus.campusRole);
+}
+
+export function canUseServiceAdmin(user: CurrentUser) {
+  return user.role === 'ADMIN';
+}
+
+export function getAdminModeRoutes(
+  user: CurrentUser,
+  campus: CampusMembershipSummary,
+): AdminModeRoute[] {
+  const routes: AdminModeRoute[] = [];
+
+  if (canUseCampusAdmin(user, campus)) {
+    routes.push('campusAdmin');
+  }
+
+  if (canUseServiceAdmin(user)) {
+    routes.push('serviceAdmin');
+  }
+
+  return routes;
+}
+
 export function getAvailableRoutes(
   user: CurrentUser,
   campus: CampusMembershipSummary,
 ): ShellRoute[] {
   const routes: ShellRoute[] = ['userHome', 'devotion', 'payments', 'polls', 'prayers', 'profile'];
-
-  if (user.role === 'ADMIN' || CAMPUS_ADMIN_ROLES.has(campus.campusRole)) {
-    routes.push('campusAdmin');
-  }
-
-  if (user.role === 'ADMIN') {
-    routes.push('serviceAdmin');
-  }
-
-  return routes;
+  return [...routes, ...getAdminModeRoutes(user, campus)];
 }
 
 export function getRouteLabel(route: ShellRoute) {
