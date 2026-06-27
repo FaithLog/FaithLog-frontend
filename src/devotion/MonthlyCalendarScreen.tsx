@@ -25,25 +25,28 @@ import {
 } from '../components/ui';
 import {IconexIcon} from '../components/IconexIcon';
 import {colors} from '../theme';
+import {
+  buildDailyCompletionMap,
+  getDailyCompletionCount,
+  type DailyCompletionCount,
+} from './devotionUtils';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
-type Notice = {
-  tone: 'info' | 'warning' | 'success';
-  title: string;
-  message: string;
-} | null;
-
 type MonthlyCalendarScreenProps = {
-  onOpenWeeklyDevotion: () => void;
+  onOpenWeeklyDevotion: (selectedDate: string) => void;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
 };
 
 type MonthlyCalendarLoadState =
   | {status: 'idle' | 'loading'}
-  | {status: 'success'; monthly: DevotionMonthlySummary; weekly: WeeklyDevotionSummary}
+  | {
+      status: 'success';
+      monthly: DevotionMonthlySummary;
+      weekly: WeeklyDevotionSummary;
+      dailyCompletionByDate: Record<string, DailyCompletionCount>;
+    }
   | {status: 'error'; error: ApiError};
 
 type DailyFormCheck = DevotionDailyCheck & {
@@ -61,7 +64,6 @@ const REQUIRED_DAYS = 5;
 export function MonthlyCalendarScreen({
   onOpenWeeklyDevotion,
   setAuthState,
-  setNotice,
   state,
 }: MonthlyCalendarScreenProps) {
   const [today] = useState(() => new Date());
@@ -72,6 +74,7 @@ export function MonthlyCalendarScreen({
   const [formChecks, setFormChecks] = useState<DailyFormCheck[]>([]);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [quickSaveMessage, setQuickSaveMessage] = useState<string | null>(null);
   const campusId = state.selectedCampus.campusId;
 
   const loadCalendar = async () => {
@@ -84,12 +87,27 @@ export function MonthlyCalendarScreen({
         return;
       }
 
-      const [monthly, weekly] = await Promise.all([
+      const visibleWeekStartDates = getVisibleWeekStartDates(visibleMonth, selectedWeekStart);
+      const [monthly, ...weeklySummaries] = await Promise.all([
         fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth),
-        fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart),
+        ...visibleWeekStartDates.map((weekStartDate) =>
+          fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
+        ),
       ]);
+      const weekly =
+        weeklySummaries.find((summary) => summary.weekStartDate === selectedWeekStart) ??
+        weeklySummaries[0];
 
-      setLoadState({status: 'success', monthly, weekly});
+      if (!weekly) {
+        throw new Error('Selected weekly devotion summary is missing.');
+      }
+
+      setLoadState({
+        status: 'success',
+        monthly,
+        weekly,
+        dailyCompletionByDate: buildDailyCompletionMap(weeklySummaries),
+      });
       setFormChecks(normalizeWeekChecks(weekly));
     } catch (error) {
       const apiError = toApiError(error, '월간 경건생활 캘린더를 불러오지 못했습니다.');
@@ -122,6 +140,7 @@ export function MonthlyCalendarScreen({
     }
 
     setActionError(null);
+    setQuickSaveMessage(null);
     setFormChecks((current) =>
       current.map((check) =>
         check.recordDate === recordDate ? {...check, [field]: !check[field]} : check,
@@ -143,17 +162,14 @@ export function MonthlyCalendarScreen({
         return;
       }
 
+      const savedDate = selectedCheck.recordDate;
       await saveDevotionDailyCheck(accessToken, campusId, selectedCheck.recordDate, {
         quietTimeChecked: selectedCheck.quietTimeChecked,
         prayerChecked: selectedCheck.prayerChecked,
         bibleReadingChecked: selectedCheck.bibleReadingChecked,
       });
-      setNotice({
-        tone: 'success',
-        title: '빠른 체크 저장',
-        message: `${formatKoreanDate(selectedCheck.recordDate)} 기록을 저장했습니다.`,
-      });
       await loadCalendar();
+      setQuickSaveMessage(`${formatKoreanDate(savedDate)} 저장됨`);
     } catch (error) {
       const apiError = toApiError(error, '빠른 체크를 저장하지 못했습니다.');
       setActionError(apiError);
@@ -222,6 +238,7 @@ export function MonthlyCalendarScreen({
                     monthly={loadState.monthly}
                     onPress={() => setSelectedDate(cell.date)}
                     selected={cell.date === selectedDate}
+                    dailyCompletionByDate={loadState.dailyCompletionByDate}
                     selectedWeekChecks={formChecks}
                   />
                 ) : (
@@ -251,7 +268,7 @@ export function MonthlyCalendarScreen({
         <Pressable
           accessibilityLabel="주간 경건생활 제출 화면으로 이동"
           accessibilityRole="button"
-          onPress={onOpenWeeklyDevotion}
+          onPress={() => onOpenWeeklyDevotion(selectedDate)}
           style={({pressed}) => [styles.weekSubmitButton, pressed ? styles.pressed : null]}>
           <Text style={styles.weekSubmitButtonText}>주간 제출</Text>
         </Pressable>
@@ -272,7 +289,7 @@ export function MonthlyCalendarScreen({
               ))}
             </View>
             {locked ? (
-              <Text style={styles.lockedText}>제출 완료된 주차라 수정할 수 없어요.</Text>
+              <Text style={styles.lockedText}>제출 완료된 주차라 빠른 체크를 수정할 수 없어요.</Text>
             ) : null}
           </>
         ) : (
@@ -283,6 +300,11 @@ export function MonthlyCalendarScreen({
       {actionError ? <MonthlyCalendarActionError error={actionError} onRetry={loadCalendar} /> : null}
 
       <View style={styles.saveRow}>
+        {quickSaveMessage ? (
+          <Text accessibilityLiveRegion="polite" style={styles.quickSaveStatus}>
+            {quickSaveMessage}
+          </Text>
+        ) : null}
         <Pressable
           accessibilityLabel="선택한 날짜 빠른 체크 저장"
           accessibilityRole="button"
@@ -307,6 +329,7 @@ function CalendarDay({
   monthly,
   onPress,
   selected,
+  dailyCompletionByDate,
   selectedWeekChecks,
 }: {
   date: string;
@@ -314,12 +337,13 @@ function CalendarDay({
   monthly: DevotionMonthlySummary;
   onPress: () => void;
   selected: boolean;
+  dailyCompletionByDate: Record<string, DailyCompletionCount>;
   selectedWeekChecks: DailyFormCheck[];
 }) {
   const selectedWeekCheck = selectedWeekChecks.find((check) => check.recordDate === date);
   const count = selectedWeekCheck
     ? getDailyCompletionCount(selectedWeekCheck)
-    : getWeekCompletionCount(monthly, date);
+    : dailyCompletionByDate[date] ?? getWeekCompletionCount(monthly, date);
 
   return (
     <Pressable
@@ -514,13 +538,19 @@ function getMonthGridRows(year: number, month: number) {
   return rows;
 }
 
-function getDailyCompletionCount(check: DailyFormCheck) {
-  return Math.min(
-    3,
-    Number(check.quietTimeChecked) +
-      Number(check.prayerChecked) +
-      Number(check.bibleReadingChecked),
-  );
+function getVisibleWeekStartDates(
+  visibleMonth: {year: number; month: number},
+  selectedWeekStart: string,
+) {
+  const weekStarts = new Set<string>([selectedWeekStart]);
+
+  getMonthGridCells(visibleMonth.year, visibleMonth.month).forEach((cell) => {
+    if (cell) {
+      weekStarts.add(getWeekStartDate(parseDate(cell.date)));
+    }
+  });
+
+  return Array.from(weekStarts).sort();
 }
 
 function getWeekCompletionCount(monthly: DevotionMonthlySummary, date: string) {
@@ -872,6 +902,13 @@ const styles = StyleSheet.create({
   },
   quickButtonTextChecked: {
     color: calendarColors.card,
+  },
+  quickSaveStatus: {
+    color: calendarColors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   lockedText: {
     color: calendarColors.muted,

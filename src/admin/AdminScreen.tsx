@@ -100,6 +100,7 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
+import {formatCompactWon, formatWon} from '../utils/money';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -6045,18 +6046,6 @@ function formatShortWeekLabel(value: string) {
   const day = parts[2] ?? '--';
 
   return `${month}/${day}`;
-}
-
-function formatCompactWon(value: number) {
-  if (value >= 1000) {
-    return `${Math.round(value / 1000)}K`;
-  }
-
-  return `${value}원`;
-}
-
-function formatWon(value: number) {
-  return `${value.toLocaleString('ko-KR')}원`;
 }
 
 function formatDateTime(value: string) {
