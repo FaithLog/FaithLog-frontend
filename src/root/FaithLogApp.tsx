@@ -106,6 +106,7 @@ import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
+import {formatCompactWon, formatWon} from '../utils/money';
 
 const initialState: AuthGateState = {
   status: 'loading',
@@ -1510,6 +1511,7 @@ function AuthenticatedShell({
 }) {
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<'main' | 'notifications'>('main');
+  const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
@@ -1654,6 +1656,10 @@ function AuthenticatedShell({
 
   const selectRoute = (nextRoute: ShellRoute) => {
     openEntryTarget(null);
+
+    if (nextRoute === 'devotion') {
+      setDevotionInitialDate(null);
+    }
 
     if (nextRoute === 'userHome') {
       setUserHomeView('dashboard');
@@ -1858,14 +1864,19 @@ function AuthenticatedShell({
         ) : route === 'userHome' ? (
           userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
-              onOpenWeeklyDevotion={() => setRoute('devotion')}
+              onOpenWeeklyDevotion={(selectedDate) => {
+                setDevotionInitialDate(selectedDate);
+                setRoute('devotion');
+              }}
               setAuthState={setAuthState}
-              setNotice={setNotice}
               state={state}
             />
           ) : (
             <UserHomeDashboard
-              onOpenDevotion={() => setRoute('devotion')}
+              onOpenDevotion={() => {
+                setDevotionInitialDate(null);
+                setRoute('devotion');
+              }}
               onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
               onOpenNotifications={() => {
                 setProfileView('notifications');
@@ -1881,9 +1892,13 @@ function AuthenticatedShell({
           )
         ) : route === 'devotion' ? (
           <DevotionScreen
-            onBackToHome={() => setRoute('userHome')}
+            initialSelectedDate={devotionInitialDate}
+            onBackToHome={() => {
+              setUserHomeView('dashboard');
+              setRoute('userHome');
+            }}
+            onOpenPayments={() => setRoute('payments')}
             setAuthState={setAuthState}
-            setNotice={setNotice}
             state={state}
           />
         ) : route === 'payments' ? (
@@ -2972,20 +2987,6 @@ function formatLocalDate(date: Date) {
   const day = String(date.getDate()).padStart(2, '0');
 
   return `${year}-${month}-${day}`;
-}
-
-function formatWon(amount: number) {
-  return `${Math.max(0, amount).toLocaleString('ko-KR')}원`;
-}
-
-function formatCompactWon(amount: number) {
-  const safeAmount = Math.max(0, amount);
-
-  if (safeAmount >= 1000) {
-    return `${Number((safeAmount / 1000).toFixed(1)).toLocaleString('ko-KR')}K`;
-  }
-
-  return `${safeAmount.toLocaleString('ko-KR')}원`;
 }
 
 function toApiError(error: unknown, fallback: string): ApiError {

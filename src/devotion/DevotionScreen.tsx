@@ -1,90 +1,93 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import {
   FaithLogApiError,
-  fetchDevotionMonthlySummary,
+  fetchPenaltyRules,
   fetchWeeklyDevotionSummary,
-  saveDevotionDailyCheck,
   saveWeeklyDevotion,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
-import type {
-  ApiError,
-  DevotionDailyCheck,
-  DevotionMonthlySummary,
-  WeeklyDevotionSummary,
-} from '../api/types';
+import type {ApiError, DevotionDailyCheck, PenaltyRule, WeeklyDevotionSummary} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
-  Body,
-  Button,
-  Card,
-  Chip,
   Conflict,
-  Empty,
   ErrorState,
-  Eyebrow,
-  ListRow,
   Loading,
   Offline,
   PermissionDenied,
-  Title,
 } from '../components/ui';
 import {IconexIcon} from '../components/IconexIcon';
-import {colors, radius, spacing} from '../theme';
+import {colors, typography} from '../theme';
+import {formatWon} from '../utils/money';
+import {
+  canRequestWeeklySubmit,
+  summarizeDevotionPenalty,
+  type DevotionCheckField,
+  type DevotionPenaltySummary,
+} from './devotionUtils';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
-type Notice = {
-  tone: 'info' | 'warning' | 'success';
-  title: string;
-  message: string;
-} | null;
-
 type DevotionScreenProps = {
+  initialSelectedDate: string | null;
   onBackToHome: () => void;
+  onOpenPayments: () => void;
   setAuthState: (state: AuthGateState) => void;
-  setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
 };
 
 type DevotionLoadState =
   | {status: 'idle' | 'loading'}
-  | {status: 'success'; weekly: WeeklyDevotionSummary; monthly: DevotionMonthlySummary}
+  | {status: 'success'; weekly: WeeklyDevotionSummary}
+  | {status: 'error'; error: ApiError};
+
+type PenaltyRuleLoadState =
+  | {status: 'idle' | 'loading'}
+  | {status: 'success'; rules: PenaltyRule[]}
   | {status: 'error'; error: ApiError};
 
 type DailyFormCheck = DevotionDailyCheck & {
   recordDate: string;
 };
 
-type SavingAction = 'daily' | 'draft' | 'submit' | null;
+type SavingAction = 'draft' | 'submit' | null;
+type ScreenMode = 'entry' | 'locked' | 'penalty';
 
 const REQUIRED_DAYS = 5;
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
-const DEVOTION_FIELD_LABELS = [
+const DEVOTION_FIELD_LABELS: Array<[DevotionCheckField, string]> = [
   ['quietTimeChecked', '큐티'],
   ['prayerChecked', '기도'],
   ['bibleReadingChecked', '말씀'],
-] as const;
+];
 
-export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: DevotionScreenProps) {
-  const [today, setToday] = useState(() => new Date());
-  const initialMonth = useMemo(() => getYearMonth(today), [today]);
-  const [visibleMonth, setVisibleMonth] = useState(initialMonth);
-  const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(today));
+export function DevotionScreen({
+  initialSelectedDate,
+  onBackToHome,
+  onOpenPayments,
+  setAuthState,
+  state,
+}: DevotionScreenProps) {
+  const [selectedDate, setSelectedDate] = useState(
+    () => initialSelectedDate ?? formatLocalDate(new Date()),
+  );
   const selectedWeekStart = useMemo(() => getWeekStartDate(parseDate(selectedDate)), [selectedDate]);
   const [loadState, setLoadState] = useState<DevotionLoadState>({status: 'idle'});
+  const [penaltyRuleState, setPenaltyRuleState] = useState<PenaltyRuleLoadState>({status: 'idle'});
   const [formChecks, setFormChecks] = useState<DailyFormCheck[]>([]);
   const [lateMinutesText, setLateMinutesText] = useState('0');
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
-  const [submitComplete, setSubmitComplete] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const [screenMode, setScreenMode] = useState<ScreenMode>('entry');
+  const [submitConfirmVisible, setSubmitConfirmVisible] = useState(false);
   const campusId = state.selectedCampus.campusId;
 
   const loadDevotion = async () => {
     setLoadState({status: 'loading'});
+    setPenaltyRuleState({status: 'loading'});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -93,14 +96,24 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
         return;
       }
 
-      const [weekly, monthly] = await Promise.all([
-        fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart),
-        fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth),
-      ]);
-      setLoadState({status: 'success', weekly, monthly});
+      const weekly = await fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart);
+
+      setLoadState({status: 'success', weekly});
       setFormChecks(normalizeWeekChecks(weekly));
       setLateMinutesText(String(Math.max(0, weekly.saturdayLateMinutes)));
-      setSubmitComplete(Boolean(weekly.submittedAt));
+      setScreenMode(weekly.submittedAt ? 'locked' : 'entry');
+      setSaveFeedback(null);
+      setSubmitConfirmVisible(false);
+      try {
+        const rules = await fetchPenaltyRules(accessToken, campusId);
+
+        setPenaltyRuleState({status: 'success', rules});
+      } catch (penaltyRuleError) {
+        setPenaltyRuleState({
+          status: 'error',
+          error: toApiError(penaltyRuleError, '벌금 규칙을 불러오지 못했습니다.'),
+        });
+      }
     } catch (error) {
       const apiError = toApiError(error, '경건생활 기록을 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
@@ -109,79 +122,53 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
   };
 
   useEffect(() => {
-    setToday(new Date());
-  }, []);
+    void loadDevotion();
+  }, [campusId, selectedWeekStart]);
 
   useEffect(() => {
-    void loadDevotion();
-  }, [campusId, selectedWeekStart, visibleMonth.month, visibleMonth.year]);
+    if (initialSelectedDate) {
+      setSelectedDate(initialSelectedDate);
+    }
+  }, [initialSelectedDate]);
 
-  const loadedWeekly = loadState.status === 'success' ? loadState.weekly : null;
-  const locked = Boolean(loadedWeekly?.submittedAt);
-  const selectedCheck = formChecks.find((check) => check.recordDate === selectedDate);
+  if (loadState.status !== 'success') {
+    if (loadState.status === 'error') {
+      return <DevotionErrorState error={loadState.error} onRetry={loadDevotion} />;
+    }
+
+    return <Loading message="경건생활 주간 기록을 불러오고 있어요." />;
+  }
+
+  const weekly = loadState.weekly;
   const lateMinutes = parseLateMinutes(lateMinutesText);
-  const missingSummary = getMissingSummary(formChecks, lateMinutes ?? 0);
   const invalidLateMinutes = lateMinutes === null;
-  const selectedDateInCurrentWeek = formChecks.some((check) => check.recordDate === selectedDate);
+  const penaltySummary = summarizeDevotionPenalty(
+    formChecks,
+    lateMinutes ?? 0,
+    penaltyRuleState.status === 'success' ? penaltyRuleState.rules : null,
+  );
+  const counts = getCurrentCounts(formChecks);
+  const locked = Boolean(weekly.submittedAt);
+  const title = screenMode === 'penalty' ? '벌금 결과' : '경건생활';
 
-  const moveMonth = (direction: -1 | 1) => {
-    setVisibleMonth((current) => shiftYearMonth(current, direction));
+  const moveWeek = (direction: -1 | 1) => {
+    const nextWeek = addDays(parseDate(selectedWeekStart), direction * 7);
+
+    setSelectedDate(formatLocalDate(nextWeek));
   };
 
-  const selectDate = (date: string) => {
-    setSelectedDate(date);
-    setSubmitComplete(false);
-  };
-
-  const toggleCheck = (
-    recordDate: string,
-    field: 'quietTimeChecked' | 'prayerChecked' | 'bibleReadingChecked',
-  ) => {
+  const toggleCheck = (recordDate: string, field: DevotionCheckField) => {
     if (locked || savingAction) {
       return;
     }
 
-    setSubmitComplete(false);
     setActionError(null);
+    setSaveFeedback(null);
     setFormChecks((current) =>
       current.map((check) =>
         check.recordDate === recordDate ? {...check, [field]: !check[field]} : check,
       ),
     );
-  };
-
-  const saveSelectedDay = async () => {
-    if (!selectedCheck || locked || savingAction) {
-      return;
-    }
-
-    setSavingAction('daily');
-    setActionError(null);
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
-
-      if (!accessToken) {
-        return;
-      }
-
-      await saveDevotionDailyCheck(accessToken, campusId, selectedCheck.recordDate, {
-        quietTimeChecked: selectedCheck.quietTimeChecked,
-        prayerChecked: selectedCheck.prayerChecked,
-        bibleReadingChecked: selectedCheck.bibleReadingChecked,
-      });
-      setNotice({
-        tone: 'success',
-        title: '하루 체크 저장',
-        message: `${formatShortDate(selectedCheck.recordDate)} 기록을 저장했습니다.`,
-      });
-      await loadDevotion();
-    } catch (error) {
-      const apiError = toApiError(error, '하루 체크를 저장하지 못했습니다.');
-      setActionError(apiError);
-      handleAuthError(apiError, setAuthState);
-    } finally {
-      setSavingAction(null);
-    }
   };
 
   const saveWeek = async (submit: boolean) => {
@@ -191,7 +178,7 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
 
     setSavingAction(submit ? 'submit' : 'draft');
     setActionError(null);
-    setSubmitComplete(false);
+    setSaveFeedback(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
 
@@ -210,24 +197,18 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
         submit,
       });
 
-      if (submit) {
-        setSubmitComplete(true);
-      }
-
-      setNotice({
-        tone: 'success',
-        title: submit ? '경건생활 제출 완료' : '경건생활 임시저장',
-        message: submit
-          ? '제출 후에는 이 주차 기록을 수정할 수 없습니다.'
-          : '주간 기록을 저장했습니다. 제출 전까지 다시 수정할 수 있습니다.',
-      });
-      setLoadState((current) =>
-        current.status === 'success' ? {...current, weekly: nextWeekly} : current,
-      );
+      setLoadState({status: 'success', weekly: nextWeekly});
       setFormChecks(normalizeWeekChecks(nextWeekly));
       setLateMinutesText(String(Math.max(0, nextWeekly.saturdayLateMinutes)));
-      await loadDevotion();
+      setScreenMode(submit ? 'locked' : 'entry');
+      setSaveFeedback(submit ? '제출 완료' : '임시저장 완료');
+      if (submit) {
+        setSubmitConfirmVisible(false);
+      }
     } catch (error) {
+      if (submit) {
+        setSubmitConfirmVisible(false);
+      }
       const apiError = toApiError(
         error,
         submit ? '경건생활을 제출하지 못했습니다.' : '경건생활을 저장하지 못했습니다.',
@@ -239,288 +220,486 @@ export function DevotionScreen({onBackToHome, setAuthState, setNotice, state}: D
     }
   };
 
-  if (loadState.status !== 'success') {
-    if (loadState.status === 'error') {
-      return (
-        <DevotionErrorState
-          error={loadState.error}
-          onRetry={loadDevotion}
-        />
-      );
+  const requestSubmitConfirm = () => {
+    if (!canRequestWeeklySubmit({invalidLateMinutes, locked, saving: Boolean(savingAction)})) {
+      return;
     }
 
-    return <Loading message="경건생활 주간 기록과 월간 통계를 불러오고 있어요." />;
-  }
+    setActionError(null);
+    setSubmitConfirmVisible(true);
+  };
 
-  const weekly = loadState.weekly;
-  const monthly = loadState.monthly;
+  const cancelSubmitConfirm = () => {
+    if (savingAction) {
+      return;
+    }
+
+    setSubmitConfirmVisible(false);
+  };
 
   return (
-    <>
-      <Card>
-        <Eyebrow>월간 기록</Eyebrow>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Chip label={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`} tone="info" />
-            <Title>월간 캘린더</Title>
-            <Body>주차별 제출 여부와 이번 달 경건생활 요약을 확인합니다.</Body>
-          </View>
-          <Button
-            accessibilityLabel="경건생활에서 홈으로 이동"
-            onPress={onBackToHome}
-            variant="ghost">
-            홈
-          </Button>
+    <View style={styles.screen}>
+      <View style={styles.header}>
+        <View style={styles.campusChip}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.campusChipText}>
+            {state.selectedCampus.region} {state.selectedCampus.campusName}
+          </Text>
         </View>
-        <View style={styles.monthControls}>
-          <Button
-            accessibilityLabel="이전 달 경건생활 보기"
-            onPress={() => moveMonth(-1)}
-            variant="secondary">
-            이전
-          </Button>
-          <Text style={styles.monthTitle}>{visibleMonth.year}년 {visibleMonth.month}월</Text>
-          <Button
-            accessibilityLabel="다음 달 경건생활 보기"
-            onPress={() => moveMonth(1)}
-            variant="secondary">
-            다음
-          </Button>
-        </View>
-        {monthly.weeklyRecords.length === 0 ? (
-          <Empty
-            title="월간 기록이 없습니다"
-            message="아직 이 달에 조회된 주간 경건 기록이 없습니다."
-          />
-        ) : (
-          <MonthCalendar
-            monthly={monthly}
-            onSelectDate={selectDate}
-            selectedDate={selectedDate}
-            visibleMonth={visibleMonth}
-          />
-        )}
-        <View style={styles.metaGrid}>
-          <ListRow
-            label="큐티"
-            supportingText="월간 합계"
-            value={`${monthly.devotion.quietTimeCount}회`}
-          />
-          <ListRow
-            label="기도"
-            supportingText="월간 합계"
-            value={`${monthly.devotion.prayerCount}회`}
-          />
-          <ListRow
-            label="말씀"
-            supportingText="월간 합계"
-            value={`${monthly.devotion.bibleReadingCount}회`}
-          />
-        </View>
-      </Card>
-
-      <Card>
-        <Eyebrow>주간 기록</Eyebrow>
-        <Title>경건생활</Title>
-        <Body>
-          {formatShortDate(weekly.weekStartDate)} - {formatShortDate(weekly.weekEndDate)} 주차입니다.
-        </Body>
-        <View style={styles.weekSummary}>
-          <Chip label="벌금 기준 5일" tone="info" />
-          <Chip
-            label={locked ? '제출 완료' : '제출 전'}
-            tone={locked ? 'success' : 'warning'}
-          />
-        </View>
-        <Body>
-          현재 큐티 {weekly.quietTimeCount}/{REQUIRED_DAYS} · 기도 {weekly.prayerCount}/{REQUIRED_DAYS} · 말씀 {weekly.bibleReadingCount}/{REQUIRED_DAYS}
-        </Body>
-      </Card>
-
-      {locked ? (
-        <Conflict
-          title="제출 완료된 주차입니다"
-          message="제출 후에는 하루 기록과 주간 저장을 수정할 수 없습니다. 수정이 필요하면 관리자에게 문의해 주세요."
-        />
-      ) : null}
+        <Text style={styles.title}>{title}</Text>
+      </View>
 
       {actionError ? <DevotionActionError error={actionError} onRetry={loadDevotion} /> : null}
 
-      {submitComplete || locked ? (
-        <Card>
-          <Eyebrow>제출 상태</Eyebrow>
-          <Title>{locked ? '제출이 완료됐어요' : '제출 처리 완료'}</Title>
-          <Body>제출 완료 후에는 이 주차 입력을 잠급니다.</Body>
-        </Card>
-      ) : null}
+      {locked && screenMode === 'penalty' ? (
+        <PenaltyResultView
+          onBackToLocked={() => setScreenMode('locked')}
+          onOpenPayments={onOpenPayments}
+          penaltySummary={penaltySummary}
+        />
+      ) : locked ? (
+        <LockedView
+          formChecks={formChecks}
+          moveWeek={moveWeek}
+          onBackToHome={onBackToHome}
+          onOpenPenalty={() => setScreenMode('penalty')}
+          penaltySummary={penaltySummary}
+          weekly={weekly}
+        />
+      ) : (
+        <EntryView
+          counts={counts}
+          formChecks={formChecks}
+          invalidLateMinutes={invalidLateMinutes}
+          lateMinutesText={lateMinutesText}
+          moveWeek={moveWeek}
+          onLateMinutesChange={(value) => {
+            setActionError(null);
+            setLateMinutesText(value.replace(/[^\d]/g, '').slice(0, 4));
+          }}
+          onSaveWeek={saveWeek}
+          onRequestSubmit={requestSubmitConfirm}
+          penaltySummary={penaltySummary}
+          saveFeedback={saveFeedback}
+          savingAction={savingAction}
+          selectedWeekStart={selectedWeekStart}
+          toggleCheck={toggleCheck}
+          weekly={weekly}
+        />
+      )}
 
-      {savingAction === 'submit' ? (
-        <Card>
-          <Eyebrow>제출 상태</Eyebrow>
-          <Title>제출 처리 중</Title>
-          <Body>주간 기록을 제출하고 있어요. 완료 전까지 화면을 닫지 말아 주세요.</Body>
-        </Card>
-      ) : null}
+      <SubmitConfirmModal
+        estimatedAmountText={getSubmitConfirmAmountText(penaltySummary)}
+        onCancel={cancelSubmitConfirm}
+        onConfirm={() => void saveWeek(true)}
+        submitting={savingAction === 'submit'}
+        visible={!locked && submitConfirmVisible}
+      />
+    </View>
+  );
+}
 
-      <Card>
-        <Eyebrow>7일 기록</Eyebrow>
-        <Title>한 주 입력</Title>
-        <Body>각 날짜의 큐티, 기도, 말씀을 체크하고 하루 저장 또는 주간 저장을 할 수 있어요.</Body>
-        <View style={styles.dayList}>
-          {formChecks.map((check, index) => (
-            <DayCheckRow
-              check={check}
-              disabled={locked || Boolean(savingAction)}
-              key={check.recordDate}
-              label={DAY_LABELS[index] ?? ''}
-              onToggle={toggleCheck}
-              selected={check.recordDate === selectedDate}
-              onSelect={() => selectDate(check.recordDate)}
-            />
-          ))}
+function EntryView({
+  counts,
+  formChecks,
+  invalidLateMinutes,
+  lateMinutesText,
+  moveWeek,
+  onLateMinutesChange,
+  onRequestSubmit,
+  onSaveWeek,
+  penaltySummary,
+  saveFeedback,
+  savingAction,
+  selectedWeekStart,
+  toggleCheck,
+  weekly,
+}: {
+  counts: ReturnType<typeof getCurrentCounts>;
+  formChecks: DailyFormCheck[];
+  invalidLateMinutes: boolean;
+  lateMinutesText: string;
+  moveWeek: (direction: -1 | 1) => void;
+  onLateMinutesChange: (value: string) => void;
+  onRequestSubmit: () => void;
+  onSaveWeek: (submit: boolean) => void;
+  penaltySummary: DevotionPenaltySummary;
+  saveFeedback: string | null;
+  savingAction: SavingAction;
+  selectedWeekStart: string;
+  toggleCheck: (recordDate: string, field: DevotionCheckField) => void;
+  weekly: WeeklyDevotionSummary;
+}) {
+  return (
+    <>
+      <View style={styles.weekCard}>
+        <View style={styles.weekRangeRow}>
+          <Pressable
+            accessibilityLabel="이전 주 경건생활 보기"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => moveWeek(-1)}>
+            <Text style={styles.chevron}>〈</Text>
+          </Pressable>
+          <Text style={styles.weekRangeText}>
+            {formatKoreanRange(selectedWeekStart, weekly.weekEndDate)}
+          </Text>
+          <Pressable
+            accessibilityLabel="다음 주 경건생활 보기"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => moveWeek(1)}>
+            <Text style={styles.chevron}>〉</Text>
+          </Pressable>
         </View>
-      </Card>
+        <View style={styles.weekRuleRow}>
+          <Text style={styles.weekRuleText}>벌금 기준 {REQUIRED_DAYS}일</Text>
+          <Text style={styles.weekRuleText}>{REQUIRED_DAYS}일 채우면 벌금 없음</Text>
+        </View>
+        <Text style={styles.weekSummaryText}>
+          현재 큐티 {counts.quietTime}/{REQUIRED_DAYS} · 기도 {counts.prayer}/{REQUIRED_DAYS} · 말씀{' '}
+          {counts.bibleReading}/{REQUIRED_DAYS}
+        </Text>
+      </View>
 
-      <Card>
-        <Eyebrow>빠른 체크</Eyebrow>
-        <Title>{formatShortDate(selectedDate)} 기록</Title>
-        {selectedDateInCurrentWeek && selectedCheck ? (
-          <>
-            <Body>캘린더나 주간 목록에서 선택한 날짜를 하루 단위로 저장합니다.</Body>
-            <View style={styles.quickActions}>
-              {DEVOTION_FIELD_LABELS.map(([field, label]) => (
-                <CheckPill
-                  checked={selectedCheck[field]}
-                  disabled={locked || Boolean(savingAction)}
-                  key={field}
-                  label={label}
-                  onPress={() => toggleCheck(selectedCheck.recordDate, field)}
-                />
-              ))}
-            </View>
-            <Button
-              accessibilityLabel="선택한 날짜 하루 체크 저장"
-              disabled={locked || Boolean(savingAction)}
-              onPress={saveSelectedDay}
-              variant="secondary">
-              {savingAction === 'daily' ? '저장 중...' : '하루 저장'}
-            </Button>
-          </>
-        ) : (
-          <Body>현재 선택한 날짜는 표시 중인 주차 밖입니다. 주간 목록에서 날짜를 선택해 주세요.</Body>
-        )}
-      </Card>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>7일 기록</Text>
+        <Text style={styles.sectionDescription}>스크롤해서 한 주 기록을 모두 입력해요</Text>
+      </View>
 
-      <Card>
-        <Eyebrow>제출 전 확인</Eyebrow>
-        <Title>제출 전 확인</Title>
-        <Body>벌금 금액은 서버의 벌금 규칙과 계좌 설정을 기준으로 제출 시 확정됩니다.</Body>
-        <View style={styles.lateMinutesRow}>
-          <View style={styles.lateMinutesText}>
-            <Text style={styles.lateMinutesLabel}>토요 목자 모임 지각</Text>
-            <Text style={styles.lateMinutesHelp}>0 이상 정수만 입력합니다.</Text>
-          </View>
-          <TextInput
-            accessibilityLabel="토요 목자 모임 지각 분 입력"
-            editable={!locked && !savingAction}
-            keyboardType="number-pad"
-            onChangeText={(value) => {
-              setSubmitComplete(false);
-              setActionError(null);
-              setLateMinutesText(value.replace(/[^\d]/g, '').slice(0, 4));
-            }}
-            placeholder="0"
-            placeholderTextColor={colors.subtleText}
-            style={[styles.lateMinutesInput, invalidLateMinutes ? styles.inputError : null]}
-            value={lateMinutesText}
+      <View style={styles.dayList}>
+        {formChecks.map((check, index) => (
+          <DayCheckRow
+            check={check}
+            disabled={Boolean(savingAction)}
+            key={check.recordDate}
+            label={DAY_LABELS[index] ?? ''}
+            onToggle={toggleCheck}
+            weekend={index >= 5}
           />
+        ))}
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>토요 지각</Text>
+        <Text style={styles.sectionDescription}>지각한 시간이 있다면 분 단위로 입력해요</Text>
+      </View>
+
+      <View style={styles.lateCard}>
+        <View style={styles.lateText}>
+          <Text style={styles.cardTitle}>지각 시간</Text>
+          <Text style={styles.bodyText}>토요 모임 지각 분</Text>
         </View>
-        {invalidLateMinutes ? (
-          <Text style={styles.fieldError}>saturdayLateMinutes는 0 이상이어야 합니다.</Text>
+        <TextInput
+          accessibilityLabel="토요 목자 모임 지각 분 입력"
+          keyboardType="number-pad"
+          onChangeText={onLateMinutesChange}
+          placeholder="0"
+          placeholderTextColor={colors.textMuted}
+          style={[styles.lateInput, invalidLateMinutes ? styles.inputError : null]}
+          value={lateMinutesText}
+        />
+      </View>
+      {invalidLateMinutes ? (
+        <Text style={styles.fieldError}>지각 시간은 0 이상 정수만 입력할 수 있어요.</Text>
+      ) : null}
+
+      <View style={styles.submitCard}>
+        <View style={styles.submitSummary}>
+          <Text style={styles.bodyText}>벌금 결과</Text>
+          <Text style={styles.submitSummaryValue}>
+            {getPenaltySummaryAmountText(penaltySummary)}
+          </Text>
+        </View>
+        <Text style={styles.captionText}>{getPenaltySummaryCaption(penaltySummary)}</Text>
+        <PenaltyPreviewRows penaltySummary={penaltySummary} />
+        {saveFeedback ? (
+          <Text accessibilityLiveRegion="polite" style={styles.inlineStatus}>
+            {saveFeedback}
+          </Text>
         ) : null}
-        <View style={styles.metaGrid}>
-          <ListRow label="기준 미달 항목" supportingText="5일 기준" value={`${missingSummary.missingTypes}개`} />
-          <ListRow label="부족 체크 합계" supportingText="큐티/기도/말씀 부족분" value={`${missingSummary.missingCount}회`} />
-          <ListRow label="지각 분" supportingText="별도 벌금 항목" value={`${lateMinutes ?? 0}분`} />
-        </View>
         <View style={styles.actionRow}>
-          <Button
+          <Pressable
             accessibilityLabel="경건생활 주간 임시저장"
-            disabled={locked || Boolean(savingAction) || invalidLateMinutes}
-            onPress={() => void saveWeek(false)}
-            variant="secondary">
-            {savingAction === 'draft' ? '저장 중...' : '임시저장'}
-          </Button>
-          <Button
+            accessibilityRole="button"
+            accessibilityState={{disabled: Boolean(savingAction) || invalidLateMinutes}}
+            disabled={Boolean(savingAction) || invalidLateMinutes}
+            onPress={() => onSaveWeek(false)}
+            style={({pressed}) => [
+              styles.secondaryButton,
+              Boolean(savingAction) || invalidLateMinutes ? styles.disabled : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={styles.secondaryButtonText}>
+              {savingAction === 'draft' ? '저장 중' : '임시저장'}
+            </Text>
+          </Pressable>
+          <Pressable
             accessibilityLabel="경건생활 주간 제출"
-            disabled={locked || Boolean(savingAction) || invalidLateMinutes}
-            onPress={() => void saveWeek(true)}>
-            {savingAction === 'submit' ? '제출 중...' : '제출하기'}
-          </Button>
+            accessibilityRole="button"
+            accessibilityState={{disabled: Boolean(savingAction) || invalidLateMinutes}}
+            disabled={Boolean(savingAction) || invalidLateMinutes}
+            onPress={onRequestSubmit}
+            style={({pressed}) => [
+              styles.primaryButton,
+              Boolean(savingAction) || invalidLateMinutes ? styles.disabled : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={styles.primaryButtonText}>
+              {savingAction === 'submit' ? '제출 중' : '제출하기'}
+            </Text>
+          </Pressable>
         </View>
-      </Card>
+      </View>
     </>
   );
 }
 
-function MonthCalendar({
-  monthly,
-  onSelectDate,
-  selectedDate,
-  visibleMonth,
-}: {
-  monthly: DevotionMonthlySummary;
-  onSelectDate: (date: string) => void;
-  selectedDate: string;
-  visibleMonth: {year: number; month: number};
-}) {
-  const cells = getMonthCells(visibleMonth.year, visibleMonth.month);
-
+function PenaltyPreviewRows({penaltySummary}: {penaltySummary: DevotionPenaltySummary}) {
   return (
-    <View style={styles.calendar}>
-      <View style={styles.weekdayRow}>
-        {DAY_LABELS.map((label) => (
-          <Text key={label} style={styles.weekdayLabel}>{label}</Text>
-        ))}
-      </View>
-      <View style={styles.calendarGrid}>
-        {cells.map((cell) => {
-          const weekRecord = monthly.weeklyRecords.find((record) =>
-            isDateWithin(cell.date, record.weekStartDate, record.weekEndDate),
-          );
-          const activeMonth = cell.month === visibleMonth.month;
-          const selected = cell.date === selectedDate;
-          const completeCount = weekRecord
-            ? Math.min(
-                3,
-                Number(weekRecord.quietTimeCount >= REQUIRED_DAYS) +
-                  Number(weekRecord.prayerCount >= REQUIRED_DAYS) +
-                  Number(weekRecord.bibleReadingCount >= REQUIRED_DAYS),
-              )
-            : 0;
+    <View style={styles.penaltyPreviewList}>
+      {penaltySummary.rows.map((row) => (
+        <View key={row.key} style={styles.penaltyPreviewRow}>
+          <View style={styles.penaltyPreviewText}>
+            <Text style={styles.penaltyPreviewLabel}>{row.label}</Text>
+            <Text style={styles.penaltyPreviewSupporting}>{row.supportingText}</Text>
+          </View>
+          <Text
+            style={[
+              styles.penaltyPreviewAmount,
+              row.amount && row.amount > 0 ? styles.dangerText : null,
+            ]}>
+            {getPenaltyRowAmountText(penaltySummary, row)}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
 
-          return (
+function SubmitConfirmModal({
+  estimatedAmountText,
+  onCancel,
+  onConfirm,
+  submitting,
+  visible,
+}: {
+  estimatedAmountText: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  submitting: boolean;
+  visible: boolean;
+}) {
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={submitting ? undefined : onCancel}
+      transparent
+      visible={visible}>
+      <View style={styles.modalBackdrop}>
+        <View
+          accessibilityLabel="주간 경건생활 제출 확인"
+          accessibilityRole="alert"
+          style={styles.modalCard}>
+          <Text style={styles.modalTitle}>제출 후에는 수정할 수 없어요</Text>
+          <Text style={styles.modalDescription}>
+            이번 주 경건생활을 제출하면 체크 기록과 지각 시간이 잠기고, 벌금 계산 기준으로
+            사용됩니다.{estimatedAmountText ? ` 예상 벌금은 ${estimatedAmountText}입니다.` : ''}
+          </Text>
+          <View style={styles.modalActionRow}>
             <Pressable
-              accessibilityLabel={`${cell.day}일 경건 주차 선택`}
+              accessibilityLabel="주간 경건생활 제출 취소"
               accessibilityRole="button"
-              key={cell.date}
-              onPress={() => onSelectDate(cell.date)}
-              style={[
-                styles.calendarCell,
-                !activeMonth ? styles.calendarCellMuted : null,
-                selected ? styles.calendarCellSelected : null,
+              accessibilityState={{disabled: submitting}}
+              disabled={submitting}
+              onPress={onCancel}
+              style={({pressed}) => [
+                styles.modalSecondaryButton,
+                submitting ? styles.disabled : null,
+                pressed ? styles.pressed : null,
               ]}>
-              <Text style={[styles.calendarDay, selected ? styles.calendarDaySelected : null]}>
-                {cell.day}
-              </Text>
-              <Text style={styles.calendarCount}>
-                {weekRecord?.submittedAt ? '제출' : `${completeCount}개`}
+              <Text style={styles.modalSecondaryButtonText}>다시 확인하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="주간 경건생활 제출 확정"
+              accessibilityRole="button"
+              accessibilityState={{disabled: submitting}}
+              disabled={submitting}
+              onPress={onConfirm}
+              style={({pressed}) => [
+                styles.modalPrimaryButton,
+                submitting ? styles.disabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.modalPrimaryButtonText}>
+                {submitting ? '제출 중' : '제출하기'}
               </Text>
             </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function LockedView({
+  formChecks,
+  moveWeek,
+  onBackToHome,
+  onOpenPenalty,
+  penaltySummary,
+  weekly,
+}: {
+  formChecks: DailyFormCheck[];
+  moveWeek: (direction: -1 | 1) => void;
+  onBackToHome: () => void;
+  onOpenPenalty: () => void;
+  penaltySummary: DevotionPenaltySummary;
+  weekly: WeeklyDevotionSummary;
+}) {
+  return (
+    <>
+      <View style={styles.weekCard}>
+        <View style={styles.weekRangeRow}>
+          <Pressable
+            accessibilityLabel="이전 주 경건생활 보기"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => moveWeek(-1)}>
+            <Text style={styles.chevron}>〈</Text>
+          </Pressable>
+          <Text style={styles.weekRangeText}>{formatWeekTitle(weekly.weekStartDate)} 제출 완료</Text>
+          <Pressable
+            accessibilityLabel="다음 주 경건생활 보기"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => moveWeek(1)}>
+            <Text style={styles.chevron}>〉</Text>
+          </Pressable>
+        </View>
+        <View style={styles.weekRuleRow}>
+          <Text style={styles.weekRuleText}>제출 완료</Text>
+          <Text style={styles.weekRuleText}>입력 잠김</Text>
+        </View>
+      </View>
+
+      <View style={styles.lockCard}>
+        <View style={styles.lockCardHeader}>
+          <Text style={styles.lockTitle}>기록 잠김</Text>
+          <View style={styles.statusPill}>
+            <Text style={styles.statusPillText}>잠김</Text>
+          </View>
+        </View>
+        <Text style={styles.bodyText}>제출 후에는 이번 주 기록을 수정할 수 없어요.</Text>
+      </View>
+
+      <View style={styles.lockedDayStrip}>
+        {formChecks.map((check, index) => {
+          const complete = isDevotionDayComplete(check);
+
+          return (
+            <View key={check.recordDate} style={[styles.lockedDay, complete ? styles.lockedDayDone : null]}>
+              <Text style={[styles.lockedDayText, complete ? styles.lockedDayTextDone : null]}>
+                {DAY_LABELS[index] ?? ''}
+              </Text>
+              <Text style={styles.lockedDayCheck}>{complete ? '완료' : '-'}</Text>
+            </View>
           );
         })}
       </View>
-    </View>
+
+      <View style={styles.infoList}>
+        <InfoRow
+          label="제출 시간"
+          supportingText={weekly.submittedAt ? `${formatSubmittedAt(weekly.submittedAt)} 저장` : '제출 완료'}
+          value="완료"
+          valueTone="faith"
+        />
+      </View>
+
+      <View style={styles.submitCard}>
+        <View style={styles.submitSummary}>
+          <Text style={styles.bodyText}>벌금 결과</Text>
+          <Text style={styles.submitSummaryValue}>
+            {getPenaltySummaryAmountText(penaltySummary)}
+          </Text>
+        </View>
+        <Text style={styles.captionText}>{getPenaltySummaryCaption(penaltySummary)}</Text>
+        <PenaltyPreviewRows penaltySummary={penaltySummary} />
+        <View style={styles.actionRow}>
+          <Pressable
+            accessibilityLabel="홈으로 돌아가기"
+            accessibilityRole="button"
+            onPress={onBackToHome}
+            style={({pressed}) => [styles.secondaryButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.secondaryButtonText}>홈으로</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="경건생활 벌금 결과 보기"
+            accessibilityRole="button"
+            onPress={onOpenPenalty}
+            style={({pressed}) => [styles.primaryButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.primaryButtonText}>결과 보기</Text>
+          </Pressable>
+        </View>
+      </View>
+    </>
+  );
+}
+
+function PenaltyResultView({
+  onBackToLocked,
+  onOpenPayments,
+  penaltySummary,
+}: {
+  onBackToLocked: () => void;
+  onOpenPayments: () => void;
+  penaltySummary: DevotionPenaltySummary;
+}) {
+  return (
+    <>
+      <View style={styles.lockCard}>
+        <View style={styles.lockCardHeader}>
+          <Text style={styles.lockTitle}>
+            {penaltySummary.missingTypes > 0 ? '청구 확인 필요' : '이번 주 기준 충족'}
+          </Text>
+          <View style={styles.statusPill}>
+            <Text style={[styles.statusPillText, penaltySummary.missingTypes > 0 ? styles.dangerText : null]}>
+              결과
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.bodyText}>
+          제출 기준 예상 벌금 {getPenaltyResultAmountText(penaltySummary)}
+        </Text>
+      </View>
+
+      <View style={styles.infoList}>
+        {penaltySummary.rows.map((row) => (
+          <InfoRow
+            key={row.key}
+            label={row.label}
+            supportingText={row.supportingText}
+            value={getPenaltyRowAmountText(penaltySummary, row)}
+            valueTone={row.amount && row.amount > 0 ? 'danger' : 'faith'}
+          />
+        ))}
+      </View>
+
+      <Pressable
+        accessibilityLabel="납부 탭에서 청구 상세 보기"
+        accessibilityRole="button"
+        onPress={onOpenPayments}
+        style={({pressed}) => [styles.fullButton, pressed ? styles.pressed : null]}>
+        <Text style={styles.primaryButtonText}>청구 상세 보기</Text>
+      </Pressable>
+      <Pressable
+        accessibilityLabel="경건생활 제출 상태로 돌아가기"
+        accessibilityRole="button"
+        onPress={onBackToLocked}
+        style={({pressed}) => [styles.linkButton, pressed ? styles.pressed : null]}>
+        <Text style={styles.linkButtonText}>제출 상태 보기</Text>
+      </Pressable>
+    </>
   );
 }
 
@@ -528,31 +707,22 @@ function DayCheckRow({
   check,
   disabled,
   label,
-  onSelect,
   onToggle,
-  selected,
+  weekend,
 }: {
   check: DailyFormCheck;
   disabled: boolean;
   label: string;
-  onSelect: () => void;
-  onToggle: (
-    recordDate: string,
-    field: 'quietTimeChecked' | 'prayerChecked' | 'bibleReadingChecked',
-  ) => void;
-  selected: boolean;
+  onToggle: (recordDate: string, field: DevotionCheckField) => void;
+  weekend: boolean;
 }) {
   return (
-    <Pressable
-      accessibilityLabel={`${label}요일 ${formatShortDate(check.recordDate)} 선택`}
-      accessibilityRole="button"
-      onPress={onSelect}
-      style={[styles.dayRow, selected ? styles.dayRowSelected : null]}>
+    <View style={[styles.dayRow, weekend ? styles.weekendDayRow : null]}>
       <View style={styles.dayMeta}>
-        <Text style={[styles.dayLabel, selected ? styles.dayLabelSelected : null]}>{label}</Text>
+        <Text style={[styles.dayLabel, weekend ? styles.weekendDayLabel : null]}>{label}</Text>
         <Text style={styles.dayDate}>{formatShortDate(check.recordDate)}</Text>
       </View>
-      <View style={styles.checkPillRow}>
+      <View style={styles.pillRow}>
         {DEVOTION_FIELD_LABELS.map(([field, fieldLabel]) => (
           <CheckPill
             checked={check[field]}
@@ -563,7 +733,7 @@ function DayCheckRow({
           />
         ))}
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -592,13 +762,93 @@ function CheckPill({
         pressed ? styles.pressed : null,
       ]}>
       <View style={styles.checkPillContent}>
-        {checked ? <IconexIcon color={colors.surface} name="check" size={14} strokeWidth={2.4} /> : null}
+        {checked ? <IconexIcon color={colors.surface} name="check" size={12} strokeWidth={2.4} /> : null}
         <Text style={[styles.checkPillText, checked ? styles.checkPillTextChecked : null]}>
           {label}
         </Text>
       </View>
     </Pressable>
   );
+}
+
+function InfoRow({
+  label,
+  supportingText,
+  value,
+  valueTone,
+}: {
+  label: string;
+  supportingText: string;
+  value: string;
+  valueTone: 'danger' | 'faith' | 'muted';
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.infoText}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoSupporting}>{supportingText}</Text>
+      </View>
+      <View style={styles.infoPill}>
+        <Text
+          style={[
+            styles.infoPillText,
+            valueTone === 'danger' ? styles.dangerText : null,
+            valueTone === 'muted' ? styles.mutedText : null,
+          ]}>
+          {value}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function getPenaltySummaryAmountText(penaltySummary: DevotionPenaltySummary) {
+  if (penaltySummary.amountStatus !== 'ready') {
+    return '규칙 확인 필요';
+  }
+
+  return `예상 ${formatWon(penaltySummary.totalEstimatedAmount ?? 0)}`;
+}
+
+function getPenaltySummaryCaption(penaltySummary: DevotionPenaltySummary) {
+  if (penaltySummary.amountStatus === 'rulesEmpty') {
+    return '활성 벌금 규칙을 불러오지 못했어요.';
+  }
+
+  if (penaltySummary.amountStatus === 'rulesUnavailable') {
+    return '벌금 규칙을 불러오지 못했어요.';
+  }
+
+  return penaltySummary.totalEstimatedAmount && penaltySummary.totalEstimatedAmount > 0
+    ? '현재 입력값 기준 예상 금액이에요.'
+    : '현재 입력값 기준 벌금 없음';
+}
+
+function getPenaltyResultAmountText(penaltySummary: DevotionPenaltySummary) {
+  if (penaltySummary.amountStatus !== 'ready') {
+    return '규칙 확인 필요';
+  }
+
+  return formatWon(penaltySummary.totalEstimatedAmount ?? 0);
+}
+
+function getPenaltyRowAmountText(
+  penaltySummary: DevotionPenaltySummary,
+  row: DevotionPenaltySummary['rows'][number],
+) {
+  if (penaltySummary.amountStatus !== 'ready') {
+    return '규칙 확인';
+  }
+
+  return formatWon(row.amount ?? 0);
+}
+
+function getSubmitConfirmAmountText(penaltySummary: DevotionPenaltySummary) {
+  if (penaltySummary.amountStatus !== 'ready') {
+    return null;
+  }
+
+  return formatWon(penaltySummary.totalEstimatedAmount ?? 0);
 }
 
 function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
@@ -612,12 +862,13 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
 
   switch (error.kind) {
     case 'sessionExpired':
+    case 'error':
       return (
         <ErrorState
           title={presentation.title}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="경건생활 세션 오류 후 다시 시도"
+          actionAccessibilityLabel="경건생활 오류 후 다시 시도"
           onActionPress={onRetry}
         />
       );
@@ -651,34 +902,12 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
           onActionPress={onRetry}
         />
       );
-    case 'error':
-      return (
-        <ErrorState
-          title={presentation.title}
-          message={presentation.message}
-          actionLabel={presentation.actionLabel}
-          actionAccessibilityLabel="경건생활 일반 오류 후 다시 시도"
-          onActionPress={onRetry}
-        />
-      );
     default:
       return assertNever(error.kind);
   }
 }
 
 function DevotionActionError({error, onRetry}: {error: ApiError; onRetry: () => void}) {
-  if (error.code === 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING') {
-    return (
-      <PermissionDenied
-        title="벌금 입금 계좌가 필요합니다"
-        message="제출은 서버 벌금 계좌 설정이 필요합니다. 관리자에게 PENALTY 계좌 설정을 요청해 주세요."
-        actionLabel="상태 다시 확인"
-        actionAccessibilityLabel="벌금 계좌 누락 후 경건생활 다시 확인"
-        onActionPress={onRetry}
-      />
-    );
-  }
-
   if (error.code === 'DEVOTION_WEEKLY_ALREADY_SUBMITTED') {
     return (
       <Conflict
@@ -730,8 +959,8 @@ function normalizeWeekChecks(weekly: WeeklyDevotionSummary): DailyFormCheck[] {
   });
 }
 
-function getMissingSummary(checks: DailyFormCheck[], lateMinutes: number) {
-  const counts = checks.reduce(
+function getCurrentCounts(checks: DailyFormCheck[]) {
+  return checks.reduce(
     (accumulator, check) => ({
       quietTime: accumulator.quietTime + Number(check.quietTimeChecked),
       prayer: accumulator.prayer + Number(check.prayerChecked),
@@ -739,16 +968,10 @@ function getMissingSummary(checks: DailyFormCheck[], lateMinutes: number) {
     }),
     {quietTime: 0, prayer: 0, bibleReading: 0},
   );
-  const deficits = [
-    Math.max(0, REQUIRED_DAYS - counts.quietTime),
-    Math.max(0, REQUIRED_DAYS - counts.prayer),
-    Math.max(0, REQUIRED_DAYS - counts.bibleReading),
-  ];
+}
 
-  return {
-    missingTypes: deficits.filter((value) => value > 0).length + Number(lateMinutes > 0),
-    missingCount: deficits.reduce((sum, value) => sum + value, 0),
-  };
+function isDevotionDayComplete(check: DailyFormCheck) {
+  return check.quietTimeChecked && check.prayerChecked && check.bibleReadingChecked;
 }
 
 function parseLateMinutes(value: string) {
@@ -765,34 +988,6 @@ function parseLateMinutes(value: string) {
   return parsed;
 }
 
-function getMonthCells(year: number, month: number) {
-  const firstDay = new Date(year, month - 1, 1);
-  const start = new Date(firstDay);
-  const day = start.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diff);
-
-  return Array.from({length: 42}, (_, index) => {
-    const date = addDays(start, index);
-
-    return {
-      date: formatLocalDate(date),
-      day: date.getDate(),
-      month: date.getMonth() + 1,
-    };
-  });
-}
-
-function isDateWithin(date: string, start: string, end: string) {
-  return date >= start && date <= end;
-}
-
-function shiftYearMonth(current: {year: number; month: number}, direction: -1 | 1) {
-  const date = new Date(current.year, current.month - 1 + direction, 1);
-
-  return getYearMonth(date);
-}
-
 function getWeekStartDate(date: Date) {
   const start = new Date(date);
   const day = start.getDay();
@@ -800,13 +995,6 @@ function getWeekStartDate(date: Date) {
   start.setDate(start.getDate() + diff);
 
   return formatLocalDate(start);
-}
-
-function getYearMonth(date: Date) {
-  return {
-    year: date.getFullYear(),
-    month: date.getMonth() + 1,
-  };
 }
 
 function parseDate(value: string) {
@@ -834,6 +1022,35 @@ function formatShortDate(value: string) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
+function formatKoreanRange(startValue: string, endValue: string) {
+  const start = parseDate(startValue);
+  const end = parseDate(endValue);
+
+  return `${start.getMonth() + 1}월 ${start.getDate()}일 - ${end.getMonth() + 1}월 ${end.getDate()}일`;
+}
+
+function formatWeekTitle(startValue: string) {
+  const start = parseDate(startValue);
+
+  return `${start.getMonth() + 1}월 ${Math.ceil(start.getDate() / 7)}주차`;
+}
+
+function formatSubmittedAt(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+
+  return `${year}.${month}.${day} ${hour}:${minute}`;
+}
+
 function toApiError(error: unknown, fallback: string): ApiError {
   if (error instanceof FaithLogApiError) {
     return error.detail;
@@ -848,59 +1065,49 @@ function assertNever(value: never): never {
 
 const styles = StyleSheet.create({
   actionRow: {
-    gap: 10,
-    marginTop: 6,
-  },
-  calendar: {
-    gap: 10,
-  },
-  calendarCell: {
-    alignItems: 'center',
-    borderColor: colors.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 2,
-    minHeight: 48,
-    justifyContent: 'center',
-    width: '13.1%',
-  },
-  calendarCellMuted: {
-    opacity: 0.4,
-  },
-  calendarCellSelected: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
-  },
-  calendarCount: {
-    color: colors.mutedText,
-    flexWrap: 'wrap',
-    fontSize: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  calendarDay: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  calendarDaySelected: {
-    color: colors.primary,
-  },
-  calendarGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
+    gap: 10,
+    marginTop: 10,
+  },
+  bodyText: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  campusChip: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    justifyContent: 'center',
+    maxWidth: '100%',
+    minHeight: 30,
+    paddingHorizontal: 10,
+  },
+  campusChipText: {
+    color: colors.faith,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: 220,
+  },
+  captionText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  cardTitle: {
+    ...typography.cardTitle,
+    color: colors.textPrimary,
   },
   checkPill: {
     alignItems: 'center',
-    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
     borderRadius: 10,
     borderWidth: 1,
+    height: 30,
     justifyContent: 'center',
-    minHeight: 34,
-    minWidth: 62,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    width: 62,
   },
   checkPillChecked: {
     backgroundColor: colors.primary,
@@ -909,157 +1116,470 @@ const styles = StyleSheet.create({
   checkPillContent: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 5,
+    gap: 3,
     justifyContent: 'center',
     minWidth: 0,
   },
-  checkPillRow: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'flex-end',
-    minWidth: 0,
-  },
   checkPillText: {
-    color: colors.text,
-    flexShrink: 1,
-    flexWrap: 'wrap',
-    fontSize: 15,
+    color: colors.textPrimary,
+    fontSize: 11,
     fontWeight: '600',
+    lineHeight: 14,
     textAlign: 'center',
   },
   checkPillTextChecked: {
     color: colors.surface,
   },
+  chevron: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 26,
+  },
+  dangerText: {
+    color: colors.danger,
+  },
   dayDate: {
-    color: colors.mutedText,
-    fontSize: 15,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
   },
   dayLabel: {
-    color: colors.text,
+    color: colors.textPrimary,
     fontSize: 16,
-    fontWeight: '700',
-  },
-  dayLabelSelected: {
-    color: colors.teal,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   dayList: {
     gap: 10,
   },
   dayMeta: {
-    minWidth: 54,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    minWidth: 72,
   },
   dayRow: {
     alignItems: 'center',
-    borderColor: colors.border,
-    borderRadius: radius.item,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.gap,
-    padding: 12,
-  },
-  dayRowSelected: {
-    backgroundColor: colors.tealSoft,
-    borderColor: colors.teal,
+    gap: 8,
+    minHeight: 56,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   disabled: {
-    opacity: 0.45,
+    opacity: 0.52,
   },
   fieldError: {
     color: colors.danger,
-    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  fullButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    height: 48,
+    justifyContent: 'center',
+    marginTop: 116,
+  },
+  header: {
+    gap: 14,
+  },
+  infoLabel: {
+    color: colors.textPrimary,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
+    lineHeight: 21,
   },
-  headerRow: {
-    alignItems: 'flex-start',
-    gap: spacing.gap,
+  infoList: {
+    gap: 12,
   },
-  headerText: {
-    gap: spacing.gap,
+  infoPill: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  infoPillText: {
+    color: colors.faith,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  infoRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 72,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  infoSupporting: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  infoText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  inlineStatus: {
+    color: colors.faith,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   inputError: {
     borderColor: colors.danger,
   },
-  lateMinutesHelp: {
-    color: colors.mutedText,
-    flexWrap: 'wrap',
-    fontSize: 15,
-  },
-  lateMinutesInput: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '600',
-    minHeight: 44,
-    paddingHorizontal: 12,
-    textAlign: 'center',
-    width: 72,
-  },
-  lateMinutesLabel: {
-    color: colors.text,
-    flexWrap: 'wrap',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  lateMinutesRow: {
+  lateCard: {
     alignItems: 'center',
-    backgroundColor: colors.tealSoft,
-    borderColor: colors.border,
-    borderRadius: radius.item,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.gap,
-    padding: 14,
+    justifyContent: 'space-between',
+    minHeight: 76,
+    paddingHorizontal: 20,
   },
-  lateMinutesText: {
+  lateInput: {
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
+    height: 38,
+    textAlign: 'center',
+    width: 96,
+  },
+  lateText: {
     flex: 1,
     gap: 4,
     minWidth: 0,
   },
-  metaGrid: {
-    gap: 8,
+  linkButton: {
+    alignItems: 'center',
+    height: 42,
+    justifyContent: 'center',
   },
-  monthControls: {
+  linkButtonText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  lockCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    gap: 14,
+    minHeight: 102,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+  },
+  lockCardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  lockTitle: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 24,
+  },
+  lockedDay: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    height: 64,
+    justifyContent: 'center',
+    width: 42,
+  },
+  lockedDayCheck: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  lockedDayDone: {
+    backgroundColor: colors.borderSoft,
+  },
+  lockedDayStrip: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  lockedDayText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  lockedDayTextDone: {
+    color: colors.primary,
+  },
+  mutedText: {
+    color: colors.textMuted,
+  },
+  penaltyPreviewAmount: {
+    color: colors.faith,
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    textAlign: 'right',
+  },
+  penaltyPreviewLabel: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  penaltyPreviewList: {
+    borderColor: colors.borderSoft,
+    borderTopWidth: 1,
+    gap: 8,
+    paddingTop: 10,
+  },
+  penaltyPreviewRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
     justifyContent: 'space-between',
+    minHeight: 34,
   },
-  monthTitle: {
-    color: colors.text,
+  penaltyPreviewSupporting: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  penaltyPreviewText: {
     flex: 1,
-    flexWrap: 'wrap',
-    fontSize: 16,
+    gap: 1,
+    minWidth: 0,
+  },
+  modalActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(25, 31, 40, 0.28)',
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 16,
+    maxWidth: 342,
+    padding: 20,
+    width: '100%',
+  },
+  modalDescription: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  modalPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    flex: 1,
+    height: 46,
+    justifyContent: 'center',
+  },
+  modalPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  modalSecondaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    height: 46,
+    justifyContent: 'center',
+  },
+  modalSecondaryButtonText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  modalTitle: {
+    color: colors.textPrimary,
+    fontSize: 17,
     fontWeight: '700',
-    textAlign: 'center',
+    lineHeight: 24,
+  },
+  pillRow: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
+    minWidth: 0,
   },
   pressed: {
-    opacity: 0.8,
+    opacity: 0.78,
   },
-  quickActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  weekdayLabel: {
-    color: colors.mutedText,
+  primaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 14,
     flex: 1,
+    height: 48,
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: colors.surface,
     fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  screen: {
+    backgroundColor: colors.background,
+    gap: 20,
+    marginHorizontal: -24,
+    marginTop: -28,
+    minHeight: 736,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    paddingTop: 30,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    height: 48,
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  sectionDescription: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  sectionHeader: {
+    gap: 4,
+    marginTop: 20,
+  },
+  sectionTitle: {
+    color: colors.textPrimary,
+    fontSize: 20,
     fontWeight: '700',
+    lineHeight: 28,
+  },
+  statusPill: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    height: 28,
+    justifyContent: 'center',
+    width: 72,
+  },
+  statusPillText: {
+    color: colors.faith,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  submitCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  submitSummary: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  submitSummaryValue: {
+    color: colors.danger,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  title: {
+    ...typography.screenTitle,
+    color: colors.textPrimary,
+  },
+  weekCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    gap: 12,
+    minHeight: 112,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+  },
+  weekendDayLabel: {
+    color: colors.faith,
+  },
+  weekendDayRow: {
+    backgroundColor: colors.borderSoft,
+    borderColor: colors.mint,
+  },
+  weekRangeRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  weekRangeText: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    lineHeight: 26,
     textAlign: 'center',
   },
-  weekdayRow: {
+  weekRuleRow: {
     flexDirection: 'row',
-    gap: 5,
+    justifyContent: 'space-around',
   },
-  weekSummary: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  weekRuleText: {
+    color: colors.faith,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  weekSummaryText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });
