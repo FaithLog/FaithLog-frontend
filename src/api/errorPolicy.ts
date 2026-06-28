@@ -13,6 +13,7 @@ export type ApiErrorPresentationOptions = {
   conflictTitle?: string;
   defaultMessage?: string;
   defaultTitle?: string;
+  exposeValidationMessage?: boolean;
   permissionMessage?: string;
   permissionTitle?: string;
 };
@@ -55,6 +56,19 @@ export function getApiErrorPresentation(
   options: ApiErrorPresentationOptions = {},
 ): ApiErrorPresentation {
   const base = getBasePresentation(error);
+
+  if (
+    options.exposeValidationMessage === true &&
+    error.kind === 'error' &&
+    (error.status === 400 || error.status === 422) &&
+    error.message.trim()
+  ) {
+    return {
+      ...base,
+      message: error.message,
+      actionLabel: options.actionLabel ?? base.actionLabel,
+    };
+  }
 
   if (error.kind === 'conflict') {
     return {

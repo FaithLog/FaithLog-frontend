@@ -24,6 +24,7 @@ const jsonHeaders = {
 };
 
 const missingMockFixture = Symbol('missingMockFixture');
+const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
 
 export async function executeMockRequest(path: string, init: RequestInit): Promise<Response> {
   const scenario = getMockScenario();
@@ -39,7 +40,7 @@ export async function executeMockRequest(path: string, init: RequestInit): Promi
   }
 
   const route = toMockRoute(path, init.method);
-  const data = resolveMockData(route);
+  const data = resolveMockData(route, init.body);
 
   if (data === missingMockFixture) {
     return jsonResponse(
@@ -117,7 +118,7 @@ function toMockRoute(path: string, method = 'GET'): MockRoute {
   };
 }
 
-function resolveMockData(route: MockRoute): unknown {
+function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
   const path = withoutApiPrefix(route.pathname);
   const {admin, auth, billing, campus, devotion, notification, poll, prayer} =
     mockDomainFixtures;
@@ -186,7 +187,9 @@ function resolveMockData(route: MockRoute): unknown {
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls$/.test(path)) return poll.summaries;
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+$/.test(path)) {
-    return poll.detail;
+    const pollId = getLastPathNumber(path);
+
+    return poll.details.find((detail) => detail.id === pollId) ?? poll.detail;
   }
   if (
     route.method === 'PUT' &&
@@ -195,7 +198,9 @@ function resolveMockData(route: MockRoute): unknown {
     return poll.response;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+\/results$/.test(path)) {
-    return poll.results;
+    const pollId = getPathNumberBeforeSuffix(path, 'results');
+
+    return poll.resultsByPollId.find((results) => results.pollId === pollId) ?? poll.results;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+\/comments$/.test(path)) {
     return poll.comments;
@@ -210,7 +215,7 @@ function resolveMockData(route: MockRoute): unknown {
     return null;
   }
   if (route.method === 'GET' && /^\/admin\/campuses\/\d+\/poll-templates$/.test(path)) {
-    return [createMockAdminPollTemplate()];
+    return [...mockCreatedPollTemplates, ...createMockAdminPollTemplates()];
   }
   if (
     route.method === 'GET' &&
@@ -222,7 +227,32 @@ function resolveMockData(route: MockRoute): unknown {
     (route.method === 'POST' || route.method === 'PATCH' || route.method === 'DELETE') &&
     /^\/admin\/campuses\/\d+\/poll-templates(\/\d+)?$/.test(path)
   ) {
-    return createMockAdminPollTemplate();
+    const request = parseMockJsonBody(body);
+    const template = {
+      ...createMockAdminPollTemplate(),
+      ...(typeof request === 'object' && request !== null ? request : {}),
+      id:
+        route.method === 'POST'
+          ? 900 + mockCreatedPollTemplates.length
+          : (getLastPathNumber(path) ?? 801),
+      isActive: route.method !== 'DELETE',
+      isDefault: false,
+    };
+
+    if (route.method === 'POST') {
+      mockCreatedPollTemplates.unshift(template);
+    }
+
+    if (route.method === 'PATCH') {
+      const targetId = getLastPathNumber(path);
+      const targetIndex = mockCreatedPollTemplates.findIndex((item) => item.id === targetId);
+
+      if (targetIndex >= 0) {
+        mockCreatedPollTemplates[targetIndex] = template;
+      }
+    }
+
+    return template;
   }
   if (route.method === 'POST' && /^\/admin\/campuses\/\d+\/polls$/.test(path)) {
     return {
@@ -356,6 +386,65 @@ function createMockAdminPollTemplate() {
     isDefault: true,
     isActive: true,
   };
+}
+
+function createMockAdminPollTemplates() {
+  const coffeeTemplate = createMockAdminPollTemplate();
+
+  return [
+    {
+      ...coffeeTemplate,
+      id: 801,
+      title: '수요예배 참석',
+      pollType: 'WEDNESDAY',
+      chargeGenerationType: 'NONE',
+      paymentCategory: null,
+      paymentAccountId: null,
+      startDayOfWeek: 1,
+      startTime: '09:00:00',
+      endDayOfWeek: 3,
+      endTime: '18:00:00',
+      options: mockDomainFixtures.poll.details.find((detail) => detail.id === 703)?.options ?? [],
+    },
+    {
+      ...coffeeTemplate,
+      id: 802,
+      title: '토요 목자모임',
+      pollType: 'SATURDAY',
+      chargeGenerationType: 'NONE',
+      paymentCategory: null,
+      paymentAccountId: null,
+      startDayOfWeek: 4,
+      startTime: '09:00:00',
+      endDayOfWeek: 6,
+      endTime: '09:00:00',
+      options: mockDomainFixtures.poll.details.find((detail) => detail.id === 704)?.options ?? [],
+    },
+  ];
+}
+
+function getLastPathNumber(path: string) {
+  const match = path.match(/\/(\d+)$/);
+
+  return match ? Number(match[1]) : null;
+}
+
+function parseMockJsonBody(body?: BodyInit | null) {
+  if (typeof body !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function getPathNumberBeforeSuffix(path: string, suffix: string) {
+  const match = path.match(new RegExp(`/([0-9]+)/${suffix}$`));
+
+  return match ? Number(match[1]) : null;
 }
 
 function withoutApiPrefix(pathname: string) {

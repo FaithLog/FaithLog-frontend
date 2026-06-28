@@ -198,12 +198,51 @@ const chargeList: ChargeList = {
 const pollSummary: PollSummary = {
   id: 701,
   campusId: 1,
-  title: '샘플 커피 투표',
+  title: '커피 주문 투표',
   pollType: 'COFFEE',
   selectionType: 'SINGLE',
   isAnonymous: false,
   startsAt: '2026-06-25T09:00:00.000Z',
   endsAt: '2026-06-26T09:00:00.000Z',
+  status: 'OPEN',
+  responded: false,
+};
+
+const customPollSummary: PollSummary = {
+  id: 702,
+  campusId: 1,
+  title: '간식 메뉴 투표',
+  pollType: 'CUSTOM',
+  selectionType: 'MULTIPLE',
+  isAnonymous: false,
+  startsAt: '2026-06-25T09:00:00.000Z',
+  endsAt: '2026-06-27T09:00:00.000Z',
+  status: 'OPEN',
+  responded: false,
+};
+
+const wednesdayPollSummary: PollSummary = {
+  id: 703,
+  campusId: 1,
+  title: '수요예배 참석 투표',
+  pollType: 'WEDNESDAY',
+  selectionType: 'SINGLE',
+  isAnonymous: false,
+  startsAt: '2026-06-24T09:00:00.000Z',
+  endsAt: '2026-06-24T18:00:00.000Z',
+  status: 'CLOSED',
+  responded: true,
+};
+
+const saturdayPollSummary: PollSummary = {
+  id: 704,
+  campusId: 1,
+  title: '토요 목자모임 참석',
+  pollType: 'SATURDAY',
+  selectionType: 'SINGLE',
+  isAnonymous: false,
+  startsAt: '2026-06-26T09:00:00.000Z',
+  endsAt: '2026-06-27T09:00:00.000Z',
   status: 'OPEN',
   responded: false,
 };
@@ -221,6 +260,121 @@ const pollDetail: PollDetail = {
       composeMenuCode: 'AMERICANO',
       priceAmount: 4500,
       sortOrder: 1,
+    },
+    {
+      id: 902,
+      content: '카페라떼',
+      composeMenuCode: 'LATTE',
+      priceAmount: 5000,
+      sortOrder: 2,
+    },
+  ],
+  myResponse: null,
+};
+
+const customPollDetail: PollDetail = {
+  ...customPollSummary,
+  templateId: null,
+  chargeGenerationType: 'NONE',
+  paymentCategory: null,
+  paymentAccountId: null,
+  options: [
+    {
+      id: 911,
+      content: '떡볶이',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 1,
+    },
+    {
+      id: 912,
+      content: '치킨',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 2,
+    },
+    {
+      id: 913,
+      content: '피자',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 3,
+    },
+  ],
+  myResponse: null,
+};
+
+const wednesdayPollDetail: PollDetail = {
+  ...wednesdayPollSummary,
+  templateId: 802,
+  chargeGenerationType: 'NONE',
+  paymentCategory: null,
+  paymentAccountId: null,
+  options: [
+    {
+      id: 921,
+      content: '참석',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 1,
+    },
+    {
+      id: 922,
+      content: '불참',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 2,
+    },
+    {
+      id: 923,
+      content: '미정',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 3,
+    },
+  ],
+  myResponse: {
+    responseId: 10003,
+    pollId: 703,
+    optionIds: [921],
+    respondedAt: '2026-06-24T12:00:00.000Z',
+  },
+};
+
+const saturdayPollDetail: PollDetail = {
+  ...saturdayPollSummary,
+  templateId: 803,
+  chargeGenerationType: 'NONE',
+  paymentCategory: null,
+  paymentAccountId: null,
+  options: [
+    {
+      id: 931,
+      content: '참석',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 1,
+    },
+    {
+      id: 932,
+      content: '불참',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 2,
+    },
+    {
+      id: 933,
+      content: '지각',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 3,
+    },
+    {
+      id: 934,
+      content: '미정',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 4,
     },
   ],
   myResponse: null,
@@ -440,22 +594,35 @@ export const mockDomainFixtures = {
         priceAmount: 4500,
         category: 'COFFEE',
       },
+      {
+        id: 2,
+        brandId: 1,
+        menuCode: 'LATTE',
+        name: '카페라떼',
+        priceAmount: 5000,
+        category: 'COFFEE',
+      },
     ] satisfies CoffeeMenu[],
   },
   poll: {
-    summaries: [pollSummary] satisfies PollSummary[],
+    summaries: [
+      wednesdayPollSummary,
+      saturdayPollSummary,
+      pollSummary,
+      customPollSummary,
+    ] satisfies PollSummary[],
     detail: pollDetail,
+    details: [pollDetail, customPollDetail, wednesdayPollDetail, saturdayPollDetail] satisfies PollDetail[],
     response: {
       responseId: 10001,
       pollId: 701,
       optionIds: [901],
-      memo: 'Mock fixture 응답',
       respondedAt: '2026-06-25T09:30:00.000Z',
     } satisfies PollResponse,
     results: {
       pollId: 701,
       campusId: 1,
-      title: '샘플 커피 투표',
+      title: '커피 주문 투표',
       pollType: 'COFFEE',
       selectionType: 'SINGLE',
       anonymous: false,
@@ -479,8 +646,108 @@ export const mockDomainFixtures = {
             },
           ],
         },
+        {
+          id: 902,
+          content: '카페라떼',
+          sortOrder: 2,
+          responseCount: 0,
+          respondents: [],
+        },
       ],
     } satisfies PollResults,
+    resultsByPollId: [
+      {
+        pollId: 702,
+        campusId: 1,
+        title: '간식 메뉴 투표',
+        pollType: 'CUSTOM',
+        selectionType: 'MULTIPLE',
+        anonymous: false,
+        status: 'OPEN',
+        startsAt: '2026-06-25T09:00:00.000Z',
+        endsAt: '2026-06-27T09:00:00.000Z',
+        targetMemberCount: 25,
+        respondedCount: 5,
+        notRespondedCount: 20,
+        optionResults: [
+          {
+            id: 911,
+            content: '떡볶이',
+            sortOrder: 1,
+            responseCount: 2,
+            respondents: [
+              {userId: 7, name: '김민준', email: 'faithlog.user@example.test'},
+              {userId: 8, name: '박지훈', email: 'faithlog.member2@example.test'},
+            ],
+          },
+          {
+            id: 912,
+            content: '치킨',
+            sortOrder: 2,
+            responseCount: 2,
+            respondents: [
+              {userId: 9, name: '이승욱', email: 'faithlog.member3@example.test'},
+              {userId: 10, name: '최윤서', email: 'faithlog.member4@example.test'},
+            ],
+          },
+          {
+            id: 913,
+            content: '피자',
+            sortOrder: 3,
+            responseCount: 1,
+            respondents: [
+              {userId: 11, name: '정하은', email: 'faithlog.member5@example.test'},
+            ],
+          },
+        ],
+      },
+      {
+        pollId: 703,
+        campusId: 1,
+        title: '수요예배 참석 투표',
+        pollType: 'WEDNESDAY',
+        selectionType: 'SINGLE',
+        anonymous: false,
+        status: 'CLOSED',
+        startsAt: '2026-06-24T09:00:00.000Z',
+        endsAt: '2026-06-24T18:00:00.000Z',
+        targetMemberCount: 25,
+        respondedCount: 25,
+        notRespondedCount: 0,
+        optionResults: [
+          {
+            id: 921,
+            content: '참석',
+            sortOrder: 1,
+            responseCount: 18,
+            respondents: [
+              {userId: 7, name: '김민준', email: 'faithlog.user@example.test'},
+              {userId: 9, name: '이승욱', email: 'faithlog.member3@example.test'},
+              {userId: 11, name: '정하은', email: 'faithlog.member5@example.test'},
+              {userId: 10, name: '최윤서', email: 'faithlog.member4@example.test'},
+            ],
+          },
+          {
+            id: 922,
+            content: '불참',
+            sortOrder: 2,
+            responseCount: 5,
+            respondents: [
+              {userId: 8, name: '박지훈', email: 'faithlog.member2@example.test'},
+            ],
+          },
+          {
+            id: 923,
+            content: '미정',
+            sortOrder: 3,
+            responseCount: 2,
+            respondents: [
+              {userId: 12, name: '임도윤', email: 'faithlog.member6@example.test'},
+            ],
+          },
+        ],
+      },
+    ] satisfies PollResults[],
     comments: [
       {
         commentId: 3001,

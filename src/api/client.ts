@@ -84,6 +84,7 @@ import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 
 type RequestOptions = {
   accessToken?: string;
+  exposeServerErrorMessage?: boolean;
   skipAuthRefresh?: boolean;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
@@ -870,7 +871,11 @@ function toAdminNotificationRequest(body: AdminNotificationRequest): AdminNotifi
   };
 }
 
-function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnvelope<unknown>>): ApiError {
+function normalizeApiError(
+  status: number | undefined,
+  envelope?: Partial<ApiEnvelope<unknown>>,
+  options: {exposeServerErrorMessage?: boolean} = {},
+): ApiError {
   const code = typeof envelope?.code === 'string' ? envelope.code : undefined;
   const unsafeError = compactApiError({
     kind: status === 401 ? 'sessionExpired' : status === 403 ? 'permissionDenied' : status === 409 ? 'conflict' : 'error',
@@ -878,7 +883,8 @@ function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnv
     code,
     message: '요청을 처리하지 못했습니다.',
   });
-  const message = getSafeApiErrorMessage(unsafeError);
+  const exposedMessage = getExposedServerErrorMessage(status, envelope, options);
+  const message = exposedMessage ?? getSafeApiErrorMessage(unsafeError);
 
   if (status === 401) {
     return compactApiError({kind: 'sessionExpired', status, code, message});
@@ -893,6 +899,25 @@ function normalizeApiError(status: number | undefined, envelope?: Partial<ApiEnv
   }
 
   return compactApiError({kind: 'error', status, code, message});
+}
+
+function getExposedServerErrorMessage(
+  status: number | undefined,
+  envelope: Partial<ApiEnvelope<unknown>> | undefined,
+  options: {exposeServerErrorMessage?: boolean},
+) {
+  if (options.exposeServerErrorMessage !== true || status !== 400 && status !== 422) {
+    return null;
+  }
+
+  const serverMessage = typeof envelope?.message === 'string' ? envelope.message.trim() : '';
+  const serverCode = typeof envelope?.code === 'string' ? envelope.code.trim() : '';
+
+  if (!serverMessage) {
+    return null;
+  }
+
+  return serverCode ? `${serverMessage} (${serverCode})` : serverMessage;
 }
 
 function compactApiError(error: {
@@ -949,7 +974,10 @@ async function parseJson(response: Response): Promise<unknown> {
   }
 }
 
-async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
+async function parseEnvelope<T>(
+  response: Response,
+  options: {exposeServerErrorMessage?: boolean} = {},
+): Promise<ApiEnvelope<T>> {
   const payload = await parseJson(response);
 
   if (response.ok && response.status === 204 && payload === null) {
@@ -964,7 +992,7 @@ async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
 
   if (!isApiEnvelope<T>(payload)) {
     if (!response.ok) {
-      throw new FaithLogApiError(normalizeApiError(response.status));
+      throw new FaithLogApiError(normalizeApiError(response.status, undefined, options));
     }
 
     throw new FaithLogApiError({
@@ -975,7 +1003,7 @@ async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   }
 
   if (!response.ok || !payload.success) {
-    throw new FaithLogApiError(normalizeApiError(response.status, payload));
+    throw new FaithLogApiError(normalizeApiError(response.status, payload, options));
   }
 
   return payload;
@@ -983,8 +1011,9 @@ async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
 
 async function executeApiRequest<T>(
   path: string,
-  {accessToken, method = 'GET', body}: RequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<T> {
+  const {accessToken, method = 'GET', body} = options;
   const init: RequestInit = {
     method,
     headers: {
@@ -997,7 +1026,12 @@ async function executeApiRequest<T>(
   const response = isMockModeEnabled()
     ? await executeMockRequest(path, init)
     : await fetch(buildApiUrl(path), init);
-  const envelope = await parseEnvelope<T>(response);
+  const envelope = await parseEnvelope<T>(
+    response,
+    options.exposeServerErrorMessage === undefined
+      ? {}
+      : {exposeServerErrorMessage: options.exposeServerErrorMessage},
+  );
 
   return envelope.data as T;
 }

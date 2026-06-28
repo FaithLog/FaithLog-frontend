@@ -110,6 +110,48 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('keeps validation response messages hidden unless the caller opts in', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        422,
+        envelope(null, {
+          success: false,
+          code: 'VALIDATION_ERROR',
+          message: 'server validation detail',
+        }),
+      ),
+    );
+
+    await expect(apiRequest('/users/me')).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'error', status: 422, code: 'VALIDATION_ERROR'});
+      expect((error as FaithLogApiError).detail.message).not.toContain('server validation detail');
+      return true;
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        422,
+        envelope(null, {
+          success: false,
+          code: 'VALIDATION_ERROR',
+          message: 'server validation detail',
+        }),
+      ),
+    );
+
+    await expect(
+      apiRequest('/users/me', {exposeServerErrorMessage: true}),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        status: 422,
+        code: 'VALIDATION_ERROR',
+        message: 'server validation detail (VALIDATION_ERROR)',
+      });
+      return true;
+    });
+  });
+
   it('rejects invalid success envelopes as a safe client error', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, {data: {id: 1}}));
 

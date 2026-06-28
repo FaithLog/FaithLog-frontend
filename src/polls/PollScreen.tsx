@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import {
@@ -87,16 +87,14 @@ const RESPONSE_ERROR_CODES = new Set([
   'POLL_RESPONSE_INVALID_SELECTION_COUNT',
 ]);
 const COMMENT_MAX_LENGTH = 500;
-const MEMO_MAX_LENGTH = 200;
 
-export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
+export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [listState, setListState] = useState<ListState>({status: 'loading'});
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   const [detailState, setDetailState] = useState<DetailState>({status: 'idle'});
   const [detailTab, setDetailTab] = useState<DetailTab>('response');
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
-  const [memo, setMemo] = useState('');
   const [commentContent, setCommentContent] = useState('');
   const [editingComment, setEditingComment] = useState<PollComment | null>(null);
   const [actionState, setActionState] = useState<ActionState>(null);
@@ -148,7 +146,6 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
         coffeeCatalog,
       });
       setSelectedOptionIds(detail.myResponse?.optionIds ?? []);
-      setMemo((detail.myResponse?.memo ?? '').slice(0, MEMO_MAX_LENGTH));
       setDetailTab(tab);
     } catch (error) {
       const apiError = toApiError(error, '투표 상세를 불러오지 못했습니다.');
@@ -176,13 +173,6 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
   };
 
   const activeDetail = detailState.status === 'success' ? detailState.detail : null;
-  const selectedOptions = useMemo(
-    () =>
-      activeDetail
-        ? activeDetail.options.filter((option) => selectedOptionIds.includes(option.id))
-        : [],
-    [activeDetail, selectedOptionIds],
-  );
 
   const toggleOption = (optionId: number) => {
     if (!activeDetail || activeDetail.status !== 'OPEN' || actionState) {
@@ -224,14 +214,6 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
 
       await savePollResponse(accessToken, campusId, activeDetail.id, {
         optionIds: selectedOptionIds,
-        memo: memo.trim().slice(0, MEMO_MAX_LENGTH),
-      });
-      setNotice({
-        tone: 'success',
-        title: '투표 응답 저장',
-        message: selectedOptions.length > 0
-          ? `${selectedOptions.map((option) => option.content).join(', ')} 응답을 저장했습니다.`
-          : '투표 응답을 저장했습니다.',
       });
       await loadDetail(activeDetail.id, 'results');
       await loadPolls();
@@ -267,7 +249,6 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
 
       await createPollComment(accessToken, campusId, activeDetail.id, {content});
       setCommentContent('');
-      setNotice({tone: 'success', title: '댓글 작성', message: '댓글을 등록했습니다.'});
       await loadDetail(activeDetail.id, 'comments');
     } catch (error) {
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
@@ -304,7 +285,6 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
       });
       setEditingComment(null);
       setCommentContent('');
-      setNotice({tone: 'success', title: '댓글 수정', message: '댓글을 수정했습니다.'});
       await loadDetail(activeDetail.id, 'comments');
     } catch (error) {
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
@@ -330,7 +310,6 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
       }
 
       await deletePollComment(accessToken, campusId, activeDetail.id, comment.commentId);
-      setNotice({tone: 'success', title: '댓글 삭제', message: '댓글을 삭제했습니다.'});
       await loadDetail(activeDetail.id, 'comments');
     } catch (error) {
       const apiError = toApiError(error, '댓글을 삭제하지 못했습니다.');
@@ -371,11 +350,10 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
             actionState={actionState}
             coffeeCatalog={detailState.coffeeCatalog}
             detail={detailState.detail}
-            memo={memo}
-            onMemoChange={(value) => setMemo(value.slice(0, MEMO_MAX_LENGTH))}
             onRetryCoffeeCatalog={() => loadDetail(detailState.detail.id, detailTab)}
             onSubmit={submitResponse}
             onToggleOption={toggleOption}
+            results={detailState.results}
             selectedOptionIds={selectedOptionIds}
           />
         ) : null}
@@ -465,6 +443,17 @@ export function PollScreen({setAuthState, setNotice, state}: PollScreenProps) {
                 <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
               ))
           )}
+          {listState.polls.filter((poll) => poll.status !== 'OPEN').length > 0 ? (
+            <>
+              <Text style={styles.figmaSectionTitle}>마감된 투표</Text>
+              {listState.polls
+                .filter((poll) => poll.status !== 'OPEN')
+                .slice(0, 2)
+                .map((poll) => (
+                  <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+                ))}
+            </>
+          ) : null}
         </>
       )}
     </View>
@@ -562,21 +551,19 @@ function ResponsePanel({
   actionState,
   coffeeCatalog,
   detail,
-  memo,
-  onMemoChange,
   onRetryCoffeeCatalog,
   onSubmit,
   onToggleOption,
+  results,
   selectedOptionIds,
 }: {
   actionState: ActionState;
   coffeeCatalog: CoffeeCatalogState;
   detail: PollDetail;
-  memo: string;
-  onMemoChange: (value: string) => void;
   onRetryCoffeeCatalog: () => void;
   onSubmit: () => void;
   onToggleOption: (optionId: number) => void;
+  results: PollResults | null;
   selectedOptionIds: number[];
 }) {
   const isOpen = detail.status === 'OPEN';
@@ -586,6 +573,16 @@ function ResponsePanel({
   return (
     <>
       <Text style={styles.figmaSectionTitle}>응답 선택</Text>
+      {hasResponse ? (
+        <InlineNotice
+          message={
+            isOpen
+              ? '이미 응답했어요. 마감 전까지 선택을 바꾸고 다시 저장할 수 있습니다.'
+              : '마감된 투표라 저장된 응답만 확인할 수 있습니다.'
+          }
+          tone={isOpen ? 'info' : 'warning'}
+        />
+      ) : null}
       {detail.pollType === 'COFFEE' ? (
         <CoffeeCatalogPanel catalog={coffeeCatalog} onRetry={onRetryCoffeeCatalog} />
       ) : null}
@@ -602,6 +599,8 @@ function ResponsePanel({
               detail.pollType === 'COFFEE'
                 ? getCoffeeOptionMeta(option, matchedMenu)
                 : null;
+            const optionResult = results?.optionResults.find((item) => item.id === option.id);
+            const respondentPreview = getRespondentPreview(optionResult);
 
             return (
               <Pressable
@@ -620,22 +619,29 @@ function ResponsePanel({
                 <View style={styles.optionText}>
                   <Text style={styles.optionTitle}>{optionTitle}</Text>
                   {optionMeta ? <Text style={styles.optionMeta}>{optionMeta}</Text> : null}
+                  {respondentPreview ? (
+                    <Text style={styles.optionMeta}>{respondentPreview}</Text>
+                  ) : null}
                 </View>
+                {optionResult ? (
+                  <View
+                    style={[
+                      styles.optionCountPill,
+                      selected ? styles.optionCountPillSelected : null,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.optionCountText,
+                        selected ? styles.optionCountTextSelected : null,
+                      ]}>
+                      {`${optionResult.responseCount}명`}
+                    </Text>
+                  </View>
+                ) : null}
               </Pressable>
             );
           })}
       </View>
-      <Text style={styles.fieldLabel}>메모</Text>
-      <TextInput
-        accessibilityLabel="투표 응답 메모 입력"
-        editable={isOpen && !responding}
-        multiline
-        onChangeText={onMemoChange}
-        placeholder="필요한 메모를 남겨주세요"
-        placeholderTextColor={colors.subtleText}
-        style={styles.multiInput}
-        value={memo}
-      />
       <Button
         accessibilityLabel="투표 응답 저장"
         disabled={!isOpen || responding}
@@ -832,6 +838,7 @@ function ResultsPanel({
             : '아직 저장된 내 응답이 없습니다.'}
         </Body>
       </View>
+      <Text style={styles.figmaSectionTitle}>선택지별 명단</Text>
       {results.optionResults
         .slice()
         .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -866,6 +873,8 @@ function ResultsPanel({
 }
 
 function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary}) {
+  const respondedOrClosed = poll.responded || poll.status !== 'OPEN';
+
   return (
     <Pressable
       accessibilityLabel={`${poll.title} 상세 보기`}
@@ -873,7 +882,11 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
       onPress={onPress}
       style={({pressed}) => [styles.figmaPollRow, pressed ? styles.pressed : null]}>
       <View style={styles.figmaPollIcon}>
-        <IconexIcon color={pollColors.text} name={getPollIcon(poll.pollType)} size={22} />
+        {respondedOrClosed ? (
+          <Text style={styles.figmaPollIconText}>{poll.responded ? '✓' : getPollInitial(poll.pollType)}</Text>
+        ) : (
+          <IconexIcon color={pollColors.text} name={getPollIcon(poll.pollType)} size={22} />
+        )}
       </View>
       <View style={styles.figmaPollText}>
         <Text style={styles.figmaPollTitle}>{poll.title}</Text>
@@ -882,7 +895,9 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
         </Text>
       </View>
       <View style={styles.figmaPollButton}>
-        <Text style={styles.figmaPollButtonText}>{poll.responded ? '보기' : '투표'}</Text>
+        <Text style={styles.figmaPollButtonText}>
+          {poll.responded || poll.status !== 'OPEN' ? '보기' : '투표'}
+        </Text>
       </View>
     </Pressable>
   );
@@ -1228,6 +1243,40 @@ function getPollIcon(type: string): IconexIconName {
   }
 }
 
+function getPollInitial(type: string) {
+  switch (type) {
+    case 'WEDNESDAY':
+      return '수';
+    case 'SATURDAY':
+      return '토';
+    case 'COFFEE':
+      return '커';
+    default:
+      return '커';
+  }
+}
+
+function getRespondentPreview(option: PollResults['optionResults'][number] | undefined) {
+  if (!option || option.responseCount === 0 || option.respondents.length === 0) {
+    return null;
+  }
+
+  const names = option.respondents.slice(0, 2).map((person) => maskKoreanName(person.name));
+  const extraCount = Math.max(0, option.responseCount - names.length);
+
+  return extraCount > 0 ? `${names.join(', ')} 외` : names.join(', ');
+}
+
+function maskKoreanName(name: string) {
+  const trimmed = name.trim();
+
+  if (trimmed.length <= 1) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 1)}OO`;
+}
+
 function getPollStatusLabel(status: string) {
   switch (status) {
     case 'OPEN':
@@ -1238,19 +1287,6 @@ function getPollStatusLabel(status: string) {
       return '예정';
     default:
       return status;
-  }
-}
-
-function getStatusTone(status: string) {
-  switch (status) {
-    case 'OPEN':
-      return 'success';
-    case 'CLOSED':
-      return 'default';
-    case 'SCHEDULED':
-      return 'warning';
-    default:
-      return 'default';
   }
 }
 
@@ -1298,10 +1334,6 @@ function getCoffeeCategoryLabel(category: string) {
     default:
       return category;
   }
-}
-
-function formatDateRange(startsAt: string, endsAt: string) {
-  return `${formatDateTime(startsAt)} - ${formatDateTime(endsAt)}`;
 }
 
 function formatDateTime(value: string) {
@@ -1397,13 +1429,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 2,
   },
-  fieldLabel: {
-    color: pollColors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 6,
-    marginTop: spacing.gap,
-  },
   figmaBackButton: {
     alignItems: 'center',
     backgroundColor: pollColors.chip,
@@ -1451,7 +1476,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   figmaFilterChipActive: {
-    backgroundColor: pollColors.dark,
+    backgroundColor: '#E8F3FF',
   },
   figmaFilterText: {
     color: pollColors.text,
@@ -1459,7 +1484,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   figmaFilterTextActive: {
-    color: pollColors.card,
+    color: colors.primary,
   },
   figmaHeader: {
     alignItems: 'flex-start',
@@ -1472,10 +1497,11 @@ const styles = StyleSheet.create({
   },
   figmaHeroCard: {
     backgroundColor: pollColors.card,
-    borderRadius: 22,
+    borderRadius: 24,
     gap: 10,
-    minHeight: 124,
-    padding: 24,
+    minHeight: 120,
+    paddingHorizontal: 22,
+    paddingVertical: 18,
   },
   figmaHeroMeta: {
     color: pollColors.muted,
@@ -1484,9 +1510,9 @@ const styles = StyleSheet.create({
   },
   figmaHeroTitle: {
     color: pollColors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 27,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 30,
   },
   figmaMutedText: {
     color: pollColors.muted,
@@ -1501,29 +1527,29 @@ const styles = StyleSheet.create({
   },
   figmaPollButton: {
     alignItems: 'center',
-    backgroundColor: pollColors.dark,
+    backgroundColor: '#E8F3FF',
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
     width: 58,
   },
   figmaPollButtonText: {
-    color: pollColors.card,
+    color: colors.primary,
     fontSize: 15,
     fontWeight: '700',
   },
   figmaPollIcon: {
     alignItems: 'center',
     backgroundColor: pollColors.chip,
-    borderRadius: 14,
+    borderRadius: 15,
     height: 42,
     justifyContent: 'center',
     width: 42,
   },
   figmaPollIconText: {
-    color: pollColors.text,
+    color: colors.primary,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   figmaPollMeta: {
     color: pollColors.muted,
@@ -1556,9 +1582,9 @@ const styles = StyleSheet.create({
   },
   figmaSectionTitle: {
     color: pollColors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 23,
+    fontSize: 19,
+    fontWeight: '700',
+    lineHeight: 28,
   },
   figmaSmallChip: {
     alignItems: 'center',
@@ -1631,14 +1657,34 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   optionMarkRadioDot: {
-    backgroundColor: pollColors.text,
+    backgroundColor: colors.primary,
     borderRadius: 5,
     height: 10,
     width: 10,
   },
   optionMarkSelected: {
-    backgroundColor: pollColors.text,
-    borderColor: pollColors.text,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  optionCountPill: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    minWidth: 54,
+    paddingHorizontal: 12,
+  },
+  optionCountPillSelected: {
+    backgroundColor: '#E8F3FF',
+  },
+  optionCountText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  optionCountTextSelected: {
+    color: colors.primary,
   },
   optionMeta: {
     color: colors.mutedText,
@@ -1649,16 +1695,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: pollColors.card,
     borderColor: pollColors.border,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.gap,
-    minHeight: 56,
+    minHeight: 58,
     padding: spacing.gap,
   },
   optionRowSelected: {
-    backgroundColor: pollColors.chip,
-    borderColor: pollColors.border,
+    backgroundColor: pollColors.card,
+    borderColor: colors.primary,
   },
   optionText: {
     flex: 1,
