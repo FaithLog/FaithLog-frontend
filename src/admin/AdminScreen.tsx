@@ -86,6 +86,10 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {
+  getAdminPollsForStatusTab,
+  type AdminPollStatusTab,
+} from './adminPollListVisibility';
+import {
   Body,
   Button,
   Card,
@@ -2192,6 +2196,10 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
   {id: 'COFFEE', label: '커피'},
   {id: 'CUSTOM', label: '커스텀'},
 ];
+const adminPollStatusTabs: Array<{id: AdminPollStatusTab; label: string}> = [
+  {id: 'ongoing', label: '진행중'},
+  {id: 'closed', label: '마감'},
+];
 
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
   {id: 'CUSTOM', label: '커스텀'},
@@ -2287,6 +2295,7 @@ function AdminPollManagement({
   const [createStep, setCreateStep] = useState<AdminPollCreateStep>('type');
   const [templateStep, setTemplateStep] = useState<AdminPollTemplateStep>('info');
   const [pollTypeFilter, setPollTypeFilter] = useState<AdminPollTypeFilter>('ALL');
+  const [pollStatusTab, setPollStatusTab] = useState<AdminPollStatusTab>('ongoing');
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   const [templateForm, setTemplateForm] = useState<AdminPollTemplateForm>(
     emptyAdminPollTemplateForm,
@@ -2381,7 +2390,10 @@ function AdminPollManagement({
     listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
   const accounts =
     listState.status === 'success' || listState.status === 'empty' ? listState.accounts : [];
-  const filteredPolls = filterAdminPollsByType(polls, pollTypeFilter);
+  const filteredPolls = getAdminPollsForStatusTab(
+    filterAdminPollsByType(polls, pollTypeFilter),
+    pollStatusTab,
+  );
   const selectedPoll = selectedPollId
     ? polls.find((poll) => poll.id === selectedPollId) ?? null
     : null;
@@ -2627,6 +2639,7 @@ function AdminPollManagement({
             <AdminPollList
               filter={pollTypeFilter}
               onChangeFilter={setPollTypeFilter}
+              onChangeStatusTab={setPollStatusTab}
               onRefresh={loadPolls}
               onCreateTemplate={startCreateTemplate}
               onManageTemplate={(template) => {
@@ -2641,6 +2654,7 @@ function AdminPollManagement({
               onSelectPoll={selectPoll}
               polls={filteredPolls}
               selectedPollId={selectedPollId}
+              statusTab={pollStatusTab}
               templates={displayTemplates}
             />
           ) : null}
@@ -2757,6 +2771,7 @@ function AdminPollTopActions({
 function AdminPollList({
   filter,
   onChangeFilter,
+  onChangeStatusTab,
   onCreateTemplate,
   onManageTemplate,
   onRefresh,
@@ -2764,10 +2779,12 @@ function AdminPollList({
   onViewResults,
   polls,
   selectedPollId,
+  statusTab,
   templates,
 }: {
   filter: AdminPollTypeFilter;
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
+  onChangeStatusTab: (tab: AdminPollStatusTab) => void;
   onCreateTemplate: () => void;
   onManageTemplate: (template: AdminPollTemplate) => void;
   onRefresh: () => void;
@@ -2775,6 +2792,7 @@ function AdminPollList({
   onViewResults: (poll: PollSummary) => void;
   polls: PollSummary[];
   selectedPollId: number | null;
+  statusTab: AdminPollStatusTab;
   templates: AdminPollTemplate[];
 }) {
   const serverTemplates = templates.filter((template) => !isDefaultCoffeePollTemplate(template));
@@ -2794,13 +2812,24 @@ function AdminPollList({
   return (
     <>
       <View style={styles.pollSectionShell}>
-        <Text style={styles.sectionTitle}>유형별 투표</Text>
+        <Text style={styles.sectionTitle}>투표 목록</Text>
+        <SegmentedControl
+          items={adminPollStatusTabs}
+          selectedId={statusTab}
+          onSelect={onChangeStatusTab}
+        />
         <SegmentedControl
           items={adminPollTypeFilters}
           selectedId={filter}
           onSelect={onChangeFilter}
         />
-        {polls.length === 0 ? <Body>선택한 유형의 투표가 없습니다.</Body> : null}
+        {polls.length === 0 ? (
+          <Body>
+            {statusTab === 'ongoing'
+              ? '선택한 조건의 진행중 투표가 없습니다.'
+              : '선택한 조건의 마감 투표가 없습니다.'}
+          </Body>
+        ) : null}
         {polls.map((poll) => (
           <AdminPollListItem
             accessibilityLabel={`${poll.title} 투표 선택`}

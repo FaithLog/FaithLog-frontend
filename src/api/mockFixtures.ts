@@ -202,8 +202,8 @@ const pollSummary: PollSummary = {
   pollType: 'COFFEE',
   selectionType: 'SINGLE',
   isAnonymous: false,
-  startsAt: '2026-06-25T09:00:00.000Z',
-  endsAt: '2026-06-26T09:00:00.000Z',
+  startsAt: '2026-06-29T09:00:00.000Z',
+  endsAt: '2026-07-02T09:00:00.000Z',
   status: 'OPEN',
   responded: false,
 };
@@ -215,10 +215,10 @@ const customPollSummary: PollSummary = {
   pollType: 'CUSTOM',
   selectionType: 'MULTIPLE',
   isAnonymous: false,
-  startsAt: '2026-06-25T09:00:00.000Z',
-  endsAt: '2026-06-27T09:00:00.000Z',
+  startsAt: '2026-06-29T09:00:00.000Z',
+  endsAt: '2026-07-03T09:00:00.000Z',
   status: 'OPEN',
-  responded: false,
+  responded: true,
 };
 
 const wednesdayPollSummary: PollSummary = {
@@ -229,7 +229,7 @@ const wednesdayPollSummary: PollSummary = {
   selectionType: 'SINGLE',
   isAnonymous: false,
   startsAt: '2026-06-24T09:00:00.000Z',
-  endsAt: '2026-06-24T18:00:00.000Z',
+  endsAt: '2026-06-28T18:00:00.000Z',
   status: 'CLOSED',
   responded: true,
 };
@@ -241,10 +241,23 @@ const saturdayPollSummary: PollSummary = {
   pollType: 'SATURDAY',
   selectionType: 'SINGLE',
   isAnonymous: false,
-  startsAt: '2026-06-26T09:00:00.000Z',
-  endsAt: '2026-06-27T09:00:00.000Z',
+  startsAt: '2026-06-29T09:00:00.000Z',
+  endsAt: '2026-07-04T09:00:00.000Z',
   status: 'OPEN',
   responded: false,
+};
+
+const oldClosedPollSummary: PollSummary = {
+  id: 705,
+  campusId: 1,
+  title: '지난 커스텀 투표',
+  pollType: 'CUSTOM',
+  selectionType: 'SINGLE',
+  isAnonymous: false,
+  startsAt: '2026-06-24T09:00:00.000Z',
+  endsAt: '2026-06-25T09:00:00.000Z',
+  status: 'CLOSED',
+  responded: true,
 };
 
 const pollDetail: PollDetail = {
@@ -378,6 +391,36 @@ const saturdayPollDetail: PollDetail = {
     },
   ],
   myResponse: null,
+};
+
+const oldClosedPollDetail: PollDetail = {
+  ...oldClosedPollSummary,
+  templateId: null,
+  chargeGenerationType: 'NONE',
+  paymentCategory: null,
+  paymentAccountId: null,
+  options: [
+    {
+      id: 951,
+      content: '찬성',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 1,
+    },
+    {
+      id: 952,
+      content: '반대',
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder: 2,
+    },
+  ],
+  myResponse: {
+    responseId: 10004,
+    pollId: 705,
+    optionIds: [951],
+    respondedAt: '2026-06-25T08:30:00.000Z',
+  },
 };
 
 const prayerWeekSummary: PrayerWeekSummary = {
@@ -610,9 +653,16 @@ export const mockDomainFixtures = {
       saturdayPollSummary,
       pollSummary,
       customPollSummary,
+      oldClosedPollSummary,
     ] satisfies PollSummary[],
     detail: pollDetail,
-    details: [pollDetail, customPollDetail, wednesdayPollDetail, saturdayPollDetail] satisfies PollDetail[],
+    details: [
+      pollDetail,
+      customPollDetail,
+      wednesdayPollDetail,
+      saturdayPollDetail,
+      oldClosedPollDetail,
+    ] satisfies PollDetail[],
     response: {
       responseId: 10001,
       pollId: 701,

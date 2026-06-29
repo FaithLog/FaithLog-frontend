@@ -42,6 +42,11 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
+import {
+  getUserPollListGroups,
+  getUserVisiblePollCount,
+  isPollActionable,
+} from './pollListVisibility';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -76,6 +81,7 @@ type DetailState =
   | {status: 'error'; error: ApiError};
 
 type DetailTab = 'response' | 'comments' | 'results';
+type PollListTab = 'active' | 'closed';
 type ActionState = {kind: 'response' | 'comment' | 'edit' | 'delete'; id?: number} | null;
 type CoffeeCatalogState =
   | {status: 'notNeeded'}
@@ -94,6 +100,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   const [detailState, setDetailState] = useState<DetailState>({status: 'idle'});
   const [detailTab, setDetailTab] = useState<DetailTab>('response');
+  const [listTab, setListTab] = useState<PollListTab>('active');
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
   const [commentContent, setCommentContent] = useState('');
   const [editingComment, setEditingComment] = useState<PollComment | null>(null);
@@ -159,9 +166,10 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   }, [campusId]);
 
   const openDetail = (poll: PollSummary) => {
+    const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     setSelectedPollId(poll.id);
-    setDetailTab(poll.responded || poll.status !== 'OPEN' ? 'results' : 'response');
-    void loadDetail(poll.id, poll.responded || poll.status !== 'OPEN' ? 'results' : 'response');
+    setDetailTab(initialTab);
+    void loadDetail(poll.id, initialTab);
   };
 
   const closeDetail = () => {
@@ -175,7 +183,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   const activeDetail = detailState.status === 'success' ? detailState.detail : null;
 
   const toggleOption = (optionId: number) => {
-    if (!activeDetail || activeDetail.status !== 'OPEN' || actionState) {
+    if (!activeDetail || !isPollActionable(activeDetail) || actionState) {
       return;
     }
 
@@ -192,7 +200,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   };
 
   const submitResponse = async () => {
-    if (!activeDetail || actionState || activeDetail.status !== 'OPEN') {
+    if (!activeDetail || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
@@ -227,7 +235,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   };
 
   const submitComment = async () => {
-    if (!activeDetail || actionState || activeDetail.status !== 'OPEN') {
+    if (!activeDetail || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
@@ -260,7 +268,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   };
 
   const submitCommentEdit = async () => {
-    if (!activeDetail || !editingComment || actionState || activeDetail.status !== 'OPEN') {
+    if (!activeDetail || !editingComment || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
@@ -296,7 +304,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   };
 
   const removeComment = async (comment: PollComment) => {
-    if (!activeDetail || actionState || activeDetail.status !== 'OPEN') {
+    if (!activeDetail || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
@@ -364,7 +372,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
             comments={detailState.comments}
             currentUserId={state.user.id}
             editingComment={editingComment}
-            isOpen={detailState.detail.status === 'OPEN'}
+            isOpen={isPollActionable(detailState.detail)}
             onCancelEdit={() => {
               setEditingComment(null);
               setCommentContent('');
@@ -400,23 +408,42 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
     return <Loading message="투표 목록을 불러오고 있어요." />;
   }
 
+  const pollGroups = getUserPollListGroups(listState.polls);
+  const visiblePollCount = getUserVisiblePollCount(pollGroups);
+  const activeTabPollCount =
+    pollGroups.activePolls.length +
+    pollGroups.scheduledPolls.length +
+    pollGroups.respondedPolls.length;
+
   return (
     <View style={styles.figmaScreen}>
       <FigmaScreenHeader
         chip={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`}
         title="투표"
       />
-      <Text style={styles.figmaSectionTitle}>진행 중인 투표</Text>
       <View style={styles.filterRow}>
-        {['전체', '수요', '토요', '커피', '커스텀'].map((label, index) => (
-          <View key={label} style={[styles.figmaFilterChip, index === 0 ? styles.figmaFilterChipActive : null]}>
-            <Text style={[styles.figmaFilterText, index === 0 ? styles.figmaFilterTextActive : null]}>
-              {label}
-            </Text>
-          </View>
-        ))}
+        {[
+          {id: 'active', label: '진행 투표'},
+          {id: 'closed', label: '마감한 투표'},
+        ].map((tab) => {
+          const active = listTab === tab.id;
+
+          return (
+            <Pressable
+              accessibilityLabel={`${tab.label} 탭`}
+              accessibilityRole="tab"
+              accessibilityState={{selected: active}}
+              key={tab.id}
+              onPress={() => setListTab(tab.id as PollListTab)}
+              style={[styles.figmaFilterChip, active ? styles.figmaFilterChipActive : null]}>
+              <Text style={[styles.figmaFilterText, active ? styles.figmaFilterTextActive : null]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
-      {listState.polls.length === 0 ? (
+      {visiblePollCount === 0 ? (
         <Empty
           title="진행 중인 투표가 없어요"
           message="새 투표가 열리면 이곳에서 응답하고 결과를 확인할 수 있어요."
@@ -424,36 +451,44 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
           actionAccessibilityLabel="투표 목록 다시 불러오기"
           onActionPress={loadPolls}
         />
-      ) : (
+      ) : listTab === 'active' ? (
         <>
-          {listState.polls
-            .filter((poll) => poll.status === 'OPEN' && !poll.responded)
-            .slice(0, 4)
-            .map((poll) => (
+          <Text style={styles.figmaSectionTitle}>진행 중인 투표</Text>
+          {activeTabPollCount === 0 ? (
+            <Text style={styles.figmaMutedText}>진행 중인 투표가 없습니다.</Text>
+          ) : null}
+          {pollGroups.activePolls.length > 0 ? (
+            pollGroups.activePolls.slice(0, 4).map((poll) => (
               <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
-            ))}
-          <Text style={styles.figmaSectionTitle}>내가 응답한 투표</Text>
-          {listState.polls.filter((poll) => poll.responded).length === 0 ? (
-            <Text style={styles.figmaMutedText}>아직 응답한 투표가 없습니다.</Text>
-          ) : (
-            listState.polls
-              .filter((poll) => poll.responded)
-              .slice(0, 2)
-              .map((poll) => (
-                <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
-              ))
-          )}
-          {listState.polls.filter((poll) => poll.status !== 'OPEN').length > 0 ? (
+            ))
+          ) : null}
+          {pollGroups.scheduledPolls.length > 0 ? (
             <>
-              <Text style={styles.figmaSectionTitle}>마감된 투표</Text>
-              {listState.polls
-                .filter((poll) => poll.status !== 'OPEN')
-                .slice(0, 2)
-                .map((poll) => (
-                  <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
-                ))}
+              <Text style={styles.figmaSectionTitle}>예정된 투표</Text>
+              {pollGroups.scheduledPolls.slice(0, 2).map((poll) => (
+                <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+              ))}
             </>
           ) : null}
+          <Text style={styles.figmaSectionTitle}>내가 응답한 투표</Text>
+          {pollGroups.respondedPolls.length === 0 ? (
+            <Text style={styles.figmaMutedText}>아직 응답한 투표가 없습니다.</Text>
+          ) : (
+            pollGroups.respondedPolls.slice(0, 2).map((poll) => (
+              <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+            ))
+          )}
+        </>
+      ) : (
+        <>
+          <Text style={styles.figmaSectionTitle}>마감한 투표</Text>
+          {pollGroups.recentlyClosedPolls.length === 0 ? (
+            <Text style={styles.figmaMutedText}>최근 마감한 투표가 없습니다.</Text>
+          ) : (
+            pollGroups.recentlyClosedPolls.slice(0, 6).map((poll) => (
+              <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+            ))
+          )}
         </>
       )}
     </View>
@@ -490,7 +525,7 @@ function PollDetailHeader({
         </Text>
         <View style={styles.figmaSmallChip}>
           <Text style={styles.figmaSmallChipText}>
-            {detail.status === 'OPEN' ? getPollDeadlineLabel(detail.endsAt) : getPollStatusLabel(detail.status)}
+            {isPollActionable(detail) ? getPollDeadlineLabel(detail.endsAt) : getPollStatusLabel('CLOSED')}
           </Text>
         </View>
         <Pressable
@@ -566,7 +601,7 @@ function ResponsePanel({
   results: PollResults | null;
   selectedOptionIds: number[];
 }) {
-  const isOpen = detail.status === 'OPEN';
+  const isOpen = isPollActionable(detail);
   const responding = actionState?.kind === 'response';
   const hasResponse = Boolean(detail.myResponse);
 
