@@ -1,5 +1,14 @@
-import {useEffect, useMemo, useState} from 'react';
-import {ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View} from 'react-native';
+import {useEffect, useMemo, useRef, useState} from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import {
   FaithLogApiError,
@@ -34,6 +43,7 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
+import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -69,6 +79,12 @@ type PaymentActionState =
   | {status: 'complete'; charge: MarkChargePaidResponse}
   | {status: 'error'; error: ApiError};
 
+type AccountCopyFeedback = {
+  accountId: number;
+  message: string;
+  tone: 'success' | 'warning';
+} | null;
+
 const PAGE_SIZE = 20;
 
 const categoryFilters: Array<{label: string; value: CategoryFilter}> = [
@@ -103,6 +119,33 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   const [lastKnownLastPage, setLastKnownLastPage] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<PaymentLoadState>({status: 'loading'});
   const [actionState, setActionState] = useState<PaymentActionState>({status: 'idle'});
+  const [accountCopyFeedback, setAccountCopyFeedback] =
+    useState<AccountCopyFeedback>(null);
+  const accountCopyOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!accountCopyFeedback) {
+      return undefined;
+    }
+
+    accountCopyOpacity.setValue(1);
+    const animation = Animated.timing(accountCopyOpacity, {
+      delay: 1500,
+      duration: 350,
+      toValue: 0,
+      useNativeDriver: true,
+    });
+
+    animation.start(({finished}) => {
+      if (finished) {
+        setAccountCopyFeedback(null);
+      }
+    });
+
+    return () => {
+      animation.stop();
+    };
+  }, [accountCopyFeedback, accountCopyOpacity]);
 
   const loadPayments = async (
     nextPage = page,
@@ -215,6 +258,20 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       setActionState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
     }
+  };
+
+  const copyAccountNumber = async (account: PaymentAccount) => {
+    const copyText = formatAccountClipboardText(account);
+    const result = await copyTextToClipboard(copyText);
+    const copied = result.status === 'copied';
+    const message = copied ? '계좌번호를 복사했습니다.' : result.message;
+
+    setAccountCopyFeedback({
+      accountId: account.id,
+      message: copied ? '복사됨' : '복사 불가',
+      tone: copied ? 'success' : 'warning',
+    });
+    AccessibilityInfo.announceForAccessibility(message);
   };
 
   if (loadState.status === 'error') {
@@ -392,12 +449,31 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         ) : (
           <View style={styles.chargeList}>
             {accounts.map((account) => (
-              <ListRow
-                key={account.id}
-                label={`${getPaymentCategoryLabel(account.accountType)} · ${account.bankName}`}
-                supportingText={`${account.nickname} · ${account.accountHolder}`}
-                value={account.accountNumber}
-              />
+              <View key={account.id} style={styles.accountCopyRow}>
+                <ListRow
+                  accessibilityLabel={`${account.nickname} 계좌번호 복사`}
+                  label={`${getPaymentCategoryLabel(account.accountType)} · ${account.bankName}`}
+                  onPress={() => copyAccountNumber(account)}
+                  supportingText={`${account.nickname} · ${account.accountHolder}`}
+                  value={account.accountNumber}
+                />
+                {accountCopyFeedback?.accountId === account.id ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.accountCopyBadge, {opacity: accountCopyOpacity}]}>
+                    <Text
+                      accessibilityLabel={accountCopyFeedback.message}
+                      style={[
+                        styles.accountCopyHint,
+                        accountCopyFeedback.tone === 'warning'
+                          ? styles.accountCopyHintWarning
+                          : null,
+                      ]}>
+                      {accountCopyFeedback.message}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+              </View>
             ))}
           </View>
         )}
@@ -768,7 +844,7 @@ const styles = StyleSheet.create({
     backgroundColor: paymentColors.dark,
     borderRadius: 12,
     justifyContent: 'center',
-    minHeight: 38,
+    minHeight: 44,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
@@ -804,6 +880,30 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     gap: 12,
     padding: 20,
+  },
+  accountCopyHint: {
+    color: paymentColors.success,
+    flexShrink: 0,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  accountCopyHintWarning: {
+    color: paymentColors.warning,
+  },
+  accountCopyBadge: {
+    backgroundColor: paymentColors.card,
+    borderColor: paymentColors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    position: 'absolute',
+    right: 10,
+    top: 8,
+  },
+  accountCopyRow: {
+    position: 'relative',
   },
   accountMissingPanel: {
     alignItems: 'flex-start',
@@ -945,9 +1045,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: paymentColors.dark,
     borderRadius: 12,
-    height: 34,
     justifyContent: 'center',
-    width: 58,
+    minHeight: 44,
+    minWidth: 64,
+    paddingHorizontal: 12,
   },
   figmaChargeButtonDone: {
     backgroundColor: paymentColors.chip,
@@ -1062,9 +1163,10 @@ const styles = StyleSheet.create({
     backgroundColor: paymentColors.dark,
     borderRadius: 12,
     flexShrink: 0,
-    height: 34,
     justifyContent: 'center',
-    width: 96,
+    minHeight: 44,
+    minWidth: 96,
+    paddingHorizontal: 14,
   },
   paymentHeroButtonText: {
     color: paymentColors.card,

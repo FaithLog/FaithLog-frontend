@@ -2400,10 +2400,10 @@ function UserHomeDashboard({
       <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
       <View style={styles.homeMetricRow}>
         <HomeMetricTile
-          label="낸 금액"
+          label="낸 벌금"
           value={
             chargeState.status === 'success'
-              ? formatCompactWon(chargeState.data.monthlyPaidAmount)
+              ? formatCompactWon(getMonthlyPenaltyPaidAmount(chargeState.data))
               : '확인 중'
           }
         />
@@ -2482,6 +2482,13 @@ function UserHomeDashboard({
         <InlineError message="일부 정보를 불러오지 못했습니다. 각 탭에서 다시 확인할 수 있어요." />
       ) : null}
     </View>
+  );
+}
+
+function getMonthlyPenaltyPaidAmount(summary: ChargeSummary) {
+  return (
+    summary.monthlyByCategory.find((category) => category.paymentCategory === 'PENALTY')
+      ?.paidAmount ?? 0
   );
 }
 
