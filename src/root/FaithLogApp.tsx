@@ -2400,7 +2400,7 @@ function UserHomeDashboard({
       <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
       <View style={styles.homeMetricRow}>
         <HomeMetricTile
-          label="낸 벌금"
+          label="낸 금액"
           value={
             chargeState.status === 'success'
               ? formatCompactWon(getMonthlyPenaltyPaidAmount(chargeState.data))
