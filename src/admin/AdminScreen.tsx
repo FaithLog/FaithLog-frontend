@@ -1,5 +1,14 @@
-import {useEffect, useState} from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {useEffect, useRef, useState} from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import {
   assignCoffeeDuty,
@@ -107,6 +116,7 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
+import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {formatCompactWon, formatWon} from '../utils/money';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -271,6 +281,12 @@ type PaymentAccountForm = {
   nickname: string;
 };
 
+type AccountCopyFeedback = {
+  accountId: number;
+  message: string;
+  tone: 'success' | 'warning';
+} | null;
+
 type PenaltyRuleState =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -364,11 +380,6 @@ const penaltyRuleTypeOptions: Array<{id: PenaltyRuleType; label: string}> = [
   {id: 'PRAYER', label: '기도'},
   {id: 'BIBLE_READING', label: '성경'},
   {id: 'SATURDAY_LATE', label: '토요지각'},
-];
-
-const penaltyCalculationTypeOptions: Array<{id: PenaltyCalculationType; label: string}> = [
-  {id: 'MISSING_COUNT', label: '미달 횟수'},
-  {id: 'LATE_MINUTE', label: '지각 분'},
 ];
 
 const penaltyRuleActiveOptions: Array<{id: 'active' | 'inactive'; label: string}> = [
@@ -532,6 +543,9 @@ export function AdminScreen({
     useState<PaymentAccount | null>(null);
   const [paymentAccountDeactivateTarget, setPaymentAccountDeactivateTarget] =
     useState<PaymentAccount | null>(null);
+  const [accountCopyFeedback, setAccountCopyFeedback] =
+    useState<AccountCopyFeedback>(null);
+  const accountCopyOpacity = useRef(new Animated.Value(0)).current;
   const [penaltyRuleState, setPenaltyRuleState] = useState<PenaltyRuleState>({
     status: 'idle',
   });
@@ -554,6 +568,7 @@ export function AdminScreen({
 
   const loadAdmin = async () => {
     setLoadState({status: 'loading'});
+    setPrayerState({status: 'loading'});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -562,11 +577,23 @@ export function AdminScreen({
         return;
       }
 
-      const [summary, members, duties] = await Promise.all([
+      const [summary, members, duties, prayerBoardResult] = await Promise.all([
         fetchAdminDashboardSummary(accessToken, campusId, {weekStartDate}),
         fetchAdminCampusMembers(accessToken, campusId),
         fetchDutyAssignments(accessToken, campusId),
+        fetchPrayerWeek(accessToken, campusId, weekStartDate)
+          .then((board): AdminPrayerState =>
+            board.groups.length === 0 || board.targetMemberCount === 0
+              ? {status: 'empty', board}
+              : {status: 'success', board},
+          )
+          .catch((error): AdminPrayerState => ({
+            status: 'error',
+            error: toApiError(error, '기도제목 주간 현황을 불러오지 못했습니다.'),
+          })),
       ]);
+
+      setPrayerState(prayerBoardResult);
 
       if (members.length === 0) {
         setLoadState({status: 'empty', summary});
@@ -599,6 +626,7 @@ export function AdminScreen({
     setPaymentAccountForm(emptyPaymentAccountForm);
     setSelectedPaymentAccount(null);
     setPaymentAccountDeactivateTarget(null);
+    setAccountCopyFeedback(null);
     setPenaltyRuleState({status: 'idle'});
     setPenaltyRuleForm(emptyPenaltyRuleForm);
     setPrayerState({status: 'idle'});
@@ -658,6 +686,30 @@ export function AdminScreen({
       void loadPenaltyRules();
     }
   }, [tab, settlementSection, penaltyRuleState.status]);
+
+  useEffect(() => {
+    if (!accountCopyFeedback) {
+      return undefined;
+    }
+
+    accountCopyOpacity.setValue(1);
+    const animation = Animated.timing(accountCopyOpacity, {
+      delay: 1500,
+      duration: 350,
+      toValue: 0,
+      useNativeDriver: true,
+    });
+
+    animation.start(({finished}) => {
+      if (finished) {
+        setAccountCopyFeedback(null);
+      }
+    });
+
+    return () => {
+      animation.stop();
+    };
+  }, [accountCopyFeedback, accountCopyOpacity]);
 
   const loadMissingDevotions = async () => {
     setMissingDevotionState({status: 'loading'});
@@ -895,6 +947,20 @@ export function AdminScreen({
     }
   };
 
+  const copyAccountNumber = async (account: PaymentAccount) => {
+    const copyText = formatAccountClipboardText(account);
+    const result = await copyTextToClipboard(copyText);
+    const copied = result.status === 'copied';
+    const message = copied ? '계좌번호를 복사했습니다.' : result.message;
+
+    setAccountCopyFeedback({
+      accountId: account.id,
+      message: copied ? '복사됨' : '복사 불가',
+      tone: copied ? 'success' : 'warning',
+    });
+    AccessibilityInfo.announceForAccessibility(message);
+  };
+
   const loadPenaltyRules = async () => {
     setPenaltyRuleState({status: 'loading'});
     setActionError(null);
@@ -943,7 +1009,7 @@ export function AdminScreen({
         editingRuleId === null
           ? await createAdminPenaltyRule(accessToken, campusId, {
               ruleType: penaltyRuleForm.ruleType,
-              calculationType: penaltyRuleForm.calculationType,
+              calculationType: getPenaltyCalculationTypeForRule(penaltyRuleForm.ruleType),
               ...requestAmounts,
             })
           : await updateAdminPenaltyRule(accessToken, editingRuleId, {
@@ -1723,7 +1789,11 @@ export function AdminScreen({
             campusLabel={getCampusLabel(state)}
             onBackToUserMode={onBackToUserMode}
           />
-          <AdminHome summary={loadState.summary} onOpenMembers={() => setTab('members')} />
+          <AdminHome
+            prayerState={prayerState}
+            summary={loadState.summary}
+            onOpenMembers={() => setTab('members')}
+          />
           <Empty
             title="활성 멤버가 없습니다"
             message="현재 캠퍼스에서 운영 중인 멤버만 목록에 표시됩니다."
@@ -1771,6 +1841,7 @@ export function AdminScreen({
       ) : tab === 'home' ? (
         <AdminHome
           coffeeDuty={coffeeDuty}
+          prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
           onOpenRoles={() => setTab('roles')}
@@ -1871,6 +1942,7 @@ export function AdminScreen({
           }}
           onBackToSummary={() => setChargeDetailState({status: 'idle'})}
           onBlockedPaid={setPaidBlockedTarget}
+          onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
           onOpenMemberCharges={openMemberCharges}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
@@ -1889,6 +1961,8 @@ export function AdminScreen({
           }}
           onUpdateFilter={updateChargeFilter}
           paymentAccountForm={paymentAccountForm}
+          paymentAccountCopyFeedback={accountCopyFeedback}
+          paymentAccountCopyOpacity={accountCopyOpacity}
           paymentAccountState={paymentAccountState}
           penaltyRuleForm={penaltyRuleForm}
           penaltyRuleState={penaltyRuleState}
@@ -1947,9 +2021,12 @@ export function AdminScreen({
       />
       <DeactivatePaymentAccountSheet
         account={paymentAccountDeactivateTarget}
+        copyFeedback={accountCopyFeedback}
+        copyOpacity={accountCopyOpacity}
         error={actionError}
         loading={actionState.status === 'deactivatingPaymentAccount'}
         onCancel={() => setPaymentAccountDeactivateTarget(null)}
+        onCopyAccount={copyAccountNumber}
         onConfirm={confirmDeactivatePaymentAccount}
       />
       <PrayerSeasonCloseSheet
@@ -2043,15 +2120,29 @@ function AdminBottomNav({
   );
 }
 
+function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
+  if (prayerState.status === 'success' || prayerState.status === 'empty') {
+    return `${Math.max(0, prayerState.board.targetMemberCount - prayerState.board.submittedCount)}명`;
+  }
+
+  if (prayerState.status === 'loading') {
+    return '조회 중';
+  }
+
+  return '확인 필요';
+}
+
 function AdminHome({
   coffeeDuty,
   onOpenMembers,
   onOpenRoles,
+  prayerState,
   summary,
 }: {
   coffeeDuty?: DutyAssignment | null;
   onOpenMembers: () => void;
   onOpenRoles?: () => void;
+  prayerState: AdminPrayerState;
   summary: AdminDashboardSummary;
 }) {
   return (
@@ -2059,17 +2150,17 @@ function AdminHome({
       <Card>
         <Eyebrow>운영 개요</Eyebrow>
         <Title>{summary.campus.campusName} 운영 체크</Title>
-        <Body>경건 미제출, 투표 미응답, 미납을 한 화면에서 확인합니다.</Body>
+        <Body>경건 미제출, 기도제목 미제출, 미납을 한 화면에서 확인합니다.</Body>
         <View style={styles.metricGrid}>
           <Metric label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
           <Metric label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
           <Metric label="미제출" value={`${summary.devotion.missingCount}명`} />
           <Metric label="제출률" value={`${summary.devotion.submitRate}%`} />
-          <Metric label="미응답" value={`${summary.polls.missingResponseCount}명`} />
+          <Metric label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
           <Metric label="미납" value={formatCompactWon(summary.charges.unpaidAmount)} />
         </View>
         <Body>
-          기준 주차 {summary.devotion.weekStartDate}, 최근 종료 투표 기준 {summary.polls.recentlyClosedDays}일
+          기준 주차 {summary.devotion.weekStartDate}, 기도제목은 같은 주차 제출 현황 기준
         </Body>
       </Card>
       <Card>
@@ -6241,6 +6332,7 @@ function AdminSettlement({
   onChangeSection,
   onBackToSummary,
   onBlockedPaid,
+  onCopyPaymentAccount,
   onEditPenaltyRule,
   onOpenMemberCharges,
   onRequestDeactivatePaymentAccount,
@@ -6256,6 +6348,8 @@ function AdminSettlement({
   onSelectPaymentAccount,
   onUpdateFilter,
   paymentAccountForm,
+  paymentAccountCopyFeedback,
+  paymentAccountCopyOpacity,
   paymentAccountState,
   penaltyRuleForm,
   penaltyRuleState,
@@ -6272,6 +6366,7 @@ function AdminSettlement({
   onChangeSection: (section: AdminSettlementSection) => void;
   onBackToSummary: () => void;
   onBlockedPaid: (charge: ChargeItem) => void;
+  onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
@@ -6290,6 +6385,8 @@ function AdminSettlement({
     value: AdminChargeFilters[Key],
   ) => void;
   paymentAccountForm: PaymentAccountForm;
+  paymentAccountCopyFeedback: AccountCopyFeedback;
+  paymentAccountCopyOpacity: Animated.Value;
   paymentAccountState: PaymentAccountState;
   penaltyRuleForm: PenaltyRuleForm;
   penaltyRuleState: PenaltyRuleState;
@@ -6301,11 +6398,14 @@ function AdminSettlement({
 
   return (
     <>
-      <FigmaSegmentedControl
-        items={settlementSections}
-        selectedId={section}
-        onSelect={onChangeSection}
-      />
+      <View style={styles.settlementTabBlock}>
+        <FigmaSegmentedControl
+          items={settlementSections}
+          selectedId={section}
+          onSelect={onChangeSection}
+        />
+        <Text style={styles.settlementTabHint}>{getSettlementSectionHint(section)}</Text>
+      </View>
       {section === 'charges' ? (
         <AdminChargeSettlement
           actionState={actionState}
@@ -6325,10 +6425,13 @@ function AdminSettlement({
       ) : section === 'accounts' ? (
         <AdminPaymentAccounts
           busy={busy}
+          copyFeedback={paymentAccountCopyFeedback}
+          copyOpacity={paymentAccountCopyOpacity}
           form={paymentAccountForm}
           onChangeForm={onChangePaymentAccountForm}
           onBackToList={() => onSelectPaymentAccount(null)}
           onRequestDeactivate={onRequestDeactivatePaymentAccount}
+          onCopyAccount={onCopyPaymentAccount}
           onRetry={onRetryPaymentAccounts}
           onSave={onSavePaymentAccount}
           onSelectAccount={onSelectPaymentAccount}
@@ -6385,8 +6488,11 @@ function AdminChargeSettlement({
 }) {
   return (
     <>
+      <SettlementSectionHeader
+        description="상태, 유형, 회원 검색으로 정산 대상을 좁혀 봅니다."
+        title="조회 조건"
+      />
       <View style={styles.figmaFormCard}>
-        <Text style={styles.figmaScreenTitle}>정산 관리</Text>
         <FigmaSegmentedControl
           items={chargeStatusFilters}
           selectedId={filters.status}
@@ -6427,6 +6533,10 @@ function AdminChargeSettlement({
         onRetrySummary,
         settlementState,
       })}
+      <SettlementSectionHeader
+        description="회원을 선택하면 청구 항목과 상태 변경 액션을 확인할 수 있습니다."
+        title="선택 회원 상세"
+      />
       {renderChargeDetail({
         actionState,
         detailState,
@@ -6439,11 +6549,29 @@ function AdminChargeSettlement({
   );
 }
 
+function SettlementSectionHeader({
+  description,
+  title,
+}: {
+  description?: string;
+  title: string;
+}) {
+  return (
+    <View style={styles.settlementSectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {description ? <Text style={styles.settlementSectionDescription}>{description}</Text> : null}
+    </View>
+  );
+}
+
 function AdminPaymentAccounts({
   busy,
+  copyFeedback,
+  copyOpacity,
   form,
   onChangeForm,
   onBackToList,
+  onCopyAccount,
   onRequestDeactivate,
   onRetry,
   onSave,
@@ -6452,9 +6580,12 @@ function AdminPaymentAccounts({
   state,
 }: {
   busy: boolean;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
   form: PaymentAccountForm;
   onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
   onBackToList: () => void;
+  onCopyAccount: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSave: () => void;
@@ -6467,7 +6598,10 @@ function AdminPaymentAccounts({
       <PaymentAccountDetail
         account={selectedAccount}
         busy={busy}
+        copyFeedback={copyFeedback}
+        copyOpacity={copyOpacity}
         onBack={onBackToList}
+        onCopyAccount={onCopyAccount}
         onRequestDeactivate={onRequestDeactivate}
       />
     );
@@ -6475,9 +6609,16 @@ function AdminPaymentAccounts({
 
   return (
     <>
+      <SettlementSectionHeader
+        description="현재 활성 계좌를 확인하고 필요한 계좌를 등록합니다."
+        title="계좌 관리"
+      />
       {renderPaymentAccountList({busy, onRetry, onSelectAccount, state})}
+      <SettlementSectionHeader
+        description="새 정산 연결에 사용할 벌금 또는 커피 계좌를 추가합니다."
+        title="계좌 등록"
+      />
       <View style={styles.figmaFormCard}>
-        <Text style={styles.figmaScreenTitle}>계좌 등록</Text>
         <FigmaSegmentedControl
           items={paymentAccountTypeOptions}
           selectedId={form.accountType}
@@ -6535,12 +6676,18 @@ function AdminPaymentAccounts({
 function PaymentAccountDetail({
   account,
   busy,
+  copyFeedback,
+  copyOpacity,
   onBack,
+  onCopyAccount,
   onRequestDeactivate,
 }: {
   account: PaymentAccount;
   busy: boolean;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
   onBack: () => void;
+  onCopyAccount: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
 }) {
   return (
@@ -6549,9 +6696,34 @@ function PaymentAccountDetail({
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Text style={styles.figmaScreenTitle}>{account.nickname}</Text>
-            <Text style={styles.accountNumber}>{account.accountNumber}</Text>
+            <Pressable
+              accessibilityLabel={`${account.nickname} 계좌번호 복사`}
+              accessibilityRole="button"
+              onPress={() => onCopyAccount(account)}
+              style={({pressed}) => [
+                styles.accountNumberButton,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.accountNumber}>{account.accountNumber}</Text>
+            </Pressable>
           </View>
-          <Chip label={getPaymentCategoryLabel(account.accountType)} tone="info" />
+          <View style={styles.accountHeaderTrailing}>
+            {copyFeedback?.accountId === account.id ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.accountCopyBadge, {opacity: copyOpacity}]}>
+                <Text
+                  accessibilityLabel={copyFeedback.message}
+                  style={[
+                    styles.accountCopyHint,
+                    copyFeedback.tone === 'warning' ? styles.accountCopyHintWarning : null,
+                  ]}>
+                  {copyFeedback.message}
+                </Text>
+              </Animated.View>
+            ) : null}
+            <Chip label={getPaymentCategoryLabel(account.accountType)} tone="info" />
+          </View>
         </View>
         <Text style={styles.figmaBodyText}>
           {account.bankName} · {account.accountHolder}
@@ -6672,60 +6844,85 @@ function AdminPenaltyRules({
   onSave: () => void;
   state: PenaltyRuleState;
 }) {
+  const lateMinuteRule = isSaturdayLatePenaltyRule(form.ruleType);
+  const calculationLabel = lateMinuteRule ? '지각 분 기준' : '미달 횟수 기준';
+
   return (
     <>
       <View style={styles.figmaListStack}>
-        <Text style={styles.figmaScreenTitle}>벌금 규칙</Text>
+        <SettlementSectionHeader
+          description="활성 벌금 기준과 금액 계산 방식을 확인합니다."
+          title="벌금 규칙"
+        />
         {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
       </View>
+      <SettlementSectionHeader
+        description="새 규칙을 등록하거나 선택한 규칙의 금액 기준을 수정합니다."
+        title={form.ruleId === null ? '규칙 등록' : '규칙 수정'}
+      />
       <View style={styles.figmaFormCard}>
-        <Text style={styles.figmaScreenTitle}>{form.ruleId === null ? '규칙 등록' : '규칙 수정'}</Text>
         {form.ruleId === null ? (
-          <>
-            <FigmaSegmentedControl
-              items={penaltyRuleTypeOptions}
-              selectedId={form.ruleType}
-              onSelect={(ruleType) => onChangeForm({ruleType})}
-            />
-            <FigmaSegmentedControl
-              items={penaltyCalculationTypeOptions}
-              selectedId={form.calculationType}
-              onSelect={(calculationType) => onChangeForm({calculationType})}
-            />
-          </>
+          <FigmaSegmentedControl
+            items={penaltyRuleTypeOptions}
+            selectedId={form.ruleType}
+            onSelect={(ruleType) =>
+              onChangeForm({
+                ruleType,
+                calculationType: getPenaltyCalculationTypeForRule(ruleType),
+                requiredCount: getPenaltyRequiredCountForRuleSelection(
+                  ruleType,
+                  form.requiredCount,
+                ),
+              })
+            }
+          />
         ) : (
-          <>
-            <ListRow label="규칙 타입" value={getPenaltyRuleTypeLabel(form.ruleType)} />
-            <ListRow label="계산 타입" value={getPenaltyCalculationTypeLabel(form.calculationType)} />
-          </>
+          <ListRow label="규칙 타입" value={getPenaltyRuleTypeLabel(form.ruleType)} />
         )}
+        <PenaltyRuleModeSummary
+          calculationLabel={calculationLabel}
+          lateMinuteRule={lateMinuteRule}
+          ruleType={form.ruleType}
+        />
         <View style={styles.filterGrid}>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="벌금 규칙 필수 기준 횟수"
-              keyboardType="number-pad"
-              label="필수 횟수"
-              onChangeText={(requiredCount) => onChangeForm({requiredCount: requiredCount.replace(/\D/g, '')})}
-              placeholder="0 이상"
-              value={form.requiredCount}
-            />
-          </View>
+          {!lateMinuteRule ? (
+            <View style={styles.filterField}>
+              <TextField
+                accessibilityLabel="벌금 규칙 주간 필수 횟수"
+                helper="QT, 기도, 성경의 주간 기준 횟수입니다."
+                keyboardType="number-pad"
+                label="주간 필수 횟수"
+                onChangeText={(requiredCount) =>
+                  onChangeForm({requiredCount: requiredCount.replace(/\D/g, '')})
+                }
+                placeholder="예: 5"
+                value={form.requiredCount}
+              />
+            </View>
+          ) : null}
           <View style={styles.filterField}>
             <TextField
               accessibilityLabel="벌금 규칙 기본 금액"
               keyboardType="number-pad"
               label="기본 금액"
-              onChangeText={(baseAmount) => onChangeForm({baseAmount: baseAmount.replace(/\D/g, '')})}
+              onChangeText={(baseAmount) =>
+                onChangeForm({baseAmount: baseAmount.replace(/\D/g, '')})
+              }
               placeholder="0 이상"
               value={form.baseAmount}
             />
           </View>
           <View style={styles.filterField}>
             <TextField
-              accessibilityLabel="벌금 규칙 단위당 금액"
+              accessibilityLabel={
+                lateMinuteRule ? '벌금 규칙 1분당 금액' : '벌금 규칙 미달 1회당 금액'
+              }
+              helper={lateMinuteRule ? '토요지각 1분마다 추가되는 금액입니다.' : undefined}
               keyboardType="number-pad"
-              label="단위당 금액"
-              onChangeText={(amountPerUnit) => onChangeForm({amountPerUnit: amountPerUnit.replace(/\D/g, '')})}
+              label={lateMinuteRule ? '1분당 금액' : '미달 1회당 금액'}
+              onChangeText={(amountPerUnit) =>
+                onChangeForm({amountPerUnit: amountPerUnit.replace(/\D/g, '')})
+              }
               placeholder="0 이상"
               value={form.amountPerUnit}
             />
@@ -6798,9 +6995,7 @@ function renderPenaltyRuleList({
               <View style={styles.figmaListContent}>
                 <View style={styles.figmaListText}>
                   <Text style={styles.figmaCardTitle}>{getPenaltyRuleTypeLabel(rule.ruleType)}</Text>
-                  <Text style={styles.figmaBodyText}>
-                    {getPenaltyRuleSummary(rule)}
-                  </Text>
+                  <Text style={styles.figmaBodyText}>{getPenaltyRuleSummary(rule)}</Text>
                 </View>
                 <Button
                   accessibilityLabel={`${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙 수정`}
@@ -6817,6 +7012,38 @@ function renderPenaltyRuleList({
     default:
       return assertNever(state);
   }
+}
+
+function PenaltyRuleModeSummary({
+  calculationLabel,
+  lateMinuteRule,
+  ruleType,
+}: {
+  calculationLabel: string;
+  lateMinuteRule: boolean;
+  ruleType: PenaltyRuleType;
+}) {
+  return (
+    <View style={styles.penaltyModeSummary}>
+      <View style={styles.penaltyModeIcon}>
+        <IconexIcon
+          color={adminFigmaTokens.primary}
+          name={lateMinuteRule ? 'calendar' : 'document'}
+          size={22}
+          strokeWidth={2.2}
+        />
+      </View>
+      <View style={styles.penaltyModeText}>
+        <Text style={styles.figmaCardTitle}>{getPenaltyRuleTypeLabel(ruleType)}</Text>
+        <Text style={styles.figmaBodyText}>
+          {lateMinuteRule
+            ? '기본금액에 실제 지각 1분당 금액을 더합니다.'
+            : '주간 기준 횟수에서 모자란 횟수마다 금액을 더합니다.'}
+        </Text>
+      </View>
+      <Text style={styles.penaltyModePill}>{calculationLabel}</Text>
+    </View>
+  );
 }
 
 function renderSettlementSummary({
@@ -6837,7 +7064,15 @@ function renderSettlementSummary({
     case 'empty':
       return (
         <>
+          <SettlementSectionHeader
+            description="현재 필터 기준의 총액과 미납 금액입니다."
+            title="정산 요약"
+          />
           <SettlementSummaryCard charges={settlementState.charges} />
+          <SettlementSectionHeader
+            description="조건에 맞는 회원별 청구 상태를 표시합니다."
+            title="회원별 청구·미납 상세"
+          />
           <Empty
             title="조건에 맞는 청구 회원이 없습니다"
             message="상태, 유형, 검색어 필터를 조정해 주세요."
@@ -6850,7 +7085,15 @@ function renderSettlementSummary({
     case 'success':
       return (
         <>
+          <SettlementSectionHeader
+            description="현재 필터 기준의 총액과 미납 금액입니다."
+            title="정산 요약"
+          />
           <SettlementSummaryCard charges={settlementState.charges} />
+          <SettlementSectionHeader
+            description="미납 금액이 있는 회원부터 빠르게 확인하고 상세로 들어갑니다."
+            title="회원별 청구·미납 상세"
+          />
           <View style={styles.figmaListStack}>
             {settlementState.charges.members.map((member) => (
               <SettlementMemberRow
@@ -7525,15 +7768,21 @@ function PaidNotAllowedSheet({
 
 function DeactivatePaymentAccountSheet({
   account,
+  copyFeedback,
+  copyOpacity,
   error,
   loading,
   onCancel,
+  onCopyAccount,
   onConfirm,
 }: {
   account: PaymentAccount | null;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
   error: ApiError | null;
   loading: boolean;
   onCancel: () => void;
+  onCopyAccount: (account: PaymentAccount) => void;
   onConfirm: () => void;
 }) {
   return (
@@ -7547,11 +7796,35 @@ function DeactivatePaymentAccountSheet({
           {account ? (
             <>
               <ListRow label="계좌 유형" value={getPaymentCategoryLabel(account.accountType)} />
-              <ListRow
-                label={account.bankName}
-                supportingText={account.accountHolder}
-                value={account.accountNumber}
-              />
+              <View style={styles.accountCopyRow}>
+                <ListRow
+                  accessibilityLabel={`${account.nickname} 계좌번호 복사`}
+                  label={account.bankName}
+                  onPress={() => onCopyAccount(account)}
+                  supportingText={account.accountHolder}
+                  value={account.accountNumber}
+                />
+                {copyFeedback?.accountId === account.id ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.accountCopyBadge,
+                      styles.accountCopyRowBadge,
+                      {opacity: copyOpacity},
+                    ]}>
+                    <Text
+                      accessibilityLabel={copyFeedback.message}
+                      style={[
+                        styles.accountCopyHint,
+                        copyFeedback.tone === 'warning'
+                          ? styles.accountCopyHintWarning
+                          : null,
+                      ]}>
+                      {copyFeedback.message}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+              </View>
             </>
           ) : null}
           {error ? <AdminInlineError error={error} /> : null}
@@ -8972,15 +9245,23 @@ function getPenaltyRuleTypeLabel(ruleType: PenaltyRuleType) {
   }
 }
 
-function getPenaltyCalculationTypeLabel(calculationType: PenaltyCalculationType) {
-  switch (calculationType) {
-    case 'MISSING_COUNT':
-      return '미달 횟수';
-    case 'LATE_MINUTE':
-      return '지각 분';
-    default:
-      return assertNever(calculationType);
+function getPenaltyCalculationTypeForRule(ruleType: PenaltyRuleType): PenaltyCalculationType {
+  return isSaturdayLatePenaltyRule(ruleType) ? 'LATE_MINUTE' : 'MISSING_COUNT';
+}
+
+function getPenaltyRequiredCountForRuleSelection(
+  ruleType: PenaltyRuleType,
+  currentRequiredCount: string,
+) {
+  if (isSaturdayLatePenaltyRule(ruleType)) {
+    return '0';
   }
+
+  return currentRequiredCount === '0' ? '' : currentRequiredCount;
+}
+
+function isSaturdayLatePenaltyRule(ruleType: PenaltyRuleType) {
+  return ruleType === 'SATURDAY_LATE';
 }
 
 function getPaymentCategoryLabel(category: PaymentCategory) {
@@ -8996,9 +9277,12 @@ function getPaymentCategoryLabel(category: PaymentCategory) {
 
 function getPenaltyRuleSummary(rule: PenaltyRule) {
   const activeLabel = rule.isActive ? '활성' : '비활성';
-  const calculation = getPenaltyCalculationTypeLabel(rule.calculationType);
 
-  return `${activeLabel} · ${calculation} · 기준 ${rule.requiredCount} · ${formatWon(rule.baseAmount)} + ${formatWon(rule.amountPerUnit)}`;
+  if (isSaturdayLatePenaltyRule(rule.ruleType)) {
+    return `${activeLabel} · 지각 분 기준 · 기본 ${formatWon(rule.baseAmount)} + 1분당 ${formatWon(rule.amountPerUnit)}`;
+  }
+
+  return `${activeLabel} · 미달 횟수 기준 · 주간 ${rule.requiredCount}회 · 기본 ${formatWon(rule.baseAmount)} + 미달 1회당 ${formatWon(rule.amountPerUnit)}`;
 }
 
 function getChargeStatusLabel(status: ChargeStatus) {
@@ -9217,6 +9501,19 @@ function getNotificationStatusTone(status: AdminNotificationSendStatus) {
   }
 }
 
+function getSettlementSectionHint(section: AdminSettlementSection) {
+  switch (section) {
+    case 'charges':
+      return '청구 요약, 회원별 미납 현황, 선택 회원 상세를 확인합니다.';
+    case 'accounts':
+      return '활성 납부 계좌와 새 계좌 등록을 관리합니다.';
+    case 'penaltyRules':
+      return '벌금 규칙과 금액 계산 기준을 관리합니다.';
+    default:
+      return assertNever(section);
+  }
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled admin value: ${String(value)}`);
 }
@@ -9367,6 +9664,37 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginLeft: 56,
   },
+  accountCopyHint: {
+    color: adminFigmaTokens.success,
+    flexShrink: 0,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  accountCopyHintWarning: {
+    color: adminFigmaTokens.warning,
+  },
+  accountCopyBadge: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  accountCopyRow: {
+    position: 'relative',
+  },
+  accountCopyRowBadge: {
+    position: 'absolute',
+    right: 10,
+    top: 8,
+  },
+  accountHeaderTrailing: {
+    alignItems: 'flex-end',
+    flexShrink: 0,
+    gap: 6,
+  },
   accountNumber: {
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
@@ -9374,6 +9702,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     lineHeight: 24,
+  },
+  accountNumberButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+    maxWidth: '100%',
+    paddingVertical: 4,
   },
   avatar: {
     alignItems: 'center',
@@ -10629,6 +10965,43 @@ const styles = StyleSheet.create({
   pollTypeList: {
     gap: 14,
   },
+  penaltyModeIcon: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  penaltyModePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 12,
+    color: adminFigmaTokens.primary,
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    textAlign: 'center',
+  },
+  penaltyModeSummary: {
+    alignItems: 'center',
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  penaltyModeText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 160,
+  },
   pressed: {
     opacity: 0.72,
   },
@@ -10698,5 +11071,29 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
     lineHeight: 26,
+  },
+  settlementSectionDescription: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  settlementSectionHeader: {
+    borderTopColor: adminFigmaTokens.borderSoft,
+    borderTopWidth: 1,
+    gap: 4,
+    paddingTop: 16,
+  },
+  settlementTabBlock: {
+    gap: 8,
+  },
+  settlementTabHint: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 19,
+    paddingHorizontal: 2,
   },
 });

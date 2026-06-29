@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "expo": "~56.0.0",
+    "expo-clipboard": "~56.0.4",
     "expo-secure-store": "~56.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
