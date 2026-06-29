@@ -484,7 +484,6 @@ export type PollResponse = {
   responseId: number;
   pollId: number;
   optionIds: number[];
-  memo: string;
   respondedAt: string;
 };
 
@@ -499,7 +498,6 @@ export type PollDetail = PollSummary & {
 
 export type PollResponseSaveRequest = {
   optionIds: number[];
-  memo: string;
 };
 
 export type PollResultRespondent = {

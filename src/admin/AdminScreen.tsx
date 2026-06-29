@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Modal, Pressable, StyleSheet, Text, View} from 'react-native';
+import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {
   assignCoffeeDuty,
@@ -19,6 +19,8 @@ import {
   fetchAdminMemberCharges,
   fetchAdminMissingDevotionMembers,
   fetchAdminNotificationLogs,
+  fetchCoffeeBrands,
+  fetchCoffeeMenus,
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
@@ -32,7 +34,6 @@ import {
 import {
   createAdminPoll,
   createAdminPollTemplate,
-  deleteAdminPollTemplate,
   fetchAdminPollComments,
   fetchAdminPollMissingMembers,
   fetchAdminPollResults,
@@ -69,6 +70,8 @@ import type {
   CampusRole,
   ChargeItem,
   ChargeStatus,
+  CoffeeBrand,
+  CoffeeMenu,
   DutyAssignment,
   PaymentAccount,
   PaymentCategory,
@@ -82,6 +85,10 @@ import type {
   PrayerWeekSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {
+  getAdminPollsForStatusTab,
+  type AdminPollStatusTab,
+} from './adminPollListVisibility';
 import {
   Body,
   Button,
@@ -313,15 +320,12 @@ type PrayerSeasonCloseTarget = {
   seasonId: number;
 } | null;
 
-const adminTabs: Array<{id: AdminTab; label: string}> = [
+const adminBottomTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'home', label: '홈'},
+  {id: 'members', label: '멤버'},
   {id: 'devotion', label: '경건'},
   {id: 'polls', label: '투표'},
-  {id: 'notificationLogs', label: '알림'},
-  {id: 'prayer', label: '기도'},
   {id: 'settlement', label: '정산'},
-  {id: 'members', label: '멤버'},
-  {id: 'roles', label: '역할'},
 ];
 
 const memberFilters: Array<{id: MemberFilter; label: string}> = [
@@ -1693,6 +1697,11 @@ export function AdminScreen({
     });
   };
 
+  const selectAdminTab = (nextTab: AdminTab) => {
+    setSelectedMemberId(null);
+    setTab(nextTab);
+  };
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -1703,24 +1712,28 @@ export function AdminScreen({
 
   if (loadState.status === 'empty') {
     return (
-      <>
-        <AdminShellHeader
-          activeTab={tab}
-          campusLabel={getCampusLabel(state)}
-          globalRole={state.user.role}
-          onBackToUserMode={onBackToUserMode}
-          onSelectTab={setTab}
-          selectedCampusRole={state.selectedCampus.campusRole}
-        />
-        <AdminHome summary={loadState.summary} onOpenMembers={() => setTab('members')} />
-        <Empty
-          title="활성 멤버가 없습니다"
-          message="현재 캠퍼스에서 운영 중인 멤버만 목록에 표시됩니다."
-          actionLabel="다시 불러오기"
-          actionAccessibilityLabel="관리자 멤버 목록 다시 불러오기"
-          onActionPress={loadAdmin}
-        />
-      </>
+      <View style={styles.adminModeFrame}>
+        <ScrollView
+          contentContainerStyle={styles.adminModeContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.adminModeScroll}>
+          <AdminShellHeader
+            activeTab={tab}
+            campusLabel={getCampusLabel(state)}
+            onBackToUserMode={onBackToUserMode}
+          />
+          <AdminHome summary={loadState.summary} onOpenMembers={() => setTab('members')} />
+          <Empty
+            title="활성 멤버가 없습니다"
+            message="현재 캠퍼스에서 운영 중인 멤버만 목록에 표시됩니다."
+            actionLabel="다시 불러오기"
+            actionAccessibilityLabel="관리자 멤버 목록 다시 불러오기"
+            onActionPress={loadAdmin}
+          />
+        </ScrollView>
+        <AdminBottomNav activeTab={tab} onSelectTab={selectAdminTab} />
+      </View>
     );
   }
 
@@ -1730,17 +1743,16 @@ export function AdminScreen({
     : null;
 
   return (
-    <>
+    <View style={styles.adminModeFrame}>
+      <ScrollView
+        contentContainerStyle={styles.adminModeContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        style={styles.adminModeScroll}>
       <AdminShellHeader
         activeTab={tab}
         campusLabel={getCampusLabel(state)}
-        globalRole={state.user.role}
         onBackToUserMode={onBackToUserMode}
-        onSelectTab={(nextTab) => {
-          setSelectedMemberId(null);
-          setTab(nextTab);
-        }}
-        selectedCampusRole={state.selectedCampus.campusRole}
       />
       {actionError ? <AdminInlineError error={actionError} /> : null}
       {selectedMember ? (
@@ -1904,6 +1916,8 @@ export function AdminScreen({
           selectedCampusRole={state.selectedCampus.campusRole}
         />
       )}
+      </ScrollView>
+      <AdminBottomNav activeTab={tab} onSelectTab={selectAdminTab} />
       <DeleteMemberSheet
         error={actionError}
         loading={
@@ -1945,38 +1959,25 @@ export function AdminScreen({
         onConfirm={confirmClosePrayerSeason}
         target={prayerSeasonCloseTarget}
       />
-    </>
+    </View>
   );
 }
 
 function AdminShellHeader({
   activeTab,
   campusLabel,
-  globalRole,
   onBackToUserMode,
-  onSelectTab,
-  selectedCampusRole,
 }: {
   activeTab: AdminTab;
   campusLabel: string;
-  globalRole: string;
   onBackToUserMode: () => void;
-  onSelectTab: (tab: AdminTab) => void;
-  selectedCampusRole: CampusRole;
 }) {
   return (
-    <Card>
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <View style={styles.chipRow}>
-            <Chip label={campusLabel} tone="info" />
-            <Chip label="관리자" tone="success" />
-          </View>
-          <Eyebrow>캠퍼스 운영</Eyebrow>
-          <Title>관리자 홈</Title>
-          <Body>
-            전체 권한 {globalRole}와 캠퍼스 권한 {selectedCampusRole}를 기준으로 관리 범위를 나눠 보여줍니다.
-          </Body>
+    <View style={styles.adminShellHeader}>
+      <View style={styles.adminHeaderContext}>
+        <View style={styles.chipRow}>
+          <Chip label={campusLabel} tone="info" />
+          <Chip label="관리자" tone="success" />
         </View>
         <Pressable
           accessibilityLabel="일반 모드로 전환"
@@ -1990,8 +1991,55 @@ function AdminShellHeader({
           <Text style={styles.modeReturnButtonText}>일반 모드</Text>
         </Pressable>
       </View>
-      <SegmentedControl items={adminTabs} selectedId={activeTab} onSelect={onSelectTab} />
-    </Card>
+      <Text style={styles.figmaScreenTitle}>{getAdminShellTitle(activeTab)}</Text>
+    </View>
+  );
+}
+
+function AdminBottomNav({
+  activeTab,
+  onSelectTab,
+}: {
+  activeTab: AdminTab;
+  onSelectTab: (tab: AdminTab) => void;
+}) {
+  return (
+    <View style={styles.adminBottomNavFrame}>
+      <View style={styles.adminBottomNavContent}>
+        {adminBottomTabs.map((item) => {
+          const selected = item.id === activeTab;
+
+          return (
+            <Pressable
+              accessibilityLabel={`${item.label} 관리자 섹션으로 이동`}
+              accessibilityRole="tab"
+              accessibilityState={{selected}}
+              key={item.id}
+              onPress={() => onSelectTab(item.id)}
+              style={({pressed}) => [
+                styles.adminBottomNavItem,
+                selected ? styles.adminBottomNavItemActive : null,
+                pressed ? styles.adminBottomNavItemPressed : null,
+              ]}>
+              <IconexIcon
+                color={selected ? adminFigmaTokens.primary : adminFigmaTokens.textMuted}
+                name={getAdminTabIcon(item.id)}
+                size={18}
+                strokeWidth={1.7}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.adminBottomNavLabel,
+                  selected ? styles.adminBottomNavLabelActive : null,
+                ]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -2053,6 +2101,8 @@ function AdminHome({
 }
 
 type AdminPollSection = 'manage' | 'create' | 'results' | 'missing' | 'templates' | 'status';
+type AdminPollCreateStep = 'type' | 'detail';
+type AdminPollTemplateStep = 'info' | 'schedule' | 'options' | 'confirm';
 type AdminPollTypeFilter = AdminPollType | 'ALL';
 type AdminPollListState =
   | {status: 'loading'}
@@ -2080,6 +2130,11 @@ type AdminPollMissingState =
   | {status: 'loading'}
   | {status: 'success'; members: AdminPollMissingMember[]}
   | {status: 'empty'}
+  | {status: 'error'; error: ApiError};
+type AdminCoffeeCatalogState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; brands: CoffeeBrand[]; menus: CoffeeMenu[]}
   | {status: 'error'; error: ApiError};
 type AdminPollActionState =
   | {status: 'idle'}
@@ -2120,11 +2175,18 @@ type AdminPollCreateForm = {
 
 const pollSections: Array<{id: AdminPollSection; label: string}> = [
   {id: 'manage', label: '관리'},
-  {id: 'create', label: '생성'},
   {id: 'results', label: '결과'},
   {id: 'missing', label: '미참여'},
-  {id: 'templates', label: '템플릿'},
-  {id: 'status', label: '상태'},
+];
+
+const adminPollWeekdays: Array<{id: string; label: string}> = [
+  {id: '1', label: '월'},
+  {id: '2', label: '화'},
+  {id: '3', label: '수'},
+  {id: '4', label: '목'},
+  {id: '5', label: '금'},
+  {id: '6', label: '토'},
+  {id: '7', label: '일'},
 ];
 
 const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
@@ -2134,12 +2196,30 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
   {id: 'COFFEE', label: '커피'},
   {id: 'CUSTOM', label: '커스텀'},
 ];
+const adminPollStatusTabs: Array<{id: AdminPollStatusTab; label: string}> = [
+  {id: 'ongoing', label: '진행중'},
+  {id: 'closed', label: '마감'},
+];
 
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
   {id: 'CUSTOM', label: '커스텀'},
   {id: 'COFFEE', label: '커피'},
   {id: 'WEDNESDAY', label: '수요'},
   {id: 'SATURDAY', label: '토요'},
+];
+
+const adminPollCreateTypes: Array<{id: AdminPollType; label: string}> = [
+  {id: 'WEDNESDAY', label: '수요예배 참석'},
+  {id: 'SATURDAY', label: '토요 목자모임'},
+  {id: 'COFFEE', label: '커피 주문'},
+  {id: 'CUSTOM', label: '커스텀 투표'},
+];
+
+const adminPollTemplateSteps: Array<{id: AdminPollTemplateStep; label: string}> = [
+  {id: 'info', label: '투표 정보'},
+  {id: 'schedule', label: '반복 일정'},
+  {id: 'options', label: '선택지'},
+  {id: 'confirm', label: '확인'},
 ];
 
 const adminPollSelectionTypes: Array<{id: AdminPollSelectionType; label: string}> = [
@@ -2151,6 +2231,11 @@ const adminPollChargeTypes: Array<{id: AdminPollChargeGenerationType; label: str
   {id: 'NONE', label: '없음'},
   {id: 'OPTION_PRICE', label: '선택가'},
 ];
+
+const defaultCoffeePollTemplateId = -136001;
+const defaultCoffeePollOptionsText = 'menu:4';
+const adminPollDefaultDeadlineOffsetMs = 60 * 60 * 1000;
+const adminPollDeadlineValidationMessage = '마감 일시는 현재 시각 이후로 선택해 주세요.';
 
 const emptyAdminPollTemplateForm: AdminPollTemplateForm = {
   autoCreateEnabled: false,
@@ -2191,7 +2276,7 @@ function AdminPollManagement({
   campusId,
   coffeeDuty,
   onSessionStateChange,
-  setNotice,
+  setNotice: _setNotice,
 }: {
   campusId: number;
   coffeeDuty: DutyAssignment | null;
@@ -2200,14 +2285,18 @@ function AdminPollManagement({
 }) {
   const [section, setSection] = useState<AdminPollSection>('manage');
   const [listState, setListState] = useState<AdminPollListState>({status: 'loading'});
+  const [coffeeCatalogState, setCoffeeCatalogState] = useState<AdminCoffeeCatalogState>({
+    status: 'idle',
+  });
   const [resultState, setResultState] = useState<AdminPollResultState>({status: 'idle'});
   const [missingState, setMissingState] = useState<AdminPollMissingState>({status: 'idle'});
   const [actionState, setActionState] = useState<AdminPollActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [createStep, setCreateStep] = useState<AdminPollCreateStep>('type');
+  const [templateStep, setTemplateStep] = useState<AdminPollTemplateStep>('info');
   const [pollTypeFilter, setPollTypeFilter] = useState<AdminPollTypeFilter>('ALL');
+  const [pollStatusTab, setPollStatusTab] = useState<AdminPollStatusTab>('ongoing');
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
-  const [deleteTemplateTarget, setDeleteTemplateTarget] =
-    useState<AdminPollTemplate | null>(null);
   const [templateForm, setTemplateForm] = useState<AdminPollTemplateForm>(
     emptyAdminPollTemplateForm,
   );
@@ -2252,22 +2341,78 @@ function AdminPollManagement({
     void loadPolls();
   }, [campusId]);
 
+  const loadCoffeeCatalog = async () => {
+    setCoffeeCatalogState({status: 'loading'});
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const brands = await fetchCoffeeBrands(accessToken);
+      const menuGroups = await Promise.all(
+        brands.map((brand) => fetchCoffeeMenus(accessToken, brand.id)),
+      );
+      const menus = menuGroups
+        .flat()
+        .sort((left, right) => left.brandId - right.brandId || left.id - right.id);
+
+      setCoffeeCatalogState({status: 'success', brands, menus});
+    } catch (error) {
+      const apiError = toApiError(error, '커피 메뉴를 불러오지 못했습니다.');
+      setCoffeeCatalogState({status: 'error', error: apiError});
+      void handleAuthError(apiError, onSessionStateChange);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      ((section === 'create' && createStep === 'detail' && pollForm.pollType === 'COFFEE') ||
+        (section === 'templates' && templateForm.pollType === 'COFFEE')) &&
+      coffeeCatalogState.status === 'idle'
+    ) {
+      void loadCoffeeCatalog();
+    }
+  }, [
+    coffeeCatalogState.status,
+    createStep,
+    pollForm.pollType,
+    section,
+    templateForm.pollType,
+  ]);
+
   const templates =
     listState.status === 'success' || listState.status === 'empty' ? listState.templates : [];
+  const displayTemplates = withDefaultCoffeePollTemplate(templates, campusId);
   const polls =
     listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
   const accounts =
     listState.status === 'success' || listState.status === 'empty' ? listState.accounts : [];
-  const filteredPolls = filterAdminPollsByType(polls, pollTypeFilter);
+  const filteredPolls = getAdminPollsForStatusTab(
+    filterAdminPollsByType(polls, pollTypeFilter),
+    pollStatusTab,
+  );
   const selectedPoll = selectedPollId
     ? polls.find((poll) => poll.id === selectedPollId) ?? null
     : null;
-  const selectedTemplate = getSelectedTemplate(templateForm, templates);
   const busy = actionState.status !== 'idle';
   const coffeeWarning = getAdminPollCoffeeWarning(pollForm, coffeeDuty);
 
   const saveTemplate = async () => {
     if (busy) {
+      return;
+    }
+
+    const templateValidationMessage = getAdminPollTemplateStepError(
+      'confirm',
+      templateForm,
+      coffeeCatalogState,
+    );
+
+    if (templateValidationMessage) {
+      setActionError({kind: 'error', message: templateValidationMessage});
       return;
     }
 
@@ -2283,7 +2428,7 @@ function AdminPollManagement({
 
       const request = toAdminPollTemplateFormRequest(templateForm);
       const saved =
-        templateForm.templateId === null
+        templateForm.templateId === null || isDefaultCoffeePollTemplateId(templateForm.templateId)
           ? await createAdminPollTemplate(accessToken, campusId, request)
           : await updateAdminPollTemplate(
               accessToken,
@@ -2293,47 +2438,11 @@ function AdminPollManagement({
             );
 
       setTemplateForm(toTemplateForm(saved));
-      setNotice({
-        tone: saved.isActive ? 'success' : 'warning',
-        title: templateForm.templateId === null ? '투표 템플릿 생성' : '투표 템플릿 수정',
-        message: `${saved.title} 템플릿을 저장했습니다.`,
-      });
       await loadPolls();
+      setTemplateStep('info');
+      setSection('manage');
     } catch (error) {
-      const apiError = toApiError(error, '투표 템플릿을 저장하지 못했습니다.');
-      setActionError(apiError);
-      void handleAuthError(apiError, onSessionStateChange);
-    } finally {
-      setActionState({status: 'idle'});
-    }
-  };
-
-  const confirmDeleteTemplate = async () => {
-    if (!deleteTemplateTarget || busy) {
-      return;
-    }
-
-    const target = deleteTemplateTarget;
-    setActionState({status: 'deletingTemplate', templateId: target.id});
-    setActionError(null);
-
-    try {
-      const accessToken = await resolveAccessToken(onSessionStateChange);
-
-      if (!accessToken) {
-        return;
-      }
-
-      const deactivated = await deleteAdminPollTemplate(accessToken, campusId, target.id);
-      setDeleteTemplateTarget(null);
-      setNotice({
-        tone: 'warning',
-        title: '투표 템플릿 비활성화',
-        message: `${deactivated.title} 템플릿을 비활성화했습니다.`,
-      });
-      await loadPolls();
-    } catch (error) {
-      const apiError = toApiError(error, '투표 템플릿을 비활성화하지 못했습니다.');
+      const apiError = toApiError(error, '반복투표를 저장하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, onSessionStateChange);
     } finally {
@@ -2343,6 +2452,13 @@ function AdminPollManagement({
 
   const createPoll = async () => {
     if (busy) {
+      return;
+    }
+
+    const deadlineValidationMessage = getAdminPollDeadlineValidationMessage(pollForm);
+
+    if (deadlineValidationMessage) {
+      setActionError({kind: 'error', message: deadlineValidationMessage});
       return;
     }
 
@@ -2360,11 +2476,6 @@ function AdminPollManagement({
       const created = await createAdminPoll(accessToken, campusId, request);
       setSelectedPollId(created.id);
       setPollForm(toPollCreateForm(created));
-      setNotice({
-        tone: 'success',
-        title: '투표 생성',
-        message: `${created.title} 투표를 생성했습니다. ${formatDateTime(created.endsAt)} 이후 서버가 자동으로 닫습니다.`,
-      });
       await loadPolls();
       setSection('results');
       await loadResults(created.id);
@@ -2461,12 +2572,14 @@ function AdminPollManagement({
           ? `${selectedPoll.title} 투표에 응답해 주세요.`
           : '진행 중인 투표에 응답해 주세요.',
       });
-
-      setNotice({
-        tone: result.skippedCount > 0 ? 'warning' : 'success',
-        title: '투표 미응답 알림 발송',
-        message: `${result.queuedCount}명 큐잉, ${result.skippedCount}명 스킵 처리되었습니다.`,
-      });
+      setActionError(
+        result.skippedCount > 0
+          ? {
+              kind: 'error',
+              message: `${result.queuedCount}명 알림 큐잉, ${result.skippedCount}명은 스킵되었습니다.`,
+            }
+          : null,
+      );
     } catch (error) {
       const apiError = toApiError(error, '투표 미응답 알림을 발송하지 못했습니다.');
       setActionError(apiError);
@@ -2482,32 +2595,42 @@ function AdminPollManagement({
     setMissingState({status: 'idle'});
   };
 
-  const useTemplateForPoll = (template: AdminPollTemplate) => {
-    setPollForm((current) => ({
-      ...current,
-      chargeGenerationType:
-        template.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
-      optionsText: formatPollOptionsText(template.options),
-      paymentAccountId: template.paymentAccountId ? String(template.paymentAccountId) : '',
-      paymentCategory: template.paymentCategory ?? 'NONE',
-      pollType: toKnownAdminPollType(template.pollType),
-      selectionType: template.selectionType === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE',
-      templateId: String(template.id),
-      title: template.title,
-    }));
+  const startCreatePoll = () => {
+    setPollForm(createEmptyAdminPollForm());
+    setCreateStep('type');
     setSection('create');
+  };
+
+  const startCreateTemplate = () => {
+    setTemplateForm(emptyAdminPollTemplateForm);
+    setTemplateStep('info');
+    setSection('templates');
+  };
+
+  const editTemplate = (template: AdminPollTemplate) => {
+    setTemplateForm(
+      isDefaultCoffeePollTemplate(template)
+        ? toDefaultCoffeePollTemplateForm()
+        : toTemplateForm(template),
+    );
+    setTemplateStep('info');
   };
 
   return (
     <>
-      <Card>
-        <Title>투표 관리</Title>
-        <Body>투표 생성, 결과 확인, 미참여자 알림, 반복 템플릿을 관리합니다.</Body>
-        <SegmentedControl items={pollSections} selectedId={section} onSelect={setSection} />
-      </Card>
-      {actionError ? <AdminInlineError error={actionError} /> : null}
+      {section === 'create' || section === 'templates' ? null : (
+        <AdminPollTopActions
+          activeSection={section}
+          onCreate={startCreatePoll}
+          onCreateTemplate={startCreateTemplate}
+          onSelectSection={setSection}
+        />
+      )}
+      {actionError && section !== 'create' && section !== 'templates' ? (
+        <AdminInlineError error={actionError} />
+      ) : null}
       {listState.status === 'loading' ? (
-        <Loading message="투표와 템플릿을 불러오고 있어요." />
+        <Loading message="투표와 반복투표를 불러오고 있어요." />
       ) : listState.status === 'error' ? (
         <AdminErrorState error={listState.error} onRetry={loadPolls} />
       ) : (
@@ -2516,43 +2639,66 @@ function AdminPollManagement({
             <AdminPollList
               filter={pollTypeFilter}
               onChangeFilter={setPollTypeFilter}
+              onChangeStatusTab={setPollStatusTab}
               onRefresh={loadPolls}
+              onCreateTemplate={startCreateTemplate}
+              onManageTemplate={(template) => {
+                editTemplate(template);
+                setSection('templates');
+              }}
+              onViewResults={(poll) => {
+                selectPoll(poll);
+                setSection('results');
+                void loadResults(poll.id);
+              }}
               onSelectPoll={selectPoll}
               polls={filteredPolls}
               selectedPollId={selectedPollId}
-              templates={templates}
+              statusTab={pollStatusTab}
+              templates={displayTemplates}
             />
           ) : null}
           {section === 'templates' ? (
             <AdminPollTemplateEditor
               actionState={actionState}
+              actionError={actionError}
               accounts={accounts}
+              coffeeCatalogState={coffeeCatalogState}
               form={templateForm}
+              onCancel={() => {
+                setTemplateForm(emptyAdminPollTemplateForm);
+                setTemplateStep('info');
+                setSection('manage');
+              }}
               onChangeForm={(patch) =>
                 setTemplateForm((current) => ({...current, ...patch}))
               }
-              onConfirmDelete={confirmDeleteTemplate}
-              onDeleteTarget={setDeleteTemplateTarget}
-              onNewTemplate={() => setTemplateForm(emptyAdminPollTemplateForm)}
+              onChangeStep={setTemplateStep}
+              onRetryCoffeeCatalog={loadCoffeeCatalog}
               onSave={saveTemplate}
-              onUseTemplateForPoll={useTemplateForPoll}
-              selectedTemplate={selectedTemplate}
-              target={deleteTemplateTarget}
-              templates={templates}
-              onEditTemplate={(template) => setTemplateForm(toTemplateForm(template))}
+              step={templateStep}
             />
           ) : null}
           {section === 'create' ? (
             <AdminPollCreatePanel
+              actionError={actionError}
               accounts={accounts}
               busy={busy}
+              coffeeCatalogState={coffeeCatalogState}
+              createStep={createStep}
               coffeeWarning={coffeeWarning}
               form={pollForm}
+              onCancel={() => {
+                setPollForm(createEmptyAdminPollForm());
+                setCreateStep('type');
+                setSection('manage');
+              }}
               onChangeForm={(patch) => setPollForm((current) => ({...current, ...patch}))}
+              onChangeStep={setCreateStep}
               onCreate={createPoll}
-              onPickTemplate={useTemplateForPoll}
+              onRetryCoffeeCatalog={loadCoffeeCatalog}
               onReset={() => setPollForm(createEmptyAdminPollForm())}
-              templates={templates}
+              templates={displayTemplates}
             />
           ) : null}
           {section === 'results' ? (
@@ -2588,28 +2734,74 @@ function AdminPollManagement({
   );
 }
 
+function AdminPollTopActions({
+  activeSection,
+  onCreate,
+  onCreateTemplate,
+  onSelectSection,
+}: {
+  activeSection: AdminPollSection;
+  onCreate: () => void;
+  onCreateTemplate: () => void;
+  onSelectSection: (section: AdminPollSection) => void;
+}) {
+  return (
+    <View style={styles.pollSectionShell}>
+      <View style={styles.pollQuickActions}>
+        <Pressable
+          accessibilityLabel="투표 만들기 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onCreate}
+          style={({pressed}) => [styles.pollPrimaryPill, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollPrimaryPillText}>투표 만들기</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="반복투표 만들기 화면으로 이동"
+          accessibilityRole="button"
+          onPress={onCreateTemplate}
+          style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollSoftPillText}>반복투표 만들기</Text>
+        </Pressable>
+      </View>
+      <SegmentedControl items={pollSections} selectedId={activeSection} onSelect={onSelectSection} />
+    </View>
+  );
+}
+
 function AdminPollList({
   filter,
   onChangeFilter,
+  onChangeStatusTab,
+  onCreateTemplate,
+  onManageTemplate,
   onRefresh,
   onSelectPoll,
+  onViewResults,
   polls,
   selectedPollId,
+  statusTab,
   templates,
 }: {
   filter: AdminPollTypeFilter;
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
+  onChangeStatusTab: (tab: AdminPollStatusTab) => void;
+  onCreateTemplate: () => void;
+  onManageTemplate: (template: AdminPollTemplate) => void;
   onRefresh: () => void;
   onSelectPoll: (poll: PollSummary) => void;
+  onViewResults: (poll: PollSummary) => void;
   polls: PollSummary[];
   selectedPollId: number | null;
+  statusTab: AdminPollStatusTab;
   templates: AdminPollTemplate[];
 }) {
+  const serverTemplates = templates.filter((template) => !isDefaultCoffeePollTemplate(template));
+
   if (polls.length === 0 && templates.length === 0) {
     return (
       <Empty
-        title="투표와 템플릿이 없습니다"
-        message="템플릿을 먼저 만들거나 직접 생성으로 투표를 시작할 수 있습니다."
+        title="투표와 반복투표가 없습니다"
+        message="반복투표를 먼저 만들거나 직접 생성으로 투표를 시작할 수 있습니다."
         actionLabel="다시 불러오기"
         actionAccessibilityLabel="투표 관리 목록 다시 불러오기"
         onActionPress={onRefresh}
@@ -2619,63 +2811,615 @@ function AdminPollList({
 
   return (
     <>
-      <Card>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Title>투표</Title>
-            <Body>진행 중이거나 종료된 투표를 유형별로 확인합니다.</Body>
-          </View>
-          <Button
-            accessibilityLabel="투표 목록 다시 불러오기"
-            onPress={onRefresh}
-            variant="secondary">
-            새로고침
-          </Button>
-        </View>
-        <View style={styles.metricGrid}>
-          <Metric label="투표" value={`${polls.length}개`} />
-          <Metric label="템플릿" value={`${templates.length}개`} />
-          <Metric label="진행" value={`${polls.filter((poll) => poll.status === 'OPEN').length}개`} />
-          <Metric label="마감" value={`${polls.filter((poll) => poll.status === 'CLOSED').length}개`} />
-        </View>
-      </Card>
-      <Card>
-        <Eyebrow>유형별 투표</Eyebrow>
+      <View style={styles.pollSectionShell}>
+        <Text style={styles.sectionTitle}>투표 목록</Text>
+        <SegmentedControl
+          items={adminPollStatusTabs}
+          selectedId={statusTab}
+          onSelect={onChangeStatusTab}
+        />
         <SegmentedControl
           items={adminPollTypeFilters}
           selectedId={filter}
           onSelect={onChangeFilter}
         />
-        {polls.length === 0 ? <Body>선택한 유형의 투표가 없습니다.</Body> : null}
+        {polls.length === 0 ? (
+          <Body>
+            {statusTab === 'ongoing'
+              ? '선택한 조건의 진행중 투표가 없습니다.'
+              : '선택한 조건의 마감 투표가 없습니다.'}
+          </Body>
+        ) : null}
         {polls.map((poll) => (
-          <ListRow
+          <AdminPollListItem
             accessibilityLabel={`${poll.title} 투표 선택`}
             key={poll.id}
-            label={poll.title}
             onPress={() => onSelectPoll(poll)}
-            supportingText={`${getPollResponseSummary(poll)} · ${formatDateTime(poll.endsAt)} 마감`}
-            value={poll.id === selectedPollId ? '선택됨' : getPollStatusLabel(poll.status)}
+            onActionPress={() => onViewResults(poll)}
+            poll={poll}
+            selected={poll.id === selectedPollId}
           />
         ))}
-      </Card>
-      <Card>
-        <Eyebrow>반복</Eyebrow>
-        <Title>투표 템플릿</Title>
-        <Body>저장된 템플릿으로 반복 투표를 빠르게 만들 수 있습니다.</Body>
-      </Card>
+        <Pressable
+          accessibilityLabel="투표 목록 다시 불러오기"
+          accessibilityRole="button"
+          onPress={onRefresh}
+          style={({pressed}) => [styles.pollSoftButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollSoftButtonText}>새로고침</Text>
+        </Pressable>
+      </View>
+      <View style={styles.pollSectionShell}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.sectionTitle}>반복투표 설정</Text>
+            <Body>저장된 반복투표가 이곳에 표시됩니다.</Body>
+          </View>
+          <Pressable
+            accessibilityLabel="반복투표 만들기"
+            accessibilityRole="button"
+            onPress={onCreateTemplate}
+            style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
+            <Text style={styles.pollSoftPillText}>만들기</Text>
+          </Pressable>
+        </View>
+        {serverTemplates.length === 0 ? (
+          <View style={styles.pollTemplateEntry}>
+            <View style={styles.pollIconBox}>
+              <Text style={styles.pollIconText}>반복</Text>
+            </View>
+            <View style={styles.pollItemText}>
+              <Text style={styles.pollItemTitle}>설정된 반복투표가 없습니다</Text>
+              <Text style={styles.pollItemMeta}>반복투표 만들기에서 주간 규칙을 저장해 주세요.</Text>
+            </View>
+          </View>
+        ) : (
+          serverTemplates.map((template) => (
+            <AdminRepeatTemplateCard
+              key={template.id}
+              onManage={() => onManageTemplate(template)}
+              template={template}
+            />
+          ))
+        )}
+      </View>
     </>
+  );
+}
+
+function AdminRepeatTemplateCard({
+  onManage,
+  template,
+}: {
+  onManage: () => void;
+  template: AdminPollTemplate;
+}) {
+  return (
+    <View style={styles.pollTemplateEntry}>
+      <View style={styles.pollIconBox}>
+        <Text style={styles.pollIconText}>{getAdminPollInitial(template.pollType)}</Text>
+      </View>
+      <View style={styles.pollItemText}>
+        <View style={styles.pollTemplateTitleRow}>
+          <Text style={styles.pollItemTitle}>{template.title}</Text>
+          <Chip label={template.autoCreateEnabled ? '반복 ON' : '반복 OFF'} tone="info" />
+        </View>
+        <Text style={styles.pollItemMeta}>
+          {`${formatTemplateEndpointLabelFromValues(template.startDayOfWeek, template.startTime, '시작')} · ${formatTemplateEndpointLabelFromValues(template.endDayOfWeek, template.endTime, '마감')}`}
+        </Text>
+        <Text style={styles.pollItemMeta}>
+          {`${getPollTypeLabel(template.pollType)} · ${getSelectionTypeLabel(template.selectionType)}`}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={`${template.title} 반복투표 수정`}
+        accessibilityRole="button"
+        onPress={onManage}
+        style={({pressed}) => [styles.pollResultPill, pressed ? styles.pressed : null]}>
+        <Text style={styles.pollResultPillText}>수정</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function AdminPollListItem({
+  accessibilityLabel,
+  onActionPress,
+  onPress,
+  poll,
+  selected,
+}: {
+  accessibilityLabel: string;
+  onActionPress: () => void;
+  onPress: () => void;
+  poll: PollSummary;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.pollListItem,
+        selected ? styles.pollListItemSelected : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <View style={[styles.pollIconBox, poll.pollType === 'COFFEE' ? styles.pollIconBoxMint : null]}>
+        <Text style={[styles.pollIconText, poll.pollType === 'COFFEE' ? styles.pollIconTextMint : null]}>
+          {getAdminPollInitial(poll.pollType)}
+        </Text>
+      </View>
+      <View style={styles.pollItemText}>
+        <Text numberOfLines={1} style={styles.pollItemTitle}>
+          {poll.title}
+        </Text>
+        <Text numberOfLines={1} style={styles.pollItemMeta}>
+          {getAdminPollListMeta(poll)}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={`${poll.title} 결과 확인`}
+        accessibilityRole="button"
+        onPress={onActionPress}
+        style={({pressed}) => [styles.pollResultPill, pressed ? styles.pressed : null]}>
+        <Text style={styles.pollResultPillText}>
+          {poll.pollType === 'CUSTOM' && poll.responded ? '댓글' : '결과'}
+        </Text>
+      </Pressable>
+    </Pressable>
   );
 }
 
 function AdminPollTemplateEditor({
   actionState,
+  actionError,
   accounts,
+  coffeeCatalogState,
+  form,
+  onCancel,
+  onChangeForm,
+  onChangeStep,
+  onRetryCoffeeCatalog,
+  onSave,
+  step,
+}: {
+  actionError: ApiError | null;
+  accounts: PaymentAccount[];
+  actionState: AdminPollActionState;
+  coffeeCatalogState: AdminCoffeeCatalogState;
+  form: AdminPollTemplateForm;
+  onCancel: () => void;
+  onChangeForm: (patch: Partial<AdminPollTemplateForm>) => void;
+  onChangeStep: (step: AdminPollTemplateStep) => void;
+  onRetryCoffeeCatalog: () => void;
+  onSave: () => void;
+  step: AdminPollTemplateStep;
+}) {
+  const busy = actionState.status !== 'idle';
+  const templateOptions = splitAdminPollOptionsText(form.optionsText);
+  const [coffeeMenuPickerVisible, setCoffeeMenuPickerVisible] = useState(false);
+  const [selectedCoffeeBrandId, setSelectedCoffeeBrandId] = useState<number | null>(null);
+  const templateCoffeeMenuIds = parseCoffeeMenuIdsFromOptionsText(form.optionsText);
+  const knownCoffeeMenuIds =
+    coffeeCatalogState.status === 'success'
+      ? new Set(coffeeCatalogState.menus.map((menu) => menu.id))
+      : new Set<number>();
+  const templateValidationMessage = getAdminPollTemplateValidationMessage(form);
+  const repeatSummary = templateValidationMessage
+    ? templateValidationMessage
+    : getAdminPollTemplateLiveSummary(form);
+  const currentStepIndex = Math.max(
+    0,
+    adminPollTemplateSteps.findIndex((item) => item.id === step),
+  );
+  const currentStepLabel = adminPollTemplateSteps[currentStepIndex]?.label ?? '투표 정보';
+  const stepError = getAdminPollTemplateStepError(step, form, coffeeCatalogState);
+  const optionSummaryItems = getAdminPollTemplateOptionSummaryItems(form, coffeeCatalogState);
+  const isLastStep = step === 'confirm';
+  const primaryActionLabel = isLastStep
+    ? form.templateId === null
+      ? actionState.status === 'savingTemplate'
+        ? '저장 중...'
+        : '반복투표 만들기'
+      : actionState.status === 'savingTemplate'
+        ? '저장 중...'
+        : '변경사항 저장'
+    : '다음';
+  const secondaryActionLabel = currentStepIndex === 0 ? '취소' : '이전';
+  const updateTemplateOption = (index: number, value: string) => {
+    onChangeForm({optionsText: updateAdminPollOptionText(templateOptions, index, value)});
+  };
+  const removeTemplateOption = (index: number) => {
+    onChangeForm({optionsText: removeAdminPollOptionText(templateOptions, index)});
+  };
+  const addTemplateOption = () => {
+    onChangeForm({optionsText: appendAdminPollOptionText(templateOptions)});
+  };
+  const addTemplateCoffeeMenu = (menu: CoffeeMenu) => {
+    const validIds = templateCoffeeMenuIds.filter((menuId) => knownCoffeeMenuIds.has(menuId));
+    const nextIds = validIds.includes(menu.id) ? validIds : [...validIds, menu.id];
+
+    onChangeForm({optionsText: formatCoffeeMenuOptionsText(nextIds)});
+    setCoffeeMenuPickerVisible(false);
+  };
+  const removeTemplateCoffeeMenu = (menuId: number) => {
+    onChangeForm({
+      optionsText: formatCoffeeMenuOptionsText(
+        templateCoffeeMenuIds.filter((selectedMenuId) => selectedMenuId !== menuId),
+      ),
+    });
+  };
+  const goToPreviousStep = () => {
+    if (currentStepIndex === 0) {
+      onCancel();
+      return;
+    }
+
+    const previousStep = adminPollTemplateSteps[currentStepIndex - 1];
+
+    if (previousStep) {
+      onChangeStep(previousStep.id);
+    }
+  };
+  const goToNextStep = () => {
+    if (stepError) {
+      return;
+    }
+
+    if (isLastStep) {
+      onSave();
+      return;
+    }
+
+    const nextStep = adminPollTemplateSteps[currentStepIndex + 1];
+
+    if (nextStep) {
+      onChangeStep(nextStep.id);
+    }
+  };
+  const changePollType = (pollType: AdminPollType) => {
+    onChangeForm(getRepeatTemplateTypePatch(pollType, form));
+  };
+
+  useEffect(() => {
+    if (
+      selectedCoffeeBrandId === null &&
+      coffeeCatalogState.status === 'success' &&
+      coffeeCatalogState.brands[0]
+    ) {
+      setSelectedCoffeeBrandId(coffeeCatalogState.brands[0].id);
+    }
+  }, [coffeeCatalogState, selectedCoffeeBrandId]);
+
+  return (
+    <View style={styles.repeatWizardShell}>
+      <View style={styles.repeatWizardHeader}>
+        <Pressable
+          accessibilityLabel="반복투표 화면 닫기"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onCancel}
+          style={({pressed}) => [styles.repeatWizardBackButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.repeatWizardBackText}>뒤로</Text>
+        </Pressable>
+        <View style={styles.headerText}>
+          <Title>{form.templateId === null ? '반복투표 만들기' : '반복투표 수정'}</Title>
+          <Text style={styles.repeatWizardMeta}>
+            {`${currentStepIndex + 1}/4 · ${currentStepLabel}`}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.repeatStepIndicator}>
+        {adminPollTemplateSteps.map((item, index) => {
+          const active = item.id === step;
+          const completed = index < currentStepIndex;
+
+          return (
+            <View
+              key={item.id}
+              style={[
+                styles.repeatStepPill,
+                active || completed ? styles.repeatStepPillActive : null,
+              ]}>
+              <Text
+                style={[
+                  styles.repeatStepText,
+                  active || completed ? styles.repeatStepTextActive : null,
+                ]}>
+                {`${index + 1}. ${item.label}`}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {step === 'info' ? (
+        <>
+          <View style={styles.repeatEditorSection}>
+            <Text style={styles.repeatEditorSectionTitle}>투표 정보</Text>
+            <TextField
+              label="반복투표 제목"
+              onChangeText={(title) => onChangeForm({title})}
+              value={form.title}
+            />
+            <View style={styles.templateFormSection}>
+              <Eyebrow>투표 유형</Eyebrow>
+              <SegmentedControl
+                items={adminPollTypes}
+                selectedId={form.pollType}
+                onSelect={changePollType}
+              />
+            </View>
+            <View style={styles.templateFormSection}>
+              <Eyebrow>선택 방식</Eyebrow>
+              <SegmentedControl
+                items={adminPollSelectionTypes}
+                selectedId={form.selectionType}
+                onSelect={(selectionType) => onChangeForm({selectionType})}
+              />
+            </View>
+          </View>
+          {form.pollType === 'COFFEE' ? (
+            <View style={styles.repeatEditorSection}>
+              <Text style={styles.repeatEditorSectionTitle}>커피 청구</Text>
+              <SegmentedControl
+                items={adminPollChargeTypes}
+                selectedId={form.chargeGenerationType}
+                onSelect={(chargeGenerationType) =>
+                  onChangeForm({
+                    chargeGenerationType,
+                    paymentCategory:
+                      chargeGenerationType === 'NONE'
+                        ? 'NONE'
+                        : form.paymentCategory === 'NONE'
+                          ? 'COFFEE'
+                          : form.paymentCategory,
+                  })
+                }
+              />
+              {form.chargeGenerationType === 'OPTION_PRICE' ? (
+                <PaymentAccountPicker
+                  accounts={accounts}
+                  category={form.paymentCategory}
+                  onSelect={(account) =>
+                    onChangeForm({
+                      paymentAccountId: String(account.id),
+                      paymentCategory: account.accountType,
+                    })
+                  }
+                  selectedAccountId={toOptionalPositiveId(form.paymentAccountId)}
+                />
+              ) : null}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 'schedule' ? (
+        <View style={styles.repeatEditorSection}>
+          <Text style={styles.repeatEditorSectionTitle}>반복 일정</Text>
+          <Text style={styles.repeatEditorSectionBody}>
+            매주 열리는 시작 요일과 마감 요일을 정합니다.
+          </Text>
+          <AdminRepeatTimeRuleEditor
+            disabled={busy}
+            endDayOfWeek={form.endDayOfWeek}
+            endTime={form.endTime}
+            onChange={(patch) => onChangeForm(patch)}
+            startDayOfWeek={form.startDayOfWeek}
+            startTime={form.startTime}
+          />
+          <View
+            accessibilityRole={templateValidationMessage ? 'alert' : undefined}
+            style={[
+              styles.repeatSummaryBox,
+              templateValidationMessage ? styles.repeatSummaryBoxError : null,
+            ]}>
+            <Text
+              style={[
+                styles.repeatSummaryText,
+                templateValidationMessage ? styles.repeatSummaryTextError : null,
+              ]}>
+              {repeatSummary}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="자동 생성 여부 전환"
+            accessibilityRole="switch"
+            accessibilityState={{checked: form.autoCreateEnabled}}
+            disabled={busy}
+            onPress={() => onChangeForm({autoCreateEnabled: !form.autoCreateEnabled})}
+            style={({pressed}) => [
+              styles.pollCreateToggleRow,
+              styles.templateAutoRow,
+              pressed ? styles.pressed : null,
+            ]}>
+            <View style={styles.headerText}>
+              <Text style={styles.pollCreateTypeTitle}>자동 생성</Text>
+              <Text style={styles.pollCreateTypeDescription}>
+                켜두면 매주 이 일정으로 투표가 만들어집니다.
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.pollCreateToggle,
+                form.autoCreateEnabled ? styles.pollCreateToggleActive : null,
+              ]}>
+              <Text
+                style={[
+                  styles.pollCreateToggleText,
+                  form.autoCreateEnabled ? styles.pollCreateToggleTextActive : null,
+                ]}>
+                {form.autoCreateEnabled ? 'ON' : 'OFF'}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {step === 'options' ? (
+        <View style={styles.repeatEditorSection}>
+          <View style={styles.headerRow}>
+            <View style={styles.headerText}>
+              <Text style={styles.repeatEditorSectionTitle}>
+                {form.pollType === 'COFFEE' ? '커피 메뉴' : '선택지'}
+              </Text>
+              <Text style={styles.repeatEditorSectionBody}>
+                {form.pollType === 'COFFEE'
+                  ? '메뉴 이름과 금액을 보고 반복투표에 넣을 항목을 고릅니다.'
+                  : '응답자가 고를 항목만 남겨 주세요.'}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel={
+                form.pollType === 'COFFEE' ? '반복 커피 메뉴 추가' : '반복투표 선택지 추가'
+              }
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() =>
+                form.pollType === 'COFFEE' ? setCoffeeMenuPickerVisible(true) : addTemplateOption()
+              }
+              style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateAddOptionText}>
+                {form.pollType === 'COFFEE' ? '메뉴 추가' : '추가'}
+              </Text>
+            </Pressable>
+          </View>
+          {form.pollType === 'COFFEE' ? (
+            <>
+              <CoffeeMenuPickerSheet
+                onClose={() => setCoffeeMenuPickerVisible(false)}
+                onRetry={onRetryCoffeeCatalog}
+                onSelectBrand={setSelectedCoffeeBrandId}
+                onSelectMenu={addTemplateCoffeeMenu}
+                selectedBrandId={selectedCoffeeBrandId}
+                selectedMenuIds={templateCoffeeMenuIds.filter((menuId) =>
+                  knownCoffeeMenuIds.has(menuId),
+                )}
+                state={coffeeCatalogState}
+                visible={coffeeMenuPickerVisible}
+              />
+              <AdminPollCoffeeOptions
+                catalogState={coffeeCatalogState}
+                onRemoveMenu={removeTemplateCoffeeMenu}
+                onRetry={onRetryCoffeeCatalog}
+                selectedMenuIds={templateCoffeeMenuIds}
+              />
+            </>
+          ) : (
+            <View style={styles.pollCreateOptionList}>
+              {templateOptions.map((option, index) => (
+                <View key={`${index}-${templateOptions.length}`} style={styles.pollCreateOptionRow}>
+                  <View style={styles.pollCreateOptionNumber}>
+                    <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.pollCreateOptionField}>
+                    <TextField
+                      label={`선택지 ${index + 1}`}
+                      onChangeText={(value) => updateTemplateOption(index, value)}
+                      value={option}
+                    />
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`${index + 1}번 반복투표 선택지 삭제`}
+                    accessibilityRole="button"
+                    disabled={busy || templateOptions.length <= 1}
+                    onPress={() => removeTemplateOption(index)}
+                    style={({pressed}) => [
+                      styles.pollCreateRemoveOption,
+                      templateOptions.length <= 1 ? styles.pollCreateRemoveOptionDisabled : null,
+                      pressed ? styles.pressed : null,
+                    ]}>
+                    <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {step === 'confirm' ? (
+        <View style={styles.repeatEditorSection}>
+          <Text style={styles.repeatEditorSectionTitle}>확인</Text>
+          <Text style={styles.repeatEditorSectionBody}>
+            저장하면 이 설정으로 반복투표가 관리됩니다.
+          </Text>
+          <View style={styles.repeatConfirmList}>
+            <View style={styles.repeatConfirmRow}>
+              <Text style={styles.repeatConfirmLabel}>제목</Text>
+              <Text style={styles.repeatConfirmValue}>{form.title.trim() || '제목 없음'}</Text>
+            </View>
+            <View style={styles.repeatConfirmRow}>
+              <Text style={styles.repeatConfirmLabel}>종류</Text>
+              <Text style={styles.repeatConfirmValue}>
+                {`${getPollTypeLabel(form.pollType)} · ${getSelectionTypeLabel(form.selectionType)}`}
+              </Text>
+            </View>
+            <View style={styles.repeatConfirmRow}>
+              <Text style={styles.repeatConfirmLabel}>일정</Text>
+              <Text style={styles.repeatConfirmValue}>{getAdminPollTemplateLiveSummary(form)}</Text>
+            </View>
+            <View style={styles.repeatConfirmRow}>
+              <Text style={styles.repeatConfirmLabel}>자동 생성</Text>
+              <Text style={styles.repeatConfirmValue}>
+                {form.autoCreateEnabled ? '켜짐' : '꺼짐'}
+              </Text>
+            </View>
+            <View style={styles.repeatConfirmRow}>
+              <Text style={styles.repeatConfirmLabel}>선택지</Text>
+              <Text style={styles.repeatConfirmValue}>
+                {optionSummaryItems.length > 0 ? optionSummaryItems.join(', ') : '선택지 없음'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {stepError ? (
+        <View accessibilityRole="alert" style={styles.repeatWizardError}>
+          <Text style={styles.repeatWizardErrorText}>{stepError}</Text>
+        </View>
+      ) : null}
+      {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
+
+      <View style={styles.repeatWizardActions}>
+        <Button
+          accessibilityLabel={secondaryActionLabel === '취소' ? '반복투표 작성 취소' : '이전 단계로 이동'}
+          disabled={busy}
+          onPress={goToPreviousStep}
+          variant="secondary">
+          {secondaryActionLabel}
+        </Button>
+        <Button
+          accessibilityLabel={
+            isLastStep
+              ? form.templateId === null
+                ? '반복투표 만들기'
+                : '반복투표 변경사항 저장'
+              : '다음 단계로 이동'
+          }
+          disabled={busy || stepError !== null}
+          onPress={goToNextStep}>
+          {primaryActionLabel}
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+function _LegacyAdminPollTemplateEditor({
+  actionState,
+  accounts,
+  coffeeCatalogState,
   form,
   onChangeForm,
   onConfirmDelete,
   onDeleteTarget,
   onEditTemplate,
   onNewTemplate,
+  onRetryCoffeeCatalog,
   onSave,
   onUseTemplateForPoll,
   selectedTemplate,
@@ -2684,12 +3428,14 @@ function AdminPollTemplateEditor({
 }: {
   accounts: PaymentAccount[];
   actionState: AdminPollActionState;
+  coffeeCatalogState: AdminCoffeeCatalogState;
   form: AdminPollTemplateForm;
   onChangeForm: (patch: Partial<AdminPollTemplateForm>) => void;
   onConfirmDelete: () => void;
   onDeleteTarget: (template: AdminPollTemplate | null) => void;
   onEditTemplate: (template: AdminPollTemplate) => void;
   onNewTemplate: () => void;
+  onRetryCoffeeCatalog: () => void;
   onSave: () => void;
   onUseTemplateForPoll: (template: AdminPollTemplate) => void;
   selectedTemplate: AdminPollTemplate | null;
@@ -2697,115 +3443,338 @@ function AdminPollTemplateEditor({
   templates: AdminPollTemplate[];
 }) {
   const busy = actionState.status !== 'idle';
-  const activeTemplates = templates.filter((template) => template.isActive);
+  const serverTemplates = templates.filter((template) => !isDefaultCoffeePollTemplate(template));
+  const activeServerTemplates = serverTemplates.filter(
+    (template) => template.isActive && template.autoCreateEnabled,
+  );
+  const selectedTemplateIsDefault = selectedTemplate
+    ? isDefaultCoffeePollTemplate(selectedTemplate)
+    : false;
+  const templateOptions = splitAdminPollOptionsText(form.optionsText);
+  const [coffeeMenuPickerVisible, setCoffeeMenuPickerVisible] = useState(false);
+  const [selectedCoffeeBrandId, setSelectedCoffeeBrandId] = useState<number | null>(null);
+  const templateCoffeeMenuIds = parseCoffeeMenuIdsFromOptionsText(form.optionsText);
+  const knownCoffeeMenuIds =
+    coffeeCatalogState.status === 'success'
+      ? new Set(coffeeCatalogState.menus.map((menu) => menu.id))
+      : new Set<number>();
+  const templateValidationMessage = getAdminPollTemplateValidationMessage(form);
+  const repeatSummary = templateValidationMessage
+    ? templateValidationMessage
+    : getAdminPollTemplateLiveSummary(form);
+  const primaryActionLabel =
+    form.templateId === null
+      ? actionState.status === 'savingTemplate'
+        ? '저장 중...'
+        : '반복투표 만들기'
+      : actionState.status === 'savingTemplate'
+        ? '저장 중...'
+        : '변경사항 저장';
+  const updateTemplateOption = (index: number, value: string) => {
+    onChangeForm({optionsText: updateAdminPollOptionText(templateOptions, index, value)});
+  };
+  const removeTemplateOption = (index: number) => {
+    onChangeForm({optionsText: removeAdminPollOptionText(templateOptions, index)});
+  };
+  const addTemplateOption = () => {
+    onChangeForm({optionsText: appendAdminPollOptionText(templateOptions)});
+  };
+  const addTemplateCoffeeMenu = (menu: CoffeeMenu) => {
+    const validIds = templateCoffeeMenuIds.filter((menuId) => knownCoffeeMenuIds.has(menuId));
+    const nextIds = validIds.includes(menu.id) ? validIds : [...validIds, menu.id];
+
+    onChangeForm({optionsText: formatCoffeeMenuOptionsText(nextIds)});
+    setCoffeeMenuPickerVisible(false);
+  };
+  const removeTemplateCoffeeMenu = (menuId: number) => {
+    onChangeForm({
+      optionsText: formatCoffeeMenuOptionsText(
+        templateCoffeeMenuIds.filter((selectedMenuId) => selectedMenuId !== menuId),
+      ),
+    });
+  };
+
+  useEffect(() => {
+    if (
+      selectedCoffeeBrandId === null &&
+      coffeeCatalogState.status === 'success' &&
+      coffeeCatalogState.brands[0]
+    ) {
+      setSelectedCoffeeBrandId(coffeeCatalogState.brands[0].id);
+    }
+  }, [coffeeCatalogState, selectedCoffeeBrandId]);
 
   return (
     <>
-      <Card>
-        <View style={styles.headerRow}>
+      <View style={styles.pollSectionShell}>
+        <View style={styles.pollTemplateSummary}>
           <View style={styles.headerText}>
-            <Title>투표 템플릿</Title>
-            <Body>반복 생성에 사용할 템플릿과 마감 규칙을 관리합니다.</Body>
+            <Text style={styles.pollTemplateSummaryTitle}>
+              {`활성 반복 ${activeServerTemplates.length}개`}
+            </Text>
+            <Text style={styles.pollTemplateSummaryText}>
+              저장된 반복투표 중 자동 생성이 켜진 항목만 집계합니다.
+            </Text>
           </View>
-          <Chip label={`반복 투표 ${activeTemplates.length}개`} tone="info" />
+          <View style={styles.pollResultPill}>
+            <Text style={styles.pollResultPillText}>관리</Text>
+          </View>
         </View>
-        {templates.length === 0 ? (
-          <Body>저장된 템플릿이 없습니다.</Body>
-        ) : (
-          templates.map((template) => (
-            <View key={template.id} style={styles.compactBlock}>
-              <ListRow
-                label={template.title}
-                supportingText={getTemplateScheduleLabel(template)}
-                value={template.isActive ? 'ON' : 'OFF'}
-              />
-              <View style={styles.actionRow}>
-                <Button
-                  accessibilityLabel={`${template.title} 템플릿 수정`}
-                  disabled={busy}
-                  onPress={() => onEditTemplate(template)}
-                  variant="secondary">
-                  수정
-                </Button>
-                <Button
-                  accessibilityLabel={`${template.title} 템플릿 기반 투표 생성`}
-                  disabled={busy || !template.isActive}
-                  onPress={() => onUseTemplateForPoll(template)}
-                  variant="secondary">
-                  생성에 사용
-                </Button>
-                <Button
-                  accessibilityLabel={`${template.title} 템플릿 비활성화 확인`}
-                  disabled={busy || !template.isActive}
-                  onPress={() => onDeleteTarget(template)}
-                  variant="danger">
-                  비활성화
-                </Button>
+        {serverTemplates.length === 0 ? <Body>저장된 반복투표가 없습니다.</Body> : null}
+        {templates.map((template) => {
+          const isDefaultCoffeePreset = isDefaultCoffeePollTemplate(template);
+          const isCoffeeChargeTemplate =
+            template.pollType === 'COFFEE' &&
+            template.chargeGenerationType === 'OPTION_PRICE';
+          const statusLabel = isDefaultCoffeePreset
+            ? '기본'
+            : template.isActive
+              ? isCoffeeChargeTemplate
+                ? '주의'
+                : 'ON'
+              : 'OFF';
+
+          return (
+            <Pressable
+              accessibilityLabel={`${template.title} 반복투표 수정`}
+              accessibilityRole="button"
+              key={template.id}
+              onPress={() => onEditTemplate(template)}
+              style={({pressed}) => [styles.pollTemplateRow, pressed ? styles.pressed : null]}>
+              <View style={styles.pollItemText}>
+                <View style={styles.pollTemplateTitleRow}>
+                  <Text style={styles.pollItemTitle}>{template.title}</Text>
+                  {isDefaultCoffeePreset ? <Chip label="추천" tone="info" /> : null}
+                </View>
+                <Text style={styles.pollItemMeta}>
+                  {isDefaultCoffeePreset
+                    ? '저장 전 기본값 · 메뉴 선택지는 저장/생성 전 확인'
+                    : getTemplateScheduleLabel(template)}
+                </Text>
               </View>
+              <View
+                style={[
+                  styles.pollStatusPill,
+                  !template.isActive ? styles.pollStatusPillMuted : null,
+                  isDefaultCoffeePreset
+                    ? styles.pollStatusPillInfo
+                    : isCoffeeChargeTemplate
+                      ? styles.pollStatusPillDanger
+                      : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.pollStatusPillText,
+                    !template.isActive ? styles.pollStatusPillTextMuted : null,
+                    isDefaultCoffeePreset
+                      ? styles.pollStatusPillTextInfo
+                      : isCoffeeChargeTemplate
+                        ? styles.pollStatusPillTextDanger
+                        : null,
+                  ]}>
+                  {statusLabel}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={styles.repeatEditorShell}>
+        <View style={styles.repeatEditorHeader}>
+          <View style={styles.headerText}>
+            <Title>{form.templateId === null ? '반복투표 만들기' : '반복투표 편집'}</Title>
+            <Body>매주 열릴 투표의 일정과 응답 항목을 설정합니다.</Body>
+          </View>
+        </View>
+
+        <View style={styles.repeatEditorSection}>
+          <Text style={styles.repeatEditorSectionTitle}>반복 일정</Text>
+          <Text style={styles.repeatEditorSectionBody}>
+            날짜가 아니라 매주 반복될 시작 요일과 마감 요일을 정합니다.
+          </Text>
+          <AdminRepeatTimeRuleEditor
+            disabled={busy}
+            endDayOfWeek={form.endDayOfWeek}
+            endTime={form.endTime}
+            onChange={(patch) => onChangeForm(patch)}
+            startDayOfWeek={form.startDayOfWeek}
+            startTime={form.startTime}
+          />
+          <View
+            accessibilityRole={templateValidationMessage ? 'alert' : undefined}
+            style={[
+              styles.repeatSummaryBox,
+              templateValidationMessage ? styles.repeatSummaryBoxError : null,
+            ]}>
+            <Text
+              style={[
+                styles.repeatSummaryText,
+                templateValidationMessage ? styles.repeatSummaryTextError : null,
+              ]}>
+              {repeatSummary}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.repeatEditorSection}>
+          <Text style={styles.repeatEditorSectionTitle}>투표 내용</Text>
+          <TextField
+            label="반복투표 제목"
+            onChangeText={(title) => onChangeForm({title})}
+            value={form.title}
+          />
+          <View style={styles.templateFormSection}>
+            <Eyebrow>투표 유형</Eyebrow>
+            <SegmentedControl
+              items={adminPollTypes}
+              selectedId={form.pollType}
+              onSelect={(pollType) =>
+                onChangeForm({
+                  optionsText: pollType === 'COFFEE' ? '' : form.optionsText,
+                  pollType,
+                })
+              }
+            />
+          </View>
+          <View style={styles.templateFormSection}>
+            <Eyebrow>선택 방식</Eyebrow>
+            <SegmentedControl
+              items={adminPollSelectionTypes}
+              selectedId={form.selectionType}
+              onSelect={(selectionType) => onChangeForm({selectionType})}
+            />
+          </View>
+        </View>
+
+        <View style={styles.repeatEditorSection}>
+          <View style={styles.headerRow}>
+            <View style={styles.headerText}>
+              <Text style={styles.repeatEditorSectionTitle}>선택지</Text>
+              <Text style={styles.repeatEditorSectionBody}>
+                {form.pollType === 'COFFEE'
+                  ? '커피 메뉴 이름과 가격을 보고 선택합니다.'
+                  : '응답자가 고를 항목만 남겨 주세요.'}
+              </Text>
             </View>
-          ))
-        )}
-      </Card>
-      <Card>
-        <Title>{form.templateId === null ? '템플릿 생성' : '템플릿 수정'}</Title>
-        <Body>투표 유형, 선택 방식, 선택지와 반복 시간을 저장합니다.</Body>
-        <TextField
-          label="템플릿 제목"
-          onChangeText={(title) => onChangeForm({title})}
-          value={form.title}
-        />
-        <SegmentedControl
-          items={adminPollTypes}
-          selectedId={form.pollType}
-          onSelect={(pollType) => onChangeForm({pollType})}
-        />
-        <SegmentedControl
-          items={adminPollSelectionTypes}
-          selectedId={form.selectionType}
-          onSelect={(selectionType) => onChangeForm({selectionType})}
-        />
-        <SegmentedControl
-          items={adminPollChargeTypes}
-          selectedId={form.chargeGenerationType}
-          onSelect={(chargeGenerationType) =>
-            onChangeForm({
-              chargeGenerationType,
-              paymentCategory: chargeGenerationType === 'NONE' ? 'NONE' : form.paymentCategory,
-            })
-          }
-        />
-        <View style={styles.formRow}>
-          <TextField
-            keyboardType="number-pad"
-            label="시작 요일"
-            onChangeText={(startDayOfWeek) => onChangeForm({startDayOfWeek})}
-            value={form.startDayOfWeek}
-          />
-          <TextField
-            label="시작 시간"
-            onChangeText={(startTime) => onChangeForm({startTime})}
-            value={form.startTime}
-          />
+            <Pressable
+              accessibilityLabel={form.pollType === 'COFFEE' ? '반복 커피 메뉴 추가' : '반복 투표 선택지 추가'}
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() =>
+                form.pollType === 'COFFEE' ? setCoffeeMenuPickerVisible(true) : addTemplateOption()
+              }
+              style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateAddOptionText}>
+                {form.pollType === 'COFFEE' ? '메뉴 추가' : '추가'}
+              </Text>
+            </Pressable>
+          </View>
+          {form.pollType === 'COFFEE' ? (
+            <>
+              <CoffeeMenuPickerSheet
+                onClose={() => setCoffeeMenuPickerVisible(false)}
+                onRetry={onRetryCoffeeCatalog}
+                onSelectBrand={setSelectedCoffeeBrandId}
+                onSelectMenu={addTemplateCoffeeMenu}
+                selectedBrandId={selectedCoffeeBrandId}
+                selectedMenuIds={templateCoffeeMenuIds.filter((menuId) =>
+                  knownCoffeeMenuIds.has(menuId),
+                )}
+                state={coffeeCatalogState}
+                visible={coffeeMenuPickerVisible}
+              />
+            <AdminPollCoffeeOptions
+              catalogState={coffeeCatalogState}
+              onRemoveMenu={removeTemplateCoffeeMenu}
+              onRetry={onRetryCoffeeCatalog}
+              selectedMenuIds={templateCoffeeMenuIds}
+            />
+            </>
+          ) : (
+            <View style={styles.pollCreateOptionList}>
+              {templateOptions.map((option, index) => (
+                <View key={`${index}-${templateOptions.length}`} style={styles.pollCreateOptionRow}>
+                  <View style={styles.pollCreateOptionNumber}>
+                    <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.pollCreateOptionField}>
+                    <TextField
+                      label={`선택지 ${index + 1}`}
+                      onChangeText={(value) => updateTemplateOption(index, value)}
+                      value={option}
+                    />
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`${index + 1}번 반복 투표 선택지 삭제`}
+                    accessibilityRole="button"
+                    disabled={busy || templateOptions.length <= 1}
+                    onPress={() => removeTemplateOption(index)}
+                    style={({pressed}) => [
+                      styles.pollCreateRemoveOption,
+                      templateOptions.length <= 1 ? styles.pollCreateRemoveOptionDisabled : null,
+                      pressed ? styles.pressed : null,
+                    ]}>
+                    <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
-        <View style={styles.formRow}>
-          <TextField
-            keyboardType="number-pad"
-            label="마감 요일"
-            onChangeText={(endDayOfWeek) => onChangeForm({endDayOfWeek})}
-            value={form.endDayOfWeek}
-          />
-          <TextField
-            label="마감 시간"
-            onChangeText={(endTime) => onChangeForm({endTime})}
-            value={form.endTime}
-          />
+
+        <View style={styles.repeatEditorSection}>
+          <Text style={styles.repeatEditorSectionTitle}>자동 생성</Text>
+          <Text style={styles.repeatEditorSectionBody}>
+            켜두면 저장한 요일과 시간 기준으로 매주 반복투표가 준비됩니다.
+          </Text>
+        <Pressable
+          accessibilityLabel="자동 생성 여부 전환"
+          accessibilityRole="switch"
+          accessibilityState={{checked: form.autoCreateEnabled}}
+          disabled={busy}
+          onPress={() => onChangeForm({autoCreateEnabled: !form.autoCreateEnabled})}
+          style={({pressed}) => [
+            styles.pollCreateToggleRow,
+            styles.templateAutoRow,
+            pressed ? styles.pressed : null,
+          ]}>
+          <View style={styles.headerText}>
+            <Text style={styles.pollCreateTypeTitle}>자동 생성</Text>
+            <Text style={styles.pollCreateTypeDescription}>
+              켜면 저장된 요일과 시간 기준으로 매주 생성됩니다.
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.pollCreateToggle,
+              form.autoCreateEnabled ? styles.pollCreateToggleActive : null,
+            ]}>
+            <Text
+              style={[
+                styles.pollCreateToggleText,
+                form.autoCreateEnabled ? styles.pollCreateToggleTextActive : null,
+              ]}>
+              {form.autoCreateEnabled ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+        </Pressable>
         </View>
-        <TextField
-          helper="쉼표로 구분합니다. 커피 메뉴는 menu:4 형식으로 입력할 수 있습니다."
-          label="선택지"
-          onChangeText={(optionsText) => onChangeForm({optionsText})}
-          value={form.optionsText}
-        />
+
+        {form.pollType === 'COFFEE' ? (
+          <View style={styles.repeatEditorSection}>
+            <Text style={styles.repeatEditorSectionTitle}>청구 설정</Text>
+            <SegmentedControl
+              items={adminPollChargeTypes}
+              selectedId={form.chargeGenerationType}
+              onSelect={(chargeGenerationType) =>
+                onChangeForm({
+                  chargeGenerationType,
+                  paymentCategory: chargeGenerationType === 'NONE' ? 'NONE' : form.paymentCategory,
+                })
+              }
+            />
+          </View>
+        ) : null}
         {form.chargeGenerationType === 'OPTION_PRICE' ? (
           <PaymentAccountPicker
             accounts={accounts}
@@ -2819,22 +3788,41 @@ function AdminPollTemplateEditor({
             selectedAccountId={toOptionalPositiveId(form.paymentAccountId)}
           />
         ) : null}
-        <View style={styles.actionRow}>
+
+        <View style={styles.repeatEditorActions}>
           <Button
-            accessibilityLabel="투표 템플릿 저장"
-            disabled={busy}
+            accessibilityLabel={form.templateId === null ? '반복투표 만들기' : '반복투표 변경사항 저장'}
+            disabled={busy || templateValidationMessage !== null}
             onPress={onSave}>
-            {busy ? '저장 중...' : '저장'}
+            {primaryActionLabel}
           </Button>
+          {selectedTemplate ? (
+            <Button
+              accessibilityLabel="선택 반복투표 기반 투표 만들기"
+              disabled={busy}
+              onPress={() => onUseTemplateForPoll(selectedTemplate)}
+              variant="secondary">
+              투표 만들기
+            </Button>
+          ) : null}
+          {form.templateId !== null ? (
+            <Button
+              accessibilityLabel="새 입력"
+              disabled={busy}
+              onPress={onNewTemplate}
+              variant="secondary">
+              새 입력
+            </Button>
+          ) : null}
           <Button
-            accessibilityLabel="새 투표 템플릿 입력"
-            disabled={busy}
-            onPress={onNewTemplate}
-            variant="secondary">
-            새 템플릿
+            accessibilityLabel="반복투표 비활성화 확인"
+            disabled={busy || !selectedTemplate?.isActive || selectedTemplateIsDefault}
+            onPress={() => selectedTemplate ? onDeleteTarget(selectedTemplate) : undefined}
+            variant="danger">
+            비활성화
           </Button>
         </View>
-      </Card>
+      </View>
       {selectedTemplate ? <AdminPollTemplatePreview template={selectedTemplate} /> : null}
       {target ? (
         <Card>
@@ -2842,14 +3830,14 @@ function AdminPollTemplateEditor({
           <Body>반복 생성 목록에서 제외합니다. 이미 생성된 투표는 그대로 유지됩니다.</Body>
           <View style={styles.actionRow}>
             <Button
-              accessibilityLabel="투표 템플릿 비활성화 실행"
+              accessibilityLabel="반복투표 비활성화 실행"
               disabled={busy}
               onPress={onConfirmDelete}
               variant="danger">
               {actionState.status === 'deletingTemplate' ? '처리 중...' : '비활성화'}
             </Button>
             <Button
-              accessibilityLabel="투표 템플릿 비활성화 취소"
+              accessibilityLabel="반복투표 비활성화 취소"
               disabled={busy}
               onPress={() => onDeleteTarget(null)}
               variant="secondary">
@@ -2862,168 +3850,966 @@ function AdminPollTemplateEditor({
   );
 }
 
+function AdminRepeatTimeRuleEditor({
+  disabled,
+  endDayOfWeek,
+  endTime,
+  onChange,
+  startDayOfWeek,
+  startTime,
+}: {
+  disabled: boolean;
+  endDayOfWeek: string;
+  endTime: string;
+  onChange: (patch: Partial<AdminPollTemplateForm>) => void;
+  startDayOfWeek: string;
+  startTime: string;
+}) {
+  return (
+    <View style={styles.repeatRuleEditor}>
+      <AdminRepeatRulePoint
+        dayOfWeek={startDayOfWeek}
+        disabled={disabled}
+        label="시작"
+        onChangeDay={(dayOfWeek) => onChange({startDayOfWeek: dayOfWeek})}
+        onChangeTime={(time) => onChange({startTime: time})}
+        time={startTime}
+      />
+      <AdminRepeatRulePoint
+        dayOfWeek={endDayOfWeek}
+        disabled={disabled}
+        label="마감"
+        onChangeDay={(dayOfWeek) => onChange({endDayOfWeek: dayOfWeek})}
+        onChangeTime={(time) => onChange({endTime: time})}
+        time={endTime}
+      />
+    </View>
+  );
+}
+
+function AdminRepeatRulePoint({
+  dayOfWeek,
+  disabled,
+  label,
+  onChangeDay,
+  onChangeTime,
+  time,
+}: {
+  dayOfWeek: string;
+  disabled: boolean;
+  label: '마감' | '시작';
+  onChangeDay: (dayOfWeek: string) => void;
+  onChangeTime: (time: string) => void;
+  time: string;
+}) {
+  return (
+    <View style={styles.repeatRulePoint}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Text style={styles.dateTimeSelectLabel}>{label}</Text>
+          <Text style={styles.dateTimeSelectValue}>
+            {`${formatTemplateDateTimeLabel(dayOfWeek, time)} ${label}`}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.repeatWeekdayGrid}>
+        {adminPollWeekdays.map((weekday) => {
+          const selected = weekday.id === dayOfWeek;
+
+          return (
+            <Pressable
+              accessibilityLabel={`${label} 요일 ${weekday.label} 선택`}
+              accessibilityRole="button"
+              accessibilityState={{selected}}
+              disabled={disabled}
+              key={weekday.id}
+              onPress={() => onChangeDay(weekday.id)}
+              style={({pressed}) => [
+                styles.repeatWeekdayPill,
+                selected ? styles.repeatWeekdayPillActive : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text
+                style={[
+                  styles.repeatWeekdayText,
+                  selected ? styles.repeatWeekdayTextActive : null,
+                ]}>
+                {weekday.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <AdminRepeatTimeStepper disabled={disabled} onChange={onChangeTime} time={time} />
+    </View>
+  );
+}
+
+function AdminRepeatTimeStepper({
+  disabled,
+  onChange,
+  time,
+}: {
+  disabled: boolean;
+  onChange: (time: string) => void;
+  time: string;
+}) {
+  const parts = parseAdminTimeParts(time);
+  const setHour = (delta: number) => onChange(formatAdminTimeParts(parts.hour + delta, parts.minute));
+  const setMinute = (delta: number) => onChange(formatAdminTimeParts(parts.hour, parts.minute + delta));
+
+  return (
+    <View style={styles.repeatTimeStepper}>
+      <View style={styles.repeatTimeGroup}>
+        <Text style={styles.repeatTimeLabel}>시</Text>
+        <View style={styles.repeatTimeControls}>
+          <Pressable
+            accessibilityLabel="반복 시간 시 줄이기"
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={() => setHour(-1)}
+            style={({pressed}) => [styles.repeatTimeButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.repeatTimeButtonText}>-</Text>
+          </Pressable>
+          <Text style={styles.repeatTimeValue}>{String(parts.hour).padStart(2, '0')}</Text>
+          <Pressable
+            accessibilityLabel="반복 시간 시 늘리기"
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={() => setHour(1)}
+            style={({pressed}) => [styles.repeatTimeButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.repeatTimeButtonText}>+</Text>
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.repeatTimeGroup}>
+        <Text style={styles.repeatTimeLabel}>분</Text>
+        <View style={styles.repeatTimeControls}>
+          <Pressable
+            accessibilityLabel="반복 시간 분 줄이기"
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={() => setMinute(-5)}
+            style={({pressed}) => [styles.repeatTimeButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.repeatTimeButtonText}>-</Text>
+          </Pressable>
+          <Text style={styles.repeatTimeValue}>{String(parts.minute).padStart(2, '0')}</Text>
+          <Pressable
+            accessibilityLabel="반복 시간 분 늘리기"
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={() => setMinute(5)}
+            style={({pressed}) => [styles.repeatTimeButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.repeatTimeButtonText}>+</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function AdminPollCreatePanel({
+  actionError,
   accounts,
   busy,
+  coffeeCatalogState,
   coffeeWarning,
+  createStep,
   form,
+  onCancel,
   onChangeForm,
+  onChangeStep,
   onCreate,
-  onPickTemplate,
+  onRetryCoffeeCatalog,
   onReset,
   templates,
 }: {
+  actionError: ApiError | null;
   accounts: PaymentAccount[];
   busy: boolean;
+  coffeeCatalogState: AdminCoffeeCatalogState;
   coffeeWarning: string | null;
+  createStep: AdminPollCreateStep;
   form: AdminPollCreateForm;
+  onCancel: () => void;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
+  onChangeStep: (step: AdminPollCreateStep) => void;
   onCreate: () => void;
-  onPickTemplate: (template: AdminPollTemplate) => void;
+  onRetryCoffeeCatalog: () => void;
   onReset: () => void;
   templates: AdminPollTemplate[];
 }) {
-  const selectedTemplate = templates.find((item) => String(item.id) === form.templateId.trim());
+  const options = splitAdminPollOptionsText(form.optionsText);
+  const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
+  const [coffeeMenuPickerVisible, setCoffeeMenuPickerVisible] = useState(false);
+  const [selectedCoffeeBrandId, setSelectedCoffeeBrandId] = useState<number | null>(null);
+  const coffeeMenuIds = parseCoffeeMenuIdsFromOptionsText(form.optionsText);
+  const deadlineDate = getAdminDateTimeValue(form.endsAt);
+  const deadlineValidationReason = getAdminPollDeadlineValidationMessage(form);
+  const createDisabledReason = getAdminPollCreateDisabledReason(form, coffeeWarning);
+  const knownCoffeeMenuIds =
+    coffeeCatalogState.status === 'success'
+      ? new Set(coffeeCatalogState.menus.map((menu) => menu.id))
+      : new Set<number>();
+  const selectType = (pollType: AdminPollType) => {
+    onChangeForm(getCreatePollTypePatch(pollType, form, templates));
+  };
+  const goToDetail = () => {
+    onChangeForm(getCreatePollTimeRefreshPatch(form));
+    onChangeStep('detail');
+  };
+  const updateOption = (index: number, value: string) => {
+    onChangeForm({optionsText: updateAdminPollOptionText(options, index, value)});
+  };
+  const removeOption = (index: number) => {
+    onChangeForm({optionsText: removeAdminPollOptionText(options, index)});
+  };
+  const addCoffeeMenu = (menu: CoffeeMenu) => {
+    const validIds = coffeeMenuIds.filter((menuId) => knownCoffeeMenuIds.has(menuId));
+    const nextIds = validIds.includes(menu.id) ? validIds : [...validIds, menu.id];
+
+    onChangeForm({optionsText: formatCoffeeMenuOptionsText(nextIds)});
+    setCoffeeMenuPickerVisible(false);
+  };
+  const removeCoffeeMenu = (menuId: number) => {
+    onChangeForm({
+      optionsText: formatCoffeeMenuOptionsText(
+        coffeeMenuIds.filter((selectedMenuId) => selectedMenuId !== menuId),
+      ),
+    });
+  };
+
+  useEffect(() => {
+    if (
+      selectedCoffeeBrandId === null &&
+      coffeeCatalogState.status === 'success' &&
+      coffeeCatalogState.brands[0]
+    ) {
+      setSelectedCoffeeBrandId(coffeeCatalogState.brands[0].id);
+    }
+  }, [coffeeCatalogState, selectedCoffeeBrandId]);
+
+  if (createStep === 'type') {
+    return (
+      <View style={styles.pollCreateShell}>
+        <View style={styles.pollCreateHeader}>
+          <Text style={styles.pollCreateTitle}>투표 유형</Text>
+          <Text style={styles.pollCreateDescription}>이번에 만들 투표의 기본 형태를 선택하세요.</Text>
+        </View>
+        <View style={styles.pollCreateTypeList}>
+          {adminPollCreateTypes.map((type) => {
+            const selected = form.pollType === type.id;
+
+            return (
+              <Pressable
+                accessibilityLabel={`${type.label} 투표 유형 선택`}
+                accessibilityRole="button"
+                accessibilityState={{selected}}
+                key={type.id}
+                onPress={() => selectType(type.id)}
+                style={({pressed}) => [
+                  styles.pollCreateTypeCard,
+                  selected ? styles.pollCreateTypeCardSelected : null,
+                  pressed ? styles.pressed : null,
+                ]}>
+                <View
+                  style={[
+                    styles.pollCreateTypeIcon,
+                    type.id === 'COFFEE' ? styles.pollCreateTypeIconMint : null,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.pollCreateTypeIconText,
+                      type.id === 'COFFEE' ? styles.pollCreateTypeIconTextMint : null,
+                    ]}>
+                    {getAdminPollInitial(type.id)}
+                  </Text>
+                </View>
+                <View style={styles.pollItemText}>
+                  <Text style={styles.pollCreateTypeTitle}>{type.label}</Text>
+                  <Text style={styles.pollCreateTypeDescription}>
+                    {getAdminPollTypeDescription(type.id)}
+                  </Text>
+                </View>
+                <View style={styles.pollCreateSelectPill}>
+                  <Text style={styles.pollCreateSelectPillText}>
+                    {selected ? '선택됨' : '선택'}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.pollCreateCtaRow}>
+          <Pressable
+            accessibilityLabel="투표 만들기 취소"
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={onCancel}
+            style={({pressed}) => [
+              styles.pollCreateSecondaryAction,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="투표 세부 정보 입력으로 이동"
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={goToDetail}
+            style={({pressed}) => [
+              styles.pollCreatePrimaryAction,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={styles.pollCreatePrimaryActionText}>다음</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
-    <Card>
-      <Title>투표 생성</Title>
-      <Body>투표 유형을 고르고 제목, 마감, 선택지를 입력합니다.</Body>
-      {templates.length > 0 ? (
-        <View style={styles.compactBlock}>
-          <Eyebrow>템플릿 선택</Eyebrow>
-          {templates
-            .filter((template) => template.isActive)
-            .map((template) => (
-              <ListRow
-                accessibilityLabel={`${template.title} 템플릿 선택`}
-                key={template.id}
-                label={template.title}
-                onPress={() => onPickTemplate(template)}
-                supportingText={getTemplateScheduleLabel(template)}
-                value={selectedTemplate?.id === template.id ? '선택됨' : getPollTypeLabel(template.pollType)}
-              />
-            ))}
-          <Button
-            accessibilityLabel="템플릿 없이 직접 입력"
+    <View style={styles.pollCreateShell}>
+      <Card>
+        <Eyebrow>투표 제목</Eyebrow>
+        <TextField
+          label="제목"
+          onChangeText={(title) => onChangeForm({title})}
+          value={form.title}
+        />
+      </Card>
+      <Card>
+        <Eyebrow>마감 일시</Eyebrow>
+        <Pressable
+          accessibilityLabel="투표 마감 일시 선택"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => setDeadlinePickerVisible(true)}
+          style={({pressed}) => [styles.dateTimeSelectCard, pressed ? styles.pressed : null]}>
+          <Text style={styles.dateTimeSelectLabel}>마감 일시</Text>
+          <Text style={styles.dateTimeSelectValue}>
+            {formatAdminDateTimeLabel(deadlineDate)}
+          </Text>
+          <Text style={styles.dateTimeSelectHint}>달력과 시간 선택으로 마감 시각을 정합니다.</Text>
+        </Pressable>
+        <AdminDateTimePickerSheet
+          title="마감 일시 선택"
+          value={deadlineDate}
+          visible={deadlinePickerVisible}
+          onApply={(date) => {
+            onChangeForm({endsAt: formatAdminDateTimeForApi(date)});
+            setDeadlinePickerVisible(false);
+          }}
+          onCancel={() => setDeadlinePickerVisible(false)}
+        />
+        {deadlineValidationReason ? (
+          <View style={styles.inlineError}>
+            <Text style={styles.inlineErrorText}>{deadlineValidationReason}</Text>
+          </View>
+        ) : null}
+      </Card>
+      <Card>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Eyebrow>선택지</Eyebrow>
+            <Body>
+              {form.pollType === 'COFFEE'
+                ? '커피 메뉴 이름과 가격을 확인한 뒤 추가합니다.'
+                : '응답자가 고를 항목을 입력합니다.'}
+            </Body>
+          </View>
+          <Pressable
+            accessibilityLabel={form.pollType === 'COFFEE' ? '커피 메뉴 추가' : '투표 선택지 추가'}
+            accessibilityRole="button"
             disabled={busy}
-            onPress={() => onChangeForm({templateId: '', optionsText: form.optionsText || '참석, 불참'})}
-            variant="secondary">
-            직접 입력
-          </Button>
+            onPress={() =>
+              form.pollType === 'COFFEE'
+                ? setCoffeeMenuPickerVisible(true)
+                : onChangeForm({optionsText: appendAdminPollOptionText(options)})
+            }
+            style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
+            <Text style={styles.pollCreateAddOptionText}>
+              {form.pollType === 'COFFEE' ? '메뉴 추가' : '추가'}
+            </Text>
+          </Pressable>
         </View>
-      ) : null}
-      <TextField
-        label="투표 제목"
-        onChangeText={(title) => onChangeForm({title})}
-        value={form.title}
-      />
-      <SegmentedControl
-        items={adminPollTypes}
-        selectedId={form.pollType}
-        onSelect={(pollType) => onChangeForm({pollType})}
-      />
-      <SegmentedControl
-        items={adminPollSelectionTypes}
-        selectedId={form.selectionType}
-        onSelect={(selectionType) => onChangeForm({selectionType})}
-      />
-      <SegmentedControl
-        items={adminPollChargeTypes}
-        selectedId={form.chargeGenerationType}
-        onSelect={(chargeGenerationType) =>
-          onChangeForm({
-            chargeGenerationType,
-            paymentCategory: chargeGenerationType === 'NONE' ? 'NONE' : form.paymentCategory,
-          })
-        }
-      />
-      <View style={styles.formRow}>
-        <TextField
-          label="시작 일시"
-          onChangeText={(startsAt) => onChangeForm({startsAt})}
-          value={form.startsAt}
+        <CoffeeMenuPickerSheet
+          onClose={() => setCoffeeMenuPickerVisible(false)}
+          onRetry={onRetryCoffeeCatalog}
+          onSelectBrand={setSelectedCoffeeBrandId}
+          onSelectMenu={addCoffeeMenu}
+          selectedBrandId={selectedCoffeeBrandId}
+          selectedMenuIds={coffeeMenuIds.filter((menuId) => knownCoffeeMenuIds.has(menuId))}
+          state={coffeeCatalogState}
+          visible={coffeeMenuPickerVisible}
         />
-        <TextField
-          label="마감 일시"
-          onChangeText={(endsAt) => onChangeForm({endsAt})}
-          value={form.endsAt}
+        {form.pollType === 'COFFEE' ? (
+          <AdminPollCoffeeOptions
+            catalogState={coffeeCatalogState}
+            onRemoveMenu={removeCoffeeMenu}
+            onRetry={onRetryCoffeeCatalog}
+            selectedMenuIds={coffeeMenuIds}
+          />
+        ) : (
+          <View style={styles.pollCreateOptionList}>
+            {options.map((option, index) => (
+              <View key={`${index}-${options.length}`} style={styles.pollCreateOptionRow}>
+                <View style={styles.pollCreateOptionNumber}>
+                  <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
+                </View>
+                <View style={styles.pollCreateOptionField}>
+                  <TextField
+                    label={`선택지 ${index + 1}`}
+                    onChangeText={(value) => updateOption(index, value)}
+                    value={option}
+                  />
+                </View>
+                <Pressable
+                  accessibilityLabel={`${index + 1}번 선택지 삭제`}
+                  accessibilityRole="button"
+                  disabled={busy || options.length <= 1}
+                  onPress={() => removeOption(index)}
+                  style={({pressed}) => [
+                    styles.pollCreateRemoveOption,
+                    options.length <= 1 ? styles.pollCreateRemoveOptionDisabled : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+      </Card>
+      <Card>
+        <Eyebrow>선택 방식</Eyebrow>
+        <SegmentedControl
+          items={adminPollSelectionTypes}
+          selectedId={form.selectionType}
+          onSelect={(selectionType) => onChangeForm({selectionType})}
         />
-      </View>
-      {!form.templateId.trim() ? (
-        <TextField
-          helper="쉼표로 구분합니다. 커피 메뉴는 menu:4 형식으로 입력합니다."
-          label="직접 선택지"
-          onChangeText={(optionsText) => onChangeForm({optionsText})}
-          value={form.optionsText}
-        />
-      ) : null}
-      {form.chargeGenerationType === 'OPTION_PRICE' ? (
-        <PaymentAccountPicker
-          accounts={accounts}
-          category={form.paymentCategory}
-          onSelect={(account) =>
-            onChangeForm({
-              paymentAccountId: String(account.id),
-              paymentCategory: account.accountType,
-            })
-          }
-          selectedAccountId={toOptionalPositiveId(form.paymentAccountId)}
-        />
-      ) : null}
-      <View style={styles.actionRow}>
-        <Button
+      </Card>
+      <Card>
+        <Pressable
           accessibilityLabel="익명 투표 여부 전환"
+          accessibilityRole="switch"
+          accessibilityState={{checked: form.isAnonymous}}
           disabled={busy}
           onPress={() => onChangeForm({isAnonymous: !form.isAnonymous})}
-          variant="secondary">
-          {form.isAnonymous ? '익명 ON' : '익명 OFF'}
-        </Button>
-        <Button
-          accessibilityLabel="투표 생성 입력 초기화"
-          disabled={busy}
-          onPress={onReset}
-          variant="secondary">
-          초기화
-        </Button>
-      </View>
-      {coffeeWarning ? (
+          style={({pressed}) => [
+            styles.pollCreateToggleRow,
+            pressed ? styles.pressed : null,
+          ]}>
+          <View style={styles.headerText}>
+            <Text style={styles.pollCreateTypeTitle}>익명 투표</Text>
+            <Text style={styles.pollCreateTypeDescription}>
+              응답자 이름을 결과 화면에서 숨깁니다.
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.pollCreateToggle,
+              form.isAnonymous ? styles.pollCreateToggleActive : null,
+            ]}>
+            <Text
+              style={[
+                styles.pollCreateToggleText,
+                form.isAnonymous ? styles.pollCreateToggleTextActive : null,
+              ]}>
+              {form.isAnonymous ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+        </Pressable>
+      </Card>
+      {form.chargeGenerationType === 'OPTION_PRICE' ? (
+        <Card>
+          {coffeeWarning ? (
+            <View style={styles.inlineError}>
+              <Text style={styles.inlineErrorText}>{coffeeWarning}</Text>
+            </View>
+          ) : null}
+          <PaymentAccountPicker
+            accounts={accounts}
+            category={form.paymentCategory}
+            onSelect={(account) =>
+              onChangeForm({
+                paymentAccountId: String(account.id),
+                paymentCategory: account.accountType,
+              })
+            }
+            selectedAccountId={toOptionalPositiveId(form.paymentAccountId)}
+          />
+        </Card>
+      ) : null}
+      {actionError ? (
+        <AdminInlineError error={actionError} exposeValidationMessage={true} />
+      ) : null}
+      {createDisabledReason ? (
         <View style={styles.inlineError}>
-          <Text style={styles.inlineErrorText}>{coffeeWarning}</Text>
+          <Text style={styles.inlineErrorText}>{createDisabledReason}</Text>
         </View>
       ) : null}
-      <Button
-        accessibilityLabel="투표 생성 실행"
-        disabled={busy || coffeeWarning !== null}
-        onPress={onCreate}>
-        {busy ? '생성 중...' : '생성하기'}
-      </Button>
-    </Card>
+      <View style={styles.pollCreateCtaRow}>
+        <Pressable
+          accessibilityLabel="투표 세부 정보 입력 취소"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => {
+            onReset();
+            onChangeStep('type');
+          }}
+          style={({pressed}) => [
+            styles.pollCreateSecondaryAction,
+            pressed ? styles.pressed : null,
+          ]}>
+          <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="투표 생성 실행"
+          accessibilityRole="button"
+          disabled={busy || createDisabledReason !== null}
+          onPress={onCreate}
+          style={({pressed}) => [
+            styles.pollCreatePrimaryAction,
+            busy || createDisabledReason !== null ? styles.pollCreateActionDisabled : null,
+            pressed ? styles.pressed : null,
+          ]}>
+          <Text style={styles.pollCreatePrimaryActionText}>
+            {busy ? '생성 중...' : '생성하기'}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function AdminDateTimePickerSheet({
+  onApply,
+  onCancel,
+  title,
+  value,
+  visible,
+}: {
+  onApply: (date: Date) => void;
+  onCancel: () => void;
+  title: string;
+  value: Date;
+  visible: boolean;
+}) {
+  const initialValue = getAdminDateTimeValue(value);
+  const [draftDate, setDraftDate] = useState(initialValue);
+  const [visibleMonth, setVisibleMonth] = useState(
+    new Date(initialValue.getFullYear(), initialValue.getMonth(), 1),
+  );
+  const [hour, setHour] = useState(initialValue.getHours());
+  const [minute, setMinute] = useState(roundMinuteToStep(initialValue.getMinutes()));
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    const nextValue = getAdminDateTimeValue(value);
+    setDraftDate(nextValue);
+    setVisibleMonth(new Date(nextValue.getFullYear(), nextValue.getMonth(), 1));
+    setHour(nextValue.getHours());
+    setMinute(roundMinuteToStep(nextValue.getMinutes()));
+  }, [value, visible]);
+
+  if (!visible) {
+    return null;
+  }
+
+  const calendarDays = buildAdminCalendarDays(visibleMonth);
+  const selectedDateTime = new Date(
+    draftDate.getFullYear(),
+    draftDate.getMonth(),
+    draftDate.getDate(),
+    hour,
+    minute,
+    0,
+    0,
+  );
+
+  return (
+    <View style={styles.dateTimePickerSheet}>
+      <View style={styles.dateTimePickerHeader}>
+        <View style={styles.headerText}>
+          <Eyebrow>{title}</Eyebrow>
+          <Text style={styles.dateTimePickerSelected}>
+            {formatAdminDateTimeLabel(selectedDateTime)}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel={`${title} 닫기`}
+          accessibilityRole="button"
+          onPress={onCancel}
+          style={({pressed}) => [styles.pollCreateRemoveOption, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+        </Pressable>
+      </View>
+      <View style={styles.dateTimePickerMonthHeader}>
+        <Pressable
+          accessibilityLabel="이전 달"
+          accessibilityRole="button"
+          onPress={() => setVisibleMonth(addMonths(visibleMonth, -1))}
+          style={({pressed}) => [styles.dateTimeMonthButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.dateTimeMonthButtonText}>{'<'}</Text>
+        </Pressable>
+        <Text style={styles.dateTimeMonthTitle}>
+          {visibleMonth.getFullYear()}.{String(visibleMonth.getMonth() + 1).padStart(2, '0')}
+        </Text>
+        <Pressable
+          accessibilityLabel="다음 달"
+          accessibilityRole="button"
+          onPress={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+          style={({pressed}) => [styles.dateTimeMonthButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.dateTimeMonthButtonText}>{'>'}</Text>
+        </Pressable>
+      </View>
+      <View style={styles.dateTimeWeekRow}>
+        {adminWeekdayLabels.map((label) => (
+          <Text key={label} style={styles.dateTimeWeekdayText}>
+            {label}
+          </Text>
+        ))}
+      </View>
+      <View style={styles.dateTimeCalendarGrid}>
+        {calendarDays.map((day, index) => {
+          const selected = day ? isSameCalendarDate(day, draftDate) : false;
+          const today = day ? isSameCalendarDate(day, new Date()) : false;
+
+          return day ? (
+            <Pressable
+              accessibilityLabel={`${formatAdminDateLabel(day)} 선택`}
+              accessibilityRole="button"
+              key={day.toISOString()}
+              onPress={() => setDraftDate(day)}
+              style={({pressed}) => [
+                styles.dateTimeDayCell,
+                today ? styles.dateTimeDayToday : null,
+                selected ? styles.dateTimeDaySelected : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text
+                style={[
+                  styles.dateTimeDayText,
+                  selected ? styles.dateTimeDayTextSelected : null,
+                ]}>
+                {day.getDate()}
+              </Text>
+            </Pressable>
+          ) : (
+            <View key={`empty-${index}`} style={styles.dateTimeDayCell} />
+          );
+        })}
+      </View>
+      <View style={styles.dateTimeControlBlock}>
+        <Text style={styles.dateTimeSelectLabel}>시간</Text>
+        <View style={styles.dateTimeStepperRow}>
+          <TimeStepper label="시" value={hour} onChange={setHour} max={23} min={0} step={1} />
+          <TimeStepper label="분" value={minute} onChange={setMinute} max={55} min={0} step={5} />
+        </View>
+      </View>
+      <View style={styles.pollCreateCtaRow}>
+        <Pressable
+          accessibilityLabel={`${title} 취소`}
+          accessibilityRole="button"
+          onPress={onCancel}
+          style={({pressed}) => [styles.pollCreateSecondaryAction, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel={`${title} 적용`}
+          accessibilityRole="button"
+          onPress={() => onApply(selectedDateTime)}
+          style={({pressed}) => [styles.pollCreatePrimaryAction, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollCreatePrimaryActionText}>적용</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function TimeStepper({
+  label,
+  max,
+  min,
+  onChange,
+  step,
+  value,
+}: {
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  step: number;
+  value: number;
+}) {
+  const decrease = () => onChange(wrapTimeStepperValue(value - step, min, max, step));
+  const increase = () => onChange(wrapTimeStepperValue(value + step, min, max, step));
+
+  return (
+    <View style={styles.dateTimeStepper}>
+      <Text style={styles.dateTimeSelectLabel}>{label}</Text>
+      <View style={styles.dateTimeStepperControls}>
+        <Pressable
+          accessibilityLabel={`${label} 줄이기`}
+          accessibilityRole="button"
+          onPress={decrease}
+          style={({pressed}) => [styles.dateTimeStepperButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.dateTimeStepperButtonText}>-</Text>
+        </Pressable>
+        <Text style={styles.dateTimeStepperValue}>{String(value).padStart(2, '0')}</Text>
+        <Pressable
+          accessibilityLabel={`${label} 늘리기`}
+          accessibilityRole="button"
+          onPress={increase}
+          style={({pressed}) => [styles.dateTimeStepperButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.dateTimeStepperButtonText}>+</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function AdminPollCoffeeOptions({
+  catalogState,
+  onRemoveMenu,
+  onRetry,
+  selectedMenuIds,
+}: {
+  catalogState: AdminCoffeeCatalogState;
+  onRemoveMenu: (menuId: number) => void;
+  onRetry: () => void;
+  selectedMenuIds: number[];
+}) {
+  if (catalogState.status === 'idle' || catalogState.status === 'loading') {
+    return <Body>커피 메뉴를 불러오고 있어요.</Body>;
+  }
+
+  if (catalogState.status === 'error') {
+    return (
+      <View style={styles.compactBlock}>
+        <AdminInlineError error={catalogState.error} />
+        <Button
+          accessibilityLabel="커피 메뉴 다시 불러오기"
+          onPress={onRetry}
+          variant="secondary">
+          다시 시도
+        </Button>
+      </View>
+    );
+  }
+
+  if (selectedMenuIds.length === 0) {
+    return <Body>선택된 커피 메뉴가 없습니다. 메뉴 추가를 눌러 선택해 주세요.</Body>;
+  }
+
+  return (
+    <View style={styles.pollCreateOptionList}>
+      {selectedMenuIds.map((menuId, index) => {
+        const menu = catalogState.menus.find((item) => item.id === menuId) ?? null;
+
+        return (
+          <View key={`${menuId}-${index}`} style={styles.pollCreateOptionRow}>
+            <View style={styles.pollCreateOptionNumber}>
+              <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
+            </View>
+            <View style={styles.pollItemText}>
+              <Text style={styles.pollCreateTypeTitle}>
+                {menu ? menu.name : '메뉴를 다시 선택해 주세요'}
+              </Text>
+              <Text style={styles.pollCreateTypeDescription}>
+                {menu
+                  ? `${menu.category} · ${formatWon(menu.priceAmount)}`
+                  : '목록에 없는 커피 메뉴입니다.'}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel={`${index + 1}번 커피 메뉴 삭제`}
+              accessibilityRole="button"
+              onPress={() => onRemoveMenu(menuId)}
+              style={({pressed}) => [styles.pollCreateRemoveOption, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function CoffeeMenuPickerSheet({
+  onClose,
+  onRetry,
+  onSelectBrand,
+  onSelectMenu,
+  selectedBrandId,
+  selectedMenuIds,
+  state,
+  visible,
+}: {
+  onClose: () => void;
+  onRetry: () => void;
+  onSelectBrand: (brandId: number) => void;
+  onSelectMenu: (menu: CoffeeMenu) => void;
+  selectedBrandId: number | null;
+  selectedMenuIds: number[];
+  state: AdminCoffeeCatalogState;
+  visible: boolean;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  const activeBrandId =
+    selectedBrandId ?? (state.status === 'success' ? state.brands[0]?.id ?? null : null);
+  const menus =
+    state.status === 'success' && activeBrandId !== null
+      ? state.menus.filter((menu) => menu.brandId === activeBrandId)
+      : [];
+
+  return (
+    <View style={[styles.sheet, styles.coffeeMenuSheet, styles.coffeeMenuInlineSheet]}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Eyebrow>커피 메뉴 선택</Eyebrow>
+          <Title>커피 메뉴 선택</Title>
+        </View>
+        <Button accessibilityLabel="커피 메뉴 선택 닫기" onPress={onClose} variant="secondary">
+          닫기
+        </Button>
+      </View>
+      {state.status === 'idle' || state.status === 'loading' ? (
+        <Body>커피 메뉴를 불러오고 있어요.</Body>
+      ) : state.status === 'error' ? (
+        <View style={styles.compactBlock}>
+          <AdminInlineError error={state.error} />
+          <Button accessibilityLabel="커피 메뉴 다시 불러오기" onPress={onRetry} variant="secondary">
+            다시 시도
+          </Button>
+        </View>
+      ) : (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.coffeeBrandPicker}>
+            {state.brands.map((brand) => {
+              const selected = brand.id === activeBrandId;
+
+              return (
+                <Pressable
+                  accessibilityLabel={`${brand.name} 브랜드 메뉴 보기`}
+                  accessibilityRole="button"
+                  accessibilityState={{selected}}
+                  key={brand.id}
+                  onPress={() => onSelectBrand(brand.id)}
+                  style={({pressed}) => [
+                    styles.coffeeBrandChip,
+                    selected ? styles.coffeeBrandChipActive : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.coffeeBrandChipText,
+                      selected ? styles.coffeeBrandChipTextActive : null,
+                    ]}>
+                    {brand.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <ScrollView style={styles.coffeeMenuList}>
+            {menus.length === 0 ? <Body>선택할 수 있는 메뉴가 없습니다.</Body> : null}
+            {menus.map((menu) => {
+              const added = selectedMenuIds.includes(menu.id);
+
+              return (
+                <Pressable
+                  accessibilityLabel={`${menu.name} 커피 메뉴 선택`}
+                  accessibilityRole="button"
+                  disabled={added}
+                  key={menu.id}
+                  onPress={() => {
+                    onSelectMenu(menu);
+                    onClose();
+                  }}
+                  style={({pressed}) => [
+                    styles.coffeeMenuRow,
+                    added ? styles.coffeeMenuRowAdded : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <View style={styles.pollItemText}>
+                    <Text style={styles.pollCreateTypeTitle}>{menu.name}</Text>
+                    <Text style={styles.pollCreateTypeDescription}>
+                      {menu.category} · {formatWon(menu.priceAmount)}
+                    </Text>
+                  </View>
+                  <View style={styles.pollResultPill}>
+                    <Text style={styles.pollResultPillText}>{added ? '추가됨' : '추가'}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </>
+      )}
+    </View>
   );
 }
 
 function AdminPollTemplatePreview({template}: {template: AdminPollTemplate}) {
+  const sortedOptions = template.options.slice().sort((left, right) => left.sortOrder - right.sortOrder);
+
   return (
-    <Card>
-      <Title>{template.title}</Title>
-      <View style={styles.chipRow}>
-        <Chip label={template.autoCreateEnabled ? '반복 ON' : '반복 OFF'} tone="info" />
-        <Chip label={getSelectionTypeLabel(template.selectionType)} tone="default" />
-        <Chip label={`${getPollTypeLabel(template.pollType)} 템플릿`} tone="default" />
+    <View style={styles.templatePreviewShell}>
+      <View style={styles.templatePreviewSummary}>
+        <Title>{template.title}</Title>
+        <View style={styles.chipRow}>
+          <Chip label={template.autoCreateEnabled ? '반복 ON' : '반복 OFF'} tone="info" />
+          <Chip label={getSelectionTypeLabel(template.selectionType)} tone="default" />
+          <Chip label={`${getPollTypeLabel(template.pollType)} 반복투표`} tone="default" />
+        </View>
+        <Body>{getTemplateRepeatSummary(template)}</Body>
       </View>
-      <Body>{getTemplateScheduleLabel(template)}</Body>
-      <Eyebrow>옵션</Eyebrow>
-      {template.options.map((option, index) => (
-        <ListRow
-          key={option.id}
-          label={option.content}
-          supportingText={option.priceAmount > 0 ? formatWon(option.priceAmount) : ''}
-          value={String(index + 1)}
-        />
-      ))}
-      <Eyebrow>생성 규칙</Eyebrow>
-      <Body>같은 캠퍼스와 템플릿 주차에는 한 번만 생성되도록 서버 규칙을 따릅니다.</Body>
-    </Card>
+      <View style={styles.templatePreviewBlock}>
+        <Text style={styles.sectionTitle}>옵션</Text>
+        <View style={styles.templatePreviewCard}>
+          {sortedOptions.length === 0 ? <Body>저장된 선택지가 없습니다.</Body> : null}
+          {sortedOptions.map((option, index) => (
+            <View key={option.id} style={styles.templatePreviewOptionRow}>
+              <View style={styles.pollCreateOptionNumber}>
+                <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
+              </View>
+              <View style={styles.pollItemText}>
+                <Text style={styles.pollItemTitle}>{option.content}</Text>
+                {option.priceAmount > 0 ? (
+                  <Text style={styles.pollItemMeta}>{formatWon(option.priceAmount)}</Text>
+                ) : null}
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={styles.templatePreviewBlock}>
+        <Text style={styles.sectionTitle}>생성 규칙</Text>
+        <View style={styles.templatePreviewCard}>
+          <ListRow
+            label="자동 생성"
+            supportingText={template.autoCreateEnabled ? '매주 반복 생성' : '직접 생성에만 사용'}
+            value={template.autoCreateEnabled ? 'ON' : 'OFF'}
+          />
+          <ListRow
+            label="중복 생성 방지"
+            supportingText="같은 캠퍼스와 반복투표의 같은 주차는 한 번만 생성됩니다."
+            value=""
+          />
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -3122,17 +4908,11 @@ function AdminPollResultsBody({
       <Card>
         <Eyebrow>선택지별 결과</Eyebrow>
         {results.optionResults.map((option) => (
-          <View key={option.id} style={styles.compactBlock}>
-            <ListRow
-              label={option.content}
-              supportingText={
-                results.anonymous
-                  ? '익명 투표는 응답자 목록을 표시하지 않습니다.'
-                  : option.respondents.map((person) => person.name).join(', ') || '응답자 없음'
-              }
-              value={`${option.responseCount}명`}
-            />
-          </View>
+          <AdminPollResultOptionCard
+            anonymous={results.anonymous}
+            key={option.id}
+            option={option}
+          />
         ))}
       </Card>
       <Card>
@@ -3151,6 +4931,44 @@ function AdminPollResultsBody({
         )}
       </Card>
     </>
+  );
+}
+
+function AdminPollResultOptionCard({
+  anonymous,
+  option,
+}: {
+  anonymous: boolean;
+  option: PollResults['optionResults'][number];
+}) {
+  return (
+    <View style={styles.adminResultOptionCard}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Text style={styles.pollItemTitle}>{option.content}</Text>
+          <Text style={styles.pollItemMeta}>{`${option.responseCount}명 선택`}</Text>
+        </View>
+        <Chip label={`${option.responseCount}명`} tone={option.responseCount > 0 ? 'info' : 'default'} />
+      </View>
+      {anonymous ? (
+        <Text style={styles.adminResultMutedText}>익명 투표라 응답자 명단은 표시하지 않습니다.</Text>
+      ) : option.respondents.length === 0 ? (
+        <Text style={styles.adminResultMutedText}>아직 이 항목에 투표한 사람이 없습니다.</Text>
+      ) : (
+        <View style={styles.adminRespondentGrid}>
+          {option.respondents.map((respondent) => (
+            <View key={`${option.id}-${respondent.userId}`} style={styles.adminRespondentChip}>
+              <View style={styles.adminRespondentAvatar}>
+                <Text style={styles.adminRespondentAvatarText}>{respondent.name.slice(0, 1)}</Text>
+              </View>
+              <Text numberOfLines={1} style={styles.adminRespondentName}>
+                {respondent.name}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -5966,10 +7784,18 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
   }
 }
 
-function AdminInlineError({error}: {error: ApiError}) {
+function AdminInlineError({
+  error,
+  exposeValidationMessage = false,
+}: {
+  error: ApiError;
+  exposeValidationMessage?: boolean;
+}) {
   return (
     <View accessibilityRole="alert" style={styles.inlineError}>
-      <Text style={styles.inlineErrorText}>{getAdminActionErrorMessage(error)}</Text>
+      <Text style={styles.inlineErrorText}>
+        {getAdminActionErrorMessage(error, {exposeValidationMessage})}
+      </Text>
     </View>
   );
 }
@@ -6003,7 +7829,10 @@ function toApiError(error: unknown, fallback: string): ApiError {
   return {kind: 'error', message: fallback};
 }
 
-function getAdminActionErrorMessage(error: ApiError) {
+function getAdminActionErrorMessage(
+  error: ApiError,
+  options: {exposeValidationMessage?: boolean} = {},
+) {
   switch (error.kind) {
     case 'permissionDenied':
       return '권한이 부족합니다. 같은 단계 이상의 캠퍼스 권한 변경이나 멤버 비활성화는 서버가 403으로 거부할 수 있습니다.';
@@ -6014,7 +7843,12 @@ function getAdminActionErrorMessage(error: ApiError) {
     case 'sessionExpired':
       return '세션이 만료되었습니다. 다시 로그인해 주세요.';
     case 'error':
-      return getApiErrorPresentation(error).message;
+      return getApiErrorPresentation(
+        error,
+        options.exposeValidationMessage === true
+          ? {exposeValidationMessage: true}
+          : {},
+      ).message;
     default:
       return assertNever(error.kind);
   }
@@ -6035,6 +7869,52 @@ function filterMembers(members: AdminCampusMember[], filter: MemberFilter) {
 
 function getActiveCoffeeDuty(duties: DutyAssignment[]) {
   return duties.find((duty) => duty.dutyType === 'COFFEE' && duty.isActive) ?? null;
+}
+
+function getAdminShellTitle(tab: AdminTab) {
+  switch (tab) {
+    case 'home':
+      return '관리자 홈';
+    case 'devotion':
+      return '경건';
+    case 'polls':
+      return '투표';
+    case 'notificationLogs':
+      return '알림';
+    case 'prayer':
+      return '기도';
+    case 'members':
+      return '멤버';
+    case 'roles':
+      return '역할';
+    case 'settlement':
+      return '정산';
+    default:
+      return assertNever(tab);
+  }
+}
+
+function getAdminTabIcon(tab: AdminTab): IconexIconName {
+  switch (tab) {
+    case 'home':
+      return 'home';
+    case 'devotion':
+      return 'check';
+    case 'polls':
+      return 'document';
+    case 'notificationLogs':
+      return 'bell';
+    case 'prayer':
+      return 'message-circle';
+    case 'members':
+      return 'users';
+    case 'roles':
+      return 'lock-check';
+    case 'settlement':
+      return 'wallet';
+    default:
+      return assertNever(tab);
+  }
 }
 
 function getCampusLabel(state: AuthenticatedState) {
@@ -6084,9 +7964,171 @@ function formatDateTime(value: string) {
   });
 }
 
+const adminWeekdayLabels = ['일', '월', '화', '수', '목', '금', '토'];
+
+function getAdminDateTimeValue(value: Date | string) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function parseTemplateDayOfWeek(value: string) {
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 7 ? parsed : 1;
+}
+
+function parseAdminTimeParts(value: string) {
+  const match = /^(\d{1,2}):(\d{2})/.exec(value.trim());
+
+  if (!match) {
+    return {hour: 9, minute: 0};
+  }
+
+  const hour = Math.min(23, Math.max(0, Number(match[1])));
+  const minute = Math.min(59, Math.max(0, Number(match[2])));
+
+  return {hour, minute};
+}
+
+function parseAdminTimeMinutes(value: string) {
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+}
+
+function formatAdminTimeParts(hour: number, minute: number) {
+  let nextHour = hour;
+  let nextMinute = minute;
+
+  while (nextMinute < 0) {
+    nextMinute += 60;
+    nextHour -= 1;
+  }
+
+  while (nextMinute > 59) {
+    nextMinute -= 60;
+    nextHour += 1;
+  }
+
+  nextHour = ((nextHour % 24) + 24) % 24;
+
+  return `${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}:00`;
+}
+
+function formatAdminDateLabel(date: Date) {
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(
+    date.getDate(),
+  ).padStart(2, '0')} ${adminWeekdayLabels[date.getDay()]}`;
+}
+
+function formatAdminDateTimeLabel(date: Date) {
+  return `${formatAdminDateLabel(date)} ${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes(),
+  ).padStart(2, '0')}`;
+}
+
+function formatTemplateDateTimeLabel(dayOfWeekValue: string, timeValue: string) {
+  const dayOfWeek = parseTemplateDayOfWeek(dayOfWeekValue);
+
+  return `${getDayOfWeekLabel(dayOfWeek)} ${formatShortTime(timeValue)}`;
+}
+
+function formatTemplateEndpointLabelFromValues(
+  dayOfWeekValue: number | string,
+  timeValue: string,
+  suffix: '마감' | '시작',
+) {
+  return `${formatTemplateDateTimeLabel(String(dayOfWeekValue), timeValue)} ${suffix}`;
+}
+
+function formatAdminDateTimeForApi(date: Date) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    0,
+    0,
+  ).toISOString();
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function buildAdminCalendarDays(month: Date) {
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
+  const lastDayOfMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const days: Array<Date | null> = [];
+
+  for (let index = 0; index < firstDay.getDay(); index += 1) {
+    days.push(null);
+  }
+
+  for (let day = 1; day <= lastDayOfMonth; day += 1) {
+    days.push(new Date(month.getFullYear(), month.getMonth(), day));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
+}
+
+function isSameCalendarDate(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function roundMinuteToStep(value: number) {
+  return Math.min(55, Math.max(0, Math.round(value / 5) * 5));
+}
+
+function wrapTimeStepperValue(value: number, min: number, max: number, step: number) {
+  if (value > max) {
+    return min;
+  }
+
+  if (value < min) {
+    return max - ((max - min) % step);
+  }
+
+  return value;
+}
+
 function toAdminPollTemplateFormRequest(
   form: AdminPollTemplateForm,
 ): AdminPollTemplateRequest {
+  const validationMessage = getAdminPollTemplateValidationMessage(form);
+
+  if (validationMessage) {
+    throw new FaithLogApiError({kind: 'error', message: validationMessage});
+  }
+
   return {
     title: form.title,
     pollType: form.pollType,
@@ -6105,6 +8147,8 @@ function toAdminPollTemplateFormRequest(
 
 function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreateRequest {
   const templateId = parseNullablePositiveInt(form.templateId);
+  const directCreateStartsAt =
+    templateId === null ? new Date().toISOString() : form.startsAt;
 
   return {
     templateId,
@@ -6115,7 +8159,7 @@ function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreat
     chargeGenerationType: form.chargeGenerationType,
     paymentCategory: form.paymentCategory === 'NONE' ? null : form.paymentCategory,
     paymentAccountId: parseNullablePositiveInt(form.paymentAccountId),
-    startsAt: form.startsAt,
+    startsAt: directCreateStartsAt,
     endsAt: form.endsAt,
     options: templateId === null ? parseAdminPollOptionsText(form.optionsText) : [],
   };
@@ -6143,6 +8187,24 @@ function toTemplateForm(template: AdminPollTemplate): AdminPollTemplateForm {
   };
 }
 
+function toDefaultCoffeePollTemplateForm(): AdminPollTemplateForm {
+  return {
+    autoCreateEnabled: false,
+    chargeGenerationType: 'OPTION_PRICE',
+    endDayOfWeek: '4',
+    endTime: '09:00:00',
+    optionsText: defaultCoffeePollOptionsText,
+    paymentAccountId: '',
+    paymentCategory: 'COFFEE',
+    pollType: 'COFFEE',
+    selectionType: 'SINGLE',
+    startDayOfWeek: '3',
+    startTime: '09:00:00',
+    templateId: defaultCoffeePollTemplateId,
+    title: '커피 주문 투표',
+  };
+}
+
 function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
   return {
     chargeGenerationType: poll.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
@@ -6160,6 +8222,58 @@ function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
     templateId: poll.templateId ? String(poll.templateId) : '',
     title: poll.title,
   };
+}
+
+function withDefaultCoffeePollTemplate(
+  templates: AdminPollTemplate[],
+  campusId: number,
+): AdminPollTemplate[] {
+  const hasCoffeeTemplate = templates.some(
+    (template) => template.pollType === 'COFFEE' && template.isActive,
+  );
+
+  if (hasCoffeeTemplate) {
+    return templates;
+  }
+
+  return [createDefaultCoffeePollTemplate(campusId), ...templates];
+}
+
+function createDefaultCoffeePollTemplate(campusId: number): AdminPollTemplate {
+  return {
+    autoCreateEnabled: false,
+    campusId,
+    chargeGenerationType: 'OPTION_PRICE',
+    endDayOfWeek: 4,
+    endTime: '09:00:00',
+    id: defaultCoffeePollTemplateId,
+    isActive: true,
+    isDefault: true,
+    options: [
+      {
+        composeMenuCode: null,
+        content: defaultCoffeePollOptionsText,
+        id: defaultCoffeePollTemplateId,
+        priceAmount: 0,
+        sortOrder: 1,
+      },
+    ],
+    paymentAccountId: null,
+    paymentCategory: 'COFFEE',
+    pollType: 'COFFEE',
+    selectionType: 'SINGLE',
+    startDayOfWeek: 3,
+    startTime: '09:00:00',
+    title: '커피 주문 투표',
+  };
+}
+
+function isDefaultCoffeePollTemplate(template: AdminPollTemplate) {
+  return isDefaultCoffeePollTemplateId(template.id);
+}
+
+function isDefaultCoffeePollTemplateId(templateId: number | null) {
+  return templateId === defaultCoffeePollTemplateId;
 }
 
 function parseAdminPollOptionsText(value: string): AdminPollTemplateOptionRequest[] {
@@ -6229,14 +8343,161 @@ function getAdminPollCoffeeWarning(
   }
 
   if (form.paymentCategory !== 'COFFEE' || !form.paymentAccountId.trim()) {
-    return '커피 선택가 투표는 커피 청구 계좌가 필요합니다.';
+    return '커피 투표를 생성하려면 커피 청구 계좌를 선택해 주세요. 계좌가 없다면 정산 화면에서 먼저 등록해 주세요.';
   }
 
   if (!coffeeDuty) {
-    return '커피 담당자가 지정되지 않아 마감 이후 정산 운영에 문제가 생길 수 있습니다.';
+    return '커피 투표를 생성하려면 커피 담당자를 먼저 지정해 주세요.';
   }
 
   return null;
+}
+
+function getAdminPollCreateDisabledReason(
+  form: AdminPollCreateForm,
+  coffeeWarning: string | null,
+) {
+  const deadlineValidationMessage = getAdminPollDeadlineValidationMessage(form);
+
+  if (deadlineValidationMessage) {
+    return deadlineValidationMessage;
+  }
+
+  if (form.pollType === 'COFFEE' && form.chargeGenerationType === 'OPTION_PRICE') {
+    return coffeeWarning;
+  }
+
+  return null;
+}
+
+function getAdminPollTemplateValidationMessage(form: AdminPollTemplateForm) {
+  const startDayOfWeek = parseTemplateDayOfWeek(form.startDayOfWeek);
+  const endDayOfWeek = parseTemplateDayOfWeek(form.endDayOfWeek);
+  const startMinutes = parseAdminTimeMinutes(form.startTime);
+  const endMinutes = parseAdminTimeMinutes(form.endTime);
+
+  if (startMinutes === null || endMinutes === null) {
+    return '시간은 HH:mm 형식으로 선택해 주세요.';
+  }
+
+  const startTotalMinutes = (startDayOfWeek - 1) * 24 * 60 + startMinutes;
+  const endTotalMinutes = (endDayOfWeek - 1) * 24 * 60 + endMinutes;
+
+  if (endTotalMinutes <= startTotalMinutes) {
+    return '마감 요일과 시간은 시작보다 뒤여야 합니다.';
+  }
+
+  return null;
+}
+
+function getAdminPollTemplateOptionsValidationMessage(
+  form: AdminPollTemplateForm,
+  coffeeCatalogState: AdminCoffeeCatalogState,
+) {
+  if (form.pollType !== 'COFFEE') {
+    return splitAdminPollOptionsText(form.optionsText).some((option) => option.trim().length > 0)
+      ? null
+      : '선택지를 1개 이상 입력해 주세요.';
+  }
+
+  if (coffeeCatalogState.status === 'loading' || coffeeCatalogState.status === 'idle') {
+    return '커피 메뉴를 불러온 뒤 선택해 주세요.';
+  }
+
+  if (coffeeCatalogState.status === 'error') {
+    return '커피 메뉴를 불러오지 못했습니다. 다시 시도해 주세요.';
+  }
+
+  const knownMenuIds = new Set(coffeeCatalogState.menus.map((menu) => menu.id));
+  const validMenuIds = parseCoffeeMenuIdsFromOptionsText(form.optionsText).filter((menuId) =>
+    knownMenuIds.has(menuId),
+  );
+
+  return validMenuIds.length > 0 ? null : '커피 메뉴를 1개 이상 선택해 주세요.';
+}
+
+function getAdminPollTemplateStepError(
+  step: AdminPollTemplateStep,
+  form: AdminPollTemplateForm,
+  coffeeCatalogState: AdminCoffeeCatalogState,
+): string | null {
+  if (step === 'info' && form.title.trim().length === 0) {
+    return '반복투표 제목을 입력해 주세요.';
+  }
+
+  if (step === 'schedule') {
+    return getAdminPollTemplateValidationMessage(form);
+  }
+
+  if (step === 'options') {
+    return getAdminPollTemplateOptionsValidationMessage(form, coffeeCatalogState);
+  }
+
+  if (step === 'confirm') {
+    return (
+      getAdminPollTemplateStepError('info', form, coffeeCatalogState) ??
+      getAdminPollTemplateStepError('schedule', form, coffeeCatalogState) ??
+      getAdminPollTemplateStepError('options', form, coffeeCatalogState)
+    );
+  }
+
+  return null;
+}
+
+function getAdminPollTemplateOptionSummaryItems(
+  form: AdminPollTemplateForm,
+  coffeeCatalogState: AdminCoffeeCatalogState,
+) {
+  if (form.pollType !== 'COFFEE') {
+    return splitAdminPollOptionsText(form.optionsText).filter((option) => option.trim().length > 0);
+  }
+
+  if (coffeeCatalogState.status !== 'success') {
+    const count = parseCoffeeMenuIdsFromOptionsText(form.optionsText).length;
+    return count > 0 ? [`선택한 커피 메뉴 ${count}개`] : [];
+  }
+
+  const menusById = new Map(coffeeCatalogState.menus.map((menu) => [menu.id, menu]));
+
+  return parseCoffeeMenuIdsFromOptionsText(form.optionsText).map((menuId) => {
+    const menu = menusById.get(menuId);
+
+    return menu ? `${menu.name} ${formatCompactWon(menu.priceAmount)}` : '메뉴를 다시 선택해 주세요';
+  });
+}
+
+function getAdminPollDeadlineValidationMessage(
+  form: AdminPollCreateForm,
+  now = new Date(),
+) {
+  const templateId = parseNullablePositiveInt(form.templateId);
+  const directCreate = templateId === null;
+  const startsAt = directCreate ? now : getAdminDateTimeValue(form.startsAt);
+  const endsAt = getAdminDateTimeValue(form.endsAt);
+
+  if (endsAt.getTime() <= now.getTime() || endsAt.getTime() <= startsAt.getTime()) {
+    return adminPollDeadlineValidationMessage;
+  }
+
+  return null;
+}
+
+function getCreatePollTimeRefreshPatch(
+  form: AdminPollCreateForm,
+  now = new Date(),
+): Pick<AdminPollCreateForm, 'endsAt' | 'startsAt'> {
+  return {
+    endsAt: getStableFutureDeadline(form.endsAt, now).toISOString(),
+    startsAt: now.toISOString(),
+  };
+}
+
+function getStableFutureDeadline(value: string, now = new Date()) {
+  const parsed = getAdminDateTimeValue(value);
+
+  return parsed.getTime() > now.getTime()
+    ? parsed
+    : new Date(now.getTime() + adminPollDefaultDeadlineOffsetMs);
 }
 
 function filterAdminPollsByType(polls: PollSummary[], filter: AdminPollTypeFilter) {
@@ -6253,7 +8514,7 @@ function filterAdminPollsByType(polls: PollSummary[], filter: AdminPollTypeFilte
   }
 }
 
-function getSelectedTemplate(
+function _getSelectedTemplate(
   form: AdminPollTemplateForm,
   templates: AdminPollTemplate[],
 ) {
@@ -6266,12 +8527,234 @@ function getPollResponseSummary(poll: PollSummary) {
   return poll.responded ? '내 응답 완료' : '내 응답 대기';
 }
 
+function getAdminPollInitial(type: string) {
+  switch (type) {
+    case 'WEDNESDAY':
+      return '수';
+    case 'SATURDAY':
+      return '토';
+    case 'COFFEE':
+      return '커';
+    default:
+      return '커';
+  }
+}
+
+function getAdminPollListMeta(poll: PollSummary) {
+  const status = getPollStatusLabel(poll.status);
+  const deadline = formatDateTime(poll.endsAt);
+
+  if (poll.pollType === 'COFFEE') {
+    return `${status} · 청구 생성 · ${deadline} 마감`;
+  }
+
+  if (poll.pollType === 'CUSTOM') {
+    return `${getSelectionTypeLabel(poll.selectionType)} · 댓글 관리 · ${deadline} 마감`;
+  }
+
+  return `${getPollResponseSummary(poll)} · ${deadline} 마감`;
+}
+
+function getDefaultPollTitle(type: AdminPollType) {
+  switch (type) {
+    case 'WEDNESDAY':
+      return '수요예배 참석';
+    case 'SATURDAY':
+      return '토요 목자모임';
+    case 'COFFEE':
+      return '커피 주문';
+    case 'CUSTOM':
+      return '커스텀 투표';
+    default:
+      return assertNever(type);
+  }
+}
+
+function getDefaultPollOptionsText(type: AdminPollType, fallback: string) {
+  switch (type) {
+    case 'WEDNESDAY':
+      return '참석, 불참, 미정';
+    case 'SATURDAY':
+      return '참석, 불참, 지각, 미정';
+    case 'COFFEE':
+      return fallback || 'menu:1';
+    case 'CUSTOM':
+      return fallback || '선택지 1, 선택지 2';
+    default:
+      return assertNever(type);
+  }
+}
+
+function getRepeatTemplateTypePatch(
+  type: AdminPollType,
+  current: AdminPollTemplateForm,
+): Partial<AdminPollTemplateForm> {
+  const isCoffee = type === 'COFFEE';
+  const currentTitle = current.title.trim();
+  const defaultTitles = new Set<string>(adminPollTypes.map((item) => getDefaultPollTitle(item.id)));
+  const shouldUseTypeTitle =
+    currentTitle.length === 0 ||
+    defaultTitles.has(currentTitle) ||
+    currentTitle === '커피 주문 투표';
+
+  return {
+    ...getRepeatTemplateSchedulePatch(type, current),
+    chargeGenerationType: isCoffee ? 'OPTION_PRICE' : 'NONE',
+    optionsText: isCoffee ? '' : getDefaultPollOptionsText(type, current.optionsText),
+    paymentAccountId: isCoffee ? current.paymentAccountId : '',
+    paymentCategory: isCoffee ? 'COFFEE' : 'NONE',
+    pollType: type,
+    selectionType: type === 'CUSTOM' ? current.selectionType : 'SINGLE',
+    title: shouldUseTypeTitle
+      ? type === 'COFFEE'
+        ? '커피 주문 투표'
+        : getDefaultPollTitle(type)
+      : current.title,
+  };
+}
+
+function getRepeatTemplateSchedulePatch(
+  type: AdminPollType,
+  current: AdminPollTemplateForm,
+): Pick<AdminPollTemplateForm, 'endDayOfWeek' | 'endTime' | 'startDayOfWeek' | 'startTime'> {
+  switch (type) {
+    case 'WEDNESDAY':
+      return {
+        startDayOfWeek: '3',
+        startTime: '09:00:00',
+        endDayOfWeek: '3',
+        endTime: '18:00:00',
+      };
+    case 'SATURDAY':
+      return {
+        startDayOfWeek: '6',
+        startTime: '09:00:00',
+        endDayOfWeek: '6',
+        endTime: '11:00:00',
+      };
+    case 'COFFEE':
+      return {
+        startDayOfWeek: '3',
+        startTime: '09:00:00',
+        endDayOfWeek: '4',
+        endTime: '09:00:00',
+      };
+    case 'CUSTOM':
+      return {
+        startDayOfWeek: current.startDayOfWeek,
+        startTime: current.startTime,
+        endDayOfWeek: current.endDayOfWeek,
+        endTime: current.endTime,
+      };
+    default:
+      return assertNever(type);
+  }
+}
+
+function getCreatePollTypePatch(
+  type: AdminPollType,
+  current: AdminPollCreateForm,
+  _templates: AdminPollTemplate[],
+): Partial<AdminPollCreateForm> {
+  const timePatch = getCreatePollTimeRefreshPatch(current);
+
+  return {
+    chargeGenerationType: type === 'COFFEE' ? 'OPTION_PRICE' : 'NONE',
+    endsAt: timePatch.endsAt,
+    optionsText:
+      type === 'COFFEE'
+        ? defaultCoffeePollOptionsText
+        : getDefaultPollOptionsText(type, current.optionsText),
+    paymentAccountId: type === 'COFFEE' ? current.paymentAccountId : '',
+    paymentCategory: type === 'COFFEE' ? 'COFFEE' : 'NONE',
+    pollType: type,
+    selectionType: type === 'CUSTOM' ? current.selectionType : 'SINGLE',
+    startsAt: timePatch.startsAt,
+    templateId: '',
+    title: getDefaultPollTitle(type),
+  };
+}
+
+function splitAdminPollOptionsText(value: string) {
+  const options = value
+    .split(',')
+    .map((option) => option.trim())
+    .filter(Boolean);
+
+  return options.length > 0 ? options : [''];
+}
+
+function updateAdminPollOptionText(options: string[], index: number, value: string) {
+  return options.map((option, optionIndex) => (optionIndex === index ? value : option)).join(', ');
+}
+
+function removeAdminPollOptionText(options: string[], index: number) {
+  const nextOptions = options.filter((_, optionIndex) => optionIndex !== index);
+
+  return (nextOptions.length > 0 ? nextOptions : ['']).join(', ');
+}
+
+function appendAdminPollOptionText(options: string[]) {
+  return [...options, `선택지 ${options.length + 1}`].join(', ');
+}
+
+function parseCoffeeMenuIdsFromOptionsText(value: string) {
+  return value
+    .split(',')
+    .map((option) => option.trim())
+    .map((option) => {
+      const match = /^menu:(\d+)$/i.exec(option);
+      return match ? Number(match[1]) : null;
+    })
+    .filter((menuId): menuId is number => menuId !== null);
+}
+
+function formatCoffeeMenuOptionsText(menuIds: number[]) {
+  return menuIds.map((menuId) => `menu:${menuId}`).join(', ');
+}
+
+function getAdminPollTypeDescription(type: AdminPollType) {
+  switch (type) {
+    case 'WEDNESDAY':
+      return '고정 선택지: 참석/불참/미정';
+    case 'SATURDAY':
+      return '고정 선택지: 참석/불참/지각/미정';
+    case 'COFFEE':
+      return '단일 선택 · 메뉴 가격으로 청구 생성';
+    case 'CUSTOM':
+      return '선택지·댓글·응답자 공개 설정 가능';
+    default:
+      return assertNever(type);
+  }
+}
+
 function getTemplateScheduleLabel(template: AdminPollTemplate) {
   return `${getDayOfWeekLabel(template.startDayOfWeek)} ${formatShortTime(
     template.startTime,
   )} 시작 · ${getDayOfWeekLabel(template.endDayOfWeek)} ${formatShortTime(
     template.endTime,
   )} 마감`;
+}
+
+function getTemplateRepeatSummary(template: AdminPollTemplate) {
+  const schedule = `매주 ${getDayOfWeekLabel(template.startDayOfWeek)} ${formatShortTime(
+    template.startTime,
+  )} 생성 · ${getDayOfWeekLabel(template.endDayOfWeek)} ${formatShortTime(
+    template.endTime,
+  )} 마감`;
+
+  return template.autoCreateEnabled ? schedule : `${schedule} · 반복 OFF`;
+}
+
+function getAdminPollTemplateLiveSummary(form: AdminPollTemplateForm) {
+  const startDayOfWeek = parseTemplateDayOfWeek(form.startDayOfWeek);
+  const endDayOfWeek = parseTemplateDayOfWeek(form.endDayOfWeek);
+
+  return `매주 ${getDayOfWeekLongLabel(startDayOfWeek)} ${formatShortTime(
+    form.startTime,
+  )}에 열리고 ${getDayOfWeekLongLabel(endDayOfWeek)} ${formatShortTime(
+    form.endTime,
+  )}에 마감됩니다.`;
 }
 
 function getSelectionTypeLabel(value: string) {
@@ -6304,6 +8787,10 @@ function getDayOfWeekLabel(value: number) {
     default:
       return `${value}일`;
   }
+}
+
+function getDayOfWeekLongLabel(value: number) {
+  return `${getDayOfWeekLabel(value)}요일`;
 }
 
 function formatShortTime(value: string) {
@@ -6746,6 +9233,132 @@ const styles = StyleSheet.create({
   adminAvatarText: {
     color: colors.teal,
   },
+  adminRespondentAvatar: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 14,
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  adminRespondentAvatarText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  adminRespondentChip: {
+    alignItems: 'center',
+    backgroundColor: '#F7F8FA',
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    maxWidth: '100%',
+    minHeight: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  adminRespondentGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  adminRespondentName: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    maxWidth: 140,
+  },
+  adminResultMutedText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  adminResultOptionCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    marginBottom: spacing.gap,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  adminBottomNavContent: {
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 6,
+  },
+  adminBottomNavFrame: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 24,
+    borderWidth: 1,
+    bottom: 0,
+    left: 0,
+    paddingBottom: 10,
+    paddingTop: 8,
+    position: 'absolute',
+    right: 0,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: -8},
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+  },
+  adminBottomNavItem: {
+    alignItems: 'center',
+    borderRadius: 18,
+    flex: 1,
+    gap: 5,
+    justifyContent: 'center',
+    minHeight: 54,
+    minWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  adminBottomNavItemActive: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+  },
+  adminBottomNavItemPressed: {
+    opacity: 0.72,
+  },
+  adminBottomNavLabel: {
+    color: adminFigmaTokens.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  adminBottomNavLabelActive: {
+    color: adminFigmaTokens.primary,
+  },
+  adminHeaderContext: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  adminModeContent: {
+    flexGrow: 1,
+    gap: spacing.gap,
+    paddingBottom: 92,
+  },
+  adminModeFrame: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
+  },
+  adminModeScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  adminShellHeader: {
+    gap: 14,
+  },
   accountMeta: {
     color: adminFigmaTokens.textMuted,
     flexShrink: 1,
@@ -6783,6 +9396,61 @@ const styles = StyleSheet.create({
   compactBlock: {
     gap: spacing.gap,
     marginBottom: spacing.gap,
+  },
+  coffeeBrandChip: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 16,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  coffeeBrandChipActive: {
+    backgroundColor: '#E8F3FF',
+  },
+  coffeeBrandChipText: {
+    color: adminFigmaTokens.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  coffeeBrandChipTextActive: {
+    color: adminFigmaTokens.primary,
+  },
+  coffeeBrandPicker: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  coffeeMenuList: {
+    maxHeight: 360,
+  },
+  coffeeMenuRow: {
+    alignItems: 'center',
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    minHeight: 74,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  coffeeMenuRowAdded: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    opacity: 0.72,
+  },
+  coffeeMenuSheet: {
+    maxHeight: '82%',
+    width: '100%',
+  },
+  coffeeMenuInlineSheet: {
+    borderRadius: 24,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
   },
   confirmTargetList: {
     backgroundColor: colors.neutralSoft,
@@ -6999,6 +9667,188 @@ const styles = StyleSheet.create({
   figmaSegmentTextActive: {
     color: adminFigmaTokens.primary,
   },
+  dateTimeCalendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  dateTimeControlBlock: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 16,
+    gap: 8,
+    padding: 10,
+  },
+  dateTimeDayCell: {
+    alignItems: 'center',
+    borderColor: 'transparent',
+    borderRadius: 13,
+    borderWidth: 1,
+    flexBasis: '13%',
+    flexGrow: 1,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 32,
+  },
+  dateTimeDaySelected: {
+    backgroundColor: adminFigmaTokens.primary,
+    borderColor: adminFigmaTokens.primary,
+  },
+  dateTimeDayText: {
+    color: adminFigmaTokens.textPrimary,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  dateTimeDayTextSelected: {
+    color: adminFigmaTokens.surface,
+  },
+  dateTimeDayToday: {
+    borderColor: adminFigmaTokens.mint,
+  },
+  dateTimeMonthButton: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  dateTimeMonthButtonText: {
+    color: adminFigmaTokens.primary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  dateTimeMonthTitle: {
+    color: adminFigmaTokens.textPrimary,
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  dateTimePickerBackdrop: {
+    backgroundColor: adminFigmaTokens.background,
+    bottom: 0,
+    flex: 1,
+    justifyContent: 'flex-end',
+    left: 0,
+    paddingHorizontal: 12,
+    paddingTop: 20,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  dateTimePickerHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  dateTimePickerMonthHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dateTimePickerSelected: {
+    color: adminFigmaTokens.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
+  dateTimePickerScroll: {
+    flex: 1,
+  },
+  dateTimePickerScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+    paddingBottom: 12,
+  },
+  dateTimePickerSheet: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+  },
+  dateTimeSelectCard: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 18,
+    gap: 6,
+    minHeight: 82,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  dateTimeSelectHint: {
+    color: adminFigmaTokens.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  dateTimeSelectLabel: {
+    color: adminFigmaTokens.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  dateTimeSelectValue: {
+    color: adminFigmaTokens.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
+  dateTimeStepper: {
+    flex: 1,
+    gap: 8,
+    minWidth: 126,
+  },
+  dateTimeStepperButton: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 14,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  dateTimeStepperButtonText: {
+    color: adminFigmaTokens.primary,
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  dateTimeStepperControls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dateTimeStepperRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  dateTimeStepperValue: {
+    color: adminFigmaTokens.textPrimary,
+    flex: 1,
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 28,
+    minWidth: 40,
+    textAlign: 'center',
+  },
+  dateTimeWeekRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dateTimeWeekdayText: {
+    color: adminFigmaTokens.textMuted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
   formRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -7112,6 +9962,673 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     borderWidth: 1,
   },
+  pollIconBox: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 15,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  pollIconBoxMint: {
+    backgroundColor: '#E8F6F7',
+  },
+  pollIconText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  pollIconTextMint: {
+    color: colors.faith,
+  },
+  pollCreateActionDisabled: {
+    opacity: 0.48,
+  },
+  pollCreateAddOption: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollCreateAddOptionText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pollCreateCtaRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pollCreateDescription: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  pollCreateHeader: {
+    gap: 6,
+  },
+  pollCreateOptionField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pollCreateOptionList: {
+    gap: 12,
+  },
+  pollCreateOptionNumber: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  pollCreateOptionNumberText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  pollCreateOptionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pollCreatePrimaryAction: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    flex: 1,
+    minHeight: 54,
+    justifyContent: 'center',
+  },
+  pollCreatePrimaryActionText: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pollCreateRemoveOption: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  pollCreateRemoveOptionDisabled: {
+    opacity: 0.4,
+  },
+  pollCreateRemoveOptionText: {
+    color: colors.textSecondary,
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  pollCreateSecondaryAction: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 18,
+    flex: 1,
+    minHeight: 54,
+    justifyContent: 'center',
+  },
+  pollCreateSecondaryActionText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pollCreateSelectPill: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollCreateSelectPillText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pollCreateShell: {
+    gap: 16,
+    paddingBottom: 8,
+  },
+  pollCreateTitle: {
+    color: colors.textPrimary,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 30,
+  },
+  pollCreateToggle: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollCreateToggleActive: {
+    backgroundColor: '#E8F3FF',
+  },
+  pollCreateToggleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
+  },
+  pollCreateToggleText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pollCreateToggleTextActive: {
+    color: colors.primary,
+  },
+  pollCreateTypeCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    minHeight: 88,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  pollCreateTypeCardSelected: {
+    borderColor: colors.primary,
+  },
+  pollCreateTypeDescription: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  pollCreateTypeIcon: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 18,
+    height: 54,
+    justifyContent: 'center',
+    width: 54,
+  },
+  pollCreateTypeIconMint: {
+    backgroundColor: '#E6F7F8',
+  },
+  pollCreateTypeIconText: {
+    color: colors.primary,
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  pollCreateTypeIconTextMint: {
+    color: colors.faith,
+  },
+  pollCreateTypeList: {
+    gap: 12,
+  },
+  pollCreateTypeTitle: {
+    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 24,
+  },
+  pollItemMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pollItemText: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  pollItemTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  pollListItem: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 82,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  pollListItemSelected: {
+    borderColor: colors.primary,
+  },
+  pollPrimaryPill: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 96,
+    paddingHorizontal: 16,
+  },
+  pollPrimaryPillText: {
+    color: colors.surface,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pollQuickActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pollResultPill: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollResultPillText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pollSectionShell: {
+    gap: 16,
+  },
+  pollSoftButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 12,
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  pollSoftButtonText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pollSoftPill: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollSoftPillText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pollStatusPill: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 14,
+    height: 28,
+    justifyContent: 'center',
+    minWidth: 52,
+    paddingHorizontal: 12,
+  },
+  pollStatusPillDanger: {
+    backgroundColor: '#FFF1F2',
+  },
+  pollStatusPillInfo: {
+    backgroundColor: '#E6F7F8',
+  },
+  pollStatusPillMuted: {
+    backgroundColor: '#F2F4F6',
+  },
+  pollStatusPillText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pollStatusPillTextDanger: {
+    color: colors.danger,
+  },
+  pollStatusPillTextInfo: {
+    color: colors.faith,
+  },
+  pollStatusPillTextMuted: {
+    color: colors.textSecondary,
+  },
+  repeatEditorActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+  },
+  repeatEditorHeader: {
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  repeatEditorSection: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+  },
+  repeatEditorSectionBody: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  repeatEditorSectionTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 23,
+  },
+  repeatEditorShell: {
+    gap: 14,
+  },
+  repeatConfirmLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    minWidth: 74,
+  },
+  repeatConfirmList: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  repeatConfirmRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  repeatConfirmValue: {
+    color: colors.textPrimary,
+    flex: 1,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  repeatStepIndicator: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  repeatStepPill: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  repeatStepPillActive: {
+    backgroundColor: '#E8F3FF',
+  },
+  repeatStepText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  repeatStepTextActive: {
+    color: colors.primary,
+  },
+  repeatRuleEditor: {
+    gap: 12,
+  },
+  repeatRulePoint: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  repeatTimeButton: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 14,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  repeatTimeButtonText: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  repeatTimeControls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  repeatTimeGroup: {
+    flexGrow: 1,
+    gap: 6,
+    minWidth: 128,
+  },
+  repeatTimeLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  repeatTimeStepper: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  repeatTimeValue: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+    minWidth: 34,
+    textAlign: 'center',
+  },
+  repeatSummaryBox: {
+    backgroundColor: '#E8F3FF',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  repeatSummaryBoxError: {
+    backgroundColor: '#FFF1F2',
+  },
+  repeatSummaryText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  repeatSummaryTextError: {
+    color: colors.danger,
+  },
+  repeatWizardActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingBottom: 6,
+  },
+  repeatWizardBackButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 999,
+    flexShrink: 0,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 14,
+  },
+  repeatWizardBackText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  repeatWizardError: {
+    backgroundColor: colors.dangerSoft,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  repeatWizardErrorText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  repeatWizardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  repeatWizardMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  repeatWizardShell: {
+    gap: 18,
+  },
+  repeatWeekdayGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  repeatWeekdayPill: {
+    alignItems: 'center',
+    backgroundColor: '#F2F4F6',
+    borderRadius: 14,
+    height: 36,
+    justifyContent: 'center',
+    minWidth: 38,
+    paddingHorizontal: 10,
+  },
+  repeatWeekdayPillActive: {
+    backgroundColor: '#E8F3FF',
+  },
+  repeatWeekdayText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  repeatWeekdayTextActive: {
+    color: colors.primary,
+  },
+  pollTemplateEntry: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 72,
+    padding: 14,
+  },
+  pollTemplateRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 72,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  pollTemplateSummary: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 102,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  pollTemplateSummaryText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pollTemplateSummaryTitle: {
+    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 24,
+  },
+  pollTemplateTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  templateAutoRow: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    minHeight: 74,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  templateFormSection: {
+    gap: 10,
+  },
+  templatePreviewBlock: {
+    gap: 10,
+  },
+  templatePreviewCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  templatePreviewOptionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 42,
+  },
+  templatePreviewShell: {
+    gap: 22,
+  },
+  templatePreviewSummary: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  pollTypeList: {
+    gap: 14,
+  },
   pressed: {
     opacity: 0.72,
   },
@@ -7169,6 +10686,7 @@ const styles = StyleSheet.create({
     padding: spacing.card,
   },
   sheetBackdrop: {
+    alignItems: 'stretch',
     backgroundColor: colors.textMuted,
     flex: 1,
     justifyContent: 'flex-end',

@@ -1480,6 +1480,10 @@ function AuthenticatedShell({
       })),
     [],
   );
+  const shouldShowUserBottomNav = USER_BOTTOM_NAV_ROUTES.some(
+    (availableRoute) => availableRoute === route,
+  );
+  const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
 
   const refreshCampuses = async () => {
     if (campusSwitchLoading) {
@@ -1764,11 +1768,29 @@ function AuthenticatedShell({
 
   return (
     <View style={styles.shell}>
-      <ScrollView
-        contentContainerStyle={styles.shellContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        style={styles.shellScroll}>
+      {isAdminRoute ? (
+        route === 'campusAdmin' ? (
+          <AdminScreen
+            onBackToUserMode={returnToUserMode}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        ) : (
+          <ServiceAdminScreen
+            onBackToUserMode={returnToUserMode}
+            onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        )
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.shellContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.shellScroll}>
         {entryTarget === 'campusSelect' && canManageCampuses ? (
           <CampusSelectScreen
             campuses={state.activeCampuses}
@@ -1930,11 +1952,14 @@ function AuthenticatedShell({
             <Body>{getRouteDescription(route, state.activeCampuses.length)}</Body>
           </Card>
         )}
-      </ScrollView>
+        </ScrollView>
+      )}
 
-      <View style={styles.bottomNavFrame}>
-        <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
-      </View>
+      {shouldShowUserBottomNav ? (
+        <View style={styles.bottomNavFrame}>
+          <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
+        </View>
+      ) : null}
 
       <LogoutConfirmSheet
         loading={loggingOut}

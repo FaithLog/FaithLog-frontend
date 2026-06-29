@@ -16,6 +16,7 @@ import type {
 } from './types';
 
 export type AdminPollType = 'CUSTOM' | 'COFFEE' | 'WEDNESDAY' | 'SATURDAY';
+type AdminPollCreatePayloadPollType = 'CUSTOM' | 'COFFEE';
 export type AdminPollSelectionType = 'SINGLE' | 'MULTIPLE';
 export type AdminPollChargeGenerationType = 'NONE' | 'OPTION_PRICE';
 export type AdminPollStatus = 'OPEN' | 'CLOSED' | string;
@@ -40,6 +41,15 @@ export type AdminPollTemplateRequest = {
   endDayOfWeek: number;
   endTime: string;
   options: AdminPollTemplateOptionRequest[];
+};
+
+type AdminPollTemplateRequestPayload = Omit<
+  AdminPollTemplateRequest,
+  'paymentAccountId' | 'paymentCategory' | 'pollType'
+> & {
+  paymentAccountId?: number | null;
+  paymentCategory?: PaymentCategory | null;
+  pollType: AdminPollCreatePayloadPollType;
 };
 
 export type AdminPollTemplate = {
@@ -137,6 +147,7 @@ export function createAdminPollTemplate(
   return apiRequest<AdminPollTemplate>(buildAdminCampusPath(campusId, 'poll-templates'), {
     accessToken,
     body: toPollTemplateRequest(body),
+    exposeServerErrorMessage: true,
     method: 'POST',
   });
 }
@@ -156,6 +167,7 @@ export function updateAdminPollTemplate(
     {
       accessToken,
       body: toPollTemplateRequest(body),
+      exposeServerErrorMessage: true,
       method: 'PATCH',
     },
   );
@@ -187,6 +199,7 @@ export function createAdminPoll(
   return apiRequest<AdminPoll>(buildAdminCampusPath(campusId, 'polls'), {
     accessToken,
     body: toAdminPollCreateRequest(body),
+    exposeServerErrorMessage: true,
     method: 'POST',
   });
 }
@@ -244,14 +257,13 @@ export function sendAdminPollMissingNotification(
   );
 }
 
-function toPollTemplateRequest(body: AdminPollTemplateRequest): AdminPollTemplateRequest {
-  return {
+function toPollTemplateRequest(body: AdminPollTemplateRequest): AdminPollTemplateRequestPayload {
+  const chargeGenerationType = toChargeGenerationType(body.chargeGenerationType);
+  const request: AdminPollTemplateRequestPayload = {
     title: toRequiredString(body.title, '템플릿 제목'),
-    pollType: toPollType(body.pollType),
+    pollType: toPollCreatePayloadPollType(body.pollType),
     selectionType: toSelectionType(body.selectionType),
-    chargeGenerationType: toChargeGenerationType(body.chargeGenerationType),
-    paymentCategory: toNullablePaymentCategory(body.paymentCategory),
-    paymentAccountId: toNullablePositiveInteger(body.paymentAccountId, 'paymentAccountId'),
+    chargeGenerationType,
     autoCreateEnabled: Boolean(body.autoCreateEnabled),
     startDayOfWeek: toDayOfWeek(body.startDayOfWeek, 'startDayOfWeek'),
     startTime: toLocalTime(body.startTime, 'startTime'),
@@ -259,12 +271,38 @@ function toPollTemplateRequest(body: AdminPollTemplateRequest): AdminPollTemplat
     endTime: toLocalTime(body.endTime, 'endTime'),
     options: toOptionRequests(body.options),
   };
+
+  if (chargeGenerationType === 'OPTION_PRICE') {
+    request.paymentCategory = toNullablePaymentCategory(body.paymentCategory);
+    request.paymentAccountId = toNullablePositiveInteger(body.paymentAccountId, 'paymentAccountId');
+  }
+
+  return request;
 }
 
-function toAdminPollCreateRequest(body: AdminPollCreateRequest): AdminPollCreateRequest {
+type AdminPollCreateRequestPayload = Omit<
+  AdminPollCreateRequest,
+  'options' | 'paymentAccountId' | 'paymentCategory' | 'templateId'
+> & {
+  options: Array<{
+    content?: string | null;
+    menuId?: number;
+    priceAmount?: number | null;
+    sortOrder: number;
+  }>;
+  paymentAccountId?: number | null;
+  paymentCategory?: PaymentCategory | null;
+  pollType: AdminPollCreatePayloadPollType;
+  templateId?: number;
+};
+
+function toAdminPollCreateRequest(body: AdminPollCreateRequest): AdminPollCreateRequestPayload {
   const templateId = toNullablePositiveInteger(body.templateId, 'templateId');
   const startsAt = toInstantString(body.startsAt, 'startsAt');
   const endsAt = toInstantString(body.endsAt, 'endsAt');
+  const chargeGenerationType = toChargeGenerationType(body.chargeGenerationType);
+  const paymentCategory = toNullablePaymentCategory(body.paymentCategory);
+  const paymentAccountId = toNullablePositiveInteger(body.paymentAccountId, 'paymentAccountId');
 
   if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
     throw new FaithLogApiError({
@@ -273,19 +311,27 @@ function toAdminPollCreateRequest(body: AdminPollCreateRequest): AdminPollCreate
     });
   }
 
-  return {
-    templateId,
+  const request: AdminPollCreateRequestPayload = {
     title: toRequiredString(body.title, '투표 제목'),
-    pollType: toPollType(body.pollType),
+    pollType: toPollCreatePayloadPollType(body.pollType),
     selectionType: toSelectionType(body.selectionType),
     isAnonymous: Boolean(body.isAnonymous),
-    chargeGenerationType: toChargeGenerationType(body.chargeGenerationType),
-    paymentCategory: toNullablePaymentCategory(body.paymentCategory),
-    paymentAccountId: toNullablePositiveInteger(body.paymentAccountId, 'paymentAccountId'),
+    chargeGenerationType,
     startsAt,
     endsAt,
-    options: templateId === null ? toOptionRequests(body.options) : [],
+    options: templateId === null ? toPollCreateOptionRequests(body.options) : [],
   };
+
+  if (templateId !== null) {
+    request.templateId = templateId;
+  }
+
+  if (chargeGenerationType === 'OPTION_PRICE') {
+    request.paymentCategory = paymentCategory;
+    request.paymentAccountId = paymentAccountId;
+  }
+
+  return request;
 }
 
 function toAdminPollNotificationRequest(
@@ -340,6 +386,25 @@ function toOptionRequests(
   });
 }
 
+function toPollCreateOptionRequests(options: AdminPollTemplateOptionRequest[]) {
+  return toOptionRequests(options).map((option) => {
+    if (option.menuId !== null) {
+      return {
+        content: null,
+        menuId: option.menuId,
+        priceAmount: null,
+        sortOrder: option.sortOrder,
+      };
+    }
+
+    return {
+      content: option.content,
+      priceAmount: option.priceAmount ?? 0,
+      sortOrder: option.sortOrder,
+    };
+  });
+}
+
 function toRequiredString(value: unknown, label: string) {
   const trimmed = typeof value === 'string' ? value.trim() : '';
 
@@ -356,6 +421,12 @@ function toPollType(value: unknown): AdminPollType {
   }
 
   throw new FaithLogApiError({kind: 'error', message: '투표 타입이 올바르지 않습니다.'});
+}
+
+function toPollCreatePayloadPollType(value: unknown): AdminPollCreatePayloadPollType {
+  const pollType = toPollType(value);
+
+  return pollType === 'COFFEE' ? 'COFFEE' : 'CUSTOM';
 }
 
 function toSelectionType(value: unknown): AdminPollSelectionType {
