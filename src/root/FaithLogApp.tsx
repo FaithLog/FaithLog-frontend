@@ -2195,9 +2195,6 @@ function UserHomeDashboard({
   const weekStartDate = useMemo(() => getWeekStartDate(today), [today]);
   const {month, year} = useMemo(() => getYearMonth(today), [today]);
   const campusId = state.selectedCampus.campusId;
-  const [overviewState, setOverviewState] = useState<
-    CardState<{user: CurrentUser; campuses: CampusMembershipSummary[]}>
-  >({status: 'idle'});
   const [devotionState, setDevotionState] = useState<CardState<WeeklyDevotionSummary>>({
     status: 'idle',
   });
@@ -2246,15 +2243,6 @@ function UserHomeDashboard({
     }
   };
 
-  const loadOverview = () =>
-    runCardRequest('overview', setOverviewState, async (accessToken) => {
-      const [user, campuses] = await Promise.all([
-        fetchCurrentUser(accessToken),
-        fetchMyCampuses(accessToken),
-      ]);
-
-      return {user, campuses};
-    });
   const loadDevotion = () =>
     runCardRequest('devotion', setDevotionState, (accessToken) =>
       fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
@@ -2290,7 +2278,6 @@ function UserHomeDashboard({
   }, []);
 
   useEffect(() => {
-    void loadOverview();
     void loadDevotion();
     void loadMonthlyDevotion();
     void loadCharges();
@@ -2473,14 +2460,6 @@ function UserHomeDashboard({
         <HomeChargeEntryCard chargeState={chargeState} onPress={onOpenPayments} />
       )}
 
-      {overviewState.status === 'error' ||
-      devotionState.status === 'error' ||
-      monthlyDevotionState.status === 'error' ||
-      chargeState.status === 'error' ||
-      pollState.status === 'error' ||
-      prayerState.status === 'error' ? (
-        <InlineError message="일부 정보를 불러오지 못했습니다. 각 탭에서 다시 확인할 수 있어요." />
-      ) : null}
     </View>
   );
 }
