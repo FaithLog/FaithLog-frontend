@@ -21,6 +21,7 @@ import {
   fetchCampusDetail,
   fetchChargeSummary,
   fetchCurrentUser,
+  fetchDevotionMonthlySummary,
   fetchMyCampuses,
   fetchPolls,
   fetchPrayerWeek,
@@ -36,6 +37,7 @@ import type {
   CampusMembershipSummary,
   ChargeSummary,
   CurrentUser,
+  DevotionMonthlySummary,
   PollSummary,
   PrayerWeekSummary,
   UserRole,
@@ -2199,6 +2201,9 @@ function UserHomeDashboard({
   const [devotionState, setDevotionState] = useState<CardState<WeeklyDevotionSummary>>({
     status: 'idle',
   });
+  const [monthlyDevotionState, setMonthlyDevotionState] = useState<
+    CardState<DevotionMonthlySummary>
+  >({status: 'idle'});
   const [chargeState, setChargeState] = useState<CardState<ChargeSummary>>({status: 'idle'});
   const [pollState, setPollState] = useState<CardState<PollSummary[]>>({status: 'idle'});
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
@@ -2254,6 +2259,10 @@ function UserHomeDashboard({
     runCardRequest('devotion', setDevotionState, (accessToken) =>
       fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
     );
+  const loadMonthlyDevotion = () =>
+    runCardRequest('devotion', setMonthlyDevotionState, (accessToken) =>
+      fetchDevotionMonthlySummary(accessToken, campusId, {month, year}),
+    );
   const loadCharges = () =>
     runCardRequest('charges', setChargeState, (accessToken) =>
       fetchChargeSummary(accessToken, campusId, {month, year}),
@@ -2283,6 +2292,7 @@ function UserHomeDashboard({
   useEffect(() => {
     void loadOverview();
     void loadDevotion();
+    void loadMonthlyDevotion();
     void loadCharges();
     void loadPolls();
     void loadPrayers();
@@ -2410,8 +2420,8 @@ function UserHomeDashboard({
           label="지각"
           tone="warning"
           value={
-            devotionState.status === 'success'
-              ? `${devotionState.data.saturdayLateMinutes}분`
+            monthlyDevotionState.status === 'success'
+              ? `${monthlyDevotionState.data.devotion.saturdayLateMinutes}분`
               : '확인 중'
           }
         />
@@ -2432,8 +2442,8 @@ function UserHomeDashboard({
         <HomeMetricTile
           label="큐티"
           value={
-            devotionState.status === 'success'
-              ? `${devotionState.data.quietTimeCount}회`
+            monthlyDevotionState.status === 'success'
+              ? `${monthlyDevotionState.data.devotion.quietTimeCount}회`
               : '확인 중'
           }
           onPress={onOpenDevotion}
@@ -2441,15 +2451,17 @@ function UserHomeDashboard({
         <HomeMetricTile
           label="기도"
           value={
-            devotionState.status === 'success' ? `${devotionState.data.prayerCount}회` : '확인 중'
+            monthlyDevotionState.status === 'success'
+              ? `${monthlyDevotionState.data.devotion.prayerCount}회`
+              : '확인 중'
           }
           onPress={onOpenDevotion}
         />
         <HomeMetricTile
           label="말씀"
           value={
-            devotionState.status === 'success'
-              ? `${devotionState.data.bibleReadingCount}회`
+            monthlyDevotionState.status === 'success'
+              ? `${monthlyDevotionState.data.devotion.bibleReadingCount}회`
               : '확인 중'
           }
           onPress={onOpenDevotion}
@@ -2463,6 +2475,7 @@ function UserHomeDashboard({
 
       {overviewState.status === 'error' ||
       devotionState.status === 'error' ||
+      monthlyDevotionState.status === 'error' ||
       chargeState.status === 'error' ||
       pollState.status === 'error' ||
       prayerState.status === 'error' ? (
