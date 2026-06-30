@@ -77,6 +77,7 @@ export type AdminPollCreateRequest = {
   pollType: AdminPollType;
   selectionType: AdminPollSelectionType;
   isAnonymous: boolean;
+  allowUserOptionAdd?: boolean;
   chargeGenerationType: AdminPollChargeGenerationType;
   paymentCategory: PaymentCategory | null;
   paymentAccountId: number | null;
@@ -93,6 +94,7 @@ export type AdminPoll = {
   pollType: AdminPollType | string;
   selectionType: AdminPollSelectionType | string;
   isAnonymous: boolean;
+  allowUserOptionAdd?: boolean;
   chargeGenerationType: AdminPollChargeGenerationType | string;
   paymentCategory: PaymentCategory | null;
   paymentAccountId: number | null;
@@ -202,6 +204,26 @@ export function createAdminPoll(
     exposeServerErrorMessage: true,
     method: 'POST',
   });
+}
+
+export function closeAdminPoll(
+  accessToken: string,
+  campusId: unknown,
+  pollId: unknown,
+) {
+  return apiRequest<AdminPoll>(
+    buildAdminCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'close',
+    ),
+    {
+      accessToken,
+      exposeServerErrorMessage: true,
+      method: 'PATCH',
+    },
+  );
 }
 
 export function fetchAdminPollResults(
@@ -316,6 +338,7 @@ function toAdminPollCreateRequest(body: AdminPollCreateRequest): AdminPollCreate
     pollType: toPollCreatePayloadPollType(body.pollType),
     selectionType: toSelectionType(body.selectionType),
     isAnonymous: Boolean(body.isAnonymous),
+    allowUserOptionAdd: Boolean(body.allowUserOptionAdd),
     chargeGenerationType,
     startsAt,
     endsAt,

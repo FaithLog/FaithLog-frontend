@@ -30,6 +30,7 @@ import {
   fetchAdminNotificationLogs,
   fetchCoffeeBrands,
   fetchCoffeeMenus,
+  fetchCampusDetail,
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
@@ -41,6 +42,7 @@ import {
   updateAdminPenaltyRule,
 } from '../api/client';
 import {
+  closeAdminPoll,
   createAdminPoll,
   createAdminPollTemplate,
   fetchAdminPollComments,
@@ -98,6 +100,7 @@ import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
+import {isEndedPoll} from '../polls/pollListVisibility';
 import {
   Body,
   Button,
@@ -161,6 +164,18 @@ type AdminLoadState =
     }
   | {status: 'empty'; summary: AdminDashboardSummary}
   | {status: 'error'; error: ApiError};
+
+type InviteCodeState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; code: string}
+  | {status: 'empty'}
+  | {status: 'error'; message: string};
+
+type InviteCodeCopyState =
+  | {status: 'idle'}
+  | {status: 'copied'}
+  | {status: 'error'; message: string};
 
 type AdminActionState =
   | {status: 'idle'}
@@ -502,6 +517,10 @@ export function AdminScreen({
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<AdminLoadState>({status: 'loading'});
+  const [inviteCodeState, setInviteCodeState] = useState<InviteCodeState>({status: 'idle'});
+  const [inviteCodeCopyState, setInviteCodeCopyState] = useState<InviteCodeCopyState>({
+    status: 'idle',
+  });
   const [missingDevotionState, setMissingDevotionState] = useState<MissingDevotionState>({
     status: 'idle',
   });
@@ -609,8 +628,50 @@ export function AdminScreen({
     }
   };
 
+  const loadInviteCode = async () => {
+    setInviteCodeState({status: 'loading'});
+    setInviteCodeCopyState({status: 'idle'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const campus = await fetchCampusDetail(accessToken, campusId);
+      const inviteCode = campus.inviteCode?.trim();
+
+      setInviteCodeState(inviteCode ? {status: 'success', code: inviteCode} : {status: 'empty'});
+    } catch (error) {
+      const apiError = toApiError(error, '초대코드를 불러오지 못했습니다.');
+
+      if (apiError.kind === 'sessionExpired') {
+        void handleAuthError(apiError, setAuthState);
+        return;
+      }
+
+      setInviteCodeState({status: 'error', message: getApiErrorPresentation(apiError).message});
+    }
+  };
+
+  const copyInviteCode = async (inviteCode: string) => {
+    const result = await copyTextToClipboard(inviteCode);
+
+    if (result.status === 'copied') {
+      setInviteCodeCopyState({status: 'copied'});
+      AccessibilityInfo.announceForAccessibility('초대코드를 복사했습니다.');
+      return;
+    }
+
+    setInviteCodeCopyState({status: 'error', message: result.message});
+    AccessibilityInfo.announceForAccessibility(result.message);
+  };
+
   useEffect(() => {
     setSelectedMemberId(null);
+    setInviteCodeState({status: 'idle'});
+    setInviteCodeCopyState({status: 'idle'});
     setWeekStartDate(getWeekStartDate(new Date()));
     setMissingDevotionState({status: 'idle'});
     setNotificationState({status: 'idle'});
@@ -637,6 +698,7 @@ export function AdminScreen({
     setChargeStatusConfirm(null);
     setPaidBlockedTarget(null);
     void loadAdmin();
+    void loadInviteCode();
   }, [campusId]);
 
   useEffect(() => {
@@ -1973,7 +2035,10 @@ export function AdminScreen({
       ) : tab === 'members' ? (
         <AdminMembers
           filter={memberFilter}
+          inviteCodeCopyState={inviteCodeCopyState}
+          inviteCodeState={inviteCodeState}
           members={loadState.members}
+          onCopyInviteCode={copyInviteCode}
           onOpenRoles={() => setTab('roles')}
           onSelectFilter={setMemberFilter}
           onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
@@ -2222,6 +2287,7 @@ type AdminPollMissingState =
   | {status: 'success'; members: AdminPollMissingMember[]}
   | {status: 'empty'}
   | {status: 'error'; error: ApiError};
+type PollCloseTarget = PollSummary | null;
 type AdminCoffeeCatalogState =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -2232,6 +2298,7 @@ type AdminPollActionState =
   | {status: 'savingTemplate'}
   | {status: 'deletingTemplate'; templateId: number}
   | {status: 'creatingPoll'}
+  | {status: 'closingPoll'; pollId: number}
   | {status: 'sendingMissingNotice'};
 
 type AdminPollTemplateForm = {
@@ -2251,6 +2318,7 @@ type AdminPollTemplateForm = {
 };
 
 type AdminPollCreateForm = {
+  allowUserOptionAdd: boolean;
   chargeGenerationType: AdminPollChargeGenerationType;
   endsAt: string;
   isAnonymous: boolean;
@@ -2349,6 +2417,7 @@ function createEmptyAdminPollForm(): AdminPollCreateForm {
   const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
 
   return {
+    allowUserOptionAdd: false,
     chargeGenerationType: 'NONE',
     endsAt: endsAt.toISOString(),
     isAnonymous: false,
@@ -2367,7 +2436,7 @@ function AdminPollManagement({
   campusId,
   coffeeDuty,
   onSessionStateChange,
-  setNotice: _setNotice,
+  setNotice,
 }: {
   campusId: number;
   coffeeDuty: DutyAssignment | null;
@@ -2388,6 +2457,7 @@ function AdminPollManagement({
   const [pollTypeFilter, setPollTypeFilter] = useState<AdminPollTypeFilter>('ALL');
   const [pollStatusTab, setPollStatusTab] = useState<AdminPollStatusTab>('ongoing');
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
+  const [pollCloseTarget, setPollCloseTarget] = useState<PollCloseTarget>(null);
   const [templateForm, setTemplateForm] = useState<AdminPollTemplateForm>(
     emptyAdminPollTemplateForm,
   );
@@ -2485,6 +2555,7 @@ function AdminPollManagement({
     filterAdminPollsByType(polls, pollTypeFilter),
     pollStatusTab,
   );
+  const visiblePolls = prioritizeAdminPolls(filteredPolls, selectedPollId);
   const selectedPoll = selectedPollId
     ? polls.find((poll) => poll.id === selectedPollId) ?? null
     : null;
@@ -2567,11 +2638,48 @@ function AdminPollManagement({
       const created = await createAdminPoll(accessToken, campusId, request);
       setSelectedPollId(created.id);
       setPollForm(toPollCreateForm(created));
+      setPollStatusTab('ongoing');
+      setPollTypeFilter('ALL');
       await loadPolls();
-      setSection('results');
-      await loadResults(created.id);
+      setSection('manage');
     } catch (error) {
       const apiError = toApiError(error, '투표를 생성하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmClosePoll = async () => {
+    if (!pollCloseTarget || busy) {
+      return;
+    }
+
+    const target = pollCloseTarget;
+    setActionState({status: 'closingPoll', pollId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const closed = await closeAdminPoll(accessToken, campusId, target.id);
+      setPollCloseTarget(null);
+      setSelectedPollId(closed.id);
+      await loadPolls();
+      setSection('results');
+      await loadResults(closed.id);
+      setNotice({
+        tone: 'warning',
+        title: '투표 종료',
+        message: `${closed.title} 투표를 종료했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '투표를 종료하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, onSessionStateChange);
     } finally {
@@ -2737,13 +2845,14 @@ function AdminPollManagement({
                 editTemplate(template);
                 setSection('templates');
               }}
+              onClosePoll={setPollCloseTarget}
               onViewResults={(poll) => {
                 selectPoll(poll);
                 setSection('results');
                 void loadResults(poll.id);
               }}
               onSelectPoll={selectPoll}
-              polls={filteredPolls}
+              polls={visiblePolls}
               selectedPollId={selectedPollId}
               statusTab={pollStatusTab}
               templates={displayTemplates}
@@ -2795,6 +2904,7 @@ function AdminPollManagement({
           {section === 'results' ? (
             <AdminPollResultsPanel
               onLoad={() => void loadResults()}
+              onClosePoll={setPollCloseTarget}
               onSelectPoll={selectPoll}
               polls={polls}
               selectedPoll={selectedPoll}
@@ -2815,10 +2925,18 @@ function AdminPollManagement({
           {section === 'status' ? (
             <AdminPollStatusPanel
               onSelectPoll={selectPoll}
+              onClosePoll={setPollCloseTarget}
               polls={polls}
               selectedPoll={selectedPoll}
             />
           ) : null}
+          <PollCloseConfirmSheet
+            error={actionError}
+            loading={actionState.status === 'closingPoll'}
+            onCancel={() => setPollCloseTarget(null)}
+            onConfirm={confirmClosePoll}
+            target={pollCloseTarget}
+          />
         </>
       )}
     </>
@@ -2863,6 +2981,7 @@ function AdminPollList({
   filter,
   onChangeFilter,
   onChangeStatusTab,
+  onClosePoll,
   onCreateTemplate,
   onManageTemplate,
   onRefresh,
@@ -2876,6 +2995,7 @@ function AdminPollList({
   filter: AdminPollTypeFilter;
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
   onChangeStatusTab: (tab: AdminPollStatusTab) => void;
+  onClosePoll: (poll: PollSummary) => void;
   onCreateTemplate: () => void;
   onManageTemplate: (template: AdminPollTemplate) => void;
   onRefresh: () => void;
@@ -2927,6 +3047,7 @@ function AdminPollList({
             key={poll.id}
             onPress={() => onSelectPoll(poll)}
             onActionPress={() => onViewResults(poll)}
+            onClosePress={() => onClosePoll(poll)}
             poll={poll}
             selected={poll.id === selectedPollId}
           />
@@ -3014,17 +3135,21 @@ function AdminRepeatTemplateCard({
 
 function AdminPollListItem({
   accessibilityLabel,
+  onClosePress,
   onActionPress,
   onPress,
   poll,
   selected,
 }: {
   accessibilityLabel: string;
+  onClosePress: () => void;
   onActionPress: () => void;
   onPress: () => void;
   poll: PollSummary;
   selected: boolean;
 }) {
+  const canClose = canClosePoll(poll);
+
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
@@ -3057,6 +3182,15 @@ function AdminPollListItem({
           {poll.pollType === 'CUSTOM' && poll.responded ? '댓글' : '결과'}
         </Text>
       </Pressable>
+      {canClose ? (
+        <Pressable
+          accessibilityLabel={`${poll.title} 투표 종료`}
+          accessibilityRole="button"
+          onPress={onClosePress}
+          style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollClosePillText}>종료</Text>
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
@@ -4412,6 +4546,38 @@ function AdminPollCreatePanel({
           </View>
         </Pressable>
       </Card>
+      <Card>
+        <Pressable
+          accessibilityLabel="사용자 항목추가 가능 여부 전환"
+          accessibilityRole="switch"
+          accessibilityState={{checked: form.allowUserOptionAdd}}
+          disabled={busy}
+          onPress={() => onChangeForm({allowUserOptionAdd: !form.allowUserOptionAdd})}
+          style={({pressed}) => [
+            styles.pollCreateToggleRow,
+            pressed ? styles.pressed : null,
+          ]}>
+          <View style={styles.headerText}>
+            <Text style={styles.pollCreateTypeTitle}>사용자 항목추가 가능</Text>
+            <Text style={styles.pollCreateTypeDescription}>
+              일반 사용자가 투표 응답 중 필요한 선택지를 직접 추가할 수 있습니다.
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.pollCreateToggle,
+              form.allowUserOptionAdd ? styles.pollCreateToggleActive : null,
+            ]}>
+            <Text
+              style={[
+                styles.pollCreateToggleText,
+                form.allowUserOptionAdd ? styles.pollCreateToggleTextActive : null,
+              ]}>
+              {form.allowUserOptionAdd ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+        </Pressable>
+      </Card>
       {form.chargeGenerationType === 'OPTION_PRICE' ? (
         <Card>
           {coffeeWarning ? (
@@ -4942,12 +5108,14 @@ function PaymentAccountPicker({
 
 function AdminPollResultsPanel({
   onLoad,
+  onClosePoll,
   onSelectPoll,
   polls,
   selectedPoll,
   state,
 }: {
   onLoad: () => void;
+  onClosePoll: (poll: PollSummary) => void;
   onSelectPoll: (poll: PollSummary) => void;
   polls: PollSummary[];
   selectedPoll: PollSummary | null;
@@ -4959,12 +5127,23 @@ function AdminPollResultsPanel({
       <Card>
         <Title>{selectedPoll ? selectedPoll.title : '투표를 선택해 주세요'}</Title>
         <Body>선택지별 응답과 댓글을 함께 확인합니다.</Body>
-        <Button
-          accessibilityLabel="선택한 투표 결과와 댓글 불러오기"
-          disabled={!selectedPoll || state.status === 'loading'}
-          onPress={onLoad}>
-          결과 조회
-        </Button>
+        <View style={styles.actionRow}>
+          <Button
+            accessibilityLabel="선택한 투표 결과와 댓글 불러오기"
+            disabled={!selectedPoll || state.status === 'loading'}
+            onPress={onLoad}>
+            결과 조회
+          </Button>
+          {selectedPoll && canClosePoll(selectedPoll) ? (
+            <Button
+              accessibilityLabel="선택한 투표 종료 확인 열기"
+              disabled={state.status === 'loading'}
+              onPress={() => onClosePoll(selectedPoll)}
+              variant="danger">
+              투표 종료
+            </Button>
+          ) : null}
+        </View>
       </Card>
       {state.status === 'idle' ? null : state.status === 'loading' ? (
         <Loading message="투표 결과와 댓글을 불러오고 있어요." />
@@ -5134,10 +5313,12 @@ function AdminPollMissingPanel({
 }
 
 function AdminPollStatusPanel({
+  onClosePoll,
   onSelectPoll,
   polls,
   selectedPoll,
 }: {
+  onClosePoll: (poll: PollSummary) => void;
   onSelectPoll: (poll: PollSummary) => void;
   polls: PollSummary[];
   selectedPoll: PollSummary | null;
@@ -5169,6 +5350,14 @@ function AdminPollStatusPanel({
               value={selectedPoll.status === 'CLOSED' ? '현재' : ''}
             />
             <Body>현재 운영 상태와 마감 시간을 확인합니다. 변경이 필요한 경우 정해진 관리 절차에 따라 처리해 주세요.</Body>
+            {canClosePoll(selectedPoll) ? (
+              <Button
+                accessibilityLabel="선택한 투표 종료 확인 열기"
+                onPress={() => onClosePoll(selectedPoll)}
+                variant="danger">
+                투표 종료
+              </Button>
+            ) : null}
           </>
         ) : (
           <Body>상태를 확인할 투표를 선택해 주세요.</Body>
@@ -7325,13 +7514,19 @@ function ChargeItemRow({
 
 function AdminMembers({
   filter,
+  inviteCodeCopyState,
+  inviteCodeState,
   members,
+  onCopyInviteCode,
   onOpenRoles,
   onSelectFilter,
   onSelectMember,
 }: {
   filter: MemberFilter;
+  inviteCodeCopyState: InviteCodeCopyState;
+  inviteCodeState: InviteCodeState;
   members: AdminCampusMember[];
+  onCopyInviteCode: (inviteCode: string) => void;
   onOpenRoles: () => void;
   onSelectFilter: (filter: MemberFilter) => void;
   onSelectMember: (member: AdminCampusMember) => void;
@@ -7350,6 +7545,11 @@ function AdminMembers({
           역할 관리
         </Button>
       </View>
+      <InviteCodeCopyRow
+        copyState={inviteCodeCopyState}
+        inviteCodeState={inviteCodeState}
+        onCopy={onCopyInviteCode}
+      />
       <SegmentedControl items={memberFilters} selectedId={filter} onSelect={onSelectFilter} />
       {filteredMembers.length === 0 ? (
         <Empty title="조건에 맞는 멤버가 없습니다" message="다른 역할 필터를 선택해 주세요." />
@@ -7363,6 +7563,66 @@ function AdminMembers({
         ))
       )}
     </Card>
+  );
+}
+
+function InviteCodeCopyRow({
+  copyState,
+  inviteCodeState,
+  onCopy,
+}: {
+  copyState: InviteCodeCopyState;
+  inviteCodeState: InviteCodeState;
+  onCopy: (inviteCode: string) => void;
+}) {
+  if (inviteCodeState.status === 'idle' || inviteCodeState.status === 'loading' || inviteCodeState.status === 'empty') {
+    return null;
+  }
+
+  if (inviteCodeState.status === 'error') {
+    return (
+      <View style={styles.inviteCodeRow}>
+        <Text style={styles.inviteCodeLabel}>초대코드</Text>
+        <Text style={styles.inviteCodeError}>{inviteCodeState.message}</Text>
+      </View>
+    );
+  }
+
+  const copied = copyState.status === 'copied';
+
+  return (
+    <View style={styles.inviteCodeRow}>
+      <Text style={styles.inviteCodeLabel}>초대코드</Text>
+      <Text selectable style={styles.inviteCodeValue}>
+        {inviteCodeState.code}
+      </Text>
+      <Pressable
+        accessibilityLabel="초대코드 복사"
+        accessibilityRole="button"
+        onPress={() => onCopy(inviteCodeState.code)}
+        style={({pressed}) => [
+          styles.inviteCodeCopyButton,
+          copied ? styles.inviteCodeCopyButtonCopied : null,
+          pressed ? styles.pressed : null,
+        ]}>
+        <IconexIcon
+          color={copied ? colors.surface : colors.primary}
+          name="document"
+          size={16}
+          strokeWidth={2}
+        />
+        <Text
+          style={[
+            styles.inviteCodeCopyButtonText,
+            copied ? styles.inviteCodeCopyButtonTextCopied : null,
+          ]}>
+          {copied ? '복사됨' : '복사'}
+        </Text>
+      </Pressable>
+      {copyState.status === 'error' ? (
+        <Text style={styles.inviteCodeError}>{copyState.message}</Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -7723,6 +7983,57 @@ function ChargeStatusConfirmSheet({
             </Button>
             <Button
               accessibilityLabel="청구 상태 변경 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PollCloseConfirmSheet({
+  error,
+  loading,
+  onCancel,
+  onConfirm,
+  target,
+}: {
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  target: PollCloseTarget;
+}) {
+  return (
+    <Modal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Eyebrow>투표 종료 확인</Eyebrow>
+          <Title>{target ? `${target.title} 투표를 종료할까요?` : '투표 종료'}</Title>
+          <Body>
+            종료 후에는 일반 사용자가 더 이상 응답하거나 댓글을 작성할 수 없습니다. 커피 투표는 서버 정책에 따라 청구 생성 시점이 결정됩니다.
+          </Body>
+          {target ? (
+            <>
+              <ListRow label="현재 상태" value={getPollStatusLabel(target.status)} />
+              <ListRow label="마감" value={formatDateTime(target.endsAt)} />
+            </>
+          ) : null}
+          {error ? <AdminInlineError error={error} exposeValidationMessage={true} /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="투표 종료 실행"
+              disabled={loading}
+              onPress={onConfirm}
+              variant="danger">
+              {loading ? '종료 중...' : '투표 종료'}
+            </Button>
+            <Button
+              accessibilityLabel="투표 종료 취소"
               disabled={loading}
               onPress={onCancel}
               variant="secondary">
@@ -8429,6 +8740,7 @@ function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreat
     pollType: form.pollType,
     selectionType: form.selectionType,
     isAnonymous: form.isAnonymous,
+    allowUserOptionAdd: form.allowUserOptionAdd,
     chargeGenerationType: form.chargeGenerationType,
     paymentCategory: form.paymentCategory === 'NONE' ? null : form.paymentCategory,
     paymentAccountId: parseNullablePositiveInt(form.paymentAccountId),
@@ -8480,6 +8792,7 @@ function toDefaultCoffeePollTemplateForm(): AdminPollTemplateForm {
 
 function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
   return {
+    allowUserOptionAdd: Boolean(poll.allowUserOptionAdd),
     chargeGenerationType: poll.chargeGenerationType === 'OPTION_PRICE' ? 'OPTION_PRICE' : 'NONE',
     endsAt: poll.endsAt,
     isAnonymous: poll.isAnonymous,
@@ -8559,13 +8872,23 @@ function parseAdminPollOptionsText(value: string): AdminPollTemplateOptionReques
     throw new FaithLogApiError({kind: 'error', message: '선택지를 입력해 주세요.'});
   }
 
-  return parts.map((part, index) => {
+  const seenMenuIds = new Set<number>();
+
+  return parts.flatMap((part) => {
     if (/^menu:\d+$/i.test(part)) {
+      const menuId = Number(part.split(':')[1]);
+
+      if (seenMenuIds.has(menuId)) {
+        return [];
+      }
+
+      seenMenuIds.add(menuId);
+
       return {
         content: null,
-        menuId: Number(part.split(':')[1]),
+        menuId,
         priceAmount: null,
-        sortOrder: index + 1,
+        sortOrder: 0,
       };
     }
 
@@ -8575,8 +8898,26 @@ function parseAdminPollOptionsText(value: string): AdminPollTemplateOptionReques
       content: content || null,
       menuId: null,
       priceAmount: price ? parseRequiredNonNegativeInt(price, 'priceAmount') : null,
-      sortOrder: index + 1,
+      sortOrder: 0,
     };
+  }).map((option, index) => ({...option, sortOrder: index + 1}));
+}
+
+function prioritizeAdminPolls(polls: PollSummary[], focusPollId: number | null) {
+  if (focusPollId === null) {
+    return polls;
+  }
+
+  return polls.slice().sort((left, right) => {
+    if (left.id === focusPollId) {
+      return -1;
+    }
+
+    if (right.id === focusPollId) {
+      return 1;
+    }
+
+    return 0;
   });
 }
 
@@ -8828,6 +9169,10 @@ function getAdminPollListMeta(poll: PollSummary) {
   return `${getPollResponseSummary(poll)} · ${deadline} 마감`;
 }
 
+function canClosePoll(poll: PollSummary) {
+  return poll.status !== 'CLOSED' && !isEndedPoll(poll);
+}
+
 function getDefaultPollTitle(type: AdminPollType) {
   switch (type) {
     case 'WEDNESDAY':
@@ -8932,6 +9277,7 @@ function getCreatePollTypePatch(
   const timePatch = getCreatePollTimeRefreshPatch(current);
 
   return {
+    allowUserOptionAdd: type === 'COFFEE' ? true : current.allowUserOptionAdd,
     chargeGenerationType: type === 'COFFEE' ? 'OPTION_PRICE' : 'NONE',
     endsAt: timePatch.endsAt,
     optionsText:
@@ -10240,6 +10586,61 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 20,
   },
+  inviteCodeCopyButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: radius.pill,
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 34,
+    paddingHorizontal: 12,
+  },
+  inviteCodeCopyButtonCopied: {
+    backgroundColor: colors.primary,
+  },
+  inviteCodeCopyButtonText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  inviteCodeCopyButtonTextCopied: {
+    color: colors.surface,
+  },
+  inviteCodeError: {
+    color: colors.danger,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  inviteCodeLabel: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  inviteCodeRow: {
+    alignItems: 'center',
+    borderColor: colors.borderSoft,
+    borderRadius: radius.item,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inviteCodeValue: {
+    color: colors.textPrimary,
+    flexGrow: 1,
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0,
+    lineHeight: 20,
+    minWidth: 120,
+  },
   memberAction: {
     color: colors.primary,
     fontSize: 15,
@@ -10574,6 +10975,20 @@ const styles = StyleSheet.create({
   },
   pollResultPillText: {
     color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pollClosePill: {
+    alignItems: 'center',
+    backgroundColor: '#FFF1F2',
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollClosePillText: {
+    color: colors.danger,
     fontSize: 12,
     fontWeight: '700',
   },

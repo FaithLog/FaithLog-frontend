@@ -45,6 +45,8 @@ import type {
   PollComment,
   PollCommentRequest,
   PollDetail,
+  PollOption,
+  PollOptionAddRequest,
   PollResponse,
   PollResponseSaveRequest,
   PollResults,
@@ -56,6 +58,7 @@ import type {
   LogoutRequest,
   MarkChargePaidRequest,
   MarkChargePaidResponse,
+  MyDutyAssignment,
   PaymentAccount,
   PaymentAccountCreateRequest,
   PaymentCategory,
@@ -85,6 +88,7 @@ import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 type RequestOptions = {
   accessToken?: string;
   exposeServerErrorMessage?: boolean;
+  treatUnauthorizedAsPermissionDenied?: boolean;
   skipAuthRefresh?: boolean;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
@@ -512,6 +516,12 @@ function toPaymentAccountCreateRequest(
   };
 }
 
+function toPollOptionAddRequest(body: PollOptionAddRequest): PollOptionAddRequest {
+  return {
+    content: toRequiredString(body.content, '추가 항목'),
+  };
+}
+
 function toPenaltyRuleCreateRequest(body: PenaltyRuleCreateRequest): PenaltyRuleCreateRequest {
   if (!isPenaltyRuleType(body.ruleType)) {
     throw new FaithLogApiError({
@@ -874,11 +884,18 @@ function toAdminNotificationRequest(body: AdminNotificationRequest): AdminNotifi
 function normalizeApiError(
   status: number | undefined,
   envelope?: Partial<ApiEnvelope<unknown>>,
-  options: {exposeServerErrorMessage?: boolean} = {},
+  options: {
+    exposeServerErrorMessage?: boolean;
+    treatUnauthorizedAsPermissionDenied?: boolean;
+  } = {},
 ): ApiError {
   const code = typeof envelope?.code === 'string' ? envelope.code : undefined;
+  const unauthorizedKind =
+    options.treatUnauthorizedAsPermissionDenied === true
+      ? 'permissionDenied'
+      : 'sessionExpired';
   const unsafeError = compactApiError({
-    kind: status === 401 ? 'sessionExpired' : status === 403 ? 'permissionDenied' : status === 409 ? 'conflict' : 'error',
+    kind: status === 401 ? unauthorizedKind : status === 403 ? 'permissionDenied' : status === 409 ? 'conflict' : 'error',
     status,
     code,
     message: '요청을 처리하지 못했습니다.',
@@ -887,7 +904,7 @@ function normalizeApiError(
   const message = exposedMessage ?? getSafeApiErrorMessage(unsafeError);
 
   if (status === 401) {
-    return compactApiError({kind: 'sessionExpired', status, code, message});
+    return compactApiError({kind: unauthorizedKind, status, code, message});
   }
 
   if (status === 403) {
@@ -976,7 +993,10 @@ async function parseJson(response: Response): Promise<unknown> {
 
 async function parseEnvelope<T>(
   response: Response,
-  options: {exposeServerErrorMessage?: boolean} = {},
+  options: {
+    exposeServerErrorMessage?: boolean;
+    treatUnauthorizedAsPermissionDenied?: boolean;
+  } = {},
 ): Promise<ApiEnvelope<T>> {
   const payload = await parseJson(response);
 
@@ -1028,9 +1048,14 @@ async function executeApiRequest<T>(
     : await fetch(buildApiUrl(path), init);
   const envelope = await parseEnvelope<T>(
     response,
-    options.exposeServerErrorMessage === undefined
-      ? {}
-      : {exposeServerErrorMessage: options.exposeServerErrorMessage},
+    {
+      ...(options.exposeServerErrorMessage === undefined
+        ? {}
+        : {exposeServerErrorMessage: options.exposeServerErrorMessage}),
+      ...(options.treatUnauthorizedAsPermissionDenied === undefined
+        ? {}
+        : {treatUnauthorizedAsPermissionDenied: options.treatUnauthorizedAsPermissionDenied}),
+    },
   );
 
   return envelope.data as T;
@@ -1323,6 +1348,13 @@ export function fetchPaymentAccounts(accessToken: string, campusId: unknown) {
   });
 }
 
+export function fetchMyDutyAssignment(accessToken: string, campusId: unknown) {
+  return apiRequest<MyDutyAssignment>(
+    buildCampusPath(campusId, 'duty-assignments', 'me'),
+    {accessToken},
+  );
+}
+
 export function createAdminPaymentAccount(
   accessToken: string,
   campusId: unknown,
@@ -1338,6 +1370,23 @@ export function createAdminPaymentAccount(
   );
 }
 
+export function createCoffeeDutyPaymentAccount(
+  accessToken: string,
+  campusId: unknown,
+  body: PaymentAccountCreateRequest,
+) {
+  return apiRequest<AdminPaymentAccount>(
+    buildAdminCampusPath(campusId, 'payment-accounts'),
+    {
+      accessToken,
+      body: toPaymentAccountCreateRequest(body),
+      method: 'POST',
+      skipAuthRefresh: true,
+      treatUnauthorizedAsPermissionDenied: true,
+    },
+  );
+}
+
 export function deactivateAdminPaymentAccount(accessToken: string, accountId: unknown) {
   return apiRequest<AdminPaymentAccount>(
     buildApiPath(
@@ -1349,6 +1398,23 @@ export function deactivateAdminPaymentAccount(accessToken: string, accountId: un
     {
       accessToken,
       method: 'PATCH',
+    },
+  );
+}
+
+export function deactivateCoffeeDutyPaymentAccount(accessToken: string, accountId: unknown) {
+  return apiRequest<AdminPaymentAccount>(
+    buildApiPath(
+      'admin',
+      'payment-accounts',
+      toPositiveIntegerPathSegment(accountId, 'accountId'),
+      'deactivate',
+    ),
+    {
+      accessToken,
+      method: 'PATCH',
+      skipAuthRefresh: true,
+      treatUnauthorizedAsPermissionDenied: true,
     },
   );
 }
@@ -1461,6 +1527,28 @@ export function savePollResponse(
       accessToken,
       method: 'PUT',
       body,
+    },
+  );
+}
+
+export function addUserPollOption(
+  accessToken: string,
+  campusId: unknown,
+  pollId: unknown,
+  body: PollOptionAddRequest,
+) {
+  return apiRequest<PollOption>(
+    buildCampusPath(
+      campusId,
+      'polls',
+      toPositiveIntegerPathSegment(pollId, 'pollId'),
+      'options',
+    ),
+    {
+      accessToken,
+      body: toPollOptionAddRequest(body),
+      exposeServerErrorMessage: true,
+      method: 'POST',
     },
   );
 }

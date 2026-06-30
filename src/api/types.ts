@@ -459,6 +459,13 @@ export type CoffeeMenu = {
   category: string;
 };
 
+export type MyDutyAssignment = {
+  userId: number;
+  campusId: number;
+  dutyType: string;
+  isActive: boolean;
+};
+
 export type PollSummary = {
   id: number;
   campusId: number;
@@ -478,6 +485,7 @@ export type PollOption = {
   composeMenuCode: string | null;
   priceAmount: number;
   sortOrder: number;
+  userAdded?: boolean;
 };
 
 export type PollResponse = {
@@ -489,11 +497,16 @@ export type PollResponse = {
 
 export type PollDetail = PollSummary & {
   templateId: number | null;
+  allowUserOptionAdd?: boolean;
   chargeGenerationType: string;
   paymentCategory: string | null;
   paymentAccountId: number | null;
   options: PollOption[];
   myResponse: PollResponse | null;
+};
+
+export type PollOptionAddRequest = {
+  content: string;
 };
 
 export type PollResponseSaveRequest = {

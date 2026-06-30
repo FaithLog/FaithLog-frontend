@@ -1,7 +1,8 @@
 import {useEffect, useState} from 'react';
-import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import {
+  addUserPollOption,
   createPollComment,
   deletePollComment,
   FaithLogApiError,
@@ -82,7 +83,9 @@ type DetailState =
 
 type DetailTab = 'response' | 'comments' | 'results';
 type PollListTab = 'active' | 'closed';
-type ActionState = {kind: 'response' | 'comment' | 'edit' | 'delete'; id?: number} | null;
+type ActionState =
+  | {kind: 'response' | 'comment' | 'edit' | 'delete' | 'optionAdd'; id?: number}
+  | null;
 type CoffeeCatalogState =
   | {status: 'notNeeded'}
   | {status: 'success'; brands: CoffeeBrand[]; menus: CoffeeMenu[]}
@@ -104,6 +107,8 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
   const [commentContent, setCommentContent] = useState('');
   const [editingComment, setEditingComment] = useState<PollComment | null>(null);
+  const [optionAddVisible, setOptionAddVisible] = useState(false);
+  const [optionAddContent, setOptionAddContent] = useState('');
   const [actionState, setActionState] = useState<ActionState>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
 
@@ -227,6 +232,60 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
       await loadPolls();
     } catch (error) {
       const apiError = toApiError(error, '투표 응답을 저장하지 못했습니다.');
+      setActionError(apiError);
+      handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState(null);
+    }
+  };
+
+  const submitUserOption = async (content: string) => {
+    if (
+      !activeDetail ||
+      actionState ||
+      !isPollActionable(activeDetail) ||
+      !isUserOptionAddAllowed(activeDetail)
+    ) {
+      return;
+    }
+
+    const trimmed = content.trim();
+
+    if (!trimmed) {
+      setActionError({kind: 'error', message: '추가할 항목을 입력해 주세요.'});
+      return;
+    }
+
+    const coffeeCatalog =
+      detailState.status === 'success' ? detailState.coffeeCatalog : ({status: 'notNeeded'} as const);
+
+    if (isDuplicatePollOption(activeDetail, coffeeCatalog, trimmed)) {
+      setActionError({kind: 'error', message: '이미 추가된 항목입니다.'});
+      return;
+    }
+
+    setActionState({kind: 'optionAdd'});
+    setActionError(null);
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const added = await addUserPollOption(accessToken, campusId, activeDetail.id, {
+        content: trimmed,
+      });
+      setOptionAddContent('');
+      setOptionAddVisible(false);
+      await loadDetail(activeDetail.id, 'response');
+      setSelectedOptionIds((current) =>
+        activeDetail.selectionType === 'SINGLE'
+          ? [added.id]
+          : Array.from(new Set([...current, added.id])),
+      );
+    } catch (error) {
+      const apiError = toApiError(error, '투표 항목을 추가하지 못했습니다.');
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
@@ -359,6 +418,7 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
             coffeeCatalog={detailState.coffeeCatalog}
             detail={detailState.detail}
             onRetryCoffeeCatalog={() => loadDetail(detailState.detail.id, detailTab)}
+            onAddOption={() => setOptionAddVisible(true)}
             onSubmit={submitResponse}
             onToggleOption={toggleOption}
             results={detailState.results}
@@ -396,6 +456,21 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
             results={detailState.results}
           />
         ) : null}
+        <UserOptionAddSheet
+          actionState={actionState}
+          coffeeCatalog={detailState.coffeeCatalog}
+          content={optionAddContent}
+          detail={detailState.detail}
+          onCancel={() => {
+            if (actionState?.kind !== 'optionAdd') {
+              setOptionAddVisible(false);
+              setOptionAddContent('');
+            }
+          }}
+          onChangeContent={setOptionAddContent}
+          onSubmit={submitUserOption}
+          visible={optionAddVisible}
+        />
       </View>
     );
   }
@@ -586,6 +661,7 @@ function ResponsePanel({
   actionState,
   coffeeCatalog,
   detail,
+  onAddOption,
   onRetryCoffeeCatalog,
   onSubmit,
   onToggleOption,
@@ -595,6 +671,7 @@ function ResponsePanel({
   actionState: ActionState;
   coffeeCatalog: CoffeeCatalogState;
   detail: PollDetail;
+  onAddOption: () => void;
   onRetryCoffeeCatalog: () => void;
   onSubmit: () => void;
   onToggleOption: (optionId: number) => void;
@@ -604,6 +681,7 @@ function ResponsePanel({
   const isOpen = isPollActionable(detail);
   const responding = actionState?.kind === 'response';
   const hasResponse = Boolean(detail.myResponse);
+  const canAddOption = isOpen && isUserOptionAddAllowed(detail);
 
   return (
     <>
@@ -620,6 +698,23 @@ function ResponsePanel({
       ) : null}
       {detail.pollType === 'COFFEE' ? (
         <CoffeeCatalogPanel catalog={coffeeCatalog} onRetry={onRetryCoffeeCatalog} />
+      ) : null}
+      {canAddOption ? (
+        <Pressable
+          accessibilityLabel="투표 항목 추가"
+          accessibilityRole="button"
+          disabled={actionState?.kind === 'optionAdd'}
+          onPress={onAddOption}
+          style={({pressed}) => [
+            styles.addOptionButton,
+            actionState?.kind === 'optionAdd' ? styles.addOptionButtonDisabled : null,
+            pressed ? styles.pressed : null,
+          ]}>
+          <IconexIcon color={colors.primary} name="plus" size={18} strokeWidth={2} />
+          <Text style={styles.addOptionButtonText}>
+            {detail.pollType === 'COFFEE' ? '커피 메뉴 추가' : '항목 추가'}
+          </Text>
+        </Pressable>
       ) : null}
       <View style={styles.optionList}>
         {detail.options
@@ -960,6 +1055,145 @@ function PollSelectionIcon({
   );
 }
 
+function UserOptionAddSheet({
+  actionState,
+  coffeeCatalog,
+  content,
+  detail,
+  onCancel,
+  onChangeContent,
+  onSubmit,
+  visible,
+}: {
+  actionState: ActionState;
+  coffeeCatalog: CoffeeCatalogState;
+  content: string;
+  detail: PollDetail;
+  onCancel: () => void;
+  onChangeContent: (value: string) => void;
+  onSubmit: (content: string) => void;
+  visible: boolean;
+}) {
+  const submitting = actionState?.kind === 'optionAdd';
+  const isCoffee = detail.pollType === 'COFFEE';
+  const coffeeMenus =
+    coffeeCatalog.status === 'success'
+      ? coffeeCatalog.menus
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'))
+      : [];
+
+  return (
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.optionAddSheet}>
+          <View style={styles.optionAddHeader}>
+            <View style={styles.optionAddHeaderText}>
+              <Text style={styles.optionAddTitle}>
+                {isCoffee ? '커피 메뉴 추가' : '항목 추가'}
+              </Text>
+              <Text style={styles.optionAddDescription}>
+                {isCoffee
+                  ? '투표에 추가할 커피 메뉴를 선택해 주세요.'
+                  : '새 선택지 이름을 입력해 주세요.'}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="항목 추가 닫기"
+              accessibilityRole="button"
+              disabled={submitting}
+              onPress={onCancel}
+              style={({pressed}) => [styles.optionAddClose, pressed ? styles.pressed : null]}>
+              <Text style={styles.optionAddCloseText}>x</Text>
+            </Pressable>
+          </View>
+
+          {isCoffee && coffeeMenus.length > 0 ? (
+            <ScrollView
+              contentContainerStyle={styles.optionAddMenuList}
+              style={styles.optionAddScroll}>
+              {coffeeMenus.map((menu) => {
+                const added = isDuplicatePollOption(detail, coffeeCatalog, menu.name);
+
+                return (
+                  <Pressable
+                    accessibilityLabel={`${menu.name} 항목 ${added ? '추가됨' : '추가'}`}
+                    accessibilityRole="button"
+                    disabled={submitting || added}
+                    key={menu.id}
+                    onPress={() => onSubmit(menu.name)}
+                    style={({pressed}) => [
+                      styles.optionAddMenuRow,
+                      added ? styles.optionAddMenuRowAdded : null,
+                      submitting ? styles.addOptionButtonDisabled : null,
+                      pressed ? styles.pressed : null,
+                    ]}>
+                    <View style={styles.optionAddMenuText}>
+                      <Text style={styles.optionAddMenuTitle}>{menu.name}</Text>
+                      <Text style={styles.optionAddMenuMeta}>
+                        {getCoffeeCategoryLabel(menu.category)} · {formatWon(menu.priceAmount)}
+                      </Text>
+                    </View>
+                    <View style={styles.optionAddMenuPill}>
+                      <Text style={styles.optionAddMenuPillText}>
+                        {submitting ? '추가 중' : added ? '추가됨' : '추가'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : (
+            <>
+              {isCoffee && coffeeCatalog.status === 'error' ? (
+                <InlineNotice message={getErrorMessage(coffeeCatalog.error)} tone="warning" />
+              ) : null}
+              <TextInput
+                accessibilityLabel="추가할 투표 항목 입력"
+                editable={!submitting}
+                onChangeText={onChangeContent}
+                placeholder={isCoffee ? '추가할 커피 메뉴명' : '추가할 항목'}
+                placeholderTextColor={colors.subtleText}
+                style={styles.optionAddInput}
+                value={content}
+              />
+              <View style={styles.optionAddActions}>
+                <Pressable
+                  accessibilityLabel="항목 추가 취소"
+                  accessibilityRole="button"
+                  disabled={submitting}
+                  onPress={onCancel}
+                  style={({pressed}) => [
+                    styles.optionAddSecondaryButton,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.optionAddSecondaryButtonText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="항목 추가 저장"
+                  accessibilityRole="button"
+                  disabled={submitting || content.trim().length === 0}
+                  onPress={() => onSubmit(content)}
+                  style={({pressed}) => [
+                    styles.optionAddPrimaryButton,
+                    submitting || content.trim().length === 0
+                      ? styles.addOptionButtonDisabled
+                      : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.optionAddPrimaryButtonText}>
+                    {submitting ? '추가 중...' : '추가'}
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}) {
   const presentation = getApiErrorPresentation(error, {
     conflictTitle: '최신 투표 상태가 필요합니다',
@@ -1048,6 +1282,37 @@ function InlineNotice({message, tone}: {message: string; tone: 'info' | 'warning
       <Text style={styles.inlineNoticeText}>{message}</Text>
     </View>
   );
+}
+
+function isUserOptionAddAllowed(detail: PollDetail) {
+  if (typeof detail.allowUserOptionAdd === 'boolean') {
+    return detail.allowUserOptionAdd;
+  }
+
+  return detail.pollType === 'COFFEE';
+}
+
+function isDuplicatePollOption(
+  detail: PollDetail,
+  coffeeCatalog: CoffeeCatalogState,
+  content: string,
+) {
+  const normalizedContent = normalizePollOptionLabel(content);
+
+  return detail.options.some((option) => {
+    const labels = [option.content];
+    const matchedMenu = findCoffeeMenuForOption(coffeeCatalog, option.composeMenuCode);
+
+    if (matchedMenu) {
+      labels.push(matchedMenu.name);
+    }
+
+    return labels.some((label) => normalizePollOptionLabel(label) === normalizedContent);
+  });
+}
+
+function normalizePollOptionLabel(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR');
 }
 
 async function loadCoffeeCatalog(
@@ -1410,6 +1675,26 @@ const styles = StyleSheet.create({
     gap: spacing.gap,
     marginTop: spacing.gap,
   },
+  addOptionButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surface,
+    borderColor: colors.primary,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 42,
+    paddingHorizontal: 14,
+  },
+  addOptionButtonDisabled: {
+    opacity: 0.48,
+  },
+  addOptionButtonText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
   avatar: {
     alignItems: 'center',
     backgroundColor: colors.primarySoft,
@@ -1721,6 +2006,144 @@ const styles = StyleSheet.create({
   optionCountTextSelected: {
     color: colors.primary,
   },
+  optionAddActions: {
+    flexDirection: 'row',
+    gap: spacing.gap,
+    marginTop: spacing.gap,
+  },
+  optionAddClose: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  optionAddCloseText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  optionAddDescription: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  optionAddHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  optionAddHeaderText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  optionAddInput: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    color: colors.textPrimary,
+    fontSize: 15,
+    minHeight: 48,
+    paddingHorizontal: 14,
+  },
+  optionAddMenuList: {
+    gap: 10,
+    paddingBottom: spacing.gap,
+  },
+  optionAddMenuMeta: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  optionAddMenuPill: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: radius.pill,
+    minHeight: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  optionAddMenuPillText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  optionAddMenuRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.item,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.gap,
+    minHeight: 64,
+    padding: spacing.gap,
+  },
+  optionAddMenuRowAdded: {
+    backgroundColor: colors.borderSoft,
+    opacity: 0.72,
+  },
+  optionAddMenuText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  optionAddMenuTitle: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  optionAddPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: radius.control,
+    flex: 1,
+    minHeight: 46,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  optionAddPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  optionAddScroll: {
+    maxHeight: 420,
+  },
+  optionAddSecondaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: radius.control,
+    flex: 1,
+    minHeight: 46,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  optionAddSecondaryButtonText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  optionAddSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+    gap: spacing.gap,
+    maxHeight: '86%',
+    padding: spacing.card,
+    width: '100%',
+  },
+  optionAddTitle: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 28,
+  },
   optionMeta: {
     color: colors.mutedText,
     fontSize: 15,
@@ -1772,6 +2195,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '700',
+  },
+  sheetBackdrop: {
+    alignItems: 'center',
+    backgroundColor: colors.textPrimary,
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   tab: {
     alignItems: 'center',

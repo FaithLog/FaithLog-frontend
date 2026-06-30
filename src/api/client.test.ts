@@ -6,8 +6,13 @@ vi.mock('./tokenStorage', () => ({
   saveTokens: vi.fn(),
 }));
 
-import {apiRequest, buildApiUrl, FaithLogApiError} from './client';
-import {getStoredTokens, saveTokens} from './tokenStorage';
+import {
+  apiRequest,
+  buildApiUrl,
+  createCoffeeDutyPaymentAccount,
+  FaithLogApiError,
+} from './client';
+import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 
 const API_BASE_URL = 'https://api.faithlog.test/root/';
 
@@ -150,6 +155,43 @@ describe('FaithLog API client', () => {
       });
       return true;
     });
+  });
+
+  it('can treat a protected admin 401 as permission denied without refreshing auth', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        401,
+        envelope(null, {
+          success: false,
+          code: 'AUTH_UNAUTHORIZED',
+          message: '인증이 필요합니다.',
+        }),
+      ),
+    );
+
+    await expect(
+      createCoffeeDutyPaymentAccount('active-coffee-duty-token', 2, {
+        accountHolder: 'QA',
+        accountNumber: '9999-0000',
+        accountType: 'COFFEE',
+        bankName: '카카오뱅크',
+        nickname: 'QA 커피',
+        ownerUserId: 36,
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'permissionDenied',
+        status: 401,
+        code: 'AUTH_UNAUTHORIZED',
+      });
+      return true;
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getStoredTokens).not.toHaveBeenCalled();
+    expect(saveTokens).not.toHaveBeenCalled();
+    expect(clearTokens).not.toHaveBeenCalled();
   });
 
   it('rejects invalid success envelopes as a safe client error', async () => {

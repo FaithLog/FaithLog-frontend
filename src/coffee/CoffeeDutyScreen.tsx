@@ -1,0 +1,2592 @@
+import {useEffect, useMemo, useState} from 'react';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import {
+  closeAdminPoll,
+  createAdminPoll,
+  fetchAdminPolls,
+  fetchAdminPollResults,
+} from '../api/adminPollApi';
+import {
+  createCoffeeDutyPaymentAccount,
+  deactivateCoffeeDutyPaymentAccount,
+  FaithLogApiError,
+  fetchAdminCampusCharges,
+  fetchCoffeeBrands,
+  fetchCoffeeMenus,
+  fetchMyDutyAssignment,
+  fetchPaymentAccounts,
+} from '../api/client';
+import {getStoredTokens} from '../api/tokenStorage';
+import type {
+  AdminCampusChargeSummary,
+  CoffeeMenu,
+  DutyAssignment,
+  PaymentAccount,
+  PollResults,
+  PollSummary,
+} from '../api/types';
+import type {AuthGateState} from '../auth/authGate';
+import {IconexIcon} from '../components/IconexIcon';
+import {Body, Button, Card, Empty, Eyebrow, Loading, TextField} from '../components/ui';
+import {colors, spacing} from '../theme';
+import {formatWon} from '../utils/money';
+
+type CoffeeDutyLoadState =
+  | {status: 'loading'}
+  | {
+      status: 'ready';
+      accounts: PaymentAccount[];
+      assignment: DutyAssignment;
+      charges: AdminCampusChargeSummary | null;
+      menus: CoffeeMenu[];
+    }
+  | {status: 'notAssigned'}
+  | {status: 'error'; message: string};
+
+type CoffeePollCreateState =
+  | {status: 'idle'}
+  | {status: 'creating'}
+  | {status: 'success'; title: string}
+  | {status: 'error'; message: string};
+
+type CoffeePollListState =
+  | {status: 'loading'}
+  | {status: 'success'; polls: PollSummary[]}
+  | {status: 'error'; message: string};
+
+type CoffeePollResultState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; results: PollResults}
+  | {status: 'error'; message: string};
+type CoffeePollCloseState =
+  | {status: 'idle'}
+  | {status: 'closing'; pollId: number}
+  | {status: 'success'; title: string}
+  | {status: 'error'; message: string};
+
+type CoffeePollStatusTab = 'ongoing' | 'closed';
+type CoffeeDutyPage = 'summary' | 'accounts' | 'create' | 'manage';
+
+type CoffeeAccountForm = {
+  accountHolder: string;
+  accountNumber: string;
+  bankName: string;
+  nickname: string;
+};
+
+type CoffeeAccountSaveState =
+  | {status: 'idle'}
+  | {status: 'saving'}
+  | {status: 'success'; nickname: string}
+  | {status: 'error'; message: string};
+
+type CoffeeAccountDeleteState =
+  | {status: 'idle'}
+  | {status: 'deleting'; accountId: number}
+  | {status: 'success'; nickname: string}
+  | {status: 'error'; message: string};
+
+type CoffeeDutyScreenProps = {
+  onBack: () => void;
+  setAuthState: (state: AuthGateState) => void;
+  state: Extract<AuthGateState, {status: 'authenticated'}>;
+};
+
+const DEFAULT_COFFEE_POLL_TITLE = '커피 주문';
+const DEFAULT_DEADLINE_OFFSET_MS = 2 * 60 * 60 * 1000;
+const emptyCoffeeAccountForm: CoffeeAccountForm = {
+  accountHolder: '',
+  accountNumber: '',
+  bankName: '',
+  nickname: '커피 계좌',
+};
+const coffeeDutyPages: Array<{id: CoffeeDutyPage; label: string}> = [
+  {id: 'summary', label: '정산'},
+  {id: 'accounts', label: '계좌'},
+  {id: 'create', label: '투표 생성'},
+  {id: 'manage', label: '투표 관리'},
+];
+const space = {
+  sm: spacing.gap,
+  md: spacing.card,
+  lg: spacing.screenX,
+  xl: spacing.screenX + spacing.gap,
+};
+
+export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreenProps) {
+  const [loadState, setLoadState] = useState<CoffeeDutyLoadState>({status: 'loading'});
+  const [selectedMenuIds, setSelectedMenuIds] = useState<number[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [title, setTitle] = useState(DEFAULT_COFFEE_POLL_TITLE);
+  const [deadlineText, setDeadlineText] = useState(() =>
+    formatLocalDateTimeInput(new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)),
+  );
+  const [createState, setCreateState] = useState<CoffeePollCreateState>({status: 'idle'});
+  const [accountForm, setAccountForm] = useState<CoffeeAccountForm>(emptyCoffeeAccountForm);
+  const [accountSaveState, setAccountSaveState] = useState<CoffeeAccountSaveState>({status: 'idle'});
+  const [accountDeleteState, setAccountDeleteState] = useState<CoffeeAccountDeleteState>({status: 'idle'});
+  const [page, setPage] = useState<CoffeeDutyPage>('summary');
+  const [pollRefreshKey, setPollRefreshKey] = useState(0);
+  const [createdPollId, setCreatedPollId] = useState<number | null>(null);
+  const campusId = state.selectedCampus.campusId;
+
+  const load = async () => {
+    setLoadState({status: 'loading'});
+    setCreateState({status: 'idle'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const assignment = await resolveCoffeeDutyAssignment(accessToken, campusId, state);
+
+      if (!assignment) {
+        setLoadState({status: 'notAssigned'});
+        return;
+      }
+
+      const [accounts, brands, charges] = await Promise.all([
+        fetchPaymentAccounts(accessToken, campusId),
+        fetchCoffeeBrands(accessToken),
+        fetchCoffeeChargeSummary(accessToken, campusId),
+      ]);
+      const menus = (
+        await Promise.all(brands.map((brand) => fetchCoffeeMenus(accessToken, brand.id)))
+      ).flat();
+      const coffeeAccounts = accounts.filter((account) => account.accountType === 'COFFEE');
+
+      setLoadState({
+        status: 'ready',
+        accounts: coffeeAccounts,
+        assignment,
+        charges,
+        menus,
+      });
+      setSelectedMenuIds((current) =>
+        current.filter((menuId) => menus.some((menu) => menu.id === menuId)),
+      );
+      setSelectedAccountId((current) => current ?? coffeeAccounts[0]?.id ?? null);
+    } catch (error) {
+      const message = getCoffeeDutyErrorMessage(error);
+
+      if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: error.detail.message});
+        return;
+      }
+
+      setLoadState({status: 'error', message});
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [campusId, state.user.id]);
+
+  const selectedMenus = useMemo(
+    () =>
+      loadState.status === 'ready'
+        ? selectedMenuIds
+            .map((menuId) => loadState.menus.find((menu) => menu.id === menuId))
+            .filter((menu): menu is CoffeeMenu => Boolean(menu))
+        : [],
+    [loadState, selectedMenuIds],
+  );
+
+  const createCoffeePoll = async () => {
+    if (loadState.status !== 'ready' || createState.status === 'creating') {
+      return;
+    }
+
+    const trimmedTitle = title.trim();
+    const endsAt = parseLocalDateTimeInput(deadlineText);
+
+    if (!trimmedTitle) {
+      setCreateState({status: 'error', message: '투표 제목을 입력해 주세요.'});
+      return;
+    }
+
+    if (!endsAt || endsAt.getTime() <= Date.now()) {
+      setCreateState({status: 'error', message: '마감 일시는 현재 시각 이후로 입력해 주세요.'});
+      return;
+    }
+
+    if (!selectedAccountId) {
+      setCreateState({status: 'error', message: '커피 정산 계좌를 선택해 주세요.'});
+      return;
+    }
+
+    const uniqueSelectedMenus = getUniqueCoffeeMenus(selectedMenus);
+
+    if (uniqueSelectedMenus.length === 0) {
+      setCreateState({status: 'error', message: '커피 메뉴를 하나 이상 선택해 주세요.'});
+      return;
+    }
+
+    setCreateState({status: 'creating'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const created = await createAdminPoll(accessToken, campusId, {
+        chargeGenerationType: 'OPTION_PRICE',
+        endsAt: endsAt.toISOString(),
+        allowUserOptionAdd: true,
+        isAnonymous: false,
+        options: uniqueSelectedMenus.map((menu, index) => ({
+          content: null,
+          menuId: menu.id,
+          priceAmount: null,
+          sortOrder: index + 1,
+        })),
+        paymentAccountId: selectedAccountId,
+        paymentCategory: 'COFFEE',
+        pollType: 'COFFEE',
+        selectionType: 'SINGLE',
+        startsAt: new Date().toISOString(),
+        templateId: null,
+        title: trimmedTitle,
+      });
+
+      setCreateState({status: 'success', title: trimmedTitle});
+      setTitle(DEFAULT_COFFEE_POLL_TITLE);
+      setSelectedMenuIds([]);
+      setCreatedPollId(created.id);
+      setPage('manage');
+      setPollRefreshKey((current) => current + 1);
+      await load();
+    } catch (error) {
+      setCreateState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    }
+  };
+
+  const saveCoffeeAccount = async () => {
+    if (accountSaveState.status === 'saving') {
+      return;
+    }
+
+    const nickname = accountForm.nickname.trim();
+    const bankName = accountForm.bankName.trim();
+    const accountNumber = accountForm.accountNumber.trim();
+    const accountHolder = accountForm.accountHolder.trim();
+
+    if (!nickname || !bankName || !accountNumber || !accountHolder) {
+      setAccountSaveState({status: 'error', message: '계좌 정보를 모두 입력해 주세요.'});
+      return;
+    }
+
+    setAccountSaveState({status: 'saving'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const account = await createCoffeeDutyPaymentAccount(accessToken, campusId, {
+        accountHolder,
+        accountNumber,
+        accountType: 'COFFEE',
+        bankName,
+        nickname,
+        ownerUserId: state.user.id,
+      });
+
+      setAccountForm(emptyCoffeeAccountForm);
+      setAccountSaveState({status: 'success', nickname: account.nickname});
+      await load();
+    } catch (error) {
+      setAccountSaveState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    }
+  };
+
+  const deleteCoffeeAccount = async (account: PaymentAccount) => {
+    if (accountDeleteState.status === 'deleting') {
+      return;
+    }
+
+    setAccountDeleteState({status: 'deleting', accountId: account.id});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      await deactivateCoffeeDutyPaymentAccount(accessToken, account.id);
+      setAccountDeleteState({status: 'success', nickname: account.nickname});
+      setSelectedAccountId((current) => (current === account.id ? null : current));
+      await load();
+    } catch (error) {
+      setAccountDeleteState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    }
+  };
+
+  return (
+    <View style={styles.frame}>
+      <View style={styles.header}>
+        <Pressable
+          accessibilityLabel="내정보로 돌아가기"
+          accessibilityRole="button"
+          onPress={onBack}
+          style={({pressed}) => [styles.backButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.backButtonText}>‹</Text>
+        </Pressable>
+        <View style={styles.headerText}>
+          <Text style={styles.kicker}>커피 담당자</Text>
+          <Text style={styles.title}>커피 정산 관리</Text>
+        </View>
+      </View>
+
+      {loadState.status === 'loading' ? (
+        <Loading message="커피 담당자 정보를 확인하고 있어요." />
+      ) : loadState.status === 'notAssigned' ? (
+        <Empty
+          actionLabel="내정보로 돌아가기"
+          message="현재 캠퍼스의 활성 커피 담당자로 지정된 경우에만 사용할 수 있어요."
+          onActionPress={onBack}
+          title="커피 담당자 전용 화면입니다"
+        />
+      ) : loadState.status === 'error' ? (
+        <Empty
+          actionLabel="다시 확인"
+          message={loadState.message}
+          onActionPress={() => void load()}
+          title="커피 관리 정보를 불러오지 못했습니다"
+        />
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
+          <CoffeeDutyPageNav page={page} onSelectPage={setPage} />
+          {page === 'summary' ? <CoffeeSettlementSummary state={loadState} /> : null}
+          {page === 'accounts' ? (
+            <CoffeeAccountManagement
+              deleteState={accountDeleteState}
+              form={accountForm}
+              onChangeForm={(patch) => setAccountForm((current) => ({...current, ...patch}))}
+              onDeleteAccount={deleteCoffeeAccount}
+              onRefresh={() => void load()}
+              onSave={saveCoffeeAccount}
+              saveState={accountSaveState}
+              state={loadState}
+            />
+          ) : null}
+          {page === 'create' ? (
+            <CoffeePollCreator
+              createState={createState}
+              deadlineText={deadlineText}
+              onCreate={createCoffeePoll}
+              onDeadlineChange={setDeadlineText}
+              onRefresh={() => void load()}
+              onSelectAccount={setSelectedAccountId}
+              onToggleMenu={(menuId) =>
+                setSelectedMenuIds((current) =>
+                  current.includes(menuId)
+                    ? current.filter((selectedId) => selectedId !== menuId)
+                    : Array.from(new Set([...current, menuId])),
+                )
+              }
+              onTitleChange={setTitle}
+              selectedAccountId={selectedAccountId}
+              selectedMenuIds={selectedMenuIds}
+              state={loadState}
+              title={title}
+            />
+          ) : null}
+          {page === 'manage' ? (
+            <CoffeePollManagement
+              campusId={campusId}
+              focusPollId={createdPollId}
+              refreshKey={pollRefreshKey}
+              setAuthState={setAuthState}
+            />
+          ) : null}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function CoffeeSettlementSummary({state}: {state: Extract<CoffeeDutyLoadState, {status: 'ready'}>}) {
+  const charges = state.charges;
+  const unpaidAmount = charges?.summary.unpaidAmount ?? 0;
+  const memberCount = charges?.members.filter((member) => member.unpaidAmount > 0).length ?? 0;
+
+  return (
+    <Card>
+      <View style={styles.summaryHeader}>
+        <View>
+          <Text style={styles.kicker}>커피 정산</Text>
+          <Text style={styles.summaryTitle}>{formatWon(unpaidAmount)}</Text>
+        </View>
+        <View style={styles.summaryIcon}>
+          <IconexIcon color={colors.primary} name="coins" size={24} strokeWidth={1.8} />
+        </View>
+      </View>
+      <Text style={styles.summaryBody}>
+        미납 {memberCount}명 · 커피 계좌 {state.accounts.length}개 · 담당자 {state.assignment.name}
+      </Text>
+      {charges?.members.length ? (
+        <View style={styles.memberList}>
+          {charges.members.slice(0, 5).map((member) => (
+            <View key={member.userId} style={styles.memberRow}>
+              <Text style={styles.memberName}>{member.name}</Text>
+              <Text style={styles.memberAmount}>{formatWon(member.unpaidAmount)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.summaryBody}>표시할 커피 미납 내역이 없습니다.</Text>
+      )}
+    </Card>
+  );
+}
+
+function CoffeeDutyPageNav({
+  onSelectPage,
+  page,
+}: {
+  onSelectPage: (page: CoffeeDutyPage) => void;
+  page: CoffeeDutyPage;
+}) {
+  return (
+    <View style={styles.pageNav}>
+      {coffeeDutyPages.map((item) => {
+        const active = item.id === page;
+
+        return (
+          <Pressable
+            accessibilityLabel={`${item.label} 페이지 열기`}
+            accessibilityRole="button"
+            key={item.id}
+            onPress={() => onSelectPage(item.id)}
+            style={({pressed}) => [
+              styles.pageNavButton,
+              active ? styles.pageNavButtonActive : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={[styles.pageNavText, active ? styles.pageNavTextActive : null]}>
+              {item.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function CoffeeAccountManagement({
+  deleteState,
+  form,
+  onChangeForm,
+  onDeleteAccount,
+  onRefresh,
+  onSave,
+  saveState,
+  state,
+}: {
+  deleteState: CoffeeAccountDeleteState;
+  form: CoffeeAccountForm;
+  onChangeForm: (patch: Partial<CoffeeAccountForm>) => void;
+  onDeleteAccount: (account: PaymentAccount) => void;
+  onRefresh: () => void;
+  onSave: () => void;
+  saveState: CoffeeAccountSaveState;
+  state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
+}) {
+  const busy = saveState.status === 'saving' || deleteState.status === 'deleting';
+  const [deleteTarget, setDeleteTarget] = useState<PaymentAccount | null>(null);
+
+  return (
+    <>
+      <Card>
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.kicker}>커피 계좌</Text>
+            <Text style={styles.sectionTitle}>활성 계좌</Text>
+          </View>
+          <Pressable
+            accessibilityLabel="커피 계좌 새로고침"
+            accessibilityRole="button"
+            onPress={onRefresh}
+            style={({pressed}) => [styles.softButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.softButtonText}>새로고침</Text>
+          </Pressable>
+        </View>
+        {state.accounts.length === 0 ? (
+          <Text style={styles.summaryBody}>등록된 커피 계좌가 없습니다.</Text>
+        ) : (
+          <View style={styles.optionList}>
+            {state.accounts.map((account) => (
+              <View key={account.id} style={styles.selectRow}>
+                <View style={styles.accountRowHeader}>
+                  <View style={styles.headerText}>
+                    <Text style={styles.selectTitle}>{account.nickname}</Text>
+                    <Text style={styles.selectMeta}>
+                      {account.bankName} {account.accountNumber}
+                    </Text>
+                    <Text style={styles.selectMeta}>예금주 {account.accountHolder}</Text>
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`${account.nickname} 계좌 삭제`}
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => setDeleteTarget(account)}
+                    style={({pressed}) => [
+                      styles.accountDeleteButton,
+                      busy ? styles.pollCreateActionDisabled : null,
+                      pressed ? styles.pressed : null,
+                    ]}>
+                    <Text style={styles.accountDeleteButtonText}>
+                      {deleteState.status === 'deleting' && deleteState.accountId === account.id
+                        ? '삭제 중'
+                        : '삭제'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+        {deleteState.status === 'success' ? (
+          <View style={styles.successBox}>
+            <Text style={styles.successText}>{deleteState.nickname} 계좌를 삭제했습니다.</Text>
+          </View>
+        ) : null}
+        {deleteState.status === 'error' ? <CoffeeInlineError message={deleteState.message} /> : null}
+      </Card>
+      <CoffeeAccountDeleteConfirmModal
+        account={deleteTarget}
+        busy={deleteState.status === 'deleting'}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (!deleteTarget) {
+            return;
+          }
+
+          onDeleteAccount(deleteTarget);
+          setDeleteTarget(null);
+        }}
+      />
+
+      <Card>
+        <Text style={styles.kicker}>계좌 등록</Text>
+        <Text style={styles.sectionTitle}>커피 정산 계좌 추가</Text>
+        <Text style={styles.summaryBody}>
+          커피 담당자가 받을 커피 금액 계좌만 등록합니다.
+        </Text>
+        <TextField
+          accessibilityLabel="커피 계좌 별칭"
+          label="별칭"
+          onChangeText={(nickname) => onChangeForm({nickname})}
+          placeholder="커피 계좌"
+          value={form.nickname}
+        />
+        <TextField
+          accessibilityLabel="커피 계좌 은행명"
+          label="은행"
+          onChangeText={(bankName) => onChangeForm({bankName})}
+          placeholder="카카오뱅크"
+          value={form.bankName}
+        />
+        <TextField
+          accessibilityLabel="커피 계좌번호"
+          label="계좌번호"
+          onChangeText={(accountNumber) => onChangeForm({accountNumber})}
+          placeholder="3333-33-333333"
+          value={form.accountNumber}
+        />
+        <TextField
+          accessibilityLabel="커피 계좌 예금주"
+          label="예금주"
+          onChangeText={(accountHolder) => onChangeForm({accountHolder})}
+          placeholder="커피 담당자"
+          value={form.accountHolder}
+        />
+        {saveState.status === 'success' ? (
+          <View style={styles.successBox}>
+            <Text style={styles.successText}>{saveState.nickname} 계좌를 등록했습니다.</Text>
+          </View>
+        ) : null}
+        {saveState.status === 'error' ? <CoffeeInlineError message={saveState.message} /> : null}
+        <Button
+          accessibilityLabel="커피 계좌 등록"
+          disabled={busy}
+          onPress={onSave}>
+          {busy ? '저장 중...' : '커피 계좌 저장'}
+        </Button>
+      </Card>
+    </>
+  );
+}
+
+function CoffeePollCreator({
+  createState,
+  deadlineText,
+  onCreate,
+  onDeadlineChange,
+  onRefresh,
+  onSelectAccount,
+  onTitleChange,
+  onToggleMenu,
+  selectedAccountId,
+  selectedMenuIds,
+  state,
+  title,
+}: {
+  createState: CoffeePollCreateState;
+  deadlineText: string;
+  onCreate: () => void;
+  onDeadlineChange: (value: string) => void;
+  onRefresh: () => void;
+  onSelectAccount: (accountId: number) => void;
+  onTitleChange: (value: string) => void;
+  onToggleMenu: (menuId: number) => void;
+  selectedAccountId: number | null;
+  selectedMenuIds: number[];
+  state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
+  title: string;
+}) {
+  const busy = createState.status === 'creating';
+  const [menuPickerVisible, setMenuPickerVisible] = useState(false);
+  const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
+  const selectedMenus = state.menus.filter((menu) => selectedMenuIds.includes(menu.id));
+
+  return (
+    <View style={styles.pollCreateShell}>
+      <View style={styles.pollCreateHeader}>
+        <Text style={styles.pollCreateTitle}>커피 투표 생성</Text>
+        <Text style={styles.pollCreateDescription}>
+          관리자 투표 생성과 같은 순서로 커피 주문 투표를 만듭니다.
+        </Text>
+      </View>
+
+      <Card>
+        <View style={styles.pollCreateTypeCardSelected}>
+          <View style={styles.pollCreateTypeIconMint}>
+            <Text style={styles.pollCreateTypeIconTextMint}>커</Text>
+          </View>
+          <View style={styles.headerText}>
+            <Text style={styles.pollCreateTypeTitle}>커피 주문</Text>
+            <Text style={styles.pollCreateTypeDescription}>
+              커피 메뉴 가격으로 정산이 연결되고 사용자 항목 추가가 허용됩니다.
+            </Text>
+          </View>
+          <View style={styles.pollCreateSelectPill}>
+            <Text style={styles.pollCreateSelectPillText}>고정</Text>
+          </View>
+        </View>
+      </Card>
+
+      <Card>
+        <Eyebrow>투표 제목</Eyebrow>
+        <TextField label="제목" onChangeText={onTitleChange} value={title} />
+      </Card>
+
+      <Card>
+        <Eyebrow>마감 일시</Eyebrow>
+        <Pressable
+          accessibilityLabel="커피 투표 마감 일시 선택"
+          accessibilityRole="button"
+          onPress={() => setDeadlinePickerVisible(true)}
+          style={({pressed}) => [styles.dateTimeSelectCard, pressed ? styles.pressed : null]}>
+          <Text style={styles.dateTimeSelectLabel}>마감 일시</Text>
+          <Text style={styles.dateTimeSelectValue}>{formatDateTimePickerLabel(deadlineText)}</Text>
+          <Text style={styles.dateTimeSelectHint}>
+            달력과 시간 선택으로 마감 시각을 정합니다.
+          </Text>
+        </Pressable>
+        <CoffeeDateTimePickerModal
+          onApply={(value) => {
+            onDeadlineChange(value);
+            setDeadlinePickerVisible(false);
+          }}
+          onClose={() => setDeadlinePickerVisible(false)}
+          value={deadlineText}
+          visible={deadlinePickerVisible}
+        />
+      </Card>
+
+      <Card>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Eyebrow>선택지</Eyebrow>
+            <Body>메뉴 이름과 금액을 보고 투표에 넣을 항목을 고릅니다.</Body>
+          </View>
+          <Pressable
+            accessibilityLabel="커피 메뉴 추가 모달 열기"
+            accessibilityRole="button"
+            onPress={() => setMenuPickerVisible(true)}
+            style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
+            <Text style={styles.pollCreateAddOptionText}>메뉴 추가</Text>
+          </Pressable>
+        </View>
+        {state.menus.length === 0 ? (
+          <CoffeeInlineError message="커피 메뉴를 불러오지 못했습니다." />
+        ) : (
+          <View style={styles.pollCreateOptionList}>
+            {selectedMenus.length === 0 ? (
+              <Text style={styles.summaryBody}>선택된 커피 메뉴가 없습니다.</Text>
+            ) : (
+              selectedMenus.map((menu, index) => (
+                <View key={menu.id} style={styles.pollCreateOptionRow}>
+                  <View style={styles.pollCreateOptionNumber}>
+                    <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.pollCreateOptionField}>
+                    <Text style={styles.selectTitle}>{menu.name}</Text>
+                    <Text style={styles.selectMeta}>{formatWon(menu.priceAmount)}</Text>
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`${menu.name} 메뉴 제거`}
+                    accessibilityRole="button"
+                    onPress={() => onToggleMenu(menu.id)}
+                    style={({pressed}) => [
+                      styles.pollCreateRemoveOption,
+                      pressed ? styles.pressed : null,
+                    ]}>
+                    <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
+            <CoffeeMenuPickerModal
+              menus={state.menus}
+              onClose={() => setMenuPickerVisible(false)}
+              onRefresh={onRefresh}
+              onSelectMenu={(menuId) => {
+                onToggleMenu(menuId);
+                setMenuPickerVisible(false);
+              }}
+              selectedMenuIds={selectedMenuIds}
+              visible={menuPickerVisible}
+            />
+          </View>
+        )}
+      </Card>
+
+      <Card>
+        <Eyebrow>청구 계좌</Eyebrow>
+        {state.accounts.length === 0 ? (
+          <CoffeeInlineError message="커피 계좌가 없습니다. 계좌 페이지에서 커피 계좌를 먼저 등록해 주세요." />
+        ) : (
+          <View style={styles.optionList}>
+            {state.accounts.map((account) => {
+              const selected = account.id === selectedAccountId;
+
+              return (
+                <Pressable
+                  accessibilityLabel={`${account.nickname} 커피 계좌 선택`}
+                  accessibilityRole="button"
+                  key={account.id}
+                  onPress={() => onSelectAccount(account.id)}
+                  style={({pressed}) => [
+                    styles.selectRow,
+                    selected ? styles.selectRowActive : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.selectTitle}>{account.nickname}</Text>
+                  <Text style={styles.selectMeta}>
+                    커피 · {account.bankName} {account.accountNumber}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+      </Card>
+
+      <Card>
+        <Pressable
+          accessibilityLabel="커피 투표 사용자 항목 추가 허용"
+          accessibilityRole="switch"
+          accessibilityState={{checked: true}}
+          disabled={true}
+          style={styles.pollCreateToggleRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.pollCreateTypeTitle}>일반 사용자 항목 추가</Text>
+            <Text style={styles.pollCreateTypeDescription}>
+              커피 투표는 사용자가 필요한 커피 항목을 추가할 수 있게 고정합니다.
+            </Text>
+          </View>
+          <View style={[styles.pollCreateToggle, styles.pollCreateToggleActive]}>
+            <Text style={[styles.pollCreateToggleText, styles.pollCreateToggleTextActive]}>ON</Text>
+          </View>
+        </Pressable>
+      </Card>
+
+      {createState.status === 'success' ? (
+        <View style={styles.successBox}>
+          <Text style={styles.successText}>{createState.title} 투표를 생성했습니다.</Text>
+        </View>
+      ) : null}
+      {createState.status === 'error' ? <CoffeeInlineError message={createState.message} /> : null}
+
+      <View style={styles.pollCreateCtaRow}>
+        <Pressable
+          accessibilityLabel="커피 주문 투표 생성"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onCreate}
+          style={({pressed}) => [
+            styles.pollCreatePrimaryAction,
+            busy ? styles.pollCreateActionDisabled : null,
+            pressed ? styles.pressed : null,
+          ]}>
+          <Text style={styles.pollCreatePrimaryActionText}>
+            {busy ? '생성 중...' : '투표 생성'}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function CoffeeAccountDeleteConfirmModal({
+  account,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  account: PaymentAccount | null;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onCancel}
+      transparent={true}
+      visible={Boolean(account)}>
+      <View style={styles.modalScrim}>
+        <View style={styles.menuSheet}>
+          <Text style={styles.pollCreateTitle}>커피 계좌를 삭제할까요?</Text>
+          <Text style={styles.pollCreateDescription}>
+            {account
+              ? `${account.nickname} 계좌는 새 커피 정산에 사용할 수 없게 됩니다.`
+              : '선택한 커피 계좌를 삭제합니다.'}
+          </Text>
+          {account ? (
+            <View style={styles.deletePreviewBox}>
+              <Text style={styles.selectTitle}>{account.nickname}</Text>
+              <Text style={styles.selectMeta}>
+                {account.bankName} {account.accountNumber}
+              </Text>
+              <Text style={styles.selectMeta}>예금주 {account.accountHolder}</Text>
+            </View>
+          ) : null}
+          <View style={styles.pollCreateCtaRow}>
+            <Pressable
+              accessibilityLabel="커피 계좌 삭제 취소"
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={onCancel}
+              style={({pressed}) => [
+                styles.pollCreateSecondaryAction,
+                busy ? styles.pollCreateActionDisabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="커피 계좌 삭제 확인"
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={onConfirm}
+              style={({pressed}) => [
+                styles.accountDeleteConfirmButton,
+                busy ? styles.pollCreateActionDisabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.accountDeleteConfirmButtonText}>
+                {busy ? '삭제 중...' : '삭제'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CoffeeMenuPickerModal({
+  menus,
+  onClose,
+  onRefresh,
+  onSelectMenu,
+  selectedMenuIds,
+  visible,
+}: {
+  menus: CoffeeMenu[];
+  onClose: () => void;
+  onRefresh: () => void;
+  onSelectMenu: (menuId: number) => void;
+  selectedMenuIds: number[];
+  visible: boolean;
+}) {
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      transparent={true}
+      visible={visible}>
+      <View style={styles.modalScrim}>
+        <View style={styles.menuSheet}>
+          <View style={styles.menuSheetHeader}>
+            <View style={styles.headerText}>
+              <Text style={styles.pollCreateTitle}>커피 메뉴 추가</Text>
+              <Text style={styles.pollCreateDescription}>
+                투표에 넣을 메뉴를 선택하세요.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="커피 메뉴 추가 모달 닫기"
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({pressed}) => [styles.menuSheetClose, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+            </Pressable>
+          </View>
+          {menus.length === 0 ? (
+            <View style={styles.menuSheetEmpty}>
+              <Text style={styles.summaryBody}>추가할 수 있는 메뉴가 없습니다.</Text>
+              <Pressable
+                accessibilityLabel="커피 메뉴 다시 불러오기"
+                accessibilityRole="button"
+                onPress={onRefresh}
+                style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
+                <Text style={styles.pollCreateAddOptionText}>새로고침</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={styles.menuSheetScrollContent}
+              style={styles.menuSheetScroll}>
+              {menus.map((menu) => {
+                const added = selectedMenuIds.includes(menu.id);
+
+                return (
+                  <Pressable
+                    accessibilityLabel={`${menu.name} 메뉴 ${added ? '추가됨' : '추가'}`}
+                    accessibilityRole="button"
+                    disabled={added}
+                    key={menu.id}
+                    onPress={() => onSelectMenu(menu.id)}
+                    style={({pressed}) => [
+                      styles.coffeeMenuRow,
+                      added ? styles.coffeeMenuRowAdded : null,
+                      pressed ? styles.pressed : null,
+                    ]}>
+                    <View style={styles.headerText}>
+                      <Text style={styles.selectTitle}>{menu.name}</Text>
+                      <Text style={styles.selectMeta}>{formatWon(menu.priceAmount)}</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.pollCreateSelectPill,
+                        added ? styles.pollCreateSelectPillAdded : null,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.pollCreateSelectPillText,
+                          added ? styles.pollCreateSelectPillTextAdded : null,
+                        ]}>
+                        {added ? '추가됨' : '추가'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CoffeeDateTimePickerModal({
+  onApply,
+  onClose,
+  value,
+  visible,
+}: {
+  onApply: (value: string) => void;
+  onClose: () => void;
+  value: string;
+  visible: boolean;
+}) {
+  const initialDate = parseLocalDateTimeInput(value) ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS);
+  const [draftDate, setDraftDate] = useState(initialDate);
+  const [monthCursor, setMonthCursor] = useState(
+    new Date(initialDate.getFullYear(), initialDate.getMonth(), 1),
+  );
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    const nextDate = parseLocalDateTimeInput(value) ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS);
+    setDraftDate(nextDate);
+    setMonthCursor(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
+  }, [value, visible]);
+
+  const calendarDays = getCalendarDays(monthCursor);
+  const selectDate = (date: Date) => {
+    setDraftDate(
+      new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        draftDate.getHours(),
+        draftDate.getMinutes(),
+      ),
+    );
+  };
+  const updateTime = (hours: number, minutes: number) => {
+    setDraftDate(
+      new Date(
+        draftDate.getFullYear(),
+        draftDate.getMonth(),
+        draftDate.getDate(),
+        normalizeTimePart(hours, 24),
+        normalizeTimePart(minutes, 60),
+      ),
+    );
+  };
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      transparent={true}
+      visible={visible}>
+      <View style={styles.modalScrim}>
+        <View style={styles.menuSheet}>
+          <View style={styles.menuSheetHeader}>
+            <View style={styles.headerText}>
+              <Text style={styles.pollCreateTitle}>마감 일시 선택</Text>
+              <Text style={styles.pollCreateDescription}>
+                달력에서 날짜를 고르고 시간을 조정하세요.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="마감 일시 선택 닫기"
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({pressed}) => [styles.menuSheetClose, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.calendarHeader}>
+            <Pressable
+              accessibilityLabel="이전 달"
+              accessibilityRole="button"
+              onPress={() => setMonthCursor(addMonths(monthCursor, -1))}
+              style={({pressed}) => [styles.calendarNavButton, pressed ? styles.pressed : null]}>
+              <Text style={styles.calendarNavText}>‹</Text>
+            </Pressable>
+            <Text style={styles.calendarTitle}>
+              {monthCursor.getFullYear()}년 {monthCursor.getMonth() + 1}월
+            </Text>
+            <Pressable
+              accessibilityLabel="다음 달"
+              accessibilityRole="button"
+              onPress={() => setMonthCursor(addMonths(monthCursor, 1))}
+              style={({pressed}) => [styles.calendarNavButton, pressed ? styles.pressed : null]}>
+              <Text style={styles.calendarNavText}>›</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.calendarGrid}>
+            {['일', '월', '화', '수', '목', '금', '토'].map((day) => (
+              <Text key={day} style={styles.calendarWeekday}>
+                {day}
+              </Text>
+            ))}
+            {calendarDays.map((date, index) =>
+              date ? (
+                <Pressable
+                  accessibilityLabel={`${date.getDate()}일 선택`}
+                  accessibilityRole="button"
+                  key={date.toISOString()}
+                  onPress={() => selectDate(date)}
+                  style={({pressed}) => [
+                    styles.calendarDay,
+                    isSameCalendarDate(date, draftDate) ? styles.calendarDaySelected : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.calendarDayText,
+                      isSameCalendarDate(date, draftDate) ? styles.calendarDayTextSelected : null,
+                    ]}>
+                    {date.getDate()}
+                  </Text>
+                </Pressable>
+              ) : (
+                <View key={`empty-${index}`} style={styles.calendarDayEmpty} />
+              ),
+            )}
+          </View>
+
+          <View style={styles.timePickerRow}>
+            <TimeStepper
+              label="시"
+              onDecrement={() => updateTime(draftDate.getHours() - 1, draftDate.getMinutes())}
+              onIncrement={() => updateTime(draftDate.getHours() + 1, draftDate.getMinutes())}
+              value={String(draftDate.getHours()).padStart(2, '0')}
+            />
+            <TimeStepper
+              label="분"
+              onDecrement={() => updateTime(draftDate.getHours(), draftDate.getMinutes() - 5)}
+              onIncrement={() => updateTime(draftDate.getHours(), draftDate.getMinutes() + 5)}
+              value={String(draftDate.getMinutes()).padStart(2, '0')}
+            />
+          </View>
+
+          <View style={styles.pollCreateCtaRow}>
+            <Pressable
+              accessibilityLabel="마감 일시 선택 취소"
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({pressed}) => [styles.pollCreateSecondaryAction, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="마감 일시 적용"
+              accessibilityRole="button"
+              onPress={() => onApply(formatLocalDateTimeInput(draftDate))}
+              style={({pressed}) => [styles.pollCreatePrimaryAction, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreatePrimaryActionText}>적용</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function TimeStepper({
+  label,
+  onDecrement,
+  onIncrement,
+  value,
+}: {
+  label: string;
+  onDecrement: () => void;
+  onIncrement: () => void;
+  value: string;
+}) {
+  return (
+    <View style={styles.timeStepper}>
+      <Text style={styles.dateTimeSelectLabel}>{label}</Text>
+      <View style={styles.timeStepperControls}>
+        <Pressable
+          accessibilityLabel={`${label} 줄이기`}
+          accessibilityRole="button"
+          onPress={onDecrement}
+          style={({pressed}) => [styles.timeStepperButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.timeStepperButtonText}>−</Text>
+        </Pressable>
+        <Text style={styles.timeStepperValue}>{value}</Text>
+        <Pressable
+          accessibilityLabel={`${label} 늘리기`}
+          accessibilityRole="button"
+          onPress={onIncrement}
+          style={({pressed}) => [styles.timeStepperButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.timeStepperButtonText}>+</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function CoffeePollManagement({
+  campusId,
+  focusPollId,
+  refreshKey,
+  setAuthState,
+}: {
+  campusId: number;
+  focusPollId: number | null;
+  refreshKey: number;
+  setAuthState: (state: AuthGateState) => void;
+}) {
+  const [tab, setTab] = useState<CoffeePollStatusTab>('ongoing');
+  const [listState, setListState] = useState<CoffeePollListState>({status: 'loading'});
+  const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
+  const [resultState, setResultState] = useState<CoffeePollResultState>({status: 'idle'});
+  const [closeState, setCloseState] = useState<CoffeePollCloseState>({status: 'idle'});
+  const [closeTarget, setCloseTarget] = useState<PollSummary | null>(null);
+
+  const loadPolls = async () => {
+    setListState({status: 'loading'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const polls = await fetchAdminPolls(accessToken, campusId);
+      setListState({
+        status: 'success',
+        polls: polls.filter((poll) => poll.pollType === 'COFFEE'),
+      });
+    } catch (error) {
+      if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: error.detail.message});
+        return;
+      }
+
+      setListState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    }
+  };
+
+  const loadResults = async (poll: PollSummary) => {
+    setSelectedPollId(poll.id);
+    setResultState({status: 'loading'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const results = await fetchAdminPollResults(accessToken, campusId, poll.id);
+      setResultState({status: 'success', results});
+    } catch (error) {
+      if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: error.detail.message});
+        return;
+      }
+
+      setResultState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    }
+  };
+
+  const closeCoffeePoll = async () => {
+    if (!closeTarget || closeState.status === 'closing') {
+      return;
+    }
+
+    const target = closeTarget;
+    setCloseState({status: 'closing', pollId: target.id});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const closed = await closeAdminPoll(accessToken, campusId, target.id);
+      setCloseTarget(null);
+      setCloseState({status: 'success', title: closed.title});
+      setSelectedPollId(closed.id);
+      await loadPolls();
+      await loadResults({
+        ...target,
+        status: closed.status,
+      });
+    } catch (error) {
+      if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: error.detail.message});
+        return;
+      }
+
+      setCloseState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    }
+  };
+
+  useEffect(() => {
+    setTab('ongoing');
+    setSelectedPollId(null);
+    setResultState({status: 'idle'});
+    setCloseState({status: 'idle'});
+    setCloseTarget(null);
+    void loadPolls();
+  }, [campusId, refreshKey]);
+
+  const polls =
+    listState.status === 'success'
+      ? prioritizePolls(getCoffeePollsByTab(listState.polls, tab), focusPollId)
+      : [];
+  const counts =
+    listState.status === 'success'
+      ? {
+          closed: getCoffeePollsByTab(listState.polls, 'closed').length,
+          ongoing: getCoffeePollsByTab(listState.polls, 'ongoing').length,
+        }
+      : {closed: 0, ongoing: 0};
+
+  return (
+    <Card>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.kicker}>투표 관리</Text>
+          <Text style={styles.sectionTitle}>커피 투표 현황</Text>
+        </View>
+        <Pressable
+          accessibilityLabel="커피 투표 목록 새로고침"
+          accessibilityRole="button"
+          onPress={loadPolls}
+          style={({pressed}) => [styles.softButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.softButtonText}>새로고침</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.summaryBody}>
+        커피 투표만 관리합니다. 일반 투표와 반복 템플릿은 관리자 화면에서 처리합니다.
+      </Text>
+
+      <View style={styles.segmentedControl}>
+        <CoffeePollTabButton
+          active={tab === 'ongoing'}
+          count={counts.ongoing}
+          label="진행 중"
+          onPress={() => setTab('ongoing')}
+        />
+        <CoffeePollTabButton
+          active={tab === 'closed'}
+          count={counts.closed}
+          label="마감"
+          onPress={() => setTab('closed')}
+        />
+      </View>
+
+      {listState.status === 'loading' ? (
+        <Text style={styles.summaryBody}>커피 투표를 불러오고 있어요.</Text>
+      ) : listState.status === 'error' ? (
+        <CoffeeInlineError message={listState.message} />
+      ) : polls.length === 0 ? (
+        <Text style={styles.summaryBody}>표시할 커피 투표가 없습니다.</Text>
+      ) : (
+        <View style={styles.optionList}>
+          {polls.map((poll) => (
+            <View key={poll.id} style={styles.pollManageRow}>
+              <View style={styles.pollManageText}>
+                <Text numberOfLines={1} style={styles.selectTitle}>
+                  {poll.title}
+                </Text>
+                <Text style={styles.selectMeta}>
+                  {getPollStatusLabel(poll.status)} · {formatDateTime(poll.endsAt)}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel={`${poll.title} 결과 보기`}
+                accessibilityRole="button"
+                onPress={() => void loadResults(poll)}
+                style={({pressed}) => [
+                  styles.resultButton,
+                  selectedPollId === poll.id ? styles.resultButtonActive : null,
+                  pressed ? styles.pressed : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.resultButtonText,
+                    selectedPollId === poll.id ? styles.resultButtonTextActive : null,
+                  ]}>
+                  결과
+                </Text>
+              </Pressable>
+              {!isEndedPoll(poll, Date.now()) ? (
+                <Pressable
+                  accessibilityLabel={`${poll.title} 투표 종료`}
+                  accessibilityRole="button"
+                  onPress={() => setCloseTarget(poll)}
+                  style={({pressed}) => [
+                    styles.closeButton,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.closeButtonText}>종료</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {closeState.status === 'success' ? (
+        <View style={styles.successBox}>
+          <Text style={styles.successText}>{closeState.title} 투표를 종료했습니다.</Text>
+        </View>
+      ) : null}
+      {closeState.status === 'error' ? <CoffeeInlineError message={closeState.message} /> : null}
+
+      <CoffeePollResultPanel state={resultState} />
+      <CoffeePollCloseConfirmModal
+        busy={closeState.status === 'closing'}
+        onCancel={() => setCloseTarget(null)}
+        onConfirm={closeCoffeePoll}
+        poll={closeTarget}
+      />
+    </Card>
+  );
+}
+
+function CoffeePollCloseConfirmModal({
+  busy,
+  onCancel,
+  onConfirm,
+  poll,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  poll: PollSummary | null;
+}) {
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onCancel}
+      transparent={true}
+      visible={Boolean(poll)}>
+      <View style={styles.modalScrim}>
+        <View style={styles.menuSheet}>
+          <Text style={styles.pollCreateTitle}>커피 투표를 종료할까요?</Text>
+          <Text style={styles.pollCreateDescription}>
+            {poll
+              ? `${poll.title} 투표를 즉시 마감합니다. 종료 후에는 응답을 추가할 수 없습니다.`
+              : '선택한 커피 투표를 종료합니다.'}
+          </Text>
+          {poll ? (
+            <View style={styles.deletePreviewBox}>
+              <Text style={styles.selectTitle}>{poll.title}</Text>
+              <Text style={styles.selectMeta}>
+                {getPollStatusLabel(poll.status)} · {formatDateTime(poll.endsAt)}
+              </Text>
+            </View>
+          ) : null}
+          <View style={styles.pollCreateCtaRow}>
+            <Pressable
+              accessibilityLabel="커피 투표 종료 취소"
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={onCancel}
+              style={({pressed}) => [
+                styles.pollCreateSecondaryAction,
+                busy ? styles.pollCreateActionDisabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="커피 투표 종료 확인"
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={onConfirm}
+              style={({pressed}) => [
+                styles.accountDeleteConfirmButton,
+                busy ? styles.pollCreateActionDisabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.accountDeleteConfirmButtonText}>
+                {busy ? '종료 중...' : '투표 종료'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CoffeePollTabButton({
+  active,
+  count,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  count: number;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${label} 커피 투표 보기`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.segmentedButton,
+        active ? styles.segmentedButtonActive : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text style={[styles.segmentedButtonText, active ? styles.segmentedButtonTextActive : null]}>
+        {label} {count}
+      </Text>
+    </Pressable>
+  );
+}
+
+function CoffeePollResultPanel({state}: {state: CoffeePollResultState}) {
+  if (state.status === 'idle') {
+    return null;
+  }
+
+  if (state.status === 'loading') {
+    return <Text style={styles.summaryBody}>투표 결과를 불러오고 있어요.</Text>;
+  }
+
+  if (state.status === 'error') {
+    return <CoffeeInlineError message={state.message} />;
+  }
+
+  return (
+    <View style={styles.resultPanel}>
+      <Text style={styles.inputLabel}>{state.results.title}</Text>
+      <Text style={styles.selectMeta}>
+        응답 {state.results.respondedCount}명 · 미응답 {state.results.notRespondedCount}명
+      </Text>
+      {state.results.optionResults.map((option) => (
+        <View key={option.id} style={styles.resultOption}>
+          <View style={styles.resultOptionHeader}>
+            <Text style={styles.selectTitle}>{option.content}</Text>
+            <Text style={styles.memberAmount}>{option.responseCount}명</Text>
+          </View>
+          {state.results.anonymous ? (
+            <Text style={styles.selectMeta}>익명 투표라 응답자 명단은 표시하지 않습니다.</Text>
+          ) : option.respondents.length === 0 ? (
+            <Text style={styles.selectMeta}>아직 선택한 사람이 없습니다.</Text>
+          ) : (
+            <View style={styles.respondentWrap}>
+              {option.respondents.map((respondent) => (
+                <View key={`${option.id}-${respondent.userId}`} style={styles.respondentChip}>
+                  <Text numberOfLines={1} style={styles.respondentText}>
+                    {respondent.name}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
+  const {accessToken} = await getStoredTokens();
+
+  if (!accessToken) {
+    setAuthState({
+      status: 'sessionExpired',
+      message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+    });
+    return null;
+  }
+
+  return accessToken;
+}
+
+async function fetchCoffeeChargeSummary(accessToken: string, campusId: number) {
+  try {
+    return await fetchAdminCampusCharges(accessToken, campusId, {
+      paymentCategory: 'COFFEE',
+      size: 10,
+      status: 'ALL',
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function resolveCoffeeDutyAssignment(
+  accessToken: string,
+  campusId: number,
+  state: Extract<AuthGateState, {status: 'authenticated'}>,
+) {
+  const duty = await fetchMyDutyAssignment(accessToken, campusId);
+
+  if (duty.dutyType !== 'COFFEE' || !duty.isActive || duty.userId !== state.user.id) {
+    return null;
+  }
+
+  return {
+    assignedAt: '',
+    assignmentId: 0,
+    campusId: duty.campusId,
+    dutyType: duty.dutyType,
+    email: state.user.email,
+    isActive: duty.isActive,
+    name: state.user.name,
+    userId: duty.userId,
+  };
+}
+
+function getCoffeeDutyErrorMessage(error: unknown) {
+  if (error instanceof FaithLogApiError) {
+    if (error.detail.kind === 'permissionDenied') {
+      return '현재 계정으로 커피 계좌를 변경할 권한이 없습니다. 커피 담당자 권한이 배포 API에 반영됐는지 확인해 주세요.';
+    }
+
+    return error.detail.message;
+  }
+
+  return '커피 관리 정보를 불러오지 못했습니다.';
+}
+
+function CoffeeInlineError({message}: {message: string}) {
+  return (
+    <View accessibilityRole="alert" style={styles.errorBox}>
+      <Text style={styles.errorText}>{message}</Text>
+    </View>
+  );
+}
+
+function formatLocalDateTimeInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function parseLocalDateTimeInput(value: string) {
+  const normalized = value.trim().replace('T', ' ');
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day, hour, minute] = match;
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+  );
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateTimePickerLabel(value: string) {
+  const date = parseLocalDateTimeInput(value);
+
+  if (!date) {
+    return '마감 일시 선택';
+  }
+
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(
+    date.getDate(),
+  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes(),
+  ).padStart(2, '0')}`;
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function getCalendarDays(monthCursor: Date) {
+  const firstDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
+  const lastDate = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0).getDate();
+  const days: Array<Date | null> = [];
+
+  for (let index = 0; index < firstDay.getDay(); index += 1) {
+    days.push(null);
+  }
+
+  for (let day = 1; day <= lastDate; day += 1) {
+    days.push(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), day));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
+}
+
+function isSameCalendarDate(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function normalizeTimePart(value: number, max: number) {
+  return ((value % max) + max) % max;
+}
+
+function getCoffeePollsByTab(polls: PollSummary[], tab: CoffeePollStatusTab) {
+  const now = Date.now();
+
+  return polls
+    .filter((poll) => {
+      const ended = isEndedPoll(poll, now);
+
+      return tab === 'closed' ? ended : !ended;
+    })
+    .slice()
+    .sort((left, right) => {
+      const leftTime = getSortablePollEndTime(left);
+      const rightTime = getSortablePollEndTime(right);
+
+      return tab === 'closed' ? rightTime - leftTime : leftTime - rightTime;
+    })
+    .slice(0, 10);
+}
+
+function prioritizePolls(polls: PollSummary[], focusPollId: number | null) {
+  if (focusPollId === null) {
+    return polls;
+  }
+
+  return polls.slice().sort((left, right) => {
+    if (left.id === focusPollId) {
+      return -1;
+    }
+
+    if (right.id === focusPollId) {
+      return 1;
+    }
+
+    return 0;
+  });
+}
+
+function getUniqueCoffeeMenus(menus: CoffeeMenu[]) {
+  const seenIds = new Set<number>();
+
+  return menus.filter((menu) => {
+    if (seenIds.has(menu.id)) {
+      return false;
+    }
+
+    seenIds.add(menu.id);
+    return true;
+  });
+}
+
+function isEndedPoll(poll: PollSummary, now: number) {
+  return poll.status === 'CLOSED' || getSortablePollEndTime(poll) <= now;
+}
+
+function getSortablePollEndTime(poll: PollSummary) {
+  const time = new Date(poll.endsAt).getTime();
+
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+
+  return `${month}월 ${day}일 ${hour}:${minute}`;
+}
+
+function getPollStatusLabel(status: string) {
+  switch (status) {
+    case 'OPEN':
+      return '진행 중';
+    case 'CLOSED':
+      return '마감';
+    default:
+      return status;
+  }
+}
+
+const styles = StyleSheet.create({
+  accountDeleteButton: {
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    borderRadius: 12,
+    flexShrink: 0,
+    justifyContent: 'center',
+    minHeight: 38,
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  accountDeleteButtonText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  accountDeleteConfirmButton: {
+    alignItems: 'center',
+    backgroundColor: colors.danger,
+    borderRadius: 18,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+  accountDeleteConfirmButtonText: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  accountRowHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: space.md,
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  backButtonText: {
+    color: colors.textPrimary,
+    fontSize: 30,
+    fontWeight: '700',
+    lineHeight: 32,
+  },
+  content: {
+    gap: space.lg,
+    paddingBottom: 130,
+  },
+  closeButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFF1F2',
+    borderRadius: 12,
+    height: 38,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  closeButtonText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  frame: {
+    backgroundColor: colors.background,
+    flex: 1,
+    paddingHorizontal: space.lg,
+    paddingTop: space.xl,
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: space.md,
+    marginBottom: space.lg,
+  },
+  headerText: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  inputBlock: {
+    gap: space.sm,
+    marginTop: space.md,
+  },
+  inputLabel: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  kicker: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  memberAmount: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  memberList: {
+    gap: space.sm,
+    marginTop: space.md,
+  },
+  memberName: {
+    color: colors.textSecondary,
+    fontSize: 15,
+  },
+  memberRow: {
+    alignItems: 'center',
+    borderTopColor: colors.borderSoft,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: space.sm,
+  },
+  menuChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  menuChipActive: {
+    backgroundColor: colors.mint,
+    borderColor: colors.faith,
+  },
+  menuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  menuName: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  menuNameActive: {
+    color: colors.textPrimary,
+  },
+  menuPrice: {
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
+  optionList: {
+    gap: space.sm,
+  },
+  pageNav: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  pageNavButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    flexGrow: 1,
+    justifyContent: 'center',
+    minWidth: '46%',
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  pageNavButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  pageNavText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  pageNavTextActive: {
+    color: colors.surface,
+  },
+  pressed: {
+    opacity: 0.75,
+  },
+  coffeeMenuList: {
+    gap: 10,
+  },
+  coffeeMenuRow: {
+    alignItems: 'center',
+    borderColor: colors.borderSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    minHeight: 74,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  coffeeMenuRowAdded: {
+    backgroundColor: colors.borderSoft,
+    opacity: 0.72,
+  },
+  calendarDay: {
+    alignItems: 'center',
+    borderRadius: 14,
+    height: 38,
+    justifyContent: 'center',
+    width: '14.285%',
+  },
+  calendarDayEmpty: {
+    height: 38,
+    width: '14.285%',
+  },
+  calendarDaySelected: {
+    backgroundColor: colors.primary,
+  },
+  calendarDayText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  calendarDayTextSelected: {
+    color: colors.surface,
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 6,
+  },
+  calendarHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  calendarNavButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  calendarNavText: {
+    color: colors.textPrimary,
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 28,
+  },
+  calendarTitle: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  calendarWeekday: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 18,
+    textAlign: 'center',
+    width: '14.285%',
+  },
+  menuSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    gap: space.md,
+    maxHeight: '78%',
+    padding: space.lg,
+    shadowColor: colors.textPrimary,
+    shadowOffset: {width: 0, height: -8},
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+  },
+  menuSheetClose: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  menuSheetEmpty: {
+    gap: space.md,
+  },
+  menuSheetHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: space.md,
+    justifyContent: 'space-between',
+  },
+  menuSheetScroll: {
+    maxHeight: 430,
+  },
+  menuSheetScrollContent: {
+    gap: 10,
+    paddingBottom: space.md,
+  },
+  modalScrim: {
+    backgroundColor: 'rgba(25, 31, 40, 0.32)',
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  dateTimeInput: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+    margin: 0,
+    padding: 0,
+  },
+  dateTimeSelectCard: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    gap: 6,
+    minHeight: 82,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  dateTimeSelectHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  dateTimeSelectLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  dateTimeSelectValue: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
+  deletePreviewBox: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    gap: 4,
+    padding: space.md,
+  },
+  headerRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.md,
+    justifyContent: 'space-between',
+  },
+  pollCreateActionDisabled: {
+    opacity: 0.48,
+  },
+  pollCreateAddOption: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollCreateAddOptionText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pollCreateCtaRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pollCreateDescription: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  pollCreateHeader: {
+    gap: 6,
+  },
+  pollCreateOptionField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pollCreateOptionList: {
+    gap: 12,
+  },
+  pollCreateOptionNumber: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  pollCreateOptionNumberText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  pollCreateOptionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pollCreatePrimaryAction: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+  pollCreatePrimaryActionText: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pollCreateSecondaryAction: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+  pollCreateSecondaryActionText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pollCreateRemoveOption: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  pollCreateRemoveOptionText: {
+    color: colors.textSecondary,
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  pollCreateSelectPill: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollCreateSelectPillAdded: {
+    backgroundColor: colors.surface,
+  },
+  pollCreateSelectPillText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pollCreateSelectPillTextAdded: {
+    color: colors.textMuted,
+  },
+  pollCreateShell: {
+    gap: 16,
+    paddingBottom: 8,
+  },
+  pollCreateTitle: {
+    color: colors.textPrimary,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 30,
+  },
+  pollCreateToggle: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 12,
+  },
+  pollCreateToggleActive: {
+    backgroundColor: '#E8F3FF',
+  },
+  pollCreateToggleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
+  },
+  pollCreateToggleText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pollCreateToggleTextActive: {
+    color: colors.primary,
+  },
+  pollCreateTypeCardSelected: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.faith,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 88,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  pollCreateTypeDescription: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  pollCreateTypeIconMint: {
+    alignItems: 'center',
+    backgroundColor: '#E8F6F7',
+    borderRadius: 15,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  pollCreateTypeIconTextMint: {
+    color: colors.faith,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  pollCreateTypeTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  pollManageRow: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: space.md,
+    justifyContent: 'space-between',
+    padding: space.md,
+  },
+  pollManageText: {
+    flex: 1,
+    gap: 4,
+  },
+  respondentChip: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    maxWidth: '48%',
+    paddingHorizontal: space.sm,
+    paddingVertical: 6,
+  },
+  respondentText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  respondentWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  resultButton: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  resultButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  resultButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  resultButtonTextActive: {
+    color: colors.surface,
+  },
+  resultOption: {
+    borderTopColor: colors.borderSoft,
+    borderTopWidth: 1,
+    gap: space.sm,
+    paddingTop: space.md,
+  },
+  resultOptionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  resultPanel: {
+    gap: space.md,
+    marginTop: space.md,
+  },
+  sectionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  sectionTitle: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  selectMeta: {
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
+  selectRow: {
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    padding: space.md,
+  },
+  selectRowActive: {
+    backgroundColor: '#E8F3FF',
+    borderColor: colors.primary,
+  },
+  selectTitle: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  segmentedButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    flex: 1,
+    justifyContent: 'center',
+    paddingVertical: space.sm,
+  },
+  segmentedButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  segmentedButtonText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  segmentedButtonTextActive: {
+    color: colors.surface,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginVertical: space.md,
+  },
+  softButton: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  softButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  successBox: {
+    backgroundColor: colors.mint,
+    borderRadius: 8,
+    marginTop: space.md,
+    padding: space.md,
+  },
+  successText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  summaryBody: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: space.sm,
+  },
+  errorBox: {
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    marginTop: space.md,
+    padding: space.md,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  summaryHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  summaryTitle: {
+    color: colors.textPrimary,
+    fontSize: 28,
+    fontWeight: '800',
+  },
+  textInput: {
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
+    borderRadius: 8,
+    borderWidth: 1,
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+  },
+  title: {
+    color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  timePickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.md,
+  },
+  timeStepper: {
+    flex: 1,
+    gap: 8,
+    minWidth: 126,
+  },
+  timeStepperButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  timeStepperButtonText: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  timeStepperControls: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 8,
+  },
+  timeStepperValue: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 28,
+    minWidth: 40,
+    textAlign: 'center',
+  },
+});

@@ -22,6 +22,7 @@ import {
   fetchChargeSummary,
   fetchCurrentUser,
   fetchDevotionMonthlySummary,
+  fetchMyDutyAssignment,
   fetchMyCampuses,
   fetchPolls,
   fetchPrayerWeek,
@@ -90,6 +91,7 @@ import {
 } from '../navigation/shellRoutes';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
+import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {
   deactivateCurrentFcmToken,
   inspectFcmRegistrationStatus,
@@ -1454,7 +1456,7 @@ function AuthenticatedShell({
   setRoute: (route: ShellRoute) => void;
 }) {
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
-  const [profileView, setProfileView] = useState<'main' | 'notifications'>('main');
+  const [profileView, setProfileView] = useState<'coffee' | 'main' | 'notifications'>('main');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -1909,6 +1911,7 @@ function AuthenticatedShell({
             onBackToProfile={() => setProfileView('main')}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
             onInviteCodePress={() => openEntryTarget('inviteCode')}
+            onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenNotifications={() => setProfileView('notifications')}
             onOpenPrayers={() => setRoute('prayers')}
             profileView={profileView}
@@ -3361,6 +3364,7 @@ function ProfileScreen({
   onInviteCodePress,
   onCampusSwitchPress,
   onLogoutPress,
+  onOpenCoffeeDuty,
   onOpenNotifications,
   onOpenPrayers,
   profileView,
@@ -3372,9 +3376,10 @@ function ProfileScreen({
   onInviteCodePress: () => void;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
+  onOpenCoffeeDuty: () => void;
   onOpenNotifications: () => void;
   onOpenPrayers: () => void;
-  profileView: 'main' | 'notifications';
+  profileView: 'coffee' | 'main' | 'notifications';
   setAuthState: (state: AuthGateState) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -3435,6 +3440,16 @@ function ProfileScreen({
         </View>
         <NotificationSettingsDetail setAuthState={setAuthState} />
       </View>
+    );
+  }
+
+  if (profileView === 'coffee') {
+    return (
+      <CoffeeDutyScreen
+        onBack={onBackToProfile}
+        setAuthState={setAuthState}
+        state={state}
+      />
     );
   }
 
@@ -3502,6 +3517,11 @@ function ProfileScreen({
 
       <Text style={styles.figmaSectionTitle}>계정</Text>
       <View style={styles.profileRowList}>
+        <CoffeeDutyProfileRow
+          onOpen={onOpenCoffeeDuty}
+          setAuthState={setAuthState}
+          state={state}
+        />
         <ProfileActionRow
           actionLabel="설정"
           icon="bell"
@@ -3546,6 +3566,72 @@ function ProfileScreen({
         ) : null}
       {refreshing ? <Body>내 정보를 다시 불러오고 있어요.</Body> : null}
     </View>
+  );
+}
+
+function CoffeeDutyProfileRow({
+  onOpen,
+  setAuthState,
+  state,
+}: {
+  onOpen: () => void;
+  setAuthState: (state: AuthGateState) => void;
+  state: Extract<AuthGateState, {status: 'authenticated'}>;
+}) {
+  const [canManageCoffee, setCanManageCoffee] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCoffeeDuty = async () => {
+      try {
+        const {accessToken} = await getStoredTokens();
+
+        if (!accessToken) {
+          setAuthState({
+            status: 'sessionExpired',
+            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          });
+          return;
+        }
+
+        const duty = await fetchMyDutyAssignment(accessToken, state.selectedCampus.campusId);
+        const canManage =
+          duty.dutyType === 'COFFEE' && duty.isActive && duty.userId === state.user.id;
+
+        if (mounted) {
+          setCanManageCoffee(canManage);
+        }
+      } catch (error) {
+        if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: error.detail.message});
+        }
+
+        if (mounted) {
+          setCanManageCoffee(false);
+        }
+      }
+    };
+
+    void loadCoffeeDuty();
+
+    return () => {
+      mounted = false;
+    };
+  }, [setAuthState, state.selectedCampus.campusId, state.user.id]);
+
+  if (!canManageCoffee) {
+    return null;
+  }
+
+  return (
+    <ProfileActionRow
+      actionLabel="관리"
+      icon="coins"
+      onPress={onOpen}
+      subtitle="커피 주문 투표 생성과 커피 정산 확인"
+      title="커피 정산 관리"
+    />
   );
 }
 

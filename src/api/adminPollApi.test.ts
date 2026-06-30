@@ -7,6 +7,7 @@ vi.mock('./tokenStorage', () => ({
 }));
 
 import {
+  closeAdminPoll,
   createAdminPoll,
   createAdminPollTemplate,
   type AdminPollCreateRequest,
@@ -146,6 +147,7 @@ describe('admin poll API', () => {
       pollType: 'CUSTOM',
       selectionType: 'SINGLE',
       isAnonymous: false,
+      allowUserOptionAdd: false,
       chargeGenerationType: 'NONE',
       startsAt: baseRequest.startsAt,
       endsAt: baseRequest.endsAt,
@@ -182,6 +184,7 @@ describe('admin poll API', () => {
       pollType: 'CUSTOM',
       selectionType: 'SINGLE',
       isAnonymous: false,
+      allowUserOptionAdd: false,
       chargeGenerationType: 'NONE',
       startsAt: baseRequest.startsAt,
       endsAt: baseRequest.endsAt,
@@ -218,6 +221,50 @@ describe('admin poll API', () => {
       ).toBe('선택지 형식이 올바르지 않습니다. (INVALID_POLL_OPTION)');
       return true;
     });
+  });
+
+  it('serializes coffee poll create with user option additions enabled', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({...pollResponse, pollType: 'COFFEE'})),
+    );
+
+    await createAdminPoll('access-token', 1, {
+      ...baseRequest,
+      allowUserOptionAdd: true,
+      chargeGenerationType: 'OPTION_PRICE',
+      paymentAccountId: 3,
+      paymentCategory: 'COFFEE',
+      pollType: 'COFFEE',
+      options: [{content: null, menuId: 4, priceAmount: null, sortOrder: 1}],
+    });
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
+    expect(fetchCall).toBeDefined();
+    const [, init] = fetchCall;
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      allowUserOptionAdd: true,
+      chargeGenerationType: 'OPTION_PRICE',
+      paymentAccountId: 3,
+      paymentCategory: 'COFFEE',
+      pollType: 'COFFEE',
+    });
+  });
+
+  it('closes an admin poll through the close endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({...pollResponse, status: 'CLOSED'})),
+    );
+
+    await closeAdminPoll('access-token', 1, 1001);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.faithlog.test/root/api/v1/admin/campuses/1/polls/1001/close',
+      expect.objectContaining({
+        method: 'PATCH',
+      }),
+    );
   });
 
   it('serializes repeat poll template create without null payment fields', async () => {
