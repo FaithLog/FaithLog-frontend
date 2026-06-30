@@ -36,6 +36,9 @@ import {
   Empty,
   ErrorState,
   Eyebrow,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   Loading,
   Offline,
   PermissionDenied,
@@ -58,6 +61,9 @@ type Notice = {
 } | null;
 
 type PollScreenProps = {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -97,7 +103,14 @@ const RESPONSE_ERROR_CODES = new Set([
 ]);
 const COMMENT_MAX_LENGTH = 500;
 
-export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScreenProps) {
+export function PollScreen({
+  canOpenAdminMode,
+  onOpenAdminMode,
+  onOpenNotifications,
+  setAuthState,
+  setNotice: _setNotice,
+  state,
+}: PollScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [listState, setListState] = useState<ListState>({status: 'loading'});
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
@@ -406,9 +419,13 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
     return (
       <View style={styles.figmaScreen}>
         <PollDetailHeader
-          campusLabel={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`}
+          canOpenAdminMode={canOpenAdminMode}
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}
           detail={detailState.detail}
           onBack={closeDetail}
+          onOpenAdminMode={onOpenAdminMode}
+          onOpenNotifications={onOpenNotifications}
         />
         <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
         {actionError ? <ActionErrorCard error={actionError} /> : null}
@@ -493,7 +510,11 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   return (
     <View style={styles.figmaScreen}>
       <FigmaScreenHeader
-        chip={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`}
+        canOpenAdminMode={canOpenAdminMode}
+        chip={state.selectedCampus.campusName}
+        contextLabel={`${state.user.name}님`}
+        onOpenAdminMode={onOpenAdminMode}
+        onOpenNotifications={onOpenNotifications}
         title="투표"
       />
       <View style={styles.filterRow}>
@@ -570,29 +591,71 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
   );
 }
 
-function FigmaScreenHeader({chip, title}: {chip: string; title: string}) {
+function FigmaScreenHeader({
+  canOpenAdminMode,
+  chip,
+  contextLabel,
+  onOpenAdminMode,
+  onOpenNotifications,
+  title,
+}: {
+  canOpenAdminMode: boolean;
+  chip: string;
+  contextLabel: string;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
+  title: string;
+}) {
   return (
     <View style={styles.figmaHeader}>
+      <FaithLogHeaderTopRow campusLabel={chip} contextLabel={contextLabel}>
+        <FaithLogHeaderIconButton
+          accessibilityLabel="알림 설정 화면으로 이동"
+          badge
+          iconName="bell"
+          onPress={onOpenNotifications}
+        />
+        {canOpenAdminMode ? (
+          <FaithLogHeaderPillButton
+            accessibilityLabel="관리자 영역 선택"
+            label="관리자"
+            onPress={onOpenAdminMode}
+            showChevron
+          />
+        ) : null}
+      </FaithLogHeaderTopRow>
       <Text style={styles.figmaTitle}>{title}</Text>
-      <View style={styles.figmaCampusChip}>
-        <Text style={styles.figmaCampusText}>{chip}</Text>
-      </View>
     </View>
   );
 }
 
 function PollDetailHeader({
+  canOpenAdminMode,
   campusLabel,
+  contextLabel,
   detail,
   onBack,
+  onOpenAdminMode,
+  onOpenNotifications,
 }: {
+  canOpenAdminMode: boolean;
   campusLabel: string;
+  contextLabel: string;
   detail: PollDetail;
   onBack: () => void;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
 }) {
   return (
     <>
-      <FigmaScreenHeader chip={campusLabel} title={getPollDetailTitle(detail)} />
+      <FigmaScreenHeader
+        canOpenAdminMode={canOpenAdminMode}
+        chip={campusLabel}
+        contextLabel={contextLabel}
+        onOpenAdminMode={onOpenAdminMode}
+        onOpenNotifications={onOpenNotifications}
+        title={getPollDetailTitle(detail)}
+      />
       <View style={styles.figmaHeroCard}>
         <Text style={styles.figmaHeroTitle}>{detail.title}</Text>
         <Text style={styles.figmaHeroMeta}>

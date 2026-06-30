@@ -14,6 +14,9 @@ import type {AuthGateState} from '../auth/authGate';
 import {
   Conflict,
   ErrorState,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   Loading,
   Offline,
   PermissionDenied,
@@ -31,8 +34,11 @@ import {
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
 type DevotionScreenProps = {
+  canOpenAdminMode: boolean;
   initialSelectedDate: string | null;
   onBackToHome: () => void;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   onOpenPayments: () => void;
   setAuthState: (state: AuthGateState) => void;
   state: AuthenticatedState;
@@ -64,8 +70,11 @@ const DEVOTION_FIELD_LABELS: Array<[DevotionCheckField, string]> = [
 ];
 
 export function DevotionScreen({
+  canOpenAdminMode,
   initialSelectedDate,
   onBackToHome,
+  onOpenAdminMode,
+  onOpenNotifications,
   onOpenPayments,
   setAuthState,
   state,
@@ -240,11 +249,24 @@ export function DevotionScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <View style={styles.campusChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.campusChipText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
-        </View>
+        <FaithLogHeaderTopRow
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}>
+          <FaithLogHeaderIconButton
+            accessibilityLabel="알림 설정 화면으로 이동"
+            badge
+            iconName="bell"
+            onPress={onOpenNotifications}
+          />
+          {canOpenAdminMode ? (
+            <FaithLogHeaderPillButton
+              accessibilityLabel="관리자 영역 선택"
+              label="관리자"
+              onPress={onOpenAdminMode}
+              showChevron
+            />
+          ) : null}
+        </FaithLogHeaderTopRow>
         <Text style={styles.title}>{title}</Text>
       </View>
 

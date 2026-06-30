@@ -36,6 +36,9 @@ import {
   Conflict,
   Empty,
   ErrorState,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   ListRow,
   Loading,
   Offline,
@@ -54,6 +57,9 @@ type Notice = {
 } | null;
 
 type PaymentScreenProps = {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -106,7 +112,14 @@ const sortOptions: Array<{label: string; value: SortOption}> = [
   {label: '금액순', value: 'amountDesc'},
 ];
 
-export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenProps) {
+export function PaymentScreen({
+  canOpenAdminMode,
+  onOpenAdminMode,
+  onOpenNotifications,
+  setAuthState,
+  setNotice,
+  state,
+}: PaymentScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const {width} = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
@@ -291,12 +304,25 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   return (
     <View style={styles.figmaScreen}>
       <View style={styles.figmaHeader}>
+        <FaithLogHeaderTopRow
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}>
+          <FaithLogHeaderIconButton
+            accessibilityLabel="알림 설정 화면으로 이동"
+            badge
+            iconName="bell"
+            onPress={onOpenNotifications}
+          />
+          {canOpenAdminMode ? (
+            <FaithLogHeaderPillButton
+              accessibilityLabel="관리자 영역 선택"
+              label="관리자"
+              onPress={onOpenAdminMode}
+              showChevron
+            />
+          ) : null}
+        </FaithLogHeaderTopRow>
         <Text style={styles.figmaTitle}>납부</Text>
-        <View style={styles.figmaCampusChip}>
-          <Text style={styles.figmaCampusText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
-        </View>
       </View>
 
       <View style={styles.paymentHeroCard}>

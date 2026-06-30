@@ -562,17 +562,29 @@ export type PollCommentRequest = {
 export type PrayerMemberSummary = {
   userId: number;
   name: string;
+  email?: string | null;
   submissionId: number | null;
   content: string | null;
   version: number;
   submittedAt: string | null;
+  submitted?: boolean;
+  editable?: boolean;
 };
 
 export type PrayerGroupSummary = {
   groupId: number;
   groupName: string;
+  seasonId?: number | null;
   sortOrder: number;
   members: PrayerMemberSummary[];
+};
+
+export type PrayerWeekSeasonSummary = {
+  seasonId: number;
+  name: string;
+  startDate: string;
+  endDate?: string | null;
+  status?: PrayerSeasonStatus;
 };
 
 export type PrayerWeekSummary = {
@@ -580,6 +592,16 @@ export type PrayerWeekSummary = {
   weekStartDate: string;
   weekEndDate: string;
   status: string;
+  myGroupId?: number | null;
+  seasonId?: number | null;
+  seasonName?: string | null;
+  seasonStartDate?: string | null;
+  seasonEndDate?: string | null;
+  seasonStatus?: PrayerSeasonStatus;
+  endDate?: string | null;
+  activeSeason?: PrayerWeekSeasonSummary | null;
+  currentSeason?: PrayerWeekSeasonSummary | null;
+  season?: PrayerWeekSeasonSummary | null;
   submittedCount: number;
   targetMemberCount: number;
   groups: PrayerGroupSummary[];
@@ -593,6 +615,10 @@ export type PrayerSubmissionSaveItem = {
 
 export type PrayerSubmissionSaveRequest = {
   submissions: PrayerSubmissionSaveItem[];
+};
+
+export type PrayerSelfSaveRequest = {
+  content: string | null;
 };
 
 export type PrayerSeasonStatus = 'ACTIVE' | 'CLOSED' | string;
@@ -618,6 +644,7 @@ export type AdminPrayerSeasonCloseRequest = {
 export type AdminPrayerGroupMember = {
   userId: number;
   name: string;
+  email?: string | null;
 };
 
 export type AdminPrayerGroup = {
@@ -642,6 +669,15 @@ export type AdminPrayerGroupUpdateRequest = {
 
 export type AdminPrayerGroupMembersReplaceRequest = {
   userIds: number[];
+};
+
+export type AdminPrayerAssignableMember = {
+  userId: number;
+  name: string;
+  email: string;
+  assignedGroupId: number | null;
+  assignedGroupName: string | null;
+  assignable: boolean;
 };
 
 export type AdminDashboardSummary = {

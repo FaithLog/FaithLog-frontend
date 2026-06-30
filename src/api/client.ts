@@ -559,7 +559,7 @@ function toAdminPrayerSeasonCreateRequest(
   body: AdminPrayerSeasonCreateRequest,
 ): AdminPrayerSeasonCreateRequest {
   return {
-    name: toRequiredString(body.name, '기도 시즌 이름'),
+    name: toRequiredString(body.name, '기도 운영 기간 이름'),
     startDate: toDatePathSegment(body.startDate, 'startDate'),
   };
 }

@@ -13,10 +13,9 @@ import {
 
 import {
   FaithLogApiError,
-  fetchPrayerWeek,
-  savePrayerSubmissions,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {prayerApi} from '../api/prayerApi';
 import {clearTokens, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -31,6 +30,9 @@ import {
   Chip,
   Empty,
   ErrorState,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   Loading,
   Offline,
   PermissionDenied,
@@ -47,6 +49,9 @@ type Notice = {
 } | null;
 
 type PrayerScreenProps = {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -60,6 +65,7 @@ type BoardState =
 type PrayerDraft = {
   baseContent: string;
   content: string;
+  editable: boolean;
   groupId: number;
   groupName: string;
   name: string;
@@ -72,12 +78,20 @@ type SaveState = 'idle' | 'saving' | 'refreshing';
 
 const PRAYER_CONTENT_MAX_LENGTH = 1000;
 
-export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps) {
+export function PrayerScreen({
+  canOpenAdminMode,
+  onOpenAdminMode,
+  onOpenNotifications,
+  setAuthState,
+  setNotice,
+  state,
+}: PrayerScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getInitialPrayerWeekStartDate(new Date()));
   const [boardState, setBoardState] = useState<BoardState>({status: 'loading'});
   const [drafts, setDrafts] = useState<Record<number, PrayerDraft>>({});
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [actionError, setActionError] = useState<ApiError | null>(null);
 
@@ -95,7 +109,7 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
         : [],
     [drafts, selectedGroup],
   );
-  const dirtyDrafts = selectedDrafts.filter((draft) => isDraftDirty(draft));
+  const dirtyDrafts = selectedDrafts.filter((draft) => draft.editable && isDraftDirty(draft));
   const saving = saveState === 'saving';
 
   const loadBoard = async ({preserveDrafts = false}: {preserveDrafts?: boolean} = {}) => {
@@ -109,7 +123,7 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
         return;
       }
 
-      const board = await fetchPrayerWeek(accessToken, campusId, weekStartDate);
+      const board = await prayerApi.getPrayerWeekBoard(accessToken, campusId, weekStartDate);
       setBoardState({status: 'success', board});
       setDrafts((currentDrafts) => buildDrafts(board, preserveDrafts ? currentDrafts : {}));
       setSelectedGroupId((currentGroupId) =>
@@ -143,7 +157,7 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
     setDrafts((currentDrafts) => {
       const draft = currentDrafts[userId];
 
-      if (!draft) {
+      if (!draft || !draft.editable) {
         return currentDrafts;
       }
 
@@ -162,7 +176,9 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
       return;
     }
 
-    if (dirtyDrafts.length === 0) {
+    const dirtyEditableDraft = dirtyDrafts.find((draft) => draft.editable);
+
+    if (!dirtyEditableDraft) {
       setActionError({kind: 'error', message: '저장할 변경 사항이 없습니다.'});
       return;
     }
@@ -177,21 +193,18 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
         return;
       }
 
-      const savedBoard = await savePrayerSubmissions(accessToken, campusId, weekStartDate, {
-        submissions: selectedDrafts.map((draft) => ({
-          userId: draft.userId,
-          content: normalizePrayerContent(draft.content),
-          version: draft.version,
-        })),
+      const savedBoard = await prayerApi.saveMyPrayer(accessToken, campusId, weekStartDate, {
+        content: normalizePrayerContent(dirtyEditableDraft.content),
       });
 
       setBoardState({status: 'success', board: savedBoard});
       setDrafts(buildDrafts(savedBoard, {}));
       setSelectedGroupId(resolveGroupId(savedBoard, selectedGroup.groupId, state.user.id));
+      setEditingUserId(null);
       setNotice({
         tone: 'success',
         title: '기도제목 저장 완료',
-        message: `${selectedGroup.groupName} ${dirtyDrafts.length}명 기도제목을 저장했습니다.`,
+        message: '이번 주 기도제목을 저장했습니다.',
       });
     } catch (error) {
       const apiError = toApiError(error, '기도제목을 저장하지 못했습니다.');
@@ -211,6 +224,27 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <FaithLogHeaderTopRow
+            campusLabel={state.selectedCampus.campusName}
+            contextLabel={`${state.user.name}님`}>
+            <FaithLogHeaderIconButton
+              accessibilityLabel="알림 설정 화면으로 이동"
+              badge
+              iconName="bell"
+              onPress={onOpenNotifications}
+            />
+            {canOpenAdminMode ? (
+              <FaithLogHeaderPillButton
+                accessibilityLabel="관리자 영역 선택"
+                label="관리자"
+                onPress={onOpenAdminMode}
+                showChevron
+              />
+            ) : null}
+          </FaithLogHeaderTopRow>
+          <Text style={styles.heroTitle}>조별 기도제목</Text>
+        </View>
         {boardState.status === 'error' ? (
           <PrayerErrorState error={boardState.error} onRetry={() => loadBoard()} />
         ) : boardState.status !== 'success' ? (
@@ -222,7 +256,9 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
             currentUserId={state.user.id}
             dirtyCount={dirtyDrafts.length}
             drafts={selectedDrafts}
+            editingUserId={editingUserId}
             onChangeDraft={updateDraft}
+            onCancelEdit={() => setEditingUserId(null)}
             onKeepLocalAndReload={() => loadBoard({preserveDrafts: true})}
             onMoveWeek={moveWeek}
             onReloadLatest={() => loadBoard()}
@@ -230,10 +266,11 @@ export function PrayerScreen({setAuthState, setNotice, state}: PrayerScreenProps
             onSave={saveSelectedGroup}
             onSelectGroup={(groupId) => {
               setActionError(null);
+              setEditingUserId(null);
               setSelectedGroupId(groupId);
             }}
+            onStartEdit={setEditingUserId}
             saveState={saveState}
-            selectedCampusName={state.selectedCampus.campusName}
             selectedGroup={selectedGroup}
             weekWasAutoAdvanced={isSaturday(new Date()) && weekStartDate === getNextWeekStartDate(new Date())}
           />
@@ -249,15 +286,17 @@ function PrayerBoardContent({
   currentUserId,
   dirtyCount,
   drafts,
+  editingUserId,
   onChangeDraft,
+  onCancelEdit,
   onKeepLocalAndReload,
   onMoveWeek,
   onReloadLatest,
   onRetrySave,
   onSave,
   onSelectGroup,
+  onStartEdit,
   saveState,
-  selectedCampusName,
   selectedGroup,
   weekWasAutoAdvanced,
 }: {
@@ -266,15 +305,17 @@ function PrayerBoardContent({
   currentUserId: number;
   dirtyCount: number;
   drafts: PrayerDraft[];
+  editingUserId: number | null;
   onChangeDraft: (userId: number, content: string) => void;
+  onCancelEdit: () => void;
   onKeepLocalAndReload: () => void;
   onMoveWeek: (direction: -1 | 1) => void;
   onReloadLatest: () => void;
   onRetrySave: () => void;
   onSave: () => void;
   onSelectGroup: (groupId: number) => void;
+  onStartEdit: (userId: number) => void;
   saveState: SaveState;
-  selectedCampusName: string;
   selectedGroup: PrayerGroupSummary | null;
   weekWasAutoAdvanced: boolean;
 }) {
@@ -286,12 +327,19 @@ function PrayerBoardContent({
         board={board}
         onMoveWeek={onMoveWeek}
         saving={saving}
-        selectedCampusName={selectedCampusName}
         selectedGroup={selectedGroup}
         weekWasAutoAdvanced={weekWasAutoAdvanced}
       />
 
-      {board.targetMemberCount === 0 || board.groups.length === 0 ? (
+      {!getPrayerWeekCurrentSeason(board) ? (
+        <Empty
+          title="현재 운영 중인 기도제목 기간이 없어요"
+          message="기도 운영 기간이 시작되면 조별 기도제목을 확인하고 작성할 수 있어요."
+          actionLabel="다시 불러오기"
+          actionAccessibilityLabel="기도제목 운영 기간 없음 후 다시 불러오기"
+          onActionPress={onReloadLatest}
+        />
+      ) : board.targetMemberCount === 0 || board.groups.length === 0 ? (
         <Empty
           title="이번 주 활성 기도조가 없습니다"
           message="기도 시즌이나 조 배정이 열리면 이 화면에서 조회하고 입력할 수 있어요."
@@ -307,17 +355,26 @@ function PrayerBoardContent({
             selectedGroupId={selectedGroup?.groupId ?? null}
             onSelect={onSelectGroup}
           />
+          {board.myGroupId ? null : (
+            <Card>
+              <Title>아직 기도조에 배정되지 않았어요</Title>
+              <Body>모든 조의 기도제목은 볼 수 있지만, 작성과 수정은 내 조에 배정된 뒤 가능합니다.</Body>
+            </Card>
+          )}
           {selectedGroup ? (
             <PrayerEntryPanel
               actionError={actionError}
               boardStatus={board.status}
               dirtyCount={dirtyCount}
               drafts={drafts}
+              editingUserId={editingUserId}
               onChangeDraft={onChangeDraft}
+              onCancelEdit={onCancelEdit}
               onKeepLocalAndReload={onKeepLocalAndReload}
               onReloadLatest={onReloadLatest}
               onRetrySave={onRetrySave}
               onSave={onSave}
+              onStartEdit={onStartEdit}
               saveState={saveState}
               selectedGroup={selectedGroup}
             />
@@ -340,14 +397,12 @@ function PrayerBoardHero({
   board,
   onMoveWeek,
   saving,
-  selectedCampusName,
   selectedGroup,
   weekWasAutoAdvanced,
 }: {
   board: PrayerWeekSummary;
   onMoveWeek: (direction: -1 | 1) => void;
   saving: boolean;
-  selectedCampusName: string;
   selectedGroup: PrayerGroupSummary | null;
   weekWasAutoAdvanced: boolean;
 }) {
@@ -356,14 +411,6 @@ function PrayerBoardHero({
 
   return (
     <View style={styles.hero}>
-      <View style={styles.topBar}>
-        <Chip label={selectedCampusName} tone="info" />
-        <View style={styles.notificationBadge}>
-          <Text style={styles.notificationIcon}>!</Text>
-        </View>
-      </View>
-      <Text style={styles.heroTitle}>조별 기도제목</Text>
-      <Text style={styles.heroSubtitle}>{selectedCampusName} 공동체의 기도제목을 함께 확인해요.</Text>
       {weekWasAutoAdvanced ? (
         <Card>
           <Chip label="토요일 작성" tone="info" />
@@ -467,11 +514,14 @@ function PrayerEntryPanel({
   boardStatus,
   dirtyCount,
   drafts,
+  editingUserId,
   onChangeDraft,
+  onCancelEdit,
   onKeepLocalAndReload,
   onReloadLatest,
   onRetrySave,
   onSave,
+  onStartEdit,
   saveState,
   selectedGroup,
 }: {
@@ -479,18 +529,21 @@ function PrayerEntryPanel({
   boardStatus: string;
   dirtyCount: number;
   drafts: PrayerDraft[];
+  editingUserId: number | null;
   onChangeDraft: (userId: number, content: string) => void;
+  onCancelEdit: () => void;
   onKeepLocalAndReload: () => void;
   onReloadLatest: () => void;
   onRetrySave: () => void;
   onSave: () => void;
+  onStartEdit: (userId: number) => void;
   saveState: SaveState;
   selectedGroup: PrayerGroupSummary;
 }) {
   const {width} = useWindowDimensions();
   const saving = saveState === 'saving';
   const refreshing = saveState === 'refreshing';
-  const editable = boardStatus === 'OPEN' && !saving && !refreshing;
+  const canEditBoard = boardStatus === 'OPEN' && !saving && !refreshing;
   const compact = width < 360;
 
   return (
@@ -521,11 +574,7 @@ function PrayerEntryPanel({
               새로고침
             </Button>
           </View>
-          {boardStatus !== 'OPEN' ? (
-            <Body>지금은 저장이 제한되어 조회만 가능합니다.</Body>
-          ) : (
-            <Body>사람별 내용을 저장합니다. 먼저 수정된 내용이 있으면 저장 전에 다시 확인해요.</Body>
-          )}
+          <Body>{boardStatus !== 'OPEN' ? '지금은 조회만 가능합니다.' : '수정 버튼을 누르면 내 기도제목을 작성할 수 있습니다.'}</Body>
         </Card>
       </View>
       {drafts.map((draft) => (
@@ -545,23 +594,51 @@ function PrayerEntryPanel({
               tone={isDraftDirty(draft) ? 'warning' : draft.submittedAt ? 'success' : 'default'}
             />
           </View>
-          <TextInput
-            accessibilityLabel={`${draft.name} 기도제목 입력`}
-            editable={editable}
-            multiline
-            onChangeText={(value) => onChangeDraft(draft.userId, value)}
-            placeholder="기도제목을 입력해 주세요"
-            placeholderTextColor={colors.subtleText}
-            style={[
-              styles.prayerInput,
-              compact ? styles.prayerInputCompact : null,
-              !editable ? styles.prayerInputDisabled : null,
-            ]}
-            value={draft.content}
-          />
-          <Text style={styles.inputCounter}>
-            {draft.content.length}/{PRAYER_CONTENT_MAX_LENGTH}
-          </Text>
+          {draft.editable ? (
+            <View style={styles.inlineActions}>
+              <Button
+                accessibilityLabel={`${draft.name} 기도제목 수정 시작`}
+                disabled={!canEditBoard || editingUserId === draft.userId}
+                onPress={() => onStartEdit(draft.userId)}
+                variant="secondary">
+                수정
+              </Button>
+              {editingUserId === draft.userId ? (
+                <Button
+                  accessibilityLabel={`${draft.name} 기도제목 수정 취소`}
+                  disabled={saving}
+                  onPress={onCancelEdit}
+                  variant="ghost">
+                  취소
+                </Button>
+              ) : null}
+            </View>
+          ) : null}
+          {editingUserId === draft.userId && draft.editable ? (
+            <>
+              <TextInput
+                accessibilityLabel={`${draft.name} 기도제목 입력`}
+                editable={canEditBoard}
+                multiline
+                onChangeText={(value) => onChangeDraft(draft.userId, value)}
+                placeholder="기도제목을 입력해 주세요"
+                placeholderTextColor={colors.subtleText}
+                style={[
+                  styles.prayerInput,
+                  compact ? styles.prayerInputCompact : null,
+                  !canEditBoard ? styles.prayerInputDisabled : null,
+                ]}
+                value={draft.content}
+              />
+              <Text style={styles.inputCounter}>
+                {draft.content.length}/{PRAYER_CONTENT_MAX_LENGTH}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.prayerReadonlyText}>
+              {draft.content.trim().length > 0 ? draft.content : '아직 작성된 기도제목이 없습니다.'}
+            </Text>
+          )}
         </Card>
       ))}
       <Card>
@@ -571,7 +648,7 @@ function PrayerEntryPanel({
         </View>
         <Button
           accessibilityLabel={`${selectedGroup.groupName} 변경된 기도제목 저장`}
-          disabled={!editable || dirtyCount === 0 || saving}
+          disabled={!canEditBoard || dirtyCount === 0 || saving}
           onPress={onSave}>
           {saving ? '저장 중...' : '변경 사항 저장'}
         </Button>
@@ -768,6 +845,7 @@ function buildDrafts(
       nextDrafts[member.userId] = {
         baseContent: serverContent,
         content: shouldKeepLocal ? currentDraft.content : serverContent,
+        editable: Boolean(member.editable),
         groupId: group.groupId,
         groupName: group.groupName,
         name: member.name,
@@ -804,6 +882,10 @@ function resolveGroupId(
   currentUserId: number,
 ) {
   return findSelectedGroup(board, currentGroupId, currentUserId)?.groupId ?? null;
+}
+
+function getPrayerWeekCurrentSeason(board: PrayerWeekSummary) {
+  return board.currentSeason ?? board.activeSeason ?? board.season ?? null;
 }
 
 function isDraftDirty(draft: PrayerDraft) {
@@ -984,6 +1066,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  campusChip: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    flexShrink: 1,
+    height: 28,
+    justifyContent: 'center',
+    maxWidth: 158,
+    minWidth: 0,
+    paddingHorizontal: 10,
+  },
+  campusChipText: {
+    color: colors.faith,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: 138,
+  },
   groupButton: {
     alignItems: 'center',
     backgroundColor: colors.surface,
@@ -1149,6 +1250,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 8,
   },
+  inlineActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: spacing.gap,
+  },
   memberHeader: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1187,6 +1294,19 @@ const styles = StyleSheet.create({
   },
   prayerInputDisabled: {
     opacity: 0.65,
+  },
+  prayerReadonlyText: {
+    backgroundColor: colors.neutralSoft,
+    borderColor: colors.border,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: spacing.gap,
+    minHeight: 88,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   pressed: {
     opacity: 0.72,
@@ -1244,7 +1364,10 @@ const styles = StyleSheet.create({
   topBar: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 8,
     justifyContent: 'space-between',
+    minHeight: 36,
+    width: '100%',
   },
   weekControls: {
     alignItems: 'center',

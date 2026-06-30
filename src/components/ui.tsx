@@ -56,8 +56,11 @@ type DangerConfirmSheetProps = PropsWithChildren<{
   warningLabel?: string;
 }>;
 
-export function Screen({children}: PropsWithChildren) {
-  return <View style={styles.screen}>{children}</View>;
+export function Screen({
+  children,
+  variant = 'default',
+}: PropsWithChildren<{variant?: 'default' | 'appShell'}>) {
+  return <View style={[styles.screen, variant === 'appShell' ? styles.appShellScreen : null]}>{children}</View>;
 }
 
 export function ScreenHeader({
@@ -80,6 +83,94 @@ export function ScreenHeader({
       </View>
       {action ? <View style={styles.headerAction}>{action}</View> : null}
     </View>
+  );
+}
+
+export function FaithLogHeaderTopRow({
+  campusLabel,
+  children,
+  contextLabel,
+}: PropsWithChildren<{
+  campusLabel: string;
+  contextLabel?: string;
+}>) {
+  return (
+    <View style={styles.faithLogHeaderTopRow}>
+      <View style={styles.faithLogHeaderLeft}>
+        <View style={styles.faithLogHeaderCampusChip}>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.faithLogHeaderCampusText}>
+            {campusLabel}
+          </Text>
+        </View>
+        {contextLabel ? (
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.faithLogHeaderContextText}>
+            {contextLabel}
+          </Text>
+        ) : null}
+      </View>
+      {children ? <View style={styles.faithLogHeaderActions}>{children}</View> : null}
+    </View>
+  );
+}
+
+export function FaithLogHeaderIconButton({
+  accessibilityLabel,
+  badge = false,
+  iconName,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  badge?: boolean;
+  iconName: IconexIconName;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.faithLogHeaderIconButton,
+        pressed ? styles.pressed : null,
+      ]}>
+      <IconexIcon color={colors.textPrimary} name={iconName} size={20} strokeWidth={1.7} />
+      {badge ? <View style={styles.faithLogHeaderIconBadge} /> : null}
+    </Pressable>
+  );
+}
+
+export function FaithLogHeaderPillButton({
+  accessibilityLabel,
+  label,
+  onPress,
+  showChevron = false,
+}: {
+  accessibilityLabel: string;
+  label: string;
+  onPress: () => void;
+  showChevron?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.faithLogHeaderPillButton,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text ellipsizeMode="tail" numberOfLines={1} style={styles.faithLogHeaderPillText}>
+        {label}
+      </Text>
+      {showChevron ? (
+        <Text
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.faithLogHeaderPillChevron}>
+          ▾
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -517,6 +608,110 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: spacing.bottomSafe,
   },
+  appShellScreen: {
+    paddingBottom: 0,
+    paddingTop: 6,
+  },
+  faithLogHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 6,
+  },
+  faithLogHeaderCampusChip: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    flexShrink: 1,
+    height: 28,
+    justifyContent: 'center',
+    maxWidth: 158,
+    minWidth: 0,
+    paddingHorizontal: 10,
+  },
+  faithLogHeaderCampusText: {
+    color: colors.faith,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: 138,
+  },
+  faithLogHeaderContextText: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    maxWidth: 138,
+    minWidth: 0,
+  },
+  faithLogHeaderIconBadge: {
+    backgroundColor: colors.danger,
+    borderColor: colors.surface,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    height: 8,
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    width: 8,
+  },
+  faithLogHeaderIconButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    flexShrink: 0,
+    height: 36,
+    justifyContent: 'center',
+    position: 'relative',
+    shadowColor: colors.textPrimary,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    width: 36,
+  },
+  faithLogHeaderLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minWidth: 0,
+  },
+  faithLogHeaderPillButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 17,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+    height: 34,
+    justifyContent: 'center',
+    maxWidth: 104,
+    paddingHorizontal: 13,
+  },
+  faithLogHeaderPillChevron: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    marginTop: 1,
+  },
+  faithLogHeaderPillText: {
+    color: colors.primary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  faithLogHeaderTopRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 36,
+    width: '100%',
+  },
   screenHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -852,10 +1047,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 62,
+    height: 66,
     justifyContent: 'space-between',
     overflow: 'hidden',
     paddingHorizontal: 1,
@@ -864,17 +1059,17 @@ const styles = StyleSheet.create({
   },
   bottomNavItem: {
     alignItems: 'center',
-    borderRadius: 18,
+    borderRadius: 16,
     flexBasis: 68,
     flexGrow: 1,
     flexShrink: 1,
     gap: 3,
-    height: 48,
+    height: 52,
     justifyContent: 'center',
     minWidth: 0,
     maxWidth: 68,
     paddingHorizontal: 4,
-    paddingVertical: 5,
+    paddingVertical: 6,
   },
   bottomNavItemActive: {
     backgroundColor: '#F2F7FF',

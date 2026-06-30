@@ -280,6 +280,12 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
   ) {
     return prayer.week;
   }
+  if (
+    route.method === 'PUT' &&
+    /^\/campuses\/\d+\/prayers\/weeks\/\d{4}-\d{2}-\d{2}\/me$/.test(path)
+  ) {
+    return prayer.week;
+  }
   if (route.method === 'GET' && /^\/admin\/campuses\/\d+\/dashboard\/summary$/.test(path)) {
     return admin.dashboard;
   }
@@ -328,14 +334,43 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
   if (route.method === 'PATCH' && /^\/admin\/penalty-rules\/\d+$/.test(path)) {
     return billing.penaltyRules[0];
   }
+  if (route.method === 'GET' && /^\/admin\/campuses\/\d+\/prayer-seasons\/current$/.test(path)) {
+    return prayer.season;
+  }
   if (route.method === 'POST' && /^\/admin\/campuses\/\d+\/prayer-seasons$/.test(path)) {
     return prayer.season;
   }
   if (route.method === 'PATCH' && /^\/admin\/prayer-seasons\/\d+\/close$/.test(path)) {
     return {...prayer.season, endDate: '2026-06-30', status: 'CLOSED'};
   }
+  if (route.method === 'GET' && /^\/admin\/prayer-seasons\/\d+\/groups$/.test(path)) {
+    return [prayer.group];
+  }
   if (route.method === 'POST' && /^\/admin\/prayer-seasons\/\d+\/groups$/.test(path)) {
     return prayer.group;
+  }
+  if (
+    route.method === 'GET' &&
+    /^\/admin\/prayer-seasons\/\d+\/members\/assignable$/.test(path)
+  ) {
+    return [
+      {
+        userId: 7,
+        name: '샘플 사용자',
+        email: 'faithlog.user@example.test',
+        assignedGroupId: 401,
+        assignedGroupName: '샘플 기도조',
+        assignable: false,
+      },
+      {
+        userId: 8,
+        name: '샘플 친구',
+        email: 'faithlog.friend@example.test',
+        assignedGroupId: null,
+        assignedGroupName: null,
+        assignable: true,
+      },
+    ];
   }
   if (route.method === 'PATCH' && /^\/admin\/prayer-groups\/\d+$/.test(path)) {
     return prayer.group;

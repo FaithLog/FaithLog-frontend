@@ -35,7 +35,17 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {IconexIcon} from '../components/IconexIcon';
-import {Body, Button, Card, Empty, Eyebrow, Loading, TextField} from '../components/ui';
+import {
+  Body,
+  Button,
+  Card,
+  Empty,
+  Eyebrow,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
+  Loading,
+  TextField,
+} from '../components/ui';
 import {colors, spacing} from '../theme';
 import {formatWon} from '../utils/money';
 
@@ -96,7 +106,10 @@ type CoffeeAccountDeleteState =
   | {status: 'error'; message: string};
 
 type CoffeeDutyScreenProps = {
+  canOpenAdminMode: boolean;
   onBack: () => void;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 };
@@ -342,13 +355,15 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   return (
     <View style={styles.frame}>
       <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="내정보로 돌아가기"
-          accessibilityRole="button"
-          onPress={onBack}
-          style={({pressed}) => [styles.backButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.backButtonText}>‹</Text>
-        </Pressable>
+        <FaithLogHeaderTopRow
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}>
+          <FaithLogHeaderPillButton
+            accessibilityLabel="내정보로 돌아가기"
+            label="뒤로"
+            onPress={onBack}
+          />
+        </FaithLogHeaderTopRow>
         <View style={styles.headerText}>
           <Text style={styles.kicker}>커피 담당자</Text>
           <Text style={styles.title}>커피 정산 관리</Text>
@@ -1905,6 +1920,21 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
     minWidth: 0,
+  },
+  campusChip: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    maxWidth: 180,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  campusChipText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   inputBlock: {
     gap: space.sm,
