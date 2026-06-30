@@ -194,6 +194,33 @@ describe('admin poll API', () => {
     expect(body).not.toHaveProperty('paymentAccountId');
   });
 
+  it('serializes user option add setting for custom direct poll create', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        envelope({...pollResponse, allowUserOptionAdd: true, pollType: 'CUSTOM'}),
+      ),
+    );
+
+    await createAdminPoll('access-token', 1, {
+      ...baseRequest,
+      allowUserOptionAdd: true,
+      pollType: 'CUSTOM',
+      title: '사용자 항목 추가 투표',
+    });
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
+    expect(fetchCall).toBeDefined();
+    const [, init] = fetchCall;
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      allowUserOptionAdd: true,
+      pollType: 'CUSTOM',
+      title: '사용자 항목 추가 투표',
+    });
+  });
+
   it('exposes backend validation messages for admin poll create failures', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(

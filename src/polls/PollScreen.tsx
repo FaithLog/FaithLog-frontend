@@ -1076,6 +1076,17 @@ function UserOptionAddSheet({
 }) {
   const submitting = actionState?.kind === 'optionAdd';
   const isCoffee = detail.pollType === 'COFFEE';
+  const trimmedContent = content.trim();
+  const customDuplicate =
+    !isCoffee && trimmedContent.length > 0
+      ? isDuplicatePollOption(detail, coffeeCatalog, trimmedContent)
+      : false;
+  const customValidationMessage =
+    !isCoffee && content.length > 0 && trimmedContent.length === 0
+      ? '공백만 입력할 수 없습니다.'
+      : customDuplicate
+        ? '이미 추가된 항목입니다.'
+        : null;
   const coffeeMenus =
     coffeeCatalog.status === 'success'
       ? coffeeCatalog.menus
@@ -1157,6 +1168,9 @@ function UserOptionAddSheet({
                 style={styles.optionAddInput}
                 value={content}
               />
+              {customValidationMessage ? (
+                <Text style={styles.optionAddInlineError}>{customValidationMessage}</Text>
+              ) : null}
               <View style={styles.optionAddActions}>
                 <Pressable
                   accessibilityLabel="항목 추가 취소"
@@ -1172,11 +1186,11 @@ function UserOptionAddSheet({
                 <Pressable
                   accessibilityLabel="항목 추가 저장"
                   accessibilityRole="button"
-                  disabled={submitting || content.trim().length === 0}
+                  disabled={submitting || trimmedContent.length === 0 || customDuplicate}
                   onPress={() => onSubmit(content)}
                   style={({pressed}) => [
                     styles.optionAddPrimaryButton,
-                    submitting || content.trim().length === 0
+                    submitting || trimmedContent.length === 0 || customDuplicate
                       ? styles.addOptionButtonDisabled
                       : null,
                     pressed ? styles.pressed : null,
@@ -1289,7 +1303,7 @@ function isUserOptionAddAllowed(detail: PollDetail) {
     return detail.allowUserOptionAdd;
   }
 
-  return detail.pollType === 'COFFEE';
+  return detail.pollType === 'COFFEE' || detail.pollType === 'CUSTOM';
 }
 
 function isDuplicatePollOption(
@@ -2050,6 +2064,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 48,
     paddingHorizontal: 14,
+  },
+  optionAddInlineError: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   optionAddMenuList: {
     gap: 10,

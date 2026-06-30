@@ -473,6 +473,7 @@ export type PollSummary = {
   pollType: string;
   selectionType: string;
   isAnonymous: boolean;
+  allowUserOptionAdd?: boolean;
   startsAt: string;
   endsAt: string;
   status: string;
