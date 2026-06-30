@@ -48,8 +48,11 @@ type Notice = {
   message: string;
 } | null;
 
+export type PrayerEntryMode = 'groups' | 'input';
+
 type PrayerScreenProps = {
   canOpenAdminMode: boolean;
+  entryMode: PrayerEntryMode;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
@@ -80,6 +83,7 @@ const PRAYER_CONTENT_MAX_LENGTH = 1000;
 
 export function PrayerScreen({
   canOpenAdminMode,
+  entryMode,
   onOpenAdminMode,
   onOpenNotifications,
   setAuthState,
@@ -127,8 +131,11 @@ export function PrayerScreen({
       setBoardState({status: 'success', board});
       setDrafts((currentDrafts) => buildDrafts(board, preserveDrafts ? currentDrafts : {}));
       setSelectedGroupId((currentGroupId) =>
-        resolveGroupId(board, currentGroupId, state.user.id),
+        resolveGroupIdForEntryMode(board, currentGroupId, state.user.id, entryMode),
       );
+      if (!preserveDrafts) {
+        setEditingUserId(resolveEditingUserIdForEntryMode(board, state.user.id, entryMode));
+      }
       setActionError(null);
     } catch (error) {
       const apiError = toApiError(error, '기도제목을 불러오지 못했습니다.');
@@ -199,7 +206,7 @@ export function PrayerScreen({
 
       setBoardState({status: 'success', board: savedBoard});
       setDrafts(buildDrafts(savedBoard, {}));
-      setSelectedGroupId(resolveGroupId(savedBoard, selectedGroup.groupId, state.user.id));
+      setSelectedGroupId(resolveGroupIdForEntryMode(savedBoard, selectedGroup.groupId, state.user.id, entryMode));
       setEditingUserId(null);
       setNotice({
         tone: 'success',
@@ -243,7 +250,9 @@ export function PrayerScreen({
               />
             ) : null}
           </FaithLogHeaderTopRow>
-          <Text style={styles.heroTitle}>조별 기도제목</Text>
+          <Text style={styles.heroTitle}>
+            {entryMode === 'input' ? '기도제목 입력' : '조별 기도제목'}
+          </Text>
         </View>
         {boardState.status === 'error' ? (
           <PrayerErrorState error={boardState.error} onRetry={() => loadBoard()} />
@@ -257,6 +266,7 @@ export function PrayerScreen({
             dirtyCount={dirtyDrafts.length}
             drafts={selectedDrafts}
             editingUserId={editingUserId}
+            entryMode={entryMode}
             onChangeDraft={updateDraft}
             onCancelEdit={() => setEditingUserId(null)}
             onKeepLocalAndReload={() => loadBoard({preserveDrafts: true})}
@@ -287,6 +297,7 @@ function PrayerBoardContent({
   dirtyCount,
   drafts,
   editingUserId,
+  entryMode,
   onChangeDraft,
   onCancelEdit,
   onKeepLocalAndReload,
@@ -306,6 +317,7 @@ function PrayerBoardContent({
   dirtyCount: number;
   drafts: PrayerDraft[];
   editingUserId: number | null;
+  entryMode: PrayerEntryMode;
   onChangeDraft: (userId: number, content: string) => void;
   onCancelEdit: () => void;
   onKeepLocalAndReload: () => void;
@@ -342,7 +354,11 @@ function PrayerBoardContent({
       ) : board.targetMemberCount === 0 || board.groups.length === 0 ? (
         <Empty
           title="이번 주 활성 기도조가 없습니다"
-          message="기도 시즌이나 조 배정이 열리면 이 화면에서 조회하고 입력할 수 있어요."
+          message={
+            entryMode === 'input'
+              ? '내 조가 만들어지고 배정되면 기도제목을 작성할 수 있어요.'
+              : '기도 운영 기간이나 조 배정이 열리면 이 화면에서 조회할 수 있어요.'
+          }
           actionLabel="다시 불러오기"
           actionAccessibilityLabel="빈 기도제목 게시판 다시 불러오기"
           onActionPress={onReloadLatest}
@@ -352,13 +368,18 @@ function PrayerBoardContent({
           <GroupSelector
             currentUserId={currentUserId}
             groups={board.groups}
+            entryMode={entryMode}
             selectedGroupId={selectedGroup?.groupId ?? null}
             onSelect={onSelectGroup}
           />
           {board.myGroupId ? null : (
             <Card>
               <Title>아직 기도조에 배정되지 않았어요</Title>
-              <Body>모든 조의 기도제목은 볼 수 있지만, 작성과 수정은 내 조에 배정된 뒤 가능합니다.</Body>
+              <Body>
+                {entryMode === 'input'
+                  ? '내 조가 배정되면 이 화면에서 기도제목을 작성할 수 있어요.'
+                  : '모든 조의 기도제목은 볼 수 있지만, 작성과 수정은 내 조에 배정된 뒤 가능합니다.'}
+              </Body>
             </Card>
           )}
           {selectedGroup ? (
@@ -368,6 +389,7 @@ function PrayerBoardContent({
               dirtyCount={dirtyCount}
               drafts={drafts}
               editingUserId={editingUserId}
+              entryMode={entryMode}
               onChangeDraft={onChangeDraft}
               onCancelEdit={onCancelEdit}
               onKeepLocalAndReload={onKeepLocalAndReload}
@@ -457,18 +479,22 @@ function PrayerBoardHero({
 
 function GroupSelector({
   currentUserId,
+  entryMode,
   groups,
   onSelect,
   selectedGroupId,
 }: {
   currentUserId: number;
+  entryMode: PrayerEntryMode;
   groups: PrayerGroupSummary[];
   onSelect: (groupId: number) => void;
   selectedGroupId: number | null;
 }) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionHeading}>조별로 보기</Text>
+      <Text style={styles.sectionHeading}>
+        {entryMode === 'input' ? '내 조 먼저 보기' : '조별로 보기'}
+      </Text>
       <View style={styles.groupGrid}>
         {groups
           .slice()
@@ -515,6 +541,7 @@ function PrayerEntryPanel({
   dirtyCount,
   drafts,
   editingUserId,
+  entryMode,
   onChangeDraft,
   onCancelEdit,
   onKeepLocalAndReload,
@@ -530,6 +557,7 @@ function PrayerEntryPanel({
   dirtyCount: number;
   drafts: PrayerDraft[];
   editingUserId: number | null;
+  entryMode: PrayerEntryMode;
   onChangeDraft: (userId: number, content: string) => void;
   onCancelEdit: () => void;
   onKeepLocalAndReload: () => void;
@@ -574,7 +602,13 @@ function PrayerEntryPanel({
               새로고침
             </Button>
           </View>
-          <Body>{boardStatus !== 'OPEN' ? '지금은 조회만 가능합니다.' : '수정 버튼을 누르면 내 기도제목을 작성할 수 있습니다.'}</Body>
+          <Body>
+            {boardStatus !== 'OPEN'
+              ? '지금은 조회만 가능합니다.'
+              : entryMode === 'input'
+                ? '내 조의 내 항목은 수정 버튼을 눌러 작성할 수 있어요.'
+                : '수정 버튼을 누르면 내 기도제목을 작성할 수 있습니다.'}
+          </Body>
         </Card>
       </View>
       {drafts.map((draft) => (
@@ -882,6 +916,46 @@ function resolveGroupId(
   currentUserId: number,
 ) {
   return findSelectedGroup(board, currentGroupId, currentUserId)?.groupId ?? null;
+}
+
+function resolveGroupIdForEntryMode(
+  board: PrayerWeekSummary,
+  currentGroupId: number | null,
+  currentUserId: number,
+  entryMode: PrayerEntryMode,
+) {
+  if (entryMode === 'input') {
+    const myGroup = findMyGroup(board, currentUserId);
+
+    if (myGroup) {
+      return myGroup.groupId;
+    }
+  }
+
+  return resolveGroupId(board, currentGroupId, currentUserId);
+}
+
+function resolveEditingUserIdForEntryMode(
+  board: PrayerWeekSummary,
+  currentUserId: number,
+  entryMode: PrayerEntryMode,
+) {
+  if (entryMode !== 'input' || board.status !== 'OPEN') {
+    return null;
+  }
+
+  const myGroup = findMyGroup(board, currentUserId);
+  const myMember = myGroup?.members.find((member) => member.userId === currentUserId);
+
+  return myMember?.editable ? currentUserId : null;
+}
+
+function findMyGroup(board: PrayerWeekSummary, currentUserId: number) {
+  return (
+    board.groups.find((group) => group.groupId === board.myGroupId) ??
+    board.groups.find((group) => group.members.some((member) => member.userId === currentUserId)) ??
+    null
+  );
 }
 
 function getPrayerWeekCurrentSeason(board: PrayerWeekSummary) {

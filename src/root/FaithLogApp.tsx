@@ -107,9 +107,9 @@ import {
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
-import {PrayerScreen} from '../prayers/PrayerScreen';
+import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
-import {formatCompactWon, formatWon} from '../utils/money';
+import {formatCompactWon} from '../utils/money';
 
 const initialState: AuthGateState = {
   status: 'loading',
@@ -1456,6 +1456,7 @@ function AuthenticatedShell({
 }) {
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<'coffee' | 'main' | 'notifications'>('main');
+  const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -1485,8 +1486,14 @@ function AuthenticatedShell({
   );
   const shouldShowUserBottomNav = USER_BOTTOM_NAV_ROUTES.some(
     (availableRoute) => availableRoute === route,
-  );
+  ) || route === 'prayers';
+  const userBottomNavActiveId = route === 'prayers' ? 'userHome' : route;
   const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
+
+  const openPrayers = (entryMode: PrayerEntryMode) => {
+    setPrayerEntryMode(entryMode);
+    setRoute('prayers');
+  };
 
   const refreshCampuses = async () => {
     if (campusSwitchLoading) {
@@ -1787,6 +1794,7 @@ function AuthenticatedShell({
         ) : (
           <ServiceAdminScreen
             onBackToUserMode={returnToUserMode}
+            onLogoutPress={() => setLogoutConfirmVisible(true)}
             onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
@@ -1881,7 +1889,7 @@ function AuthenticatedShell({
               canOpenAdminMode={adminModeRoutes.length > 0}
               onOpenAdminMode={openAdminMode}
               onOpenPayments={() => setRoute('payments')}
-              onOpenPrayers={() => setRoute('prayers')}
+              onOpenPrayers={openPrayers}
               setAuthState={setAuthState}
               state={state}
             />
@@ -1921,6 +1929,7 @@ function AuthenticatedShell({
         ) : route === 'prayers' ? (
           <PrayerScreen
             canOpenAdminMode={adminModeRoutes.length > 0}
+            entryMode={prayerEntryMode}
             onOpenAdminMode={openAdminMode}
             onOpenNotifications={openNotificationSettings}
             setAuthState={setAuthState}
@@ -1938,7 +1947,6 @@ function AuthenticatedShell({
             onOpenAdminMode={openAdminMode}
             onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenNotifications={() => setProfileView('notifications')}
-            onOpenPrayers={() => setRoute('prayers')}
             profileView={profileView}
             setAuthState={setAuthState}
             state={state}
@@ -1953,6 +1961,7 @@ function AuthenticatedShell({
         ) : route === 'serviceAdmin' ? (
           <ServiceAdminScreen
             onBackToUserMode={returnToUserMode}
+            onLogoutPress={() => setLogoutConfirmVisible(true)}
             onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
@@ -1987,7 +1996,7 @@ function AuthenticatedShell({
 
       {shouldShowUserBottomNav ? (
         <View style={styles.bottomNavFrame}>
-          <BottomNav activeId={route} items={navItems} onSelect={selectRoute} />
+          <BottomNav activeId={userBottomNavActiveId} items={navItems} onSelect={selectRoute} />
         </View>
       ) : null}
 
@@ -2254,7 +2263,7 @@ function UserHomeDashboard({
   onOpenMonthlyCalendar: () => void;
   onOpenNotifications: () => void;
   onOpenPayments: () => void;
-  onOpenPrayers: () => void;
+  onOpenPrayers: (entryMode: PrayerEntryMode) => void;
   setAuthState: (state: AuthGateState) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -2267,7 +2276,6 @@ function UserHomeDashboard({
   >({status: 'idle'});
   const [chargeState, setChargeState] = useState<CardState<ChargeSummary>>({status: 'idle'});
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
-  const prayerEntryVariant = getHomePrayerEntryVariant(prayerState);
   const displayUserName = getCompactDisplayName(state.user.name, '사용자');
   const campusLabel = getHeaderCampusName(state.selectedCampus.campusName);
 
@@ -2426,11 +2434,17 @@ function UserHomeDashboard({
         />
       </View>
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
-      {prayerEntryVariant === 'suggestion' || prayerEntryVariant === 'always' ? (
-        <HomePrayerEntryCard onPress={onOpenPrayers} prayerState={prayerState} />
-      ) : (
-        <HomeChargeEntryCard chargeState={chargeState} onPress={onOpenPayments} />
-      )}
+      <HomePrayerEntryCard
+        entryMode="groups"
+        onPress={() => onOpenPrayers('groups')}
+        prayerState={prayerState}
+      />
+      <HomePrayerEntryCard
+        entryMode="input"
+        onPress={() => onOpenPrayers('input')}
+        prayerState={prayerState}
+      />
+      <HomeChargeEntryCard chargeState={chargeState} onPress={onOpenPayments} />
 
     </View>
   );
@@ -2573,7 +2587,7 @@ function HomeCalendarEntryCard({onPress}: {onPress: () => void}) {
           캘린더
         </Text>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarBody}>
-          이번 달 경건 체크를 한눈에 볼 수 있어요
+          이번 달 체크 보기
         </Text>
       </View>
       <View style={styles.homeCalendarButton}>
@@ -2584,14 +2598,17 @@ function HomeCalendarEntryCard({onPress}: {onPress: () => void}) {
 }
 
 function HomePrayerEntryCard({
+  entryMode,
   onPress,
   prayerState,
 }: {
+  entryMode: PrayerEntryMode;
   onPress: () => void;
   prayerState: CardState<PrayerWeekSummary>;
 }) {
   const variant = getHomePrayerEntryVariant(prayerState);
-  const copy = getHomePrayerEntryCopy(variant, prayerState);
+  const copy = getHomePrayerEntryCopy(entryMode, variant, prayerState);
+  const iconName = entryMode === 'groups' ? 'document' : 'plus';
 
   return (
     <Pressable
@@ -2603,8 +2620,10 @@ function HomePrayerEntryCard({
         variant === 'suggestion' ? styles.homePrayerCardSuggested : null,
         pressed ? styles.authButtonPressed : null,
       ]}>
+      <View style={styles.homePrayerIcon}>
+        <IconexIcon color={colors.primary} name={iconName} size={22} strokeWidth={1.7} />
+      </View>
       <View style={styles.homePrayerText}>
-        <Text style={styles.homePrayerEyebrow}>{copy.eyebrow}</Text>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homePrayerTitle}>
           {copy.title}
         </Text>
@@ -2628,8 +2647,8 @@ function HomeChargeEntryCard({
 }) {
   const body =
     chargeState.status === 'success' && chargeState.data.monthlyUnpaidAmount > 0
-      ? `경건생활 벌금 ${formatWon(chargeState.data.monthlyUnpaidAmount)}`
-      : '이번 달 납부 흐름을 확인해요';
+      ? `${formatCompactWon(chargeState.data.monthlyUnpaidAmount)} 미납`
+      : '납부 내역 확인';
 
   return (
     <Pressable
@@ -2637,6 +2656,9 @@ function HomeChargeEntryCard({
       accessibilityRole="button"
       onPress={onPress}
       style={({pressed}) => [styles.homeChargeCard, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.homeChargeIcon}>
+        <IconexIcon color={colors.primary} name="coins" size={22} strokeWidth={1.7} />
+      </View>
       <View style={styles.homeChargeText}>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeChargeTitle}>
           최근 청구 항목
@@ -2724,28 +2746,29 @@ function getHomePrayerEntryVariant(
 }
 
 function getHomePrayerEntryCopy(
+  entryMode: PrayerEntryMode,
   variant: HomePrayerEntryVariant,
   prayerState: CardState<PrayerWeekSummary>,
 ) {
-  if (prayerState.status === 'loading' || prayerState.status === 'idle') {
-    return {
-      actionLabel: '보기',
-      body: '이번 주 기도제목 상태를 확인하고 있어요.',
-      eyebrow: '기도제목',
-      title: '이번 주 기도제목',
-    };
-  }
+  if (entryMode === 'groups') {
+    if (prayerState.status === 'loading' || prayerState.status === 'idle') {
+      return {
+        actionLabel: '보기',
+        body: '조별 기도 확인',
+        eyebrow: '공동체 기도',
+        title: '조별 기도제목',
+      };
+    }
 
-  if (prayerState.status === 'error') {
-    return {
-      actionLabel: '확인',
-      body: '기도 탭에서 다시 불러오거나 조별 입력 상태를 확인할 수 있어요.',
-      eyebrow: '기도제목',
-      title: '이번 주 기도제목',
-    };
-  }
+    if (prayerState.status === 'error') {
+      return {
+        actionLabel: '확인',
+        body: '기도 화면에서 확인',
+        eyebrow: '공동체 기도',
+        title: '조별 기도제목',
+      };
+    }
 
-  if (variant === 'suggestion') {
     return {
       actionLabel: '보기',
       body: getPrayerProgressSummary(prayerState.data),
@@ -2754,20 +2777,47 @@ function getHomePrayerEntryCopy(
     };
   }
 
-  if (variant === 'always') {
+  if (prayerState.status === 'loading' || prayerState.status === 'idle') {
     return {
-      actionLabel: '보기',
-      body: getPrayerProgressSummary(prayerState.data),
+      actionLabel: '작성',
+      body: '내 조 확인 중',
+      eyebrow: '내 기도제목',
+      title: '기도제목 입력',
+    };
+  }
+
+  if (prayerState.status === 'error') {
+    return {
+      actionLabel: '확인',
+      body: '내 조 확인 필요',
+      eyebrow: '내 기도제목',
+      title: '기도제목 입력',
+    };
+  }
+
+  if (!prayerState.data.myGroupId) {
+    return {
+      actionLabel: '확인',
+      body: '배정 후 작성 가능',
       eyebrow: getPrayerEntryPolicy(prayerState.data),
-      title: '이번 주 기도제목',
+      title: '기도제목 입력',
+    };
+  }
+
+  if (variant === 'suggestion') {
+    return {
+      actionLabel: '작성',
+      body: '내 기도 작성',
+      eyebrow: getPrayerEntryPolicy(prayerState.data),
+      title: '기도제목 입력',
     };
   }
 
   return {
     actionLabel: '보기',
-    body: '기도 탭에서 조별 입력 상태를 확인할 수 있어요.',
-    eyebrow: '기도제목',
-    title: '이번 주 기도제목',
+    body: '내 조 상태 확인',
+    eyebrow: '내 기도제목',
+    title: '기도제목 입력',
   };
 }
 
@@ -2782,7 +2832,7 @@ function getPrayerProgressSummary(prayers: PrayerWeekSummary) {
 
   const groupName = getCompactDisplayName(primaryGroup.groupName, '소그룹', 10);
 
-  return `${groupName} ${groupSubmittedCount}/${primaryGroup.members.length} 작성 · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+  return `${groupName} ${groupSubmittedCount}/${primaryGroup.members.length} · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount}`;
 }
 
 function getHeaderCampusName(campusName: string) {
@@ -3110,7 +3160,6 @@ function ProfileScreen({
   onOpenAdminMode,
   onOpenCoffeeDuty,
   onOpenNotifications,
-  onOpenPrayers,
   profileView,
   setAuthState,
   state,
@@ -3124,7 +3173,6 @@ function ProfileScreen({
   onOpenAdminMode: () => void;
   onOpenCoffeeDuty: () => void;
   onOpenNotifications: () => void;
-  onOpenPrayers: () => void;
   profileView: 'coffee' | 'main' | 'notifications';
   setAuthState: (state: AuthGateState) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
@@ -3210,20 +3258,6 @@ function ProfileScreen({
 
       <Text style={styles.figmaSectionTitle}>공동체 메뉴</Text>
       <View style={styles.profileRowList}>
-        <ProfileActionRow
-          actionLabel="보기"
-          icon="users"
-          onPress={onOpenPrayers}
-          subtitle="전체 조별 기도제목 한 페이지 조회"
-          title="조별 기도제목"
-        />
-        <ProfileActionRow
-          actionLabel="작성"
-          icon="message-square"
-          onPress={onOpenPrayers}
-          subtitle="내 조 조원별 기도제목 작성"
-          title="기도제목 입력"
-        />
         <ProfileActionRow
           actionLabel={canSwitchCampus ? '관리' : '입력'}
           icon="add-user"
@@ -4297,8 +4331,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     flexDirection: 'row',
     gap: 14,
+    height: 92,
     justifyContent: 'space-between',
-    minHeight: 92,
     paddingHorizontal: 20,
     paddingVertical: 18,
   },
@@ -4334,7 +4368,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
-    width: 62,
+    width: 58,
   },
   homePrayerButtonText: {
     color: colors.primary,
@@ -4348,23 +4382,25 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     flexDirection: 'row',
     gap: 14,
+    height: 92,
     justifyContent: 'space-between',
-    minHeight: 96,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
   },
   homePrayerCardSuggested: {
     borderColor: colors.borderSoft,
   },
-  homePrayerEyebrow: {
-    color: authColors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 16,
+  homePrayerIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 15,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
   },
   homePrayerText: {
     flex: 1,
-    gap: 8,
+    gap: 7,
     minWidth: 0,
   },
   homePrayerTitle: {
@@ -4441,14 +4477,23 @@ const styles = StyleSheet.create({
     backgroundColor: authColors.input,
     borderRadius: 20,
     flexDirection: 'row',
+    gap: 14,
+    height: 92,
     justifyContent: 'space-between',
-    minHeight: 104,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+  },
+  homeChargeIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 15,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
   },
   homeChargeText: {
     flex: 1,
-    gap: 8,
+    gap: 7,
     minWidth: 0,
   },
   homeChargeTitle: {
@@ -4468,7 +4513,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
-    width: 62,
+    width: 58,
   },
   homeChargeButtonText: {
     color: colors.primary,

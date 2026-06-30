@@ -51,6 +51,7 @@ type Notice = {
 
 type ServiceAdminScreenProps = {
   onBackToUserMode: () => void;
+  onLogoutPress: () => void;
   onOpenCampusAdminFeature: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
@@ -59,7 +60,7 @@ type ServiceAdminScreenProps = {
 
 type RoleFilter = UserRole | 'ALL';
 type RoleOption = UserRole;
-type ServiceAdminSection = 'home' | 'campuses' | 'users';
+type ServiceAdminSection = 'home' | 'campuses' | 'users' | 'profile';
 type UserScreenView = 'list' | 'detail' | 'roleEdit';
 type UserLoadOptions = {
   page?: number;
@@ -102,10 +103,12 @@ const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = 
   {id: 'home', label: '홈'},
   {id: 'campuses', label: '캠퍼스'},
   {id: 'users', label: '사용자'},
+  {id: 'profile', label: '내정보'},
 ];
 
 export function ServiceAdminScreen({
   onBackToUserMode,
+  onLogoutPress,
   onOpenCampusAdminFeature,
   setAuthState,
   setNotice,
@@ -381,7 +384,7 @@ export function ServiceAdminScreen({
               setNotice={setNotice}
               state={state}
             />
-          ) : (
+          ) : activeSection === 'users' ? (
             <>
               {userView === 'list' ? (
                 <Card>
@@ -456,11 +459,69 @@ export function ServiceAdminScreen({
                 userView={userView}
               />
             </>
+          ) : (
+            <ServiceAdminProfile
+              onBackToUserMode={onBackToUserMode}
+              onLogoutPress={onLogoutPress}
+              state={state}
+            />
           )}
         </ScrollView>
         <ServiceAdminBottomNav activeSection={activeSection} onSelectSection={setActiveSection} />
       </View>
     </View>
+  );
+}
+
+function ServiceAdminProfile({
+  onBackToUserMode,
+  onLogoutPress,
+  state,
+}: {
+  onBackToUserMode: () => void;
+  onLogoutPress: () => void;
+  state: AuthenticatedState;
+}) {
+  return (
+    <>
+      <Card>
+        <View style={styles.profileHeaderRow}>
+          <View style={styles.profileAvatar}>
+            <IconexIcon color={colors.textPrimary} name="user" size={24} strokeWidth={1.7} />
+          </View>
+          <View style={styles.profileText}>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
+              {state.user.name}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileEmail}>
+              {state.user.email}
+            </Text>
+          </View>
+          <Chip label={getGlobalRoleLabel(state.user.role)} tone="info" />
+        </View>
+      </Card>
+
+      <Card>
+        <Title>계정</Title>
+        <ListRow
+          label="현재 영역"
+          supportingText="전역 관리자"
+          value="Service ADMIN"
+        />
+        <ListRow
+          label="일반 사용자 화면"
+          onPress={onBackToUserMode}
+          supportingText="앱 홈으로 돌아가기"
+          value="이동"
+        />
+        <Button
+          accessibilityLabel="전역 관리자 계정 로그아웃"
+          onPress={onLogoutPress}
+          variant="danger">
+          로그아웃
+        </Button>
+      </Card>
+    </>
   );
 }
 
@@ -1400,6 +1461,8 @@ function getServiceAdminShellTitle(section: ServiceAdminSection) {
       return '캠퍼스';
     case 'users':
       return '사용자';
+    case 'profile':
+      return '내정보';
     default:
       return assertNever(section);
   }
@@ -1413,8 +1476,23 @@ function getServiceAdminTabIcon(section: ServiceAdminSection): IconexIconName {
       return 'category';
     case 'users':
       return 'users';
+    case 'profile':
+      return 'user';
     default:
       return assertNever(section);
+  }
+}
+
+function getGlobalRoleLabel(role: UserRole) {
+  switch (role) {
+    case 'ADMIN':
+      return '전역 관리자';
+    case 'MANAGER':
+      return '매니저';
+    case 'USER':
+      return '사용자';
+    default:
+      return role;
   }
 }
 
@@ -1597,6 +1675,38 @@ const styles = StyleSheet.create({
   },
   serviceAdminBottomNavLabelActive: {
     color: colors.primary,
+  },
+  profileAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  profileEmail: {
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  profileHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profileName: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 24,
+  },
+  profileText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
   },
   homeHeroHeader: {
     alignItems: 'flex-start',
