@@ -378,11 +378,16 @@ export type AdminChargeStatusChangeResponse = Omit<ChargeItem, 'account' | 'dueD
 
 export type PaymentAccount = {
   id: number;
+  campusId?: number;
   accountType: PaymentCategory;
   nickname: string;
   bankName: string;
   accountNumber: string;
   accountHolder: string;
+  ownerUserId?: number | null;
+  isActive?: boolean;
+  createdAt?: string;
+  deactivatedAt?: string | null;
 };
 
 export type AdminPaymentAccount = PaymentAccount & {
@@ -397,7 +402,7 @@ export type PaymentAccountCreateRequest = {
   bankName: string;
   accountNumber: string;
   accountHolder: string;
-  ownerUserId: number | null;
+  ownerUserId?: number | null;
 };
 
 export type PenaltyRuleType =

@@ -11,12 +11,14 @@ import {
 } from 'react-native';
 
 import {
+  activateAdminPaymentAccount,
   assignCoffeeDuty,
   changeAdminCampusMemberRole,
   changeAdminChargeStatus,
   createAdminPaymentAccount,
   createAdminPenaltyRule,
   deactivateAdminPaymentAccount,
+  deleteAdminPaymentAccount,
   deleteCampusMember,
   FaithLogApiError,
   fetchAdminCampusCharges,
@@ -25,6 +27,7 @@ import {
   fetchAdminMemberCharges,
   fetchAdminMissingDevotionMembers,
   fetchAdminNotificationLogs,
+  fetchAdminPaymentAccounts,
   fetchCoffeeBrands,
   fetchCoffeeMenus,
   fetchCampusDetail,
@@ -39,6 +42,7 @@ import {
   closeAdminPoll,
   createAdminPoll,
   createAdminPollTemplate,
+  deleteAdminPollTemplate,
   fetchAdminPollComments,
   fetchAdminPollMissingMembers,
   fetchAdminPollResults,
@@ -81,6 +85,7 @@ import type {
   AdminWritableChargeStatus,
   ApiError,
   CampusRole,
+  ChargeAmountSummary,
   ChargeItem,
   ChargeStatus,
   CoffeeBrand,
@@ -102,6 +107,7 @@ import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
+import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {
   Body,
@@ -194,7 +200,9 @@ type AdminActionState =
   | {status: 'deletingMember'; membershipId: number}
   | {status: 'changingChargeStatus'; chargeItemId: number}
   | {status: 'savingPaymentAccount'}
+  | {status: 'activatingPaymentAccount'; accountId: number}
   | {status: 'deactivatingPaymentAccount'; accountId: number}
+  | {status: 'deletingPaymentAccount'; accountId: number}
   | {status: 'savingPenaltyRule'; ruleId: number | null}
   | {status: 'creatingPrayerSeason'}
   | {status: 'closingPrayerSeason'; seasonId: number}
@@ -397,7 +405,6 @@ const memberFilters: Array<{id: MemberFilter; label: string}> = [
 ];
 
 const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
-  {id: 'ALL', label: '전체'},
   {id: 'UNPAID', label: '미납'},
   {id: 'PAID', label: '납부'},
   {id: 'WAIVED', label: '면제'},
@@ -405,7 +412,6 @@ const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
 ];
 
 const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
-  {id: 'ALL', label: '전체'},
   {id: 'PENALTY', label: '벌금'},
   {id: 'COFFEE', label: '커피'},
 ];
@@ -459,11 +465,6 @@ const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: st
 
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
-const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
-  'UNPAID',
-  'WAIVED',
-  'CANCELED',
-];
 const adminFigmaTokens = {
   background: colors.background,
   surface: colors.surface,
@@ -575,10 +576,11 @@ export function AdminScreen({
   );
   const [chargeFilters, setChargeFilters] = useState<AdminChargeFilters>({
     keyword: '',
-    paymentCategory: 'ALL',
-    status: 'ALL',
+    paymentCategory: 'PENALTY',
+    status: 'UNPAID',
     userId: '',
   });
+  const chargeFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settlementSection, setSettlementSection] =
     useState<AdminSettlementSection>('charges');
   const [settlementState, setSettlementState] = useState<AdminSettlementState>({
@@ -594,7 +596,12 @@ export function AdminScreen({
     useState<PaymentAccountForm>(emptyPaymentAccountForm);
   const [selectedPaymentAccount, setSelectedPaymentAccount] =
     useState<PaymentAccount | null>(null);
+  const [knownOwnedCoffeeAccountIds, setKnownOwnedCoffeeAccountIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [paymentAccountDeactivateTarget, setPaymentAccountDeactivateTarget] =
+    useState<PaymentAccount | null>(null);
+  const [paymentAccountDeleteTarget, setPaymentAccountDeleteTarget] =
     useState<PaymentAccount | null>(null);
   const [accountCopyFeedback, setAccountCopyFeedback] =
     useState<AccountCopyFeedback>(null);
@@ -797,7 +804,9 @@ export function AdminScreen({
     setPaymentAccountState({status: 'idle'});
     setPaymentAccountForm(emptyPaymentAccountForm);
     setSelectedPaymentAccount(null);
+    setKnownOwnedCoffeeAccountIds(new Set());
     setPaymentAccountDeactivateTarget(null);
+    setPaymentAccountDeleteTarget(null);
     setAccountCopyFeedback(null);
     setPenaltyRuleState({status: 'idle'});
     setPenaltyRuleForm(emptyPenaltyRuleForm);
@@ -867,6 +876,15 @@ export function AdminScreen({
       void loadPenaltyRules();
     }
   }, [tab, settlementSection, penaltyRuleState.status]);
+
+  useEffect(
+    () => () => {
+      if (chargeFilterDebounceRef.current) {
+        clearTimeout(chargeFilterDebounceRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!accountCopyFeedback) {
@@ -1019,11 +1037,12 @@ export function AdminScreen({
         status: filters.status,
         ...(userId === undefined ? {} : {userId}),
       });
+      const visibleCharges = filterAdminCampusChargeSummary(charges, filters);
 
       setSettlementState(
-        charges.members.length === 0
-          ? {status: 'empty', charges}
-          : {status: 'success', charges},
+        visibleCharges.members.length === 0
+          ? {status: 'empty', charges: visibleCharges}
+          : {status: 'success', charges: visibleCharges},
       );
     } catch (error) {
       const apiError = toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.');
@@ -1043,7 +1062,24 @@ export function AdminScreen({
         return;
       }
 
-      const accounts = await fetchPaymentAccounts(accessToken, campusId);
+      const accounts = await Promise.all([
+        fetchAdminPaymentAccounts(accessToken, campusId, {
+          accountType: 'PENALTY',
+          includeInactive: true,
+        }),
+        fetchAdminPaymentAccounts(accessToken, campusId, {
+          accountType: 'COFFEE',
+          includeInactive: true,
+        }),
+      ]).then(([penaltyAccounts, coffeeAccounts]) =>
+        mergePaymentAccounts(penaltyAccounts, coffeeAccounts),
+      ).catch((error): Promise<PaymentAccount[]> | PaymentAccount[] => {
+        if (isPaymentAccountListEndpointMissing(error)) {
+          return fetchPaymentAccounts(accessToken, campusId);
+        }
+
+        throw error;
+      });
       setPaymentAccountState(
         accounts.length === 0 ? {status: 'empty'} : {status: 'success', accounts},
       );
@@ -1075,10 +1111,16 @@ export function AdminScreen({
         bankName: paymentAccountForm.bankName,
         accountNumber: paymentAccountForm.accountNumber,
         accountHolder: paymentAccountForm.accountHolder,
-        ownerUserId: null,
       });
 
       setPaymentAccountForm(emptyPaymentAccountForm);
+      if (paymentAccountForm.accountType === 'COFFEE') {
+        setKnownOwnedCoffeeAccountIds((current) => {
+          const next = new Set(current);
+          next.add(account.id);
+          return next;
+        });
+      }
       setPaymentAccountState({status: 'idle'});
       setNotice({
         tone: 'success',
@@ -1121,6 +1163,81 @@ export function AdminScreen({
       });
     } catch (error) {
       const apiError = toApiError(error, '납부 계좌를 비활성화하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const activatePaymentAccount = async (account: PaymentAccount) => {
+    if (actionState.status !== 'idle' || isPaymentAccountActive(account)) {
+      return;
+    }
+
+    setActionState({status: 'activatingPaymentAccount', accountId: account.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      await activateAdminPaymentAccount(accessToken, campusId, account.id);
+      setSelectedPaymentAccount(null);
+      setPaymentAccountState({status: 'idle'});
+      setNotice({
+        tone: 'success',
+        title: '납부 계좌 활성화',
+        message: `${account.nickname} 계좌가 활성 계좌로 변경되었습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 활성화하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmDeletePaymentAccount = async () => {
+    if (!paymentAccountDeleteTarget || actionState.status !== 'idle') {
+      return;
+    }
+
+    const target = paymentAccountDeleteTarget;
+
+    if (isPaymentAccountActive(target)) {
+      setActionError({
+        kind: 'conflict',
+        message: '활성 계좌는 삭제할 수 없습니다. 다른 계좌를 활성화한 뒤 다시 시도해 주세요.',
+      });
+      return;
+    }
+
+    setActionState({status: 'deletingPaymentAccount', accountId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      await deleteAdminPaymentAccount(accessToken, campusId, target.id);
+      setPaymentAccountDeleteTarget(null);
+      setSelectedPaymentAccount(null);
+      setPaymentAccountState({status: 'idle'});
+      setNotice({
+        tone: 'warning',
+        title: '납부 계좌 삭제',
+        message: `${target.nickname} 비활성 계좌를 삭제했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 삭제하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, setAuthState);
     } finally {
@@ -1398,6 +1515,15 @@ export function AdminScreen({
       const selectedUserIds = parseUserIdList(prayerGroupMembersForm.userIds).filter(
         (userId) => !unavailableUserIds.has(userId),
       );
+
+      if (selectedUserIds.length === 0) {
+        setActionError({
+          kind: 'error',
+          message: '기도조 멤버를 1명 이상 선택해 주세요.',
+        });
+        return false;
+      }
+
       const group =
         editingGroupId === null
           ? await prayerApi.createGroup(
@@ -1470,16 +1596,36 @@ export function AdminScreen({
     key: Key,
     value: AdminChargeFilters[Key],
   ) => {
-    setChargeFilters((current) => ({...current, [key]: value}));
+    const nextFilters = {...chargeFilters, [key]: value};
+
+    setChargeFilters(nextFilters);
+    setChargeDetailState({status: 'idle'});
+
+    if (chargeFilterDebounceRef.current) {
+      clearTimeout(chargeFilterDebounceRef.current);
+    }
+
+    if (key === 'keyword') {
+      chargeFilterDebounceRef.current = setTimeout(() => {
+        void loadSettlement(nextFilters);
+      }, 350);
+      return;
+    }
+
+    void loadSettlement(nextFilters);
   };
 
   const resetChargeFilters = () => {
     const nextFilters: AdminChargeFilters = {
       keyword: '',
-      paymentCategory: 'ALL',
-      status: 'ALL',
+      paymentCategory: 'PENALTY',
+      status: 'UNPAID',
       userId: '',
     };
+
+    if (chargeFilterDebounceRef.current) {
+      clearTimeout(chargeFilterDebounceRef.current);
+    }
 
     setChargeFilters(nextFilters);
     setChargeDetailState({status: 'idle'});
@@ -1497,10 +1643,13 @@ export function AdminScreen({
         return;
       }
 
-      const charges = await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
-        paymentCategory: chargeFilters.paymentCategory,
-        status: chargeFilters.status,
-      });
+      const charges = filterAdminMemberChargeList(
+        await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
+          paymentCategory: chargeFilters.paymentCategory,
+          status: chargeFilters.status,
+        }),
+        chargeFilters,
+      );
 
       setChargeDetailState(
         charges.items.length === 0
@@ -1937,12 +2086,6 @@ export function AdminScreen({
     setTab('devotion');
   };
 
-  const openNotificationManagement = () => {
-    setSelectedMemberId(null);
-    setNotificationSection('send');
-    setTab('notificationLogs');
-  };
-
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -1968,7 +2111,6 @@ export function AdminScreen({
             prayerState={prayerState}
             summary={loadState.summary}
             onOpenMembers={() => setTab('members')}
-            onOpenNotifications={openNotificationManagement}
             onOpenPrayer={openPrayerManagement}
           />
           <Empty
@@ -2021,7 +2163,6 @@ export function AdminScreen({
           prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
-          onOpenNotifications={openNotificationManagement}
           onOpenPrayer={openPrayerManagement}
           onOpenRoles={openMemberRoles}
         />
@@ -2062,7 +2203,19 @@ export function AdminScreen({
       ) : tab === 'polls' ? (
         <AdminPollManagement
           campusId={campusId}
-          coffeeDuty={coffeeDuty}
+          currentUserId={state.user.id}
+          knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+          onRequestCoffeeAccountCreate={() => {
+            setTab('settlement');
+            setSettlementSection('accounts');
+            setSelectedPaymentAccount(null);
+            setActionError(null);
+            setPaymentAccountForm((current) => ({
+              ...current,
+              accountType: 'COFFEE',
+              nickname: current.nickname.trim() ? current.nickname : '커피 계좌',
+            }));
+          }}
           onSessionStateChange={setAuthState}
           setNotice={setNotice}
         />
@@ -2126,14 +2279,16 @@ export function AdminScreen({
           weekStartDate={weekStartDate}
         />
       ) : tab === 'settlement' ? (
-        <AdminSettlement
-          actionState={actionState}
-          detailState={chargeDetailState}
-          filters={chargeFilters}
-          onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
-          onChangePaymentAccountForm={(patch) =>
-            setPaymentAccountForm((current) => ({...current, ...patch}))
-          }
+          <AdminSettlement
+            actionState={actionState}
+            detailState={chargeDetailState}
+            filters={chargeFilters}
+            currentUserId={state.user.id}
+            knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+            onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
+            onChangePaymentAccountForm={(patch) =>
+              setPaymentAccountForm((current) => ({...current, ...patch}))
+            }
           onChangePenaltyRuleForm={(patch) =>
             setPenaltyRuleForm((current) => ({...current, ...patch}))
           }
@@ -2144,9 +2299,11 @@ export function AdminScreen({
           }}
           onBackToSummary={() => setChargeDetailState({status: 'idle'})}
           onBlockedPaid={setPaidBlockedTarget}
+          onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
           onOpenMemberCharges={openMemberCharges}
+          onRequestDeletePaymentAccount={setPaymentAccountDeleteTarget}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
           onSelectPaymentAccount={setSelectedPaymentAccount}
           onRequestStatusChange={requestChargeStatusChange}
@@ -2157,10 +2314,6 @@ export function AdminScreen({
           onRetrySummary={() => void loadSettlement()}
           onSavePaymentAccount={() => void savePaymentAccount()}
           onSavePenaltyRule={() => void savePenaltyRule()}
-          onSearch={() => {
-            setChargeDetailState({status: 'idle'});
-            void loadSettlement();
-          }}
           onUpdateFilter={updateChargeFilter}
           paymentAccountForm={paymentAccountForm}
           paymentAccountCopyFeedback={accountCopyFeedback}
@@ -2190,20 +2343,17 @@ export function AdminScreen({
           onSelectFilter={setMemberFilter}
           onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
           onSelectRoleFilter={setRoleFilter}
-          onUpdateRole={updateRole}
           roleFilter={roleFilter}
           section={memberSection}
           selectedCampusRole={state.selectedCampus.campusRole}
         />
       ) : (
         <AdminRoleManagement
-          actionState={actionState}
           filter={roleFilter}
           globalRole={state.user.role}
           members={loadState.members}
           onSelectFilter={setRoleFilter}
           onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
-          onUpdateRole={updateRole}
           selectedCampusRole={state.selectedCampus.campusRole}
         />
       )}
@@ -2245,6 +2395,16 @@ export function AdminScreen({
         onCancel={() => setPaymentAccountDeactivateTarget(null)}
         onCopyAccount={copyAccountNumber}
         onConfirm={confirmDeactivatePaymentAccount}
+      />
+      <DeletePaymentAccountSheet
+        account={paymentAccountDeleteTarget}
+        copyFeedback={accountCopyFeedback}
+        copyOpacity={accountCopyOpacity}
+        error={actionError}
+        loading={actionState.status === 'deletingPaymentAccount'}
+        onCancel={() => setPaymentAccountDeleteTarget(null)}
+        onCopyAccount={copyAccountNumber}
+        onConfirm={confirmDeletePaymentAccount}
       />
       <PrayerSeasonCloseSheet
         error={actionError}
@@ -2347,7 +2507,6 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 }
 
 function AdminHome({
-  onOpenNotifications,
   onOpenPrayer,
   onOpenRoles,
   prayerState,
@@ -2355,7 +2514,6 @@ function AdminHome({
 }: {
   coffeeDuty?: DutyAssignment | null;
   onOpenMembers?: () => void;
-  onOpenNotifications?: () => void;
   onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
   prayerState: AdminPrayerState;
@@ -2365,7 +2523,7 @@ function AdminHome({
     <>
       <Card>
         <Eyebrow>오늘 운영</Eyebrow>
-        <Text numberOfLines={2} style={styles.adminHomeCampusTitle}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.adminHomeCampusTitle}>
           {summary.campus.campusName}
         </Text>
         <View style={styles.metricGrid}>
@@ -2397,15 +2555,6 @@ function AdminHome({
             accessibilityLabel="관리자 기도 관리 화면으로 이동"
           />
         ) : null}
-        {onOpenNotifications ? (
-          <ListRow
-            label="알림 관리"
-            supportingText="발송과 로그"
-            value="보기"
-            onPress={onOpenNotifications}
-            accessibilityLabel="관리자 알림 관리 화면으로 이동"
-          />
-        ) : null}
       </Card>
     </>
   );
@@ -2415,6 +2564,7 @@ type AdminPollSection = 'manage' | 'create' | 'results' | 'missing' | 'templates
 type AdminPollPrimarySection = 'ongoing' | 'closed' | 'create' | 'templates';
 type AdminPollCreateStep = 'type' | 'detail';
 type AdminPollTemplateStep = 'info' | 'schedule' | 'options' | 'confirm';
+type AdminPollTemplateMode = 'list' | 'editor';
 type AdminPollTypeFilter = AdminPollType | 'ALL';
 type AdminPollListState =
   | {status: 'loading'}
@@ -2514,15 +2664,14 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
 ];
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
   {id: 'CUSTOM', label: '커스텀'},
-  {id: 'COFFEE', label: '커피'},
   {id: 'WEDNESDAY', label: '수요'},
   {id: 'SATURDAY', label: '토요'},
 ];
 
 const adminPollCreateTypes: Array<{id: AdminPollType; label: string}> = [
+  {id: 'COFFEE', label: '커피 주문'},
   {id: 'WEDNESDAY', label: '수요예배 참석'},
   {id: 'SATURDAY', label: '토요 목자모임'},
-  {id: 'COFFEE', label: '커피 주문'},
   {id: 'CUSTOM', label: '커스텀 투표'},
 ];
 
@@ -2569,29 +2718,33 @@ function createEmptyAdminPollForm(): AdminPollCreateForm {
   const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
 
   return {
-    allowUserOptionAdd: false,
-    chargeGenerationType: 'NONE',
+    allowUserOptionAdd: true,
+    chargeGenerationType: 'OPTION_PRICE',
     endsAt: endsAt.toISOString(),
     isAnonymous: false,
-    optionsText: '참석, 불참',
+    optionsText: defaultCoffeePollOptionsText,
     paymentAccountId: '',
-    paymentCategory: 'NONE',
-    pollType: 'CUSTOM',
+    paymentCategory: 'COFFEE',
+    pollType: 'COFFEE',
     selectionType: 'SINGLE',
     startsAt: startsAt.toISOString(),
     templateId: '',
-    title: '',
+    title: '커피 주문',
   };
 }
 
 function AdminPollManagement({
   campusId,
-  coffeeDuty,
+  currentUserId,
+  knownOwnedCoffeeAccountIds,
+  onRequestCoffeeAccountCreate,
   onSessionStateChange,
   setNotice,
 }: {
   campusId: number;
-  coffeeDuty: DutyAssignment | null;
+  currentUserId: number;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onRequestCoffeeAccountCreate: () => void;
   onSessionStateChange: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
 }) {
@@ -2606,10 +2759,12 @@ function AdminPollManagement({
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [createStep, setCreateStep] = useState<AdminPollCreateStep>('type');
   const [templateStep, setTemplateStep] = useState<AdminPollTemplateStep>('info');
+  const [templateMode, setTemplateMode] = useState<AdminPollTemplateMode>('list');
   const [pollTypeFilter, setPollTypeFilter] = useState<AdminPollTypeFilter>('ALL');
   const [pollStatusTab, setPollStatusTab] = useState<AdminPollStatusTab>('ongoing');
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   const [pollCloseTarget, setPollCloseTarget] = useState<PollCloseTarget>(null);
+  const [templateDeleteTarget, setTemplateDeleteTarget] = useState<AdminPollTemplate | null>(null);
   const [templateForm, setTemplateForm] = useState<AdminPollTemplateForm>(
     emptyAdminPollTemplateForm,
   );
@@ -2631,7 +2786,7 @@ function AdminPollManagement({
       const [polls, templates, accounts] = await Promise.all([
         fetchAdminPolls(accessToken, campusId),
         fetchAdminPollTemplates(accessToken, campusId),
-        fetchPaymentAccounts(accessToken, campusId),
+        fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'}),
       ]);
 
       setListState(
@@ -2698,7 +2853,7 @@ function AdminPollManagement({
 
   const templates =
     listState.status === 'success' || listState.status === 'empty' ? listState.templates : [];
-  const displayTemplates = withDefaultCoffeePollTemplate(templates, campusId);
+  const displayTemplates = getVisibleAdminPollTemplates(templates);
   const polls =
     listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
   const accounts =
@@ -2712,7 +2867,12 @@ function AdminPollManagement({
     ? polls.find((poll) => poll.id === selectedPollId) ?? null
     : null;
   const busy = actionState.status !== 'idle';
-  const coffeeWarning = getAdminPollCoffeeWarning(pollForm, coffeeDuty);
+  const coffeeWarning = getAdminPollCoffeeWarning(
+    pollForm,
+    accounts,
+    currentUserId,
+    knownOwnedCoffeeAccountIds,
+  );
 
   const saveTemplate = async () => {
     if (busy) {
@@ -2754,7 +2914,8 @@ function AdminPollManagement({
       setTemplateForm(toTemplateForm(saved));
       await loadPolls();
       setTemplateStep('info');
-      setSection('manage');
+      setTemplateMode('list');
+      setSection('templates');
     } catch (error) {
       const apiError = toApiError(error, '반복투표를 저장하지 못했습니다.');
       setActionError(apiError);
@@ -2773,6 +2934,18 @@ function AdminPollManagement({
 
     if (deadlineValidationMessage) {
       setActionError({kind: 'error', message: deadlineValidationMessage});
+      return;
+    }
+
+    const coffeeValidationMessage = getAdminPollCoffeeWarning(
+      pollForm,
+      accounts,
+      currentUserId,
+      knownOwnedCoffeeAccountIds,
+    );
+
+    if (coffeeValidationMessage) {
+      setActionError({kind: 'error', message: coffeeValidationMessage});
       return;
     }
 
@@ -2796,6 +2969,43 @@ function AdminPollManagement({
       setSection('manage');
     } catch (error) {
       const apiError = toApiError(error, '투표를 생성하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmDeleteTemplate = async () => {
+    if (!templateDeleteTarget || busy || isDefaultCoffeePollTemplate(templateDeleteTarget)) {
+      return;
+    }
+
+    const target = templateDeleteTarget;
+    setActionState({status: 'deletingTemplate', templateId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const deleted = await deleteAdminPollTemplate(accessToken, campusId, target.id);
+      setTemplateDeleteTarget(null);
+      setTemplateForm(emptyAdminPollTemplateForm);
+      setTemplateStep('info');
+      setTemplateMode('list');
+      setSection('templates');
+      await loadPolls();
+      setNotice({
+        tone: 'warning',
+        title: '반복투표 삭제',
+        message: `${deleted.title} 반복투표를 삭제했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '반복투표를 삭제하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, onSessionStateChange);
     } finally {
@@ -2953,8 +3163,26 @@ function AdminPollManagement({
   };
 
   const startCreateTemplate = () => {
+    setTemplateDeleteTarget(null);
     setTemplateForm(emptyAdminPollTemplateForm);
     setTemplateStep('info');
+    setTemplateMode('editor');
+    setSection('templates');
+  };
+
+  const openTemplateList = () => {
+    setTemplateDeleteTarget(null);
+    setTemplateForm(emptyAdminPollTemplateForm);
+    setTemplateStep('info');
+    setTemplateMode('list');
+    setSection('templates');
+  };
+
+  const editTemplate = (template: AdminPollTemplate) => {
+    setTemplateDeleteTarget(null);
+    setTemplateForm(toTemplateForm(template));
+    setTemplateStep('info');
+    setTemplateMode('editor');
     setSection('templates');
   };
 
@@ -2975,7 +3203,7 @@ function AdminPollManagement({
     }
 
     if (nextSection === 'templates') {
-      startCreateTemplate();
+      openTemplateList();
       return;
     }
 
@@ -3009,32 +3237,41 @@ function AdminPollManagement({
                 setSection('results');
                 void loadResults(poll.id);
               }}
-              onSelectPoll={selectPoll}
               polls={visiblePolls}
               selectedPollId={selectedPollId}
               statusTab={pollStatusTab}
             />
           ) : null}
           {section === 'templates' ? (
-            <AdminPollTemplateEditor
-              actionState={actionState}
-              actionError={actionError}
-              accounts={accounts}
-              coffeeCatalogState={coffeeCatalogState}
-              form={templateForm}
-              onCancel={() => {
-                setTemplateForm(emptyAdminPollTemplateForm);
-                setTemplateStep('info');
-                setSection('manage');
-              }}
-              onChangeForm={(patch) =>
-                setTemplateForm((current) => ({...current, ...patch}))
-              }
-              onChangeStep={setTemplateStep}
-              onRetryCoffeeCatalog={loadCoffeeCatalog}
-              onSave={saveTemplate}
-              step={templateStep}
-            />
+            templateMode === 'editor' ? (
+              <AdminPollTemplateEditor
+                actionState={actionState}
+                actionError={actionError}
+                accounts={accounts}
+                coffeeCatalogState={coffeeCatalogState}
+                form={templateForm}
+                onCancel={openTemplateList}
+                onChangeForm={(patch) =>
+                  setTemplateForm((current) => ({...current, ...patch}))
+                }
+                onChangeStep={setTemplateStep}
+                onRetryCoffeeCatalog={loadCoffeeCatalog}
+                onSave={saveTemplate}
+                step={templateStep}
+              />
+            ) : (
+              <AdminPollTemplateListPanel
+                actionError={actionError}
+                actionState={actionState}
+                deleteTarget={templateDeleteTarget}
+                onCancelDelete={() => setTemplateDeleteTarget(null)}
+                onConfirmDelete={confirmDeleteTemplate}
+                onDeleteTemplate={setTemplateDeleteTarget}
+                onEditTemplate={editTemplate}
+                onNewTemplate={startCreateTemplate}
+                templates={displayTemplates}
+              />
+            )
           ) : null}
           {section === 'create' ? (
             <AdminPollCreatePanel
@@ -3044,7 +3281,9 @@ function AdminPollManagement({
               coffeeCatalogState={coffeeCatalogState}
               createStep={createStep}
               coffeeWarning={coffeeWarning}
+              currentUserId={currentUserId}
               form={pollForm}
+              knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
               onCancel={() => {
                 setPollForm(createEmptyAdminPollForm());
                 setCreateStep('type');
@@ -3053,6 +3292,7 @@ function AdminPollManagement({
               onChangeForm={(patch) => setPollForm((current) => ({...current, ...patch}))}
               onChangeStep={setCreateStep}
               onCreate={createPoll}
+              onRequestCoffeeAccountCreate={onRequestCoffeeAccountCreate}
               onRetryCoffeeCatalog={loadCoffeeCatalog}
               onReset={() => setPollForm(createEmptyAdminPollForm())}
               templates={displayTemplates}
@@ -3123,7 +3363,6 @@ function AdminPollList({
   onChangeFilter,
   onClosePoll,
   onRefresh,
-  onSelectPoll,
   onViewResults,
   polls,
   selectedPollId,
@@ -3133,7 +3372,6 @@ function AdminPollList({
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
   onClosePoll: (poll: PollSummary) => void;
   onRefresh: () => void;
-  onSelectPoll: (poll: PollSummary) => void;
   onViewResults: (poll: PollSummary) => void;
   polls: PollSummary[];
   selectedPollId: number | null;
@@ -3171,10 +3409,9 @@ function AdminPollList({
         ) : null}
         {polls.map((poll) => (
           <AdminPollListItem
-            accessibilityLabel={`${poll.title} 투표 선택`}
+            accessibilityLabel={`${poll.title} 투표 결과 보기`}
             key={poll.id}
-            onPress={() => onSelectPoll(poll)}
-            onActionPress={() => onViewResults(poll)}
+            onPress={() => onViewResults(poll)}
             onClosePress={() => onClosePoll(poll)}
             poll={poll}
             selected={poll.id === selectedPollId}
@@ -3195,14 +3432,12 @@ function AdminPollList({
 function AdminPollListItem({
   accessibilityLabel,
   onClosePress,
-  onActionPress,
   onPress,
   poll,
   selected,
 }: {
   accessibilityLabel: string;
   onClosePress: () => void;
-  onActionPress: () => void;
   onPress: () => void;
   poll: PollSummary;
   selected: boolean;
@@ -3232,32 +3467,175 @@ function AdminPollListItem({
           {getAdminPollListMeta(poll)}
         </Text>
       </View>
-      <Pressable
-        accessibilityLabel={`${poll.title} 결과 확인`}
-        accessibilityRole="button"
-        onPress={onActionPress}
-        style={({pressed}) => [styles.pollResultPill, pressed ? styles.pressed : null]}>
-        <Text style={styles.pollResultPillText}>
-          {poll.pollType === 'CUSTOM' && poll.responded ? '댓글' : '결과'}
-        </Text>
-      </Pressable>
       {canClose ? (
         <Pressable
           accessibilityLabel={`${poll.title} 투표 종료`}
           accessibilityRole="button"
-          onPress={onClosePress}
+          onPress={(event) => {
+            event.stopPropagation();
+            onClosePress();
+          }}
           style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
           <Text style={styles.pollClosePillText}>종료</Text>
         </Pressable>
       ) : null}
-      <Pressable
-        accessibilityLabel={`${poll.title} 투표 관리`}
-        accessibilityRole="button"
-        onPress={onPress}
-        style={({pressed}) => [styles.pollManagePill, pressed ? styles.pressed : null]}>
-        <Text style={styles.pollManagePillText}>관리</Text>
-      </Pressable>
     </Pressable>
+  );
+}
+
+function AdminPollTemplateListPanel({
+  actionError,
+  actionState,
+  deleteTarget,
+  onCancelDelete,
+  onConfirmDelete,
+  onDeleteTemplate,
+  onEditTemplate,
+  onNewTemplate,
+  templates,
+}: {
+  actionError: ApiError | null;
+  actionState: AdminPollActionState;
+  deleteTarget: AdminPollTemplate | null;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+  onDeleteTemplate: (template: AdminPollTemplate) => void;
+  onEditTemplate: (template: AdminPollTemplate) => void;
+  onNewTemplate: () => void;
+  templates: AdminPollTemplate[];
+}) {
+  const busy = actionState.status !== 'idle';
+  const serverTemplates = templates.filter((template) => !isDefaultCoffeePollTemplate(template));
+  const activeServerTemplates = serverTemplates.filter(
+    (template) => template.isActive && template.autoCreateEnabled,
+  );
+
+  return (
+    <View style={styles.pollSectionShell}>
+      <View style={styles.pollTemplateSummary}>
+        <View style={styles.headerText}>
+          <Text style={styles.pollTemplateSummaryTitle}>
+            {`활성 반복 ${activeServerTemplates.length}개`}
+          </Text>
+          <Text style={styles.pollTemplateSummaryText}>반복투표를 만들고 편집합니다.</Text>
+        </View>
+        <Button
+          accessibilityLabel="새 반복투표 만들기"
+          disabled={busy}
+          onPress={onNewTemplate}
+          variant="secondary">
+          새 반복
+        </Button>
+      </View>
+
+      {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
+
+      {serverTemplates.length === 0 ? (
+        <Body>저장된 반복투표가 없습니다.</Body>
+      ) : null}
+
+      {templates.map((template) => {
+        const isDefaultCoffeePreset = isDefaultCoffeePollTemplate(template);
+        const isCoffeeChargeTemplate =
+          template.pollType === 'COFFEE' &&
+          template.chargeGenerationType === 'OPTION_PRICE';
+        const statusLabel = isDefaultCoffeePreset
+          ? '기본'
+          : template.isActive
+            ? isCoffeeChargeTemplate
+              ? '주의'
+              : 'ON'
+            : 'OFF';
+        const canDelete = template.isActive && !isDefaultCoffeePollTemplate(template);
+        const deleting =
+          actionState.status === 'deletingTemplate' && actionState.templateId === template.id;
+
+        return (
+          <Pressable
+            accessibilityLabel={`${template.title} 반복투표 수정`}
+            accessibilityRole="button"
+            disabled={busy}
+            key={template.id}
+            onPress={() => onEditTemplate(template)}
+            style={({pressed}) => [styles.pollTemplateRow, pressed ? styles.pressed : null]}>
+            <View style={styles.pollItemText}>
+              <View style={styles.pollTemplateTitleRow}>
+                <Text numberOfLines={1} style={styles.pollItemTitle}>
+                  {template.title}
+                </Text>
+                {isDefaultCoffeePreset ? <Chip label="추천" tone="info" /> : null}
+              </View>
+              <Text numberOfLines={1} style={styles.pollItemMeta}>
+                {isDefaultCoffeePreset
+                  ? '저장 전 기본값'
+                  : getTemplateScheduleLabel(template)}
+              </Text>
+            </View>
+            <View style={styles.pollTemplateActions}>
+              <View
+                style={[
+                  styles.pollStatusPill,
+                  !template.isActive ? styles.pollStatusPillMuted : null,
+                  isDefaultCoffeePreset
+                    ? styles.pollStatusPillInfo
+                    : isCoffeeChargeTemplate
+                      ? styles.pollStatusPillDanger
+                      : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.pollStatusPillText,
+                    !template.isActive ? styles.pollStatusPillTextMuted : null,
+                    isDefaultCoffeePreset
+                      ? styles.pollStatusPillTextInfo
+                      : isCoffeeChargeTemplate
+                        ? styles.pollStatusPillTextDanger
+                        : null,
+                  ]}>
+                  {statusLabel}
+                </Text>
+              </View>
+              {canDelete ? (
+                <Pressable
+                  accessibilityLabel={`${template.title} 반복투표 삭제 확인`}
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onDeleteTemplate(template);
+                  }}
+                  style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
+                  <Text style={styles.pollClosePillText}>{deleting ? '삭제중' : '삭제'}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </Pressable>
+        );
+      })}
+
+      {deleteTarget ? (
+        <Card>
+          <Title>{deleteTarget.title}</Title>
+          <Body>이 반복투표를 삭제할까요? 이미 생성된 투표는 그대로 유지됩니다.</Body>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel={`${deleteTarget.title} 반복투표 삭제 실행`}
+              disabled={busy}
+              onPress={onConfirmDelete}
+              variant="danger">
+              {actionState.status === 'deletingTemplate' ? '삭제 중...' : '삭제'}
+            </Button>
+            <Button
+              accessibilityLabel="반복투표 삭제 취소"
+              disabled={busy}
+              onPress={onCancelDelete}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </Card>
+      ) : null}
+    </View>
   );
 }
 
@@ -4307,10 +4685,13 @@ function AdminPollCreatePanel({
   coffeeWarning,
   createStep,
   form,
+  currentUserId,
+  knownOwnedCoffeeAccountIds,
   onCancel,
   onChangeForm,
   onChangeStep,
   onCreate,
+  onRequestCoffeeAccountCreate,
   onRetryCoffeeCatalog,
   onReset,
   templates,
@@ -4322,10 +4703,13 @@ function AdminPollCreatePanel({
   coffeeWarning: string | null;
   createStep: AdminPollCreateStep;
   form: AdminPollCreateForm;
+  currentUserId: number;
+  knownOwnedCoffeeAccountIds: Set<number>;
   onCancel: () => void;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
   onChangeStep: (step: AdminPollCreateStep) => void;
   onCreate: () => void;
+  onRequestCoffeeAccountCreate: () => void;
   onRetryCoffeeCatalog: () => void;
   onReset: () => void;
   templates: AdminPollTemplate[];
@@ -4338,12 +4722,28 @@ function AdminPollCreatePanel({
   const deadlineDate = getAdminDateTimeValue(form.endsAt);
   const deadlineValidationReason = getAdminPollDeadlineValidationMessage(form);
   const createDisabledReason = getAdminPollCreateDisabledReason(form, coffeeWarning);
+  const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
+    accounts,
+    currentUserId,
+    knownOwnedCoffeeAccountIds,
+  );
+  const selectablePaymentAccounts =
+    form.pollType === 'COFFEE' ? ownedCoffeeAccounts : accounts;
   const knownCoffeeMenuIds =
     coffeeCatalogState.status === 'success'
       ? new Set(coffeeCatalogState.menus.map((menu) => menu.id))
       : new Set<number>();
   const selectType = (pollType: AdminPollType) => {
-    onChangeForm(getCreatePollTypePatch(pollType, form, templates));
+    const patch = getCreatePollTypePatch(pollType, form, templates);
+
+    if (pollType === 'COFFEE') {
+      const selectedId = toOptionalPositiveId(form.paymentAccountId);
+      const selectedAccount = ownedCoffeeAccounts.find((account) => account.id === selectedId);
+      patch.paymentAccountId = String(selectedAccount?.id ?? ownedCoffeeAccounts[0]?.id ?? '');
+      patch.paymentCategory = 'COFFEE';
+    }
+
+    onChangeForm(patch);
   };
   const goToDetail = () => {
     onChangeForm(getCreatePollTimeRefreshPatch(form));
@@ -4649,10 +5049,23 @@ function AdminPollCreatePanel({
           {coffeeWarning ? (
             <View style={styles.inlineError}>
               <Text style={styles.inlineErrorText}>{coffeeWarning}</Text>
+              {form.pollType === 'COFFEE' ? (
+                <Pressable
+                  accessibilityLabel="커피 계좌 등록 화면으로 이동"
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={onRequestCoffeeAccountCreate}
+                  style={({pressed}) => [
+                    styles.inlineErrorAction,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.inlineErrorActionText}>계좌 등록</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
           <PaymentAccountPicker
-            accounts={accounts}
+            accounts={selectablePaymentAccounts}
             category={form.paymentCategory}
             onSelect={(account) =>
               onChangeForm({
@@ -6551,6 +6964,7 @@ function AdminPrayerGroupList({
               </View>
               <AdminCompactButton
                 accessibilityLabel="기도조 생성 시작"
+                disabled={!canCreate}
                 onPress={onCreate}>
                 조 생성
               </AdminCompactButton>
@@ -6582,6 +6996,7 @@ function AdminPrayerGroupList({
             </View>
             <AdminCompactButton
               accessibilityLabel="기도조 생성 시작"
+              disabled={!canCreate}
               onPress={onCreate}>
               조 생성
             </AdminCompactButton>
@@ -7160,6 +7575,7 @@ function AdminPrayerMembersForm({
       return option ? isPrayerAssignableMemberSelectable(option, currentGroupId) : true;
     }),
   );
+  const canSave = hasSelectedGroup && selectedUserIds.size > 0 && !busy;
   const toggleMember = (userId: number) => {
     const option = memberOptions.find((member) => member.userId === userId);
 
@@ -7230,6 +7646,11 @@ function AdminPrayerMembersForm({
           ) : assignableMembersState.status === 'error' ? (
             <AdminInlineError error={assignableMembersState.error} />
           ) : null}
+          {selectedUserIds.size === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>조원 1명 이상을 선택해야 저장할 수 있어요.</Text>
+            </View>
+          ) : null}
           <View style={styles.prayerMemberSelectList}>
             {displayMembers.map((member) => {
               const assignedGroupName =
@@ -7273,7 +7694,7 @@ function AdminPrayerMembersForm({
           </View>
           <Button
             accessibilityLabel="기도조 멤버 전체 교체 저장"
-            disabled={busy}
+            disabled={!canSave}
             onPress={onSave}>
             {busy ? '저장 중...' : submitLabel}
           </Button>
@@ -7292,8 +7713,11 @@ function AdminPrayerMembersForm({
 
 function AdminSettlement({
   actionState,
+  currentUserId,
   detailState,
   filters,
+  knownOwnedCoffeeAccountIds,
+  onActivatePaymentAccount,
   onCancelPenaltyRuleEdit,
   onChangePaymentAccountForm,
   onChangePenaltyRuleForm,
@@ -7303,6 +7727,7 @@ function AdminSettlement({
   onCopyPaymentAccount,
   onEditPenaltyRule,
   onOpenMemberCharges,
+  onRequestDeletePaymentAccount,
   onRequestDeactivatePaymentAccount,
   onRequestStatusChange,
   onRetryPaymentAccounts,
@@ -7312,7 +7737,6 @@ function AdminSettlement({
   onRetrySummary,
   onSavePaymentAccount,
   onSavePenaltyRule,
-  onSearch,
   onSelectPaymentAccount,
   onUpdateFilter,
   paymentAccountForm,
@@ -7326,8 +7750,11 @@ function AdminSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
+  currentUserId: number;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onActivatePaymentAccount: (account: PaymentAccount) => void;
   onCancelPenaltyRuleEdit: () => void;
   onChangePaymentAccountForm: (patch: Partial<PaymentAccountForm>) => void;
   onChangePenaltyRuleForm: (patch: Partial<PenaltyRuleForm>) => void;
@@ -7337,6 +7764,7 @@ function AdminSettlement({
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
   onRetryPaymentAccounts: () => void;
@@ -7346,7 +7774,6 @@ function AdminSettlement({
   onRetrySummary: () => void;
   onSavePaymentAccount: () => void;
   onSavePenaltyRule: () => void;
-  onSearch: () => void;
   onSelectPaymentAccount: (account: PaymentAccount | null) => void;
   onUpdateFilter: <Key extends keyof AdminChargeFilters>(
     key: Key,
@@ -7386,7 +7813,6 @@ function AdminSettlement({
           onResetFilters={onResetFilters}
           onRetryDetail={onRetryDetail}
           onRetrySummary={onRetrySummary}
-          onSearch={onSearch}
           onUpdateFilter={onUpdateFilter}
           settlementState={settlementState}
         />
@@ -7395,9 +7821,13 @@ function AdminSettlement({
           busy={busy}
           copyFeedback={paymentAccountCopyFeedback}
           copyOpacity={paymentAccountCopyOpacity}
+          currentUserId={currentUserId}
           form={paymentAccountForm}
+          knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+          onActivateAccount={onActivatePaymentAccount}
           onChangeForm={onChangePaymentAccountForm}
           onBackToList={() => onSelectPaymentAccount(null)}
+          onRequestDelete={onRequestDeletePaymentAccount}
           onRequestDeactivate={onRequestDeactivatePaymentAccount}
           onCopyAccount={onCopyPaymentAccount}
           onRetry={onRetryPaymentAccounts}
@@ -7433,7 +7863,6 @@ function AdminChargeSettlement({
   onResetFilters,
   onRetryDetail,
   onRetrySummary,
-  onSearch,
   onUpdateFilter,
   settlementState,
 }: {
@@ -7447,20 +7876,33 @@ function AdminChargeSettlement({
   onResetFilters: () => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
   onRetrySummary: () => void;
-  onSearch: () => void;
   onUpdateFilter: <Key extends keyof AdminChargeFilters>(
     key: Key,
     value: AdminChargeFilters[Key],
   ) => void;
   settlementState: AdminSettlementState;
 }) {
+  const summary =
+    settlementState.status === 'success' || settlementState.status === 'empty'
+      ? settlementState.charges
+      : null;
+
   return (
     <>
-      <SettlementSectionHeader
-        description="상태, 유형, 회원 검색으로 정산 대상을 좁혀 봅니다."
-        title="조회 조건"
-      />
-      <View style={styles.figmaFormCard}>
+      {summary ? <SettlementSummaryCard charges={summary} /> : null}
+      <View style={styles.chargeFilterCard}>
+        <View style={styles.chargeFilterHeader}>
+          <View style={styles.headerText}>
+            <Text style={styles.sectionTitle}>청구</Text>
+            <Text style={styles.settlementSectionDescription}>필터를 누르면 바로 반영됩니다.</Text>
+          </View>
+          <Button
+            accessibilityLabel="관리자 정산 필터 초기화"
+            onPress={onResetFilters}
+            variant="ghost">
+            초기화
+          </Button>
+        </View>
         <FigmaSegmentedControl
           items={chargeStatusFilters}
           selectedId={filters.status}
@@ -7477,34 +7919,18 @@ function AdminChargeSettlement({
               accessibilityLabel="정산 이름 또는 이메일 검색어"
               label="회원 검색"
               onChangeText={(keyword) => onUpdateFilter('keyword', keyword)}
-              onSubmitEditing={onSearch}
-              placeholder="이름 또는 이메일"
-              returnKeyType="search"
+              placeholder="이름, 이메일"
               value={filters.keyword}
             />
           </View>
-        </View>
-        <View style={styles.actionRow}>
-          <Button accessibilityLabel="관리자 정산 필터 적용" onPress={onSearch}>
-            조회
-          </Button>
-          <Button
-            accessibilityLabel="관리자 정산 필터 초기화"
-            onPress={onResetFilters}
-            variant="secondary">
-            초기화
-          </Button>
         </View>
       </View>
       {renderSettlementSummary({
         onOpenMemberCharges,
         onRetrySummary,
         settlementState,
+        showSummary: summary === null,
       })}
-      <SettlementSectionHeader
-        description="회원을 선택하면 청구 항목과 상태 변경 액션을 확인할 수 있습니다."
-        title="선택 회원 상세"
-      />
       {renderChargeDetail({
         actionState,
         detailState,
@@ -7536,10 +7962,14 @@ function AdminPaymentAccounts({
   busy,
   copyFeedback,
   copyOpacity,
+  currentUserId,
   form,
+  knownOwnedCoffeeAccountIds,
+  onActivateAccount,
   onChangeForm,
   onBackToList,
   onCopyAccount,
+  onRequestDelete,
   onRequestDeactivate,
   onRetry,
   onSave,
@@ -7550,10 +7980,14 @@ function AdminPaymentAccounts({
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
+  currentUserId: number;
   form: PaymentAccountForm;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onActivateAccount: (account: PaymentAccount) => void;
   onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
   onBackToList: () => void;
   onCopyAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSave: () => void;
@@ -7568,8 +8002,10 @@ function AdminPaymentAccounts({
         busy={busy}
         copyFeedback={copyFeedback}
         copyOpacity={copyOpacity}
+        onActivateAccount={onActivateAccount}
         onBack={onBackToList}
         onCopyAccount={onCopyAccount}
+        onRequestDelete={onRequestDelete}
         onRequestDeactivate={onRequestDeactivate}
       />
     );
@@ -7578,12 +8014,21 @@ function AdminPaymentAccounts({
   return (
     <>
       <SettlementSectionHeader
-        description="현재 활성 계좌를 확인하고 필요한 계좌를 등록합니다."
+        description="벌금 계좌는 캠퍼스 기준 1개만 활성화되고, 커피 계좌는 내 계좌만 커피투표에 사용할 수 있습니다."
         title="계좌 관리"
       />
-      {renderPaymentAccountList({busy, onRetry, onSelectAccount, state})}
+      {renderPaymentAccountList({
+        busy,
+        currentUserId,
+        knownOwnedCoffeeAccountIds,
+        onActivateAccount,
+        onRequestDelete,
+        onRetry,
+        onSelectAccount,
+        state,
+      })}
       <SettlementSectionHeader
-        description="새 정산 연결에 사용할 벌금 또는 커피 계좌를 추가합니다."
+        description="벌금 계좌는 새로 저장하면 기존 활성 계좌가 이전 계좌로 내려갑니다. 커피 계좌는 내 계좌로 등록됩니다."
         title="계좌 등록"
       />
       <View style={styles.figmaFormCard}>
@@ -7646,18 +8091,24 @@ function PaymentAccountDetail({
   busy,
   copyFeedback,
   copyOpacity,
+  onActivateAccount,
   onBack,
   onCopyAccount,
+  onRequestDelete,
   onRequestDeactivate,
 }: {
   account: PaymentAccount;
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
+  onActivateAccount: (account: PaymentAccount) => void;
   onBack: () => void;
   onCopyAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
 }) {
+  const active = isPaymentAccountActive(account);
+
   return (
     <>
       <View style={styles.figmaHeroCard}>
@@ -7690,7 +8141,7 @@ function PaymentAccountDetail({
                 </Text>
               </Animated.View>
             ) : null}
-            <Chip label={getPaymentCategoryLabel(account.accountType)} tone="info" />
+            <Chip label={getPaymentAccountStatusLabel(account)} tone={active ? 'success' : 'warning'} />
           </View>
         </View>
         <Text style={styles.figmaBodyText}>
@@ -7708,13 +8159,31 @@ function PaymentAccountDetail({
         </View>
       </View>
       <View style={styles.actionRow}>
-        <Button
-          accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
-          disabled={busy}
-          onPress={() => onRequestDeactivate(account)}
-          variant="danger">
-          비활성화
-        </Button>
+        {active ? (
+          <Button
+            accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
+            disabled={busy}
+            onPress={() => onRequestDeactivate(account)}
+            variant="danger">
+            비활성화
+          </Button>
+        ) : (
+          <>
+            <Button
+              accessibilityLabel={`${account.nickname} 계좌 활성화`}
+              disabled={busy}
+              onPress={() => onActivateAccount(account)}>
+              활성화
+            </Button>
+            <Button
+              accessibilityLabel={`${account.nickname} 비활성 계좌 삭제 확인 열기`}
+              disabled={busy}
+              onPress={() => onRequestDelete(account)}
+              variant="danger">
+              삭제
+            </Button>
+          </>
+        )}
         <Button accessibilityLabel="납부 계좌 목록으로 돌아가기" onPress={onBack} variant="secondary">
           목록
         </Button>
@@ -7725,11 +8194,19 @@ function PaymentAccountDetail({
 
 function renderPaymentAccountList({
   busy,
+  currentUserId,
+  knownOwnedCoffeeAccountIds,
+  onActivateAccount,
+  onRequestDelete,
   onRetry,
   onSelectAccount,
   state,
 }: {
   busy: boolean;
+  currentUserId: number;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onActivateAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSelectAccount: (account: PaymentAccount) => void;
   state: PaymentAccountState;
@@ -7743,54 +8220,178 @@ function renderPaymentAccountList({
     case 'empty':
       return (
         <Empty
-          title="활성 납부 계좌가 없습니다"
-          message="정산 전에 벌금 또는 커피 계좌를 등록해 주세요."
+          title="등록된 계좌가 없습니다"
+          message="벌금 정산 계좌 또는 커피투표에 사용할 내 커피 계좌를 등록해 주세요."
           actionLabel="다시 조회"
           actionAccessibilityLabel="납부 계좌 empty state에서 다시 조회"
           onActionPress={onRetry}
         />
       );
     case 'success':
+      const activePenaltyAccounts = state.accounts
+        .filter((account) => account.accountType === 'PENALTY' && isPaymentAccountActive(account))
+        .sort(comparePaymentAccountsForDisplay);
+      const inactivePenaltyAccounts = state.accounts
+        .filter((account) => account.accountType === 'PENALTY' && !isPaymentAccountActive(account))
+        .sort(comparePaymentAccountsForDisplay);
+      const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
+        state.accounts,
+        currentUserId,
+        knownOwnedCoffeeAccountIds,
+        {includeInactive: true},
+      ).sort(comparePaymentAccountsForDisplay);
+      const activeOwnedCoffeeAccounts = ownedCoffeeAccounts.filter(isPaymentAccountActive);
+      const inactiveOwnedCoffeeAccounts = ownedCoffeeAccounts.filter(
+        (account) => !isPaymentAccountActive(account),
+      );
+
       return (
         <>
           <View style={styles.figmaHeroCard}>
-            <Text style={styles.figmaHeroLabel}>활성 납부 계좌</Text>
+            <Text style={styles.figmaHeroLabel}>활성 벌금 계좌</Text>
             <View style={styles.figmaHeroRow}>
-              <Text style={styles.figmaHeroCount}>{state.accounts.length}개</Text>
+              <Text style={styles.figmaHeroCount}>{activePenaltyAccounts.length}개</Text>
               <Text style={styles.figmaActionPill}>관리</Text>
             </View>
           </View>
-          {state.accounts.map((account) => (
-            <View key={account.id} style={styles.figmaListItem}>
-              <View style={styles.figmaIconBox}>
-                <IconexIcon
-                  color={adminFigmaTokens.primary}
-                  name={account.accountType === 'COFFEE' ? 'credit-card' : 'wallet'}
-                  size={22}
-                />
-              </View>
-              <View style={styles.figmaListContent}>
-                <View style={styles.figmaListText}>
-                  <Text style={styles.figmaCardTitle}>{account.nickname}</Text>
-                  <Text style={styles.figmaBodyText}>
-                    {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
-                  </Text>
-                </View>
-                <Button
-                  accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
-                  disabled={busy}
-                  onPress={() => onSelectAccount(account)}
-                  variant="secondary">
-                  상세
-                </Button>
-              </View>
+          {activePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>
+                현재 활성 벌금 계좌가 없습니다. 새 벌금 계좌를 등록하거나 이전 벌금 계좌를 활성화해 주세요.
+              </Text>
             </View>
-          ))}
+          ) : (
+            activePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem
+                account={account}
+                busy={busy}
+                key={account.id}
+                onSelectAccount={onSelectAccount}
+              />
+            ))
+          )}
+          <SettlementSectionHeader
+            description="비활성 벌금 계좌만 다시 활성화하거나 삭제할 수 있습니다."
+            title="이전 벌금 계좌"
+          />
+          {inactivePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>이전 벌금 계좌가 없습니다.</Text>
+            </View>
+          ) : (
+            inactivePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem
+                account={account}
+                busy={busy}
+                key={account.id}
+                onActivateAccount={onActivateAccount}
+                onRequestDelete={onRequestDelete}
+                onSelectAccount={onSelectAccount}
+              />
+            ))
+          )}
+          <SettlementSectionHeader
+            description="커피투표 생성에는 현재 로그인한 사용자의 활성 커피 계좌만 사용할 수 있습니다."
+            title="내 커피 계좌"
+          />
+          {ownedCoffeeAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>내 커피 계좌가 없습니다. 커피투표를 만들려면 커피 계좌를 등록해 주세요.</Text>
+            </View>
+          ) : (
+            <>
+              {activeOwnedCoffeeAccounts.map((account) => (
+                <PaymentAccountListItem
+                  account={account}
+                  busy={busy}
+                  key={account.id}
+                  onSelectAccount={onSelectAccount}
+                />
+              ))}
+              {inactiveOwnedCoffeeAccounts.map((account) => (
+                <PaymentAccountListItem
+                  account={account}
+                  busy={busy}
+                  key={account.id}
+                  onActivateAccount={onActivateAccount}
+                  onRequestDelete={onRequestDelete}
+                  onSelectAccount={onSelectAccount}
+                />
+              ))}
+            </>
+          )}
         </>
       );
     default:
       return assertNever(state);
   }
+}
+
+function PaymentAccountListItem({
+  account,
+  busy,
+  onActivateAccount,
+  onRequestDelete,
+  onSelectAccount,
+}: {
+  account: PaymentAccount;
+  busy: boolean;
+  onActivateAccount?: (account: PaymentAccount) => void;
+  onRequestDelete?: (account: PaymentAccount) => void;
+  onSelectAccount: (account: PaymentAccount) => void;
+}) {
+  const active = isPaymentAccountActive(account);
+
+  return (
+    <View style={styles.figmaListItem}>
+      <View style={styles.figmaIconBox}>
+        <IconexIcon
+          color={active ? adminFigmaTokens.primary : adminFigmaTokens.textMuted}
+          name={account.accountType === 'COFFEE' ? 'credit-card' : 'wallet'}
+          size={22}
+        />
+      </View>
+      <View style={styles.figmaListContent}>
+        <View style={styles.figmaListText}>
+          <View style={styles.headerRowCompact}>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCardTitle}>
+              {account.nickname}
+            </Text>
+            <Chip label={getPaymentAccountStatusLabel(account)} tone={active ? 'success' : 'warning'} />
+          </View>
+          <Text style={styles.figmaBodyText}>
+            {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
+          </Text>
+        </View>
+        <View style={styles.compactActionRow}>
+          {!active && onActivateAccount ? (
+            <AdminCompactButton
+              accessibilityLabel={`${account.nickname} 계좌 활성화`}
+              disabled={busy}
+              onPress={() => onActivateAccount(account)}>
+              활성화
+            </AdminCompactButton>
+          ) : null}
+          {!active && onRequestDelete ? (
+            <AdminCompactButton
+              accessibilityLabel={`${account.nickname} 비활성 계좌 삭제 확인 열기`}
+              disabled={busy}
+              onPress={() => onRequestDelete(account)}
+              variant="danger">
+              삭제
+            </AdminCompactButton>
+          ) : null}
+          <AdminCompactButton
+            accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
+            disabled={busy}
+            onPress={() => onSelectAccount(account)}
+            variant="secondary">
+            상세
+          </AdminCompactButton>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function AdminPenaltyRules({
@@ -8017,10 +8618,12 @@ function PenaltyRuleModeSummary({
 function renderSettlementSummary({
   onOpenMemberCharges,
   onRetrySummary,
+  showSummary,
   settlementState,
 }: {
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRetrySummary: () => void;
+  showSummary: boolean;
   settlementState: AdminSettlementState;
 }) {
   switch (settlementState.status) {
@@ -8032,36 +8635,21 @@ function renderSettlementSummary({
     case 'empty':
       return (
         <>
-          <SettlementSectionHeader
-            description="현재 필터 기준의 총액과 미납 금액입니다."
-            title="정산 요약"
-          />
-          <SettlementSummaryCard charges={settlementState.charges} />
-          <SettlementSectionHeader
-            description="조건에 맞는 회원별 청구 상태를 표시합니다."
-            title="회원별 청구·미납 상세"
-          />
+          {showSummary ? <SettlementSummaryCard charges={settlementState.charges} /> : null}
           <Empty
-            title="조건에 맞는 청구 회원이 없습니다"
-            message="상태, 유형, 검색어 필터를 조정해 주세요."
-            actionLabel="다시 조회"
-            actionAccessibilityLabel="관리자 정산 empty state에서 다시 조회"
-            onActionPress={onRetrySummary}
+            title="표시할 청구가 없습니다"
+            message="필터를 바꾸면 자동으로 다시 표시됩니다."
           />
         </>
       );
     case 'success':
       return (
         <>
-          <SettlementSectionHeader
-            description="현재 필터 기준의 총액과 미납 금액입니다."
-            title="정산 요약"
-          />
-          <SettlementSummaryCard charges={settlementState.charges} />
-          <SettlementSectionHeader
-            description="미납 금액이 있는 회원부터 빠르게 확인하고 상세로 들어갑니다."
-            title="회원별 청구·미납 상세"
-          />
+          {showSummary ? <SettlementSummaryCard charges={settlementState.charges} /> : null}
+          <View style={styles.chargeListHeader}>
+            <Text style={styles.sectionTitle}>회원별 청구</Text>
+            <Text style={styles.chargeListCount}>{settlementState.charges.members.length}명</Text>
+          </View>
           <View style={styles.figmaListStack}>
             {settlementState.charges.members.map((member) => (
               <SettlementMemberRow
@@ -8084,10 +8672,10 @@ function SettlementSummaryCard({charges}: {charges: AdminCampusChargeSummary}) {
       <Text style={styles.figmaHeroLabel}>이번 달 총 미납</Text>
       <View style={styles.figmaHeroRow}>
         <Text style={styles.figmaHeroAmount}>{formatWon(charges.summary.unpaidAmount)}</Text>
-        <Text style={styles.figmaDangerPill}>미납 알림</Text>
+        <Text style={styles.figmaDangerPill}>미납</Text>
       </View>
       <Text style={styles.figmaHeroMeta}>
-        {charges.campusName} · 총 {formatWon(charges.summary.totalAmount)}
+        {charges.campusName} · 총 {formatWon(charges.summary.totalAmount)} · 납부 {formatWon(charges.summary.paidAmount)}
       </Text>
     </View>
   );
@@ -8115,7 +8703,7 @@ function SettlementMemberRow({
       <View style={styles.figmaIconBox}>
         <IconexIcon
           color={adminFigmaTokens.primary}
-          name={member.unpaidAmount > 0 ? 'wallet' : 'check'}
+          name="wallet"
           size={22}
           strokeWidth={2.2}
         />
@@ -8123,16 +8711,112 @@ function SettlementMemberRow({
       <View style={styles.figmaListContent}>
         <View style={styles.figmaListText}>
           <Text style={styles.figmaCardTitle}>{member.name}</Text>
-          <Text style={styles.figmaBodyText}>
-            {member.unpaidAmount > 0
-              ? `미납 ${formatWon(member.unpaidAmount)} · 납부 ${formatWon(member.paidAmount)}`
-              : `납부 완료 ${formatWon(member.paidAmount)}`}
-          </Text>
+          <Text style={styles.figmaBodyText}>{getChargeMemberSummaryText(member)}</Text>
         </View>
         <Text style={styles.figmaActionPill}>상세</Text>
       </View>
     </Pressable>
   );
+}
+
+function filterAdminCampusChargeSummary(
+  charges: AdminCampusChargeSummary,
+  filters: AdminChargeFilters,
+): AdminCampusChargeSummary {
+  const members = charges.members.filter((member) =>
+    doesChargeAmountSummaryMatchFilter(member, filters.status),
+  );
+  const summary = summarizeChargeMembers(members);
+
+  return {...charges, members, summary};
+}
+
+function filterAdminMemberChargeList(
+  charges: AdminMemberChargeList,
+  filters: AdminChargeFilters,
+): AdminMemberChargeList {
+  const items = charges.items.filter((charge) => {
+    if (charge.amount <= 0) {
+      return false;
+    }
+
+    if (filters.status !== 'ALL' && charge.status !== filters.status) {
+      return false;
+    }
+
+    if (filters.paymentCategory !== 'ALL' && charge.paymentCategory !== filters.paymentCategory) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return {...charges, items};
+}
+
+function doesChargeAmountSummaryMatchFilter(
+  summary: ChargeAmountSummary,
+  status: ChargeStatusFilter,
+) {
+  if (summary.totalAmount <= 0) {
+    return false;
+  }
+
+  switch (status) {
+    case 'UNPAID':
+      return summary.unpaidAmount > 0;
+    case 'PAID':
+      return summary.paidAmount > 0;
+    case 'WAIVED':
+      return summary.waivedAmount > 0;
+    case 'CANCELED':
+      return summary.canceledAmount > 0;
+    case 'ALL':
+      return summary.totalAmount > 0;
+    default:
+      return assertNever(status);
+  }
+}
+
+function summarizeChargeMembers(
+  members: AdminCampusChargeSummary['members'],
+): ChargeAmountSummary {
+  return members.reduce<ChargeAmountSummary>(
+    (summary, member) => ({
+      totalAmount: summary.totalAmount + member.totalAmount,
+      unpaidAmount: summary.unpaidAmount + member.unpaidAmount,
+      paidAmount: summary.paidAmount + member.paidAmount,
+      waivedAmount: summary.waivedAmount + member.waivedAmount,
+      canceledAmount: summary.canceledAmount + member.canceledAmount,
+    }),
+    {
+      totalAmount: 0,
+      unpaidAmount: 0,
+      paidAmount: 0,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    },
+  );
+}
+
+function getChargeMemberSummaryText(summary: ChargeAmountSummary) {
+  if (summary.unpaidAmount > 0) {
+    return `미납 ${formatWon(summary.unpaidAmount)} · 납부 ${formatWon(summary.paidAmount)}`;
+  }
+
+  if (summary.paidAmount > 0) {
+    return `납부 완료 ${formatWon(summary.paidAmount)}`;
+  }
+
+  if (summary.waivedAmount > 0) {
+    return `면제 ${formatWon(summary.waivedAmount)}`;
+  }
+
+  if (summary.canceledAmount > 0) {
+    return `취소 ${formatWon(summary.canceledAmount)}`;
+  }
+
+  return '청구 없음';
 }
 
 function renderChargeDetail({
@@ -8244,6 +8928,9 @@ function ChargeItemRow({
   onBlockedPaid: () => void;
   onRequestStatusChange: (status: AdminWritableChargeStatus) => void;
 }) {
+  const statusActions: AdminWritableChargeStatus[] =
+    charge.status === 'UNPAID' ? ['WAIVED', 'CANCELED'] : ['UNPAID'];
+
   return (
     <View style={styles.figmaChargeItem}>
       <View style={styles.figmaIconBox}>
@@ -8269,23 +8956,25 @@ function ChargeItemRow({
         </Text>
       ) : null}
       <View style={styles.roleGrid}>
-        {adminWritableChargeStatuses.map((status) => (
+        {statusActions.map((status) => (
           <Button
             accessibilityLabel={`${charge.title} 상태를 ${getChargeStatusLabel(status)}로 변경 확인`}
             disabled={busy || charge.status === status}
             key={status}
             onPress={() => onRequestStatusChange(status)}
             variant={status === 'CANCELED' ? 'danger' : 'secondary'}>
-            {getChargeStatusLabel(status)}
+            {getChargeStatusActionLabel(status)}
           </Button>
         ))}
-        <Button
-          accessibilityLabel={`${charge.title} 납부 완료 직접 변경 불가 안내`}
-          disabled={busy}
-          onPress={onBlockedPaid}
-          variant="ghost">
-          납부 완료
-        </Button>
+        {charge.status === 'UNPAID' ? (
+          <Button
+            accessibilityLabel={`${charge.title} 납부 완료 직접 변경 불가 안내`}
+            disabled={busy}
+            onPress={onBlockedPaid}
+            variant="ghost">
+            납부 완료
+          </Button>
+        ) : null}
       </View>
     </View>
   );
@@ -8308,7 +8997,6 @@ function AdminMemberPage({
   onSelectFilter,
   onSelectMember,
   onSelectRoleFilter,
-  onUpdateRole,
   roleFilter,
   section,
   selectedCampusRole,
@@ -8329,7 +9017,6 @@ function AdminMemberPage({
   onSelectFilter: (filter: MemberFilter) => void;
   onSelectMember: (member: AdminCampusMember) => void;
   onSelectRoleFilter: (filter: RoleFilter) => void;
-  onUpdateRole: (member: AdminCampusMember, role: CampusRole) => void;
   roleFilter: RoleFilter;
   section: AdminMemberSection;
   selectedCampusRole: CampusRole;
@@ -8360,13 +9047,11 @@ function AdminMemberPage({
         />
       ) : section === 'roles' ? (
         <AdminRoleManagement
-          actionState={actionState}
           filter={roleFilter}
           globalRole={globalRole}
           members={members}
           onSelectFilter={onSelectRoleFilter}
           onSelectMember={onSelectMember}
-          onUpdateRole={onUpdateRole}
           selectedCampusRole={selectedCampusRole}
         />
       ) : (
@@ -8667,22 +9352,18 @@ function AdminMemberDetail({
 }
 
 function AdminRoleManagement({
-  actionState,
   filter,
   globalRole,
   members,
   onSelectFilter,
   onSelectMember,
-  onUpdateRole,
   selectedCampusRole,
 }: {
-  actionState: AdminActionState;
   filter: RoleFilter;
   globalRole: string;
   members: AdminCampusMember[];
   onSelectFilter: (filter: RoleFilter) => void;
   onSelectMember: (member: AdminCampusMember) => void;
-  onUpdateRole: (member: AdminCampusMember, role: CampusRole) => void;
   selectedCampusRole: CampusRole;
 }) {
   const filteredMembers = filterMembers(members, filter);
@@ -8696,7 +9377,7 @@ function AdminRoleManagement({
         <Body>
           캠퍼스 관리자 {adminCount}명. 현재 계정은 전체 권한 {globalRole}, 캠퍼스 권한 {selectedCampusRole}입니다.
         </Body>
-        <Body>전체 권한 변경은 이 화면에서 하지 않습니다. 권한 위계 위반은 서버 403 UX로 분리합니다.</Body>
+        <Body>전체 권한 변경은 이 화면에서 하지 않습니다. 권한이 없는 변경은 저장되지 않습니다.</Body>
       </Card>
       <Card>
         <Eyebrow>역할별 보기</Eyebrow>
@@ -8704,33 +9385,19 @@ function AdminRoleManagement({
         {filteredMembers.map((member) => (
           <View key={member.membershipId} style={styles.roleRow}>
             <Pressable
-              accessibilityLabel={`${member.name} 상세 보기`}
+              accessibilityLabel={`${member.name} 역할 상세 보기`}
               accessibilityRole="button"
               onPress={() => onSelectMember(member)}
               style={({pressed}) => [styles.roleRowHeader, pressed ? styles.pressed : null]}>
               <Avatar name={member.name} role={member.campusRole} />
               <View style={styles.headerText}>
                 <Text style={styles.memberName}>{member.name}</Text>
-                <Text style={styles.memberMeta}>{member.email}</Text>
+                <Text style={styles.memberMeta}>
+                  {member.email} · {member.campusRole}
+                </Text>
               </View>
-              <Chip label={member.campusRole} tone={adminCampusRoles.has(member.campusRole) ? 'info' : 'default'} />
+              <Text style={styles.figmaActionPill}>상세</Text>
             </Pressable>
-            <View style={styles.roleGrid}>
-              {campusRoleOptions.map((role) => (
-                <Button
-                  accessibilityLabel={`${member.name} 캠퍼스 역할을 ${role}로 변경`}
-                  disabled={
-                    actionState.status !== 'idle' ||
-                    member.campusRole === role ||
-                    (adminCount <= 1 && adminCampusRoles.has(member.campusRole) && role === 'MEMBER')
-                  }
-                  key={role}
-                  onPress={() => onUpdateRole(member, role)}
-                  variant={member.campusRole === role ? 'ghost' : 'secondary'}>
-                  {role}
-                </Button>
-              ))}
-            </View>
           </View>
         ))}
       </Card>
@@ -9086,6 +9753,91 @@ function DeactivatePaymentAccountSheet({
             </Button>
             <Button
               accessibilityLabel="납부 계좌 비활성화 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function DeletePaymentAccountSheet({
+  account,
+  copyFeedback,
+  copyOpacity,
+  error,
+  loading,
+  onCancel,
+  onCopyAccount,
+  onConfirm,
+}: {
+  account: PaymentAccount | null;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onCopyAccount: (account: PaymentAccount) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Title>{account ? `${account.nickname} 계좌를 삭제할까요?` : '계좌 삭제'}</Title>
+          <Body>
+            삭제는 비활성 계좌에만 사용할 수 있습니다. 이미 청구에 연결된 계좌라면 서버 정책에 따라
+            삭제가 거절될 수 있어요.
+          </Body>
+          {account ? (
+            <>
+              <ListRow label="계좌 유형" value={getPaymentCategoryLabel(account.accountType)} />
+              <View style={styles.accountCopyRow}>
+                <ListRow
+                  accessibilityLabel={`${account.nickname} 계좌번호 복사`}
+                  label={account.bankName}
+                  onPress={() => onCopyAccount(account)}
+                  supportingText={account.accountHolder}
+                  value={account.accountNumber}
+                />
+                {copyFeedback?.accountId === account.id ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.accountCopyBadge,
+                      styles.accountCopyRowBadge,
+                      {opacity: copyOpacity},
+                    ]}>
+                    <Text
+                      accessibilityLabel={copyFeedback.message}
+                      style={[
+                        styles.accountCopyHint,
+                        copyFeedback.tone === 'warning'
+                          ? styles.accountCopyHintWarning
+                          : null,
+                      ]}>
+                      {copyFeedback.message}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+          {error ? <AdminInlineError error={error} /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="비활성 납부 계좌 삭제 실행"
+              disabled={loading}
+              onPress={onConfirm}
+              variant="danger">
+              {loading ? '삭제 중...' : '삭제'}
+            </Button>
+            <Button
+              accessibilityLabel="납부 계좌 삭제 취소"
               disabled={loading}
               onPress={onCancel}
               variant="secondary">
@@ -9662,30 +10414,6 @@ function parseAdminTimeParts(value: string) {
   return {hour, minute};
 }
 
-function parseAdminTimeMinutes(value: string) {
-  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value.trim());
-
-  if (!match) {
-    return null;
-  }
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-
-  if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return null;
-  }
-
-  return hour * 60 + minute;
-}
-
 function formatAdminTimeParts(hour: number, minute: number) {
   let nextHour = hour;
   let nextMinute = minute;
@@ -9786,6 +10514,13 @@ function wrapTimeStepperValue(value: number, min: number, max: number, step: num
 function toAdminPollTemplateFormRequest(
   form: AdminPollTemplateForm,
 ): AdminPollTemplateRequest {
+  if (form.pollType === 'COFFEE') {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '커피 반복투표는 더 이상 관리자 반복투표에서 만들지 않습니다.',
+    });
+  }
+
   const validationMessage = getAdminPollTemplateValidationMessage(form);
 
   if (validationMessage) {
@@ -9871,52 +10606,17 @@ function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
   };
 }
 
-function withDefaultCoffeePollTemplate(
-  templates: AdminPollTemplate[],
-  campusId: number,
-): AdminPollTemplate[] {
-  const hasCoffeeTemplate = templates.some(
-    (template) => template.pollType === 'COFFEE' && template.isActive,
+function getVisibleAdminPollTemplates(templates: AdminPollTemplate[]) {
+  return templates.filter(
+    (template) => template.pollType !== 'COFFEE' && !isDefaultCoffeePollTemplate(template),
   );
-
-  if (hasCoffeeTemplate) {
-    return templates;
-  }
-
-  return [createDefaultCoffeePollTemplate(campusId), ...templates];
-}
-
-function createDefaultCoffeePollTemplate(campusId: number): AdminPollTemplate {
-  return {
-    autoCreateEnabled: false,
-    campusId,
-    chargeGenerationType: 'OPTION_PRICE',
-    endDayOfWeek: 4,
-    endTime: '09:00:00',
-    id: defaultCoffeePollTemplateId,
-    isActive: true,
-    isDefault: true,
-    options: [
-      {
-        composeMenuCode: null,
-        content: defaultCoffeePollOptionsText,
-        id: defaultCoffeePollTemplateId,
-        priceAmount: 0,
-        sortOrder: 1,
-      },
-    ],
-    paymentAccountId: null,
-    paymentCategory: 'COFFEE',
-    pollType: 'COFFEE',
-    selectionType: 'SINGLE',
-    startDayOfWeek: 3,
-    startTime: '09:00:00',
-    title: '커피 주문 투표',
-  };
 }
 
 function isDefaultCoffeePollTemplate(template: AdminPollTemplate) {
-  return isDefaultCoffeePollTemplateId(template.id);
+  return (
+    isDefaultCoffeePollTemplateId(template.id) ||
+    (template.isDefault === true && template.pollType === 'COFFEE')
+  );
 }
 
 function isDefaultCoffeePollTemplateId(templateId: number | null) {
@@ -10011,21 +10711,95 @@ function parseNullablePositiveInt(value: string | number | null | undefined) {
 
 function getAdminPollCoffeeWarning(
   form: AdminPollCreateForm,
-  coffeeDuty: DutyAssignment | null,
+  accounts: PaymentAccount[],
+  currentUserId: number,
+  knownOwnedCoffeeAccountIds: Set<number>,
 ) {
   if (form.pollType !== 'COFFEE' || form.chargeGenerationType !== 'OPTION_PRICE') {
     return null;
   }
 
-  if (form.paymentCategory !== 'COFFEE' || !form.paymentAccountId.trim()) {
-    return '커피 투표를 생성하려면 커피 청구 계좌를 선택해 주세요. 계좌가 없다면 정산 화면에서 먼저 등록해 주세요.';
+  const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
+    accounts,
+    currentUserId,
+    knownOwnedCoffeeAccountIds,
+  );
+
+  if (ownedCoffeeAccounts.length === 0) {
+    return '커피 투표를 만들려면 먼저 내가 만든 커피 계좌를 등록해 주세요.';
   }
 
-  if (!coffeeDuty) {
-    return '커피 투표를 생성하려면 커피 담당자를 먼저 지정해 주세요.';
+  const selectedPaymentAccountId = toOptionalPositiveId(form.paymentAccountId);
+  const selectedOwnedCoffeeAccount = ownedCoffeeAccounts.some(
+    (account) => account.id === selectedPaymentAccountId,
+  );
+
+  if (form.paymentCategory !== 'COFFEE' || !selectedOwnedCoffeeAccount) {
+    return '커피 투표 정산에 사용할 내 커피 계좌를 선택해 주세요.';
   }
 
   return null;
+}
+
+function getOwnedCoffeePaymentAccounts(
+  accounts: PaymentAccount[],
+  currentUserId: number,
+  knownOwnedCoffeeAccountIds: Set<number>,
+  options: {includeInactive?: boolean} = {},
+) {
+  return accounts.filter((account) => {
+    if (account.accountType !== 'COFFEE') {
+      return false;
+    }
+
+    if (!options.includeInactive && account.isActive === false) {
+      return false;
+    }
+
+    if (account.ownerUserId === currentUserId) {
+      return true;
+    }
+
+    return account.ownerUserId === undefined && knownOwnedCoffeeAccountIds.has(account.id);
+  });
+}
+
+function mergePaymentAccounts(...accountGroups: PaymentAccount[][]) {
+  const accountMap = new Map<number, PaymentAccount>();
+
+  accountGroups.forEach((accounts) => {
+    accounts.forEach((account) => {
+      accountMap.set(account.id, account);
+    });
+  });
+
+  return Array.from(accountMap.values());
+}
+
+function isPaymentAccountActive(account: PaymentAccount) {
+  return account.isActive !== false;
+}
+
+function isPaymentAccountListEndpointMissing(error: unknown) {
+  return error instanceof FaithLogApiError && (error.detail.status === 404 || error.detail.status === 501);
+}
+
+function getPaymentAccountStatusLabel(account: PaymentAccount) {
+  return isPaymentAccountActive(account) ? '활성' : '비활성';
+}
+
+function comparePaymentAccountsForDisplay(a: PaymentAccount, b: PaymentAccount) {
+  const typePriority = getPaymentAccountTypePriority(a.accountType) - getPaymentAccountTypePriority(b.accountType);
+
+  if (typePriority !== 0) {
+    return typePriority;
+  }
+
+  return a.id - b.id;
+}
+
+function getPaymentAccountTypePriority(type: PaymentCategory) {
+  return type === 'PENALTY' ? 0 : 1;
 }
 
 function getAdminPollCreateDisabledReason(
@@ -10046,23 +10820,12 @@ function getAdminPollCreateDisabledReason(
 }
 
 function getAdminPollTemplateValidationMessage(form: AdminPollTemplateForm) {
-  const startDayOfWeek = parseTemplateDayOfWeek(form.startDayOfWeek);
-  const endDayOfWeek = parseTemplateDayOfWeek(form.endDayOfWeek);
-  const startMinutes = parseAdminTimeMinutes(form.startTime);
-  const endMinutes = parseAdminTimeMinutes(form.endTime);
-
-  if (startMinutes === null || endMinutes === null) {
-    return '시간은 HH:mm 형식으로 선택해 주세요.';
-  }
-
-  const startTotalMinutes = (startDayOfWeek - 1) * 24 * 60 + startMinutes;
-  const endTotalMinutes = (endDayOfWeek - 1) * 24 * 60 + endMinutes;
-
-  if (endTotalMinutes <= startTotalMinutes) {
-    return '마감 요일과 시간은 시작보다 뒤여야 합니다.';
-  }
-
-  return null;
+  return getRepeatScheduleValidationMessage({
+    endDayOfWeek: form.endDayOfWeek,
+    endTime: form.endTime,
+    startDayOfWeek: form.startDayOfWeek,
+    startTime: form.startTime,
+  });
 }
 
 function getAdminPollTemplateOptionsValidationMessage(
@@ -10715,6 +11478,14 @@ function getChargeStatusLabel(status: ChargeStatus) {
   }
 }
 
+function getChargeStatusActionLabel(status: AdminWritableChargeStatus) {
+  if (status === 'UNPAID') {
+    return '미납 복구';
+  }
+
+  return getChargeStatusLabel(status);
+}
+
 function getChargeIcon(charge: ChargeItem): IconexIconName {
   if (charge.status === 'PAID') {
     return 'check';
@@ -11139,10 +11910,9 @@ const styles = StyleSheet.create({
   adminHomeCampusTitle: {
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
-    lineHeight: 30,
+    lineHeight: 26,
   },
   adminModeContent: {
     flexGrow: 1,
@@ -11358,6 +12128,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  chargeFilterCard: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 18,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.025,
+    shadowRadius: 10,
+  },
+  chargeFilterHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  chargeListCount: {
+    color: adminFigmaTokens.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  chargeListHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
   },
   compactBlock: {
     gap: spacing.gap,
@@ -11866,6 +12665,12 @@ const styles = StyleSheet.create({
     gap: spacing.gap,
     justifyContent: 'space-between',
   },
+  headerRowCompact: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
   headerText: {
     flex: 1,
     gap: 6,
@@ -11904,7 +12709,24 @@ const styles = StyleSheet.create({
   inlineError: {
     backgroundColor: colors.dangerSoft,
     borderRadius: radius.item,
+    gap: 10,
     padding: spacing.card,
+  },
+  inlineErrorAction: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surface,
+    borderColor: colors.danger,
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  inlineErrorActionText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800',
   },
   inlineErrorText: {
     color: colors.danger,
@@ -12662,6 +13484,12 @@ const styles = StyleSheet.create({
     minHeight: 72,
     paddingHorizontal: 20,
     paddingVertical: 14,
+  },
+  pollTemplateActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 8,
   },
   pollTemplateSummary: {
     alignItems: 'center',

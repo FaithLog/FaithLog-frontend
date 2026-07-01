@@ -553,17 +553,19 @@ function SessionExpiredScreen({
         </View>
         <Text style={styles.centerStateTitle}>다시 로그인해 주세요</Text>
         <Text style={styles.centerStateMessage}>{message}</Text>
-        <Button
-          accessibilityLabel="세션 만료 후 로그인 화면으로 이동"
-          onPress={onLoginPress}>
-          로그인 계속하기
-        </Button>
-        <Button
-          accessibilityLabel="세션 만료 후 회원가입 화면으로 이동"
-          onPress={onSignupPress}
-          variant="ghost">
-          회원가입
-        </Button>
+        <View style={styles.sessionExpiredActions}>
+          <AuthButton
+            accessibilityLabel="세션 만료 후 회원가입 화면으로 이동"
+            onPress={onSignupPress}
+            variant="secondary">
+            회원가입
+          </AuthButton>
+          <AuthButton
+            accessibilityLabel="세션 만료 후 로그인 화면으로 이동"
+            onPress={onLoginPress}>
+            로그인
+          </AuthButton>
+        </View>
       </View>
     </View>
   );
@@ -582,32 +584,34 @@ function NoCampusEntryScreen({
 }) {
   return (
     <View style={styles.onboardingFrame}>
-      <OnboardingHeader title="캠퍼스 필요" />
+      <OnboardingHeader title="캠퍼스 참여" />
       <View style={styles.centerStateCard}>
         <View style={styles.centerStateIcon}>
           <Text style={styles.centerStateIconText}>F</Text>
         </View>
-        <Text style={styles.centerStateTitle}>{userName}님, 참여 중인 캠퍼스가 없어요</Text>
+        <Text style={styles.centerStateTitle}>{userName}님, 캠퍼스에 참여해 주세요</Text>
         <Text style={styles.centerStateMessage}>
-          ACTIVE 캠퍼스가 있어야 FaithLog를 시작할 수 있어요.
-        </Text>
-        <Button
-          accessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
-          onPress={onInviteCodePress}>
-          초대코드 입력
-        </Button>
-        {canCreateCampus ? (
-          <Button
-            accessibilityLabel="캠퍼스 생성 화면으로 이동"
-            onPress={onCampusCreatePress}
-            variant="secondary">
-            캠퍼스 만들기
-          </Button>
-        ) : null}
-        <Text style={styles.centerStateHelper}>
           {canCreateCampus
-            ? 'MANAGER 또는 ADMIN은 새 캠퍼스를 만들 수 있어요.'
-            : '일반 USER는 초대코드로 참여할 수 있어요.'}
+            ? '초대코드가 있으면 참여하고, 새 공동체를 운영하려면 캠퍼스를 만들 수 있어요.'
+            : '캠퍼스 관리자에게 받은 초대코드로 참여할 수 있어요.'}
+        </Text>
+        <View style={styles.centerStateActions}>
+          <AuthButton
+            accessibilityLabel="캠퍼스 초대코드 입력 화면으로 이동"
+            onPress={onInviteCodePress}
+            variant={canCreateCampus ? 'secondary' : 'primary'}>
+            초대코드로 참여
+          </AuthButton>
+          {canCreateCampus ? (
+            <AuthButton
+              accessibilityLabel="캠퍼스 생성 화면으로 이동"
+              onPress={onCampusCreatePress}>
+              새 캠퍼스 만들기
+            </AuthButton>
+          ) : null}
+        </View>
+        <Text style={styles.centerStateHelper}>
+          참여 후 경건 체크, 투표, 납부 기능을 사용할 수 있어요.
         </Text>
       </View>
     </View>
@@ -639,25 +643,25 @@ function CampusCreateGate({
       <View style={styles.onboardingFrame}>
         <OnboardingHeader title="캠퍼스 만들기" />
         <View style={styles.roleGateCard}>
-          <Text style={styles.roleGateTitle}>생성 권한</Text>
+          <Text style={styles.roleGateTitle}>새 캠퍼스를 만들 수 없어요</Text>
           <View style={styles.roleGateChip}>
-            <Text style={styles.roleGateChipText}>MANAGER · ADMIN 전용</Text>
+            <Text style={styles.roleGateChipText}>초대코드로 참여 가능</Text>
           </View>
           <Text style={styles.roleGateMessage}>
-            일반 USER는 초대코드로 참여만 가능해요.
+            캠퍼스 관리자에게 받은 초대코드를 입력해 참여해 주세요.
           </Text>
-          <View style={styles.actionRow}>
-            <Button
-              accessibilityLabel="권한 안내 후 초대코드 입력으로 이동"
-              onPress={onInvitePress}>
-              초대코드 입력
-            </Button>
-            <Button
+          <View style={styles.centerStateActions}>
+            <AuthButton
               accessibilityLabel="캠퍼스 생성 권한 안내 닫기"
               onPress={onCancel}
               variant="secondary">
               취소
-            </Button>
+            </AuthButton>
+            <AuthButton
+              accessibilityLabel="권한 안내 후 초대코드 입력으로 이동"
+              onPress={onInvitePress}>
+              초대코드로 참여
+            </AuthButton>
           </View>
         </View>
       </View>
@@ -774,20 +778,20 @@ function InviteCodeForm({
       />
       {formError ? <InlineError message={formError} /> : null}
       <View style={styles.onboardingActionSpacer} />
-      <View style={styles.actionRow}>
-        <Button
-          accessibilityLabel="초대코드로 캠퍼스 참여"
-          disabled={submitting}
-          onPress={submit}>
-          {submitting ? '참여 중...' : '참여하기'}
-        </Button>
-        <Button
+      <View style={[styles.authActionRow, styles.onboardingSubmitActions]}>
+        <AuthButton
           accessibilityLabel="초대코드 입력 취소"
           disabled={submitting}
           onPress={onCancel}
           variant="secondary">
           나중에
-        </Button>
+        </AuthButton>
+        <AuthButton
+          accessibilityLabel="초대코드로 캠퍼스 참여"
+          disabled={submitting}
+          onPress={submit}>
+          {submitting ? '참여 중...' : '참여하기'}
+        </AuthButton>
       </View>
     </View>
   );
@@ -863,15 +867,15 @@ function CampusCreateForm({
     <View style={styles.onboardingFrame}>
       <OnboardingHeader title="캠퍼스 만들기" />
       <View style={styles.roleGateCard}>
-        <Text style={styles.roleGateTitle}>생성 권한</Text>
+        <Text style={styles.roleGateTitle}>새 캠퍼스 시작</Text>
         <View style={styles.roleGateChip}>
-          <Text style={styles.roleGateChipText}>MANAGER · ADMIN 전용</Text>
+          <Text style={styles.roleGateChipText}>운영 정보 입력</Text>
         </View>
       </View>
       <View style={styles.campusFormCard}>
         <Text style={styles.campusFormTitle}>새 캠퍼스 정보</Text>
         <Text style={styles.campusFormBody}>
-          MANAGER 또는 ADMIN 권한만 캠퍼스를 만들 수 있어요.
+          캠퍼스 이름과 지역을 입력하면 바로 운영을 시작할 수 있어요.
         </Text>
         <TextField
           accessibilityLabel="캠퍼스 이름 입력"
@@ -912,20 +916,20 @@ function CampusCreateForm({
         {formError ? <InlineError message={formError} /> : null}
       </View>
       <View style={styles.onboardingActionSpacer} />
-      <View style={styles.actionRow}>
-        <Button
-          accessibilityLabel="캠퍼스 생성 제출"
-          disabled={submitting}
-          onPress={submit}>
-          {submitting ? '생성 중...' : '생성하기'}
-        </Button>
-        <Button
+      <View style={[styles.authActionRow, styles.onboardingSubmitActions]}>
+        <AuthButton
           accessibilityLabel="캠퍼스 생성 취소"
           disabled={submitting}
           onPress={onCancel}
           variant="secondary">
           취소
-        </Button>
+        </AuthButton>
+        <AuthButton
+          accessibilityLabel="캠퍼스 생성 제출"
+          disabled={submitting}
+          onPress={submit}>
+          {submitting ? '생성 중...' : '생성하기'}
+        </AuthButton>
       </View>
     </View>
   );
@@ -1795,7 +1799,6 @@ function AuthenticatedShell({
           <ServiceAdminScreen
             onBackToUserMode={returnToUserMode}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
-            onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
@@ -1962,7 +1965,6 @@ function AuthenticatedShell({
           <ServiceAdminScreen
             onBackToUserMode={returnToUserMode}
             onLogoutPress={() => setLogoutConfirmVisible(true)}
-            onOpenCampusAdminFeature={() => setRoute('campusAdmin')}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
@@ -2086,7 +2088,7 @@ function CampusSelectScreen({
 
       <View style={styles.campusSummaryCard}>
         <Text style={styles.campusSummaryTitle}>내 캠퍼스</Text>
-        <Text style={styles.campusSummaryBody}>ACTIVE 멤버십만 표시돼요.</Text>
+        <Text style={styles.campusSummaryBody}>참여 중인 캠퍼스를 선택해 이동하세요.</Text>
       </View>
 
       {error ? <InlineError message={getCampusSwitchErrorMessage(error)} /> : null}
@@ -2108,11 +2110,11 @@ function CampusSelectScreen({
           })
         ) : (
           <Empty
-            title="참여 중인 캠퍼스가 없어요"
+            title="아직 참여한 캠퍼스가 없어요"
             message={
               canCreateCampus
-                ? '초대코드를 입력하거나 새 캠퍼스를 만들 수 있어요.'
-                : '초대코드를 입력해 캠퍼스에 참여할 수 있어요.'
+                ? '초대코드로 참여하거나 새 캠퍼스를 만들 수 있어요.'
+                : '초대코드로 캠퍼스에 참여할 수 있어요.'
             }
             actionLabel="목록 갱신"
             actionAccessibilityLabel="내 캠퍼스 목록 다시 불러오기"
@@ -2128,18 +2130,18 @@ function CampusSelectScreen({
           disabled={loading}
           onPress={onInviteCodePress}
           variant={canCreateCampus ? 'secondary' : 'primary'}>
-          초대코드 입력
+          초대코드로 참여
         </AuthButton>
         {canCreateCampus ? (
           <AuthButton
             accessibilityLabel="캠퍼스 만들기 화면으로 이동"
             disabled={loading}
             onPress={onCampusCreatePress}>
-            캠퍼스 만들기
+            새 캠퍼스 만들기
           </AuthButton>
         ) : null}
       </View>
-      {loading ? <Body>캠퍼스 목록을 확인하고 있어요.</Body> : null}
+      {loading ? <Body>캠퍼스 목록을 불러오고 있어요.</Body> : null}
     </View>
   );
 }
@@ -2483,9 +2485,9 @@ function AdminModeSelectorSheet({
         />
         <View style={styles.modeSheetContainer}>
           <View style={styles.modeSheet}>
-            <Eyebrow>이동하기</Eyebrow>
-            <Title>이동할 곳을 선택하세요</Title>
-            <Body>사용할 관리자 영역을 선택해 주세요.</Body>
+            <Eyebrow>관리자 선택</Eyebrow>
+            <Title>관리할 영역을 선택하세요</Title>
+            <Body>캠퍼스 운영 또는 전역 관리를 선택해 주세요.</Body>
             <View style={styles.modeSheetOptionList}>
               {routes.map((route) => (
                 <Pressable
@@ -2720,7 +2722,7 @@ function RoutePlaceholder({
 }
 
 function getPrayerEntryPolicy(prayers: PrayerWeekSummary) {
-  if (prayers.status === 'OPEN' && prayers.targetMemberCount > 0) {
+  if (prayers.status === 'OPEN' && getAssignedPrayerMemberCount(prayers) > 0) {
     return '이번 주 루틴';
   }
 
@@ -2733,12 +2735,12 @@ function getHomePrayerEntryVariant(
   if (
     prayerState.status === 'success' &&
     prayerState.data.status === 'OPEN' &&
-    prayerState.data.targetMemberCount > 0
+    getAssignedPrayerMemberCount(prayerState.data) > 0
   ) {
     return 'suggestion';
   }
 
-  if (prayerState.status === 'success' && prayerState.data.targetMemberCount > 0) {
+  if (prayerState.status === 'success' && getAssignedPrayerMemberCount(prayerState.data) > 0) {
     return 'always';
   }
 
@@ -2822,17 +2824,52 @@ function getHomePrayerEntryCopy(
 }
 
 function getPrayerProgressSummary(prayers: PrayerWeekSummary) {
-  const primaryGroup = prayers.groups[0];
+  const totalTargetCount = getAssignedPrayerMemberCount(prayers);
+  const totalSubmittedCount = getAssignedPrayerSubmittedCount(prayers);
 
-  if (!primaryGroup) {
-    return `전체 ${prayers.submittedCount}/${prayers.targetMemberCount} 작성`;
+  if (totalTargetCount === 0) {
+    return '기도조 배정 대기';
   }
 
-  const groupSubmittedCount = primaryGroup.members.filter((member) => member.submittedAt).length;
+  const myGroup = prayers.myGroupId
+    ? prayers.groups.find((group) => group.groupId === prayers.myGroupId)
+    : undefined;
 
-  const groupName = getCompactDisplayName(primaryGroup.groupName, '소그룹', 10);
+  if (!myGroup) {
+    return `전체 ${totalSubmittedCount}/${totalTargetCount} 작성`;
+  }
 
-  return `${groupName} ${groupSubmittedCount}/${primaryGroup.members.length} · 전체 ${prayers.submittedCount}/${prayers.targetMemberCount}`;
+  const myGroupSubmittedCount = myGroup.members.filter(
+    (member) => member.submittedAt || member.content?.trim(),
+  ).length;
+
+  return `전체 ${totalSubmittedCount}/${totalTargetCount} · 우리 조 ${myGroupSubmittedCount}/${myGroup.members.length}`;
+}
+
+function getAssignedPrayerMemberCount(prayers: PrayerWeekSummary) {
+  const memberIds = new Set<number>();
+
+  prayers.groups.forEach((group) => {
+    group.members.forEach((member) => {
+      memberIds.add(member.userId);
+    });
+  });
+
+  return memberIds.size || prayers.targetMemberCount;
+}
+
+function getAssignedPrayerSubmittedCount(prayers: PrayerWeekSummary) {
+  const memberIds = new Set<number>();
+
+  prayers.groups.forEach((group) => {
+    group.members.forEach((member) => {
+      if (member.submittedAt || member.content?.trim()) {
+        memberIds.add(member.userId);
+      }
+    });
+  });
+
+  return memberIds.size || prayers.submittedCount;
 }
 
 function getHeaderCampusName(campusName: string) {
@@ -3940,8 +3977,26 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 15,
     lineHeight: 20,
-    marginBottom: 10,
+    marginBottom: 2,
     textAlign: 'center',
+  },
+  centerStateActions: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+    maxWidth: 300,
+    width: '100%',
+  },
+  onboardingSubmitActions: {
+    marginTop: 0,
+  },
+  sessionExpiredActions: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    width: '100%',
   },
   centerStateHelper: {
     color: colors.textMuted,

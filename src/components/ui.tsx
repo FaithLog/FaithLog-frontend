@@ -218,7 +218,12 @@ export function Button({
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
       ]}>
-      <Text style={[styles.buttonText, styles[`${variant}ButtonText`]]}>{children}</Text>
+      <Text
+        ellipsizeMode="tail"
+        numberOfLines={1}
+        style={[styles.buttonText, styles[`${variant}ButtonText`]]}>
+        {children}
+      </Text>
     </Pressable>
   );
 }
@@ -802,42 +807,50 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    borderRadius: radius.control,
-    minHeight: 48,
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 34,
+    minWidth: 58,
     justifyContent: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 13,
+    maxWidth: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   primaryButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.borderSoft,
+    borderColor: colors.borderSoft,
   },
   secondaryButton: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.borderSoft,
+    borderColor: colors.borderSoft,
   },
   dangerButton: {
-    backgroundColor: colors.danger,
+    backgroundColor: colors.borderSoft,
+    borderColor: colors.borderSoft,
   },
   ghostButton: {
-    backgroundColor: colors.neutralSoft,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
   },
   buttonText: {
     flexShrink: 1,
-    flexWrap: 'wrap',
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
     textAlign: 'center',
   },
   primaryButtonText: {
-    color: colors.surface,
-  },
-  secondaryButtonText: {
     color: colors.primary,
   },
+  secondaryButtonText: {
+    color: colors.textSecondary,
+  },
   dangerButtonText: {
-    color: colors.surface,
+    color: colors.danger,
   },
   ghostButtonText: {
-    color: colors.text,
+    color: colors.textSecondary,
   },
   dangerSheetBackdrop: {
     flex: 1,
@@ -924,43 +937,45 @@ const styles = StyleSheet.create({
   dangerCancelButton: {
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.control,
+    borderColor: colors.borderSoft,
+    borderRadius: 12,
     borderWidth: 1,
     flex: 1,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 36,
     minWidth: 0,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   dangerCancelButtonText: {
-    color: colors.mutedText,
+    color: colors.textSecondary,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
     textAlign: 'center',
   },
   dangerConfirmButton: {
     alignItems: 'center',
-    backgroundColor: colors.danger,
-    borderRadius: radius.control,
+    backgroundColor: colors.borderSoft,
+    borderColor: colors.borderSoft,
+    borderRadius: 12,
+    borderWidth: 1,
     flex: 1.08,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 36,
     minWidth: 0,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   dangerConfirmButtonText: {
-    color: colors.surface,
+    color: colors.danger,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
     textAlign: 'center',
   },
   disabled: {

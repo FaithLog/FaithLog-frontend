@@ -150,9 +150,12 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   const [page, setPage] = useState<CoffeeDutyPage>('summary');
   const [pollRefreshKey, setPollRefreshKey] = useState(0);
   const [createdPollId, setCreatedPollId] = useState<number | null>(null);
+  const [knownOwnedCoffeeAccountIds, setKnownOwnedCoffeeAccountIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const campusId = state.selectedCampus.campusId;
 
-  const load = async () => {
+  const load = async (ownedCoffeeAccountIdsOverride?: Set<number>) => {
     setLoadState({status: 'loading'});
     setCreateState({status: 'idle'});
 
@@ -170,15 +173,37 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
         return;
       }
 
-      const [accounts, brands, charges] = await Promise.all([
-        fetchPaymentAccounts(accessToken, campusId),
+      const [accounts, brands] = await Promise.all([
+        fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'}),
         fetchCoffeeBrands(accessToken),
-        fetchCoffeeChargeSummary(accessToken, campusId),
       ]);
-      const menus = (
-        await Promise.all(brands.map((brand) => fetchCoffeeMenus(accessToken, brand.id)))
-      ).flat();
-      const coffeeAccounts = accounts.filter((account) => account.accountType === 'COFFEE');
+      const nextKnownOwnedCoffeeAccountIds = new Set(
+        ownedCoffeeAccountIdsOverride ?? knownOwnedCoffeeAccountIds,
+      );
+      accounts.forEach((account) => {
+        if (
+          account.accountType === 'COFFEE' &&
+          account.isActive !== false &&
+          account.ownerUserId === state.user.id
+        ) {
+          nextKnownOwnedCoffeeAccountIds.add(account.id);
+        }
+      });
+      const coffeeAccounts = getOwnedCoffeePaymentAccounts(
+        accounts,
+        state.user.id,
+        nextKnownOwnedCoffeeAccountIds,
+      );
+      const nextSelectedAccountId =
+        selectedAccountId && coffeeAccounts.some((account) => account.id === selectedAccountId)
+          ? selectedAccountId
+          : coffeeAccounts[0]?.id ?? null;
+      const [menus, charges] = await Promise.all([
+        Promise.all(brands.map((brand) => fetchCoffeeMenus(accessToken, brand.id))).then((groups) =>
+          groups.flat(),
+        ),
+        fetchCoffeeChargeSummary(accessToken, campusId, nextSelectedAccountId),
+      ]);
 
       setLoadState({
         status: 'ready',
@@ -187,10 +212,11 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
         charges,
         menus,
       });
+      setKnownOwnedCoffeeAccountIds(nextKnownOwnedCoffeeAccountIds);
       setSelectedMenuIds((current) =>
         current.filter((menuId) => menus.some((menu) => menu.id === menuId)),
       );
-      setSelectedAccountId((current) => current ?? coffeeAccounts[0]?.id ?? null);
+      setSelectedAccountId(nextSelectedAccountId);
     } catch (error) {
       const message = getCoffeeDutyErrorMessage(error);
 
@@ -204,7 +230,9 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   };
 
   useEffect(() => {
-    void load();
+    const emptyKnownOwnedCoffeeAccountIds = new Set<number>();
+    setKnownOwnedCoffeeAccountIds(emptyKnownOwnedCoffeeAccountIds);
+    void load(emptyKnownOwnedCoffeeAccountIds);
   }, [campusId, state.user.id]);
 
   const selectedMenus = useMemo(
@@ -235,8 +263,10 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       return;
     }
 
-    if (!selectedAccountId) {
-      setCreateState({status: 'error', message: '커피 정산 계좌를 선택해 주세요.'});
+    const selectedAccount = loadState.accounts.find((account) => account.id === selectedAccountId);
+
+    if (!selectedAccount) {
+      setCreateState({status: 'error', message: '커피 투표를 만들려면 내가 만든 커피 계좌를 먼저 등록해 주세요.'});
       return;
     }
 
@@ -267,7 +297,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
           priceAmount: null,
           sortOrder: index + 1,
         })),
-        paymentAccountId: selectedAccountId,
+        paymentAccountId: selectedAccount.id,
         paymentCategory: 'COFFEE',
         pollType: 'COFFEE',
         selectionType: 'SINGLE',
@@ -318,12 +348,15 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
         accountType: 'COFFEE',
         bankName,
         nickname,
-        ownerUserId: state.user.id,
       });
+      const nextKnownOwnedCoffeeAccountIds = new Set(knownOwnedCoffeeAccountIds);
+      nextKnownOwnedCoffeeAccountIds.add(account.id);
 
       setAccountForm(emptyCoffeeAccountForm);
       setAccountSaveState({status: 'success', nickname: account.nickname});
-      await load();
+      setKnownOwnedCoffeeAccountIds(nextKnownOwnedCoffeeAccountIds);
+      setSelectedAccountId(account.id);
+      await load(nextKnownOwnedCoffeeAccountIds);
     } catch (error) {
       setAccountSaveState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
     }
@@ -408,6 +441,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
               deadlineText={deadlineText}
               onCreate={createCoffeePoll}
               onDeadlineChange={setDeadlineText}
+              onOpenAccounts={() => setPage('accounts')}
               onRefresh={() => void load()}
               onSelectAccount={setSelectedAccountId}
               onToggleMenu={(menuId) =>
@@ -656,6 +690,7 @@ function CoffeePollCreator({
   deadlineText,
   onCreate,
   onDeadlineChange,
+  onOpenAccounts,
   onRefresh,
   onSelectAccount,
   onTitleChange,
@@ -669,6 +704,7 @@ function CoffeePollCreator({
   deadlineText: string;
   onCreate: () => void;
   onDeadlineChange: (value: string) => void;
+  onOpenAccounts: () => void;
   onRefresh: () => void;
   onSelectAccount: (accountId: number) => void;
   onTitleChange: (value: string) => void;
@@ -682,6 +718,7 @@ function CoffeePollCreator({
   const [menuPickerVisible, setMenuPickerVisible] = useState(false);
   const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
   const selectedMenus = state.menus.filter((menu) => selectedMenuIds.includes(menu.id));
+  const missingOwnedCoffeeAccount = state.accounts.length === 0;
 
   return (
     <View style={styles.pollCreateShell}>
@@ -798,8 +835,17 @@ function CoffeePollCreator({
 
       <Card>
         <Eyebrow>청구 계좌</Eyebrow>
-        {state.accounts.length === 0 ? (
-          <CoffeeInlineError message="커피 계좌가 없습니다. 계좌 페이지에서 커피 계좌를 먼저 등록해 주세요." />
+        {missingOwnedCoffeeAccount ? (
+          <>
+            <CoffeeInlineError message="커피 투표를 만들려면 내가 만든 커피 계좌를 먼저 등록해 주세요." />
+            <Button
+              accessibilityLabel="커피 계좌 등록 화면으로 이동"
+              disabled={busy}
+              onPress={onOpenAccounts}
+              variant="secondary">
+              계좌 등록
+            </Button>
+          </>
         ) : (
           <View style={styles.optionList}>
             {state.accounts.map((account) => {
@@ -857,11 +903,11 @@ function CoffeePollCreator({
         <Pressable
           accessibilityLabel="커피 주문 투표 생성"
           accessibilityRole="button"
-          disabled={busy}
+          disabled={busy || missingOwnedCoffeeAccount}
           onPress={onCreate}
           style={({pressed}) => [
             styles.pollCreatePrimaryAction,
-            busy ? styles.pollCreateActionDisabled : null,
+            busy || missingOwnedCoffeeAccount ? styles.pollCreateActionDisabled : null,
             pressed ? styles.pressed : null,
           ]}>
           <Text style={styles.pollCreatePrimaryActionText}>
@@ -1616,16 +1662,51 @@ async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) 
   return accessToken;
 }
 
-async function fetchCoffeeChargeSummary(accessToken: string, campusId: number) {
+async function fetchCoffeeChargeSummary(
+  accessToken: string,
+  campusId: number,
+  paymentAccountId: number | null,
+) {
   try {
     return await fetchAdminCampusCharges(accessToken, campusId, {
       paymentCategory: 'COFFEE',
+      ...(paymentAccountId === null ? {} : {paymentAccountId}),
       size: 10,
       status: 'ALL',
     });
   } catch {
-    return null;
+    if (paymentAccountId === null) {
+      return null;
+    }
+
+    try {
+      return await fetchAdminCampusCharges(accessToken, campusId, {
+        paymentCategory: 'COFFEE',
+        size: 10,
+        status: 'ALL',
+      });
+    } catch {
+      return null;
+    }
   }
+}
+
+function getOwnedCoffeePaymentAccounts(
+  accounts: PaymentAccount[],
+  currentUserId: number,
+  knownOwnedCoffeeAccountIds: Set<number>,
+) {
+  return accounts.filter((account) => {
+    if (account.accountType !== 'COFFEE' || account.isActive === false) {
+      return false;
+    }
+
+    if (account.ownerUserId === currentUserId) {
+      return true;
+    }
+
+    return account.ownerUserId === undefined && knownOwnedCoffeeAccountIds.has(account.id);
+  });
 }
 
 async function resolveCoffeeDutyAssignment(
@@ -1907,8 +1988,8 @@ const styles = StyleSheet.create({
   frame: {
     backgroundColor: colors.background,
     flex: 1,
-    paddingHorizontal: space.lg,
-    paddingTop: space.xl,
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   header: {
     alignItems: 'center',

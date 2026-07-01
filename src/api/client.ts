@@ -267,6 +267,10 @@ type SortDirection = 'asc' | 'desc';
 type NotificationLogSortKey = 'createdAt' | 'sentAt' | 'sendStatus';
 type ServiceAdminUserSortKey = 'id' | 'name' | 'email' | 'role' | 'createdAt';
 type ServiceAdminCampusSortKey = 'id' | 'name' | 'region' | 'createdAt';
+type PaymentAccountQueryParams = {
+  accountType?: PaymentCategory;
+  includeInactive?: boolean;
+};
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
 const paymentCategories = ['PENALTY', 'COFFEE'] as const;
@@ -373,6 +377,7 @@ function toSafeChargeListQuery(params: {
 function toSafeAdminCampusChargeQuery(params: {
   keyword?: string;
   page?: number;
+  paymentAccountId?: number;
   paymentCategory?: PaymentCategory | 'ALL';
   size?: number;
   sort?: {direction: SortDirection; key: ChargeSortKey};
@@ -388,6 +393,13 @@ function toSafeAdminCampusChargeQuery(params: {
 
   if (params.userId !== undefined) {
     query.set('userId', toPositiveIntegerPathSegment(params.userId, 'userId'));
+  }
+
+  if (params.paymentAccountId !== undefined) {
+    query.set(
+      'paymentAccountId',
+      toPositiveIntegerPathSegment(params.paymentAccountId, 'paymentAccountId'),
+    );
   }
 
   return query.toString();
@@ -506,14 +518,19 @@ function toPaymentAccountCreateRequest(
     });
   }
 
-  return {
+  const payload: PaymentAccountCreateRequest = {
     accountType: body.accountType,
     nickname: toRequiredString(body.nickname, '계좌 별칭'),
     bankName: toRequiredString(body.bankName, '은행명'),
     accountNumber: toRequiredString(body.accountNumber, '계좌번호'),
     accountHolder: toRequiredString(body.accountHolder, '예금주'),
-    ownerUserId: toNullablePositiveInteger(body.ownerUserId, 'ownerUserId'),
   };
+
+  if (body.ownerUserId !== undefined && body.ownerUserId !== null) {
+    payload.ownerUserId = toNullablePositiveInteger(body.ownerUserId, 'ownerUserId');
+  }
+
+  return payload;
 }
 
 function toPollOptionAddRequest(body: PollOptionAddRequest): PollOptionAddRequest {
@@ -553,6 +570,27 @@ function toPenaltyRuleUpdateRequest(body: PenaltyRuleUpdateRequest): PenaltyRule
     amountPerUnit: toNonNegativeInteger(body.amountPerUnit, '단위당 금액'),
     isActive: Boolean(body.isActive),
   };
+}
+
+function toPaymentAccountQuery(params: PaymentAccountQueryParams = {}) {
+  const query = new URLSearchParams();
+
+  if (params.accountType !== undefined) {
+    if (!isPaymentCategory(params.accountType)) {
+      throw new FaithLogApiError({
+        kind: 'error',
+        message: '계좌 유형이 올바르지 않습니다.',
+      });
+    }
+
+    query.set('accountType', params.accountType);
+  }
+
+  if (params.includeInactive !== undefined) {
+    query.set('includeInactive', String(params.includeInactive));
+  }
+
+  return query.toString();
 }
 
 function toAdminPrayerSeasonCreateRequest(
@@ -1342,8 +1380,28 @@ export function fetchMyCharges(
   );
 }
 
-export function fetchPaymentAccounts(accessToken: string, campusId: unknown) {
-  return apiRequest<PaymentAccount[]>(buildCampusPath(campusId, 'payment-accounts'), {
+export function fetchPaymentAccounts(
+  accessToken: string,
+  campusId: unknown,
+  params: PaymentAccountQueryParams = {},
+) {
+  const query = toPaymentAccountQuery(params);
+  const path = buildCampusPath(campusId, 'payment-accounts');
+
+  return apiRequest<PaymentAccount[]>(query ? `${path}?${query}` : path, {
+    accessToken,
+  });
+}
+
+export function fetchAdminPaymentAccounts(
+  accessToken: string,
+  campusId: unknown,
+  params: PaymentAccountQueryParams = {},
+) {
+  const query = toPaymentAccountQuery(params);
+  const path = buildAdminCampusPath(campusId, 'payment-accounts');
+
+  return apiRequest<PaymentAccount[]>(query ? `${path}?${query}` : path, {
     accessToken,
   });
 }
@@ -1398,6 +1456,43 @@ export function deactivateAdminPaymentAccount(accessToken: string, accountId: un
     {
       accessToken,
       method: 'PATCH',
+    },
+  );
+}
+
+export function activateAdminPaymentAccount(
+  accessToken: string,
+  campusId: unknown,
+  accountId: unknown,
+) {
+  return apiRequest<AdminPaymentAccount>(
+    buildAdminCampusPath(
+      campusId,
+      'payment-accounts',
+      toPositiveIntegerPathSegment(accountId, 'accountId'),
+      'activate',
+    ),
+    {
+      accessToken,
+      method: 'PATCH',
+    },
+  );
+}
+
+export function deleteAdminPaymentAccount(
+  accessToken: string,
+  campusId: unknown,
+  accountId: unknown,
+) {
+  return apiRequest<void>(
+    buildAdminCampusPath(
+      campusId,
+      'payment-accounts',
+      toPositiveIntegerPathSegment(accountId, 'accountId'),
+    ),
+    {
+      accessToken,
+      method: 'DELETE',
     },
   );
 }
@@ -1797,6 +1892,7 @@ export function fetchAdminCampusCharges(
   params: {
     keyword?: string;
     page?: number;
+    paymentAccountId?: number;
     paymentCategory?: PaymentCategory | 'ALL';
     size?: number;
     sort?: {direction: SortDirection; key: ChargeSortKey};

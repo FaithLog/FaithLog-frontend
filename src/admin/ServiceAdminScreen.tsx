@@ -52,7 +52,6 @@ type Notice = {
 type ServiceAdminScreenProps = {
   onBackToUserMode: () => void;
   onLogoutPress: () => void;
-  onOpenCampusAdminFeature: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -109,7 +108,6 @@ const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = 
 export function ServiceAdminScreen({
   onBackToUserMode,
   onLogoutPress,
-  onOpenCampusAdminFeature,
   setAuthState,
   setNotice,
   state,
@@ -366,15 +364,6 @@ export function ServiceAdminScreen({
             <ServiceAdminHome
               homeState={homeState}
               onOpenCampusAdmin={() => setActiveSection('campuses')}
-              onOpenCampusAdminFeature={() => {
-                setNotice({
-                  tone: 'info',
-                  title: '캠퍼스 관리자에서 계속',
-                  message:
-                    '알림과 정산은 선택한 캠퍼스의 관리자 화면에서 운영합니다. Service ADMIN 홈에서는 별도 요약을 제공하지 않습니다.',
-                });
-                onOpenCampusAdminFeature();
-              }}
               onOpenUsers={() => setActiveSection('users')}
               onRetry={loadHome}
             />
@@ -666,13 +655,11 @@ function PaginationButton({
 function ServiceAdminHome({
   homeState,
   onOpenCampusAdmin,
-  onOpenCampusAdminFeature,
   onOpenUsers,
   onRetry,
 }: {
   homeState: ServiceAdminHomeState;
   onOpenCampusAdmin: () => void;
-  onOpenCampusAdminFeature: () => void;
   onOpenUsers: () => void;
   onRetry: () => void;
 }) {
@@ -693,7 +680,6 @@ function ServiceAdminHome({
           />
           <ServiceAdminHomeActions
             onOpenCampusAdmin={onOpenCampusAdmin}
-            onOpenCampusAdminFeature={onOpenCampusAdminFeature}
             onOpenUsers={onOpenUsers}
           />
         </>
@@ -708,7 +694,6 @@ function ServiceAdminHome({
           />
           <ServiceAdminHomeActions
             onOpenCampusAdmin={onOpenCampusAdmin}
-            onOpenCampusAdminFeature={onOpenCampusAdminFeature}
             onOpenUsers={onOpenUsers}
           />
           <ServiceAdminRecentOverview data={homeState.data} />
@@ -758,11 +743,9 @@ function HomeStatCard({label, value}: {label: string; value: string}) {
 
 function ServiceAdminHomeActions({
   onOpenCampusAdmin,
-  onOpenCampusAdminFeature,
   onOpenUsers,
 }: {
   onOpenCampusAdmin: () => void;
-  onOpenCampusAdminFeature: () => void;
   onOpenUsers: () => void;
 }) {
   return (
@@ -784,21 +767,15 @@ function ServiceAdminHomeActions({
         value="열기"
       />
       <ServiceAdminHomeAction
-        label="알림 발송"
-        meta="캠퍼스 관리자 알림 화면에서 처리"
-        onPress={onOpenCampusAdminFeature}
-        value="이동"
-      />
-      <ServiceAdminHomeAction
         label="정산 계좌"
         meta="캠퍼스 관리자 정산 화면에서 처리"
-        onPress={onOpenCampusAdminFeature}
+        onPress={onOpenCampusAdmin}
         value="이동"
       />
       <View style={styles.summaryUnavailable}>
-        <Text style={styles.summaryUnavailableTitle}>알림·정산 요약 미제공</Text>
+        <Text style={styles.summaryUnavailableTitle}>정산 요약 미제공</Text>
         <Text style={styles.summaryUnavailableText}>
-          Service ADMIN 홈에서는 알림·정산 집계를 제공하지 않습니다.
+          Service ADMIN 홈에서는 정산 집계를 제공하지 않습니다.
         </Text>
       </View>
     </Card>
