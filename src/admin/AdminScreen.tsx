@@ -11,15 +11,14 @@ import {
 } from 'react-native';
 
 import {
+  activateAdminPaymentAccount,
   assignCoffeeDuty,
   changeAdminCampusMemberRole,
   changeAdminChargeStatus,
-  closeAdminPrayerSeason,
-  createAdminPrayerGroup,
-  createAdminPrayerSeason,
   createAdminPaymentAccount,
   createAdminPenaltyRule,
   deactivateAdminPaymentAccount,
+  deleteAdminPaymentAccount,
   deleteCampusMember,
   FaithLogApiError,
   fetchAdminCampusCharges,
@@ -28,23 +27,22 @@ import {
   fetchAdminMemberCharges,
   fetchAdminMissingDevotionMembers,
   fetchAdminNotificationLogs,
+  fetchAdminPaymentAccounts,
   fetchCoffeeBrands,
   fetchCoffeeMenus,
   fetchCampusDetail,
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
-  fetchPrayerWeek,
-  replaceAdminPrayerGroupMembers,
   revokeCoffeeDuty,
   sendAdminNotification,
-  updateAdminPrayerGroup,
   updateAdminPenaltyRule,
 } from '../api/client';
 import {
   closeAdminPoll,
   createAdminPoll,
   createAdminPollTemplate,
+  deleteAdminPollTemplate,
   fetchAdminPollComments,
   fetchAdminPollMissingMembers,
   fetchAdminPollResults,
@@ -63,7 +61,13 @@ import {
   type AdminPollType,
 } from '../api/adminPollApi';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {prayerApi} from '../api/prayerApi';
+import {
+  clearStoredPrayerSeason,
+  clearTokens,
+  getStoredTokens,
+  saveStoredPrayerSeason,
+} from '../api/tokenStorage';
 import type {
   AdminCampusChargeSummary,
   AdminCampusMember,
@@ -75,10 +79,13 @@ import type {
   AdminNotificationSendStatus,
   AdminNotificationType,
   AdminNotificationResponse,
+  AdminPrayerAssignableMember,
   AdminPrayerGroup,
+  AdminPrayerSeason,
   AdminWritableChargeStatus,
   ApiError,
   CampusRole,
+  ChargeAmountSummary,
   ChargeItem,
   ChargeStatus,
   CoffeeBrand,
@@ -100,6 +107,7 @@ import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
+import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {
   Body,
@@ -110,6 +118,8 @@ import {
   Empty,
   ErrorState,
   Eyebrow,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   ListRow,
   Loading,
   Offline,
@@ -148,6 +158,11 @@ type AdminTab =
   | 'settlement';
 type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
+type AdminMemberSection = 'list' | 'roles' | 'coffee';
+type AdminDevotionSection = 'missing' | 'prayer';
+type AdminPrayerManagementSection = 'status' | 'groups' | 'period';
+type AdminPrayerGroupFlow = 'list' | 'details' | 'members';
+type AdminCompactButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type ChargeStatusFilter = ChargeStatus | 'ALL';
 type PaymentCategoryFilter = PaymentCategory | 'ALL';
 type AdminSettlementSection = 'charges' | 'accounts' | 'penaltyRules';
@@ -185,7 +200,9 @@ type AdminActionState =
   | {status: 'deletingMember'; membershipId: number}
   | {status: 'changingChargeStatus'; chargeItemId: number}
   | {status: 'savingPaymentAccount'}
+  | {status: 'activatingPaymentAccount'; accountId: number}
   | {status: 'deactivatingPaymentAccount'; accountId: number}
+  | {status: 'deletingPaymentAccount'; accountId: number}
   | {status: 'savingPenaltyRule'; ruleId: number | null}
   | {status: 'creatingPrayerSeason'}
   | {status: 'closingPrayerSeason'; seasonId: number}
@@ -326,6 +343,12 @@ type AdminPrayerState =
   | {status: 'empty'; board: PrayerWeekSummary}
   | {status: 'error'; error: ApiError};
 
+type AssignablePrayerMembersState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'success'; members: AdminPrayerAssignableMember[]}
+  | {status: 'error'; error: ApiError};
+
 type PrayerSeasonForm = {
   endDate: string;
   name: string;
@@ -359,6 +382,22 @@ const adminBottomTabs: Array<{id: AdminTab; label: string}> = [
   {id: 'settlement', label: '정산'},
 ];
 
+const adminMemberSections: Array<{id: AdminMemberSection; label: string}> = [
+  {id: 'list', label: '멤버'},
+  {id: 'roles', label: '역할'},
+  {id: 'coffee', label: '커피담당'},
+];
+
+const adminDevotionSections: Array<{id: AdminDevotionSection; label: string}> = [
+  {id: 'missing', label: '경건 현황'},
+  {id: 'prayer', label: '기도제목'},
+];
+const adminPrayerManagementSections: Array<{id: AdminPrayerManagementSection; label: string}> = [
+  {id: 'status', label: '현황'},
+  {id: 'groups', label: '조 관리'},
+  {id: 'period', label: '운영 기간'},
+];
+
 const memberFilters: Array<{id: MemberFilter; label: string}> = [
   {id: 'ALL', label: '전체'},
   {id: 'ADMINS', label: '리더'},
@@ -366,7 +405,6 @@ const memberFilters: Array<{id: MemberFilter; label: string}> = [
 ];
 
 const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
-  {id: 'ALL', label: '전체'},
   {id: 'UNPAID', label: '미납'},
   {id: 'PAID', label: '납부'},
   {id: 'WAIVED', label: '면제'},
@@ -374,7 +412,6 @@ const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
 ];
 
 const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
-  {id: 'ALL', label: '전체'},
   {id: 'PENALTY', label: '벌금'},
   {id: 'COFFEE', label: '커피'},
 ];
@@ -382,7 +419,7 @@ const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> 
 const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
   {id: 'charges', label: '청구'},
   {id: 'accounts', label: '계좌'},
-  {id: 'penaltyRules', label: '벌금'},
+  {id: 'penaltyRules', label: '규칙'},
 ];
 
 const paymentAccountTypeOptions: Array<{id: PaymentCategory; label: string}> = [
@@ -428,11 +465,6 @@ const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: st
 
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
-const adminWritableChargeStatuses: AdminWritableChargeStatus[] = [
-  'UNPAID',
-  'WAIVED',
-  'CANCELED',
-];
 const adminFigmaTokens = {
   background: colors.background,
   surface: colors.surface,
@@ -513,7 +545,10 @@ export function AdminScreen({
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
+  const [memberSection, setMemberSection] = useState<AdminMemberSection>('list');
+  const [devotionSection, setDevotionSection] = useState<AdminDevotionSection>('missing');
   const [memberFilter, setMemberFilter] = useState<MemberFilter>('ALL');
+  const [memberSearch, setMemberSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<AdminLoadState>({status: 'loading'});
@@ -541,10 +576,11 @@ export function AdminScreen({
   );
   const [chargeFilters, setChargeFilters] = useState<AdminChargeFilters>({
     keyword: '',
-    paymentCategory: 'ALL',
-    status: 'ALL',
+    paymentCategory: 'PENALTY',
+    status: 'UNPAID',
     userId: '',
   });
+  const chargeFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settlementSection, setSettlementSection] =
     useState<AdminSettlementSection>('charges');
   const [settlementState, setSettlementState] = useState<AdminSettlementState>({
@@ -560,7 +596,12 @@ export function AdminScreen({
     useState<PaymentAccountForm>(emptyPaymentAccountForm);
   const [selectedPaymentAccount, setSelectedPaymentAccount] =
     useState<PaymentAccount | null>(null);
+  const [knownOwnedCoffeeAccountIds, setKnownOwnedCoffeeAccountIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [paymentAccountDeactivateTarget, setPaymentAccountDeactivateTarget] =
+    useState<PaymentAccount | null>(null);
+  const [paymentAccountDeleteTarget, setPaymentAccountDeleteTarget] =
     useState<PaymentAccount | null>(null);
   const [accountCopyFeedback, setAccountCopyFeedback] =
     useState<AccountCopyFeedback>(null);
@@ -571,6 +612,8 @@ export function AdminScreen({
   const [penaltyRuleForm, setPenaltyRuleForm] =
     useState<PenaltyRuleForm>(emptyPenaltyRuleForm);
   const [prayerState, setPrayerState] = useState<AdminPrayerState>({status: 'idle'});
+  const [assignablePrayerMembersState, setAssignablePrayerMembersState] =
+    useState<AssignablePrayerMembersState>({status: 'idle'});
   const [prayerSeasonForm, setPrayerSeasonForm] =
     useState<PrayerSeasonForm>(emptyPrayerSeasonForm);
   const [prayerGroupForm, setPrayerGroupForm] =
@@ -584,6 +627,83 @@ export function AdminScreen({
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
+
+  const syncPrayerSeason = (season: Pick<AdminPrayerSeason, 'name' | 'seasonId' | 'startDate'>) => {
+    setPrayerSeasonForm((current) => ({
+      ...current,
+      name: season.name || current.name,
+      seasonId: String(season.seasonId),
+      startDate: season.startDate || current.startDate,
+    }));
+    setPrayerGroupForm((current) => ({
+      ...current,
+      seasonId: String(season.seasonId),
+    }));
+  };
+
+  const clearPrayerSeasonState = () => {
+    setPrayerSeasonForm({
+      ...emptyPrayerSeasonForm,
+      startDate: formatAdminDateForApiDateOnly(new Date()),
+    });
+    setPrayerGroupForm(emptyPrayerGroupForm);
+    setPrayerGroupMembersForm(emptyPrayerGroupMembersForm);
+  };
+
+  const loadPrayerBoardForActiveSeason = async (accessToken: string): Promise<AdminPrayerState> => {
+    const weekBoard = await prayerApi.getPrayerWeekBoard(accessToken, campusId, weekStartDate);
+    const currentSeason = await getCurrentPrayerSeasonWithFallback(
+      accessToken,
+      campusId,
+      weekBoard,
+    );
+
+    if (!currentSeason) {
+      await clearStoredPrayerSeason(campusId);
+      clearPrayerSeasonState();
+      setAssignablePrayerMembersState({status: 'success', members: []});
+      return {
+        status: 'empty',
+        board: toPrayerBoardWithoutCurrentSeason(weekBoard),
+      };
+    }
+
+    await saveStoredPrayerSeason(campusId, {
+      name: currentSeason.name,
+      seasonId: currentSeason.seasonId,
+      startDate: currentSeason.startDate,
+    });
+    syncPrayerSeason(currentSeason);
+
+    setAssignablePrayerMembersState({status: 'loading'});
+    const [seasonGroups, assignableMembers] = await Promise.all([
+      prayerApi
+        .getSeasonGroups(accessToken, currentSeason.seasonId)
+        .catch((error): AdminPrayerGroup[] => {
+          if (isPrayerEndpointMissing(error)) {
+            return weekBoard.groups.map((group) => toAdminPrayerGroupFromSummary(group));
+          }
+
+          throw error;
+        }),
+      prayerApi
+        .getAssignableMembers(accessToken, currentSeason.seasonId)
+        .catch((error): AdminPrayerAssignableMember[] => {
+          if (isPrayerEndpointMissing(error)) {
+            return [];
+          }
+
+          throw error;
+        }),
+    ]);
+    setAssignablePrayerMembersState({status: 'success', members: assignableMembers});
+
+    const board = mergePrayerBoardWithSeasonGroups(weekBoard, currentSeason, seasonGroups);
+
+    return board.groups.length === 0 || board.targetMemberCount === 0
+      ? {status: 'empty', board}
+      : {status: 'success', board};
+  };
 
   const loadAdmin = async () => {
     setLoadState({status: 'loading'});
@@ -600,12 +720,7 @@ export function AdminScreen({
         fetchAdminDashboardSummary(accessToken, campusId, {weekStartDate}),
         fetchAdminCampusMembers(accessToken, campusId),
         fetchDutyAssignments(accessToken, campusId),
-        fetchPrayerWeek(accessToken, campusId, weekStartDate)
-          .then((board): AdminPrayerState =>
-            board.groups.length === 0 || board.targetMemberCount === 0
-              ? {status: 'empty', board}
-              : {status: 'success', board},
-          )
+        loadPrayerBoardForActiveSeason(accessToken)
           .catch((error): AdminPrayerState => ({
             status: 'error',
             error: toApiError(error, '기도제목 주간 현황을 불러오지 못했습니다.'),
@@ -670,6 +785,9 @@ export function AdminScreen({
 
   useEffect(() => {
     setSelectedMemberId(null);
+    setMemberSection('list');
+    setDevotionSection('missing');
+    setMemberSearch('');
     setInviteCodeState({status: 'idle'});
     setInviteCodeCopyState({status: 'idle'});
     setWeekStartDate(getWeekStartDate(new Date()));
@@ -686,11 +804,14 @@ export function AdminScreen({
     setPaymentAccountState({status: 'idle'});
     setPaymentAccountForm(emptyPaymentAccountForm);
     setSelectedPaymentAccount(null);
+    setKnownOwnedCoffeeAccountIds(new Set());
     setPaymentAccountDeactivateTarget(null);
+    setPaymentAccountDeleteTarget(null);
     setAccountCopyFeedback(null);
     setPenaltyRuleState({status: 'idle'});
     setPenaltyRuleForm(emptyPenaltyRuleForm);
     setPrayerState({status: 'idle'});
+    setAssignablePrayerMembersState({status: 'idle'});
     setPrayerSeasonForm({...emptyPrayerSeasonForm, startDate: getWeekStartDate(new Date())});
     setPrayerGroupForm(emptyPrayerGroupForm);
     setPrayerGroupMembersForm(emptyPrayerGroupMembersForm);
@@ -702,10 +823,14 @@ export function AdminScreen({
   }, [campusId]);
 
   useEffect(() => {
-    if (tab === 'devotion' && missingDevotionState.status === 'idle') {
+    if (
+      tab === 'devotion' &&
+      devotionSection === 'missing' &&
+      missingDevotionState.status === 'idle'
+    ) {
       void loadMissingDevotions();
     }
-  }, [tab, missingDevotionState.status]);
+  }, [devotionSection, tab, missingDevotionState.status]);
 
   useEffect(() => {
     if (tab === 'notificationLogs' && notificationLogState.status === 'idle') {
@@ -714,10 +839,13 @@ export function AdminScreen({
   }, [tab, notificationLogState.status]);
 
   useEffect(() => {
-    if (tab === 'prayer' && prayerState.status === 'idle') {
+    if (
+      ((tab === 'devotion' && devotionSection === 'prayer') || tab === 'prayer') &&
+      prayerState.status === 'idle'
+    ) {
       void loadPrayerBoard();
     }
-  }, [tab, prayerState.status]);
+  }, [devotionSection, tab, prayerState.status]);
 
   useEffect(() => {
     if (
@@ -748,6 +876,15 @@ export function AdminScreen({
       void loadPenaltyRules();
     }
   }, [tab, settlementSection, penaltyRuleState.status]);
+
+  useEffect(
+    () => () => {
+      if (chargeFilterDebounceRef.current) {
+        clearTimeout(chargeFilterDebounceRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!accountCopyFeedback) {
@@ -900,11 +1037,12 @@ export function AdminScreen({
         status: filters.status,
         ...(userId === undefined ? {} : {userId}),
       });
+      const visibleCharges = filterAdminCampusChargeSummary(charges, filters);
 
       setSettlementState(
-        charges.members.length === 0
-          ? {status: 'empty', charges}
-          : {status: 'success', charges},
+        visibleCharges.members.length === 0
+          ? {status: 'empty', charges: visibleCharges}
+          : {status: 'success', charges: visibleCharges},
       );
     } catch (error) {
       const apiError = toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.');
@@ -924,7 +1062,24 @@ export function AdminScreen({
         return;
       }
 
-      const accounts = await fetchPaymentAccounts(accessToken, campusId);
+      const accounts = await Promise.all([
+        fetchAdminPaymentAccounts(accessToken, campusId, {
+          accountType: 'PENALTY',
+          includeInactive: true,
+        }),
+        fetchAdminPaymentAccounts(accessToken, campusId, {
+          accountType: 'COFFEE',
+          includeInactive: true,
+        }),
+      ]).then(([penaltyAccounts, coffeeAccounts]) =>
+        mergePaymentAccounts(penaltyAccounts, coffeeAccounts),
+      ).catch((error): Promise<PaymentAccount[]> | PaymentAccount[] => {
+        if (isPaymentAccountListEndpointMissing(error)) {
+          return fetchPaymentAccounts(accessToken, campusId);
+        }
+
+        throw error;
+      });
       setPaymentAccountState(
         accounts.length === 0 ? {status: 'empty'} : {status: 'success', accounts},
       );
@@ -956,10 +1111,16 @@ export function AdminScreen({
         bankName: paymentAccountForm.bankName,
         accountNumber: paymentAccountForm.accountNumber,
         accountHolder: paymentAccountForm.accountHolder,
-        ownerUserId: null,
       });
 
       setPaymentAccountForm(emptyPaymentAccountForm);
+      if (paymentAccountForm.accountType === 'COFFEE') {
+        setKnownOwnedCoffeeAccountIds((current) => {
+          const next = new Set(current);
+          next.add(account.id);
+          return next;
+        });
+      }
       setPaymentAccountState({status: 'idle'});
       setNotice({
         tone: 'success',
@@ -1002,6 +1163,81 @@ export function AdminScreen({
       });
     } catch (error) {
       const apiError = toApiError(error, '납부 계좌를 비활성화하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const activatePaymentAccount = async (account: PaymentAccount) => {
+    if (actionState.status !== 'idle' || isPaymentAccountActive(account)) {
+      return;
+    }
+
+    setActionState({status: 'activatingPaymentAccount', accountId: account.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      await activateAdminPaymentAccount(accessToken, campusId, account.id);
+      setSelectedPaymentAccount(null);
+      setPaymentAccountState({status: 'idle'});
+      setNotice({
+        tone: 'success',
+        title: '납부 계좌 활성화',
+        message: `${account.nickname} 계좌가 활성 계좌로 변경되었습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 활성화하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmDeletePaymentAccount = async () => {
+    if (!paymentAccountDeleteTarget || actionState.status !== 'idle') {
+      return;
+    }
+
+    const target = paymentAccountDeleteTarget;
+
+    if (isPaymentAccountActive(target)) {
+      setActionError({
+        kind: 'conflict',
+        message: '활성 계좌는 삭제할 수 없습니다. 다른 계좌를 활성화한 뒤 다시 시도해 주세요.',
+      });
+      return;
+    }
+
+    setActionState({status: 'deletingPaymentAccount', accountId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      await deleteAdminPaymentAccount(accessToken, campusId, target.id);
+      setPaymentAccountDeleteTarget(null);
+      setSelectedPaymentAccount(null);
+      setPaymentAccountState({status: 'idle'});
+      setNotice({
+        tone: 'warning',
+        title: '납부 계좌 삭제',
+        message: `${target.nickname} 비활성 계좌를 삭제했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '납부 계좌를 삭제하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, setAuthState);
     } finally {
@@ -1119,12 +1355,8 @@ export function AdminScreen({
         return;
       }
 
-      const board = await fetchPrayerWeek(accessToken, campusId, weekStartDate);
-      setPrayerState(
-        board.groups.length === 0 || board.targetMemberCount === 0
-          ? {status: 'empty', board}
-          : {status: 'success', board},
-      );
+      const nextPrayerState = await loadPrayerBoardForActiveSeason(accessToken);
+      setPrayerState(nextPrayerState);
     } catch (error) {
       const apiError = toApiError(error, '기도제목 주간 현황을 불러오지 못했습니다.');
       setPrayerState({status: 'error', error: apiError});
@@ -1157,14 +1389,20 @@ export function AdminScreen({
         return;
       }
 
-      const season = await createAdminPrayerSeason(accessToken, campusId, {
+      const startDate = formatAdminDateForApiDateOnly(new Date());
+      const season = await prayerApi.createSeason(accessToken, campusId, {
         name: prayerSeasonForm.name,
-        startDate: prayerSeasonForm.startDate,
+        startDate,
+      });
+      await saveStoredPrayerSeason(campusId, {
+        name: season.name,
+        seasonId: season.seasonId,
+        startDate: season.startDate,
       });
 
       setPrayerSeasonForm((current) => ({
         ...current,
-        name: '',
+        name: season.name,
         seasonId: String(season.seasonId),
         startDate: season.startDate,
       }));
@@ -1174,12 +1412,13 @@ export function AdminScreen({
       }));
       setNotice({
         tone: 'success',
-        title: '기도 시즌 생성',
-        message: `${season.name} ACTIVE 시즌을 생성했습니다.`,
+        title: '기도 운영 기간 시작',
+        message: `${season.name} 운영 기간을 시작했습니다.`,
       });
-      setPrayerState({status: 'idle'});
+      const nextPrayerState = await loadPrayerBoardForActiveSeason(accessToken);
+      setPrayerState(nextPrayerState);
     } catch (error) {
-      const apiError = toApiError(error, '기도 시즌을 생성하지 못했습니다.');
+      const apiError = toApiError(error, '기도 운영 기간을 시작하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, setAuthState);
     } finally {
@@ -1187,24 +1426,18 @@ export function AdminScreen({
     }
   };
 
-  const openPrayerSeasonCloseConfirm = () => {
+  const openPrayerSeasonCloseConfirm = (seasonIdOverride?: string) => {
     try {
-      const seasonId = parseRequiredPositiveInt(prayerSeasonForm.seasonId, 'seasonId');
+      const seasonId = parseRequiredPositiveInt(
+        seasonIdOverride ?? prayerSeasonForm.seasonId,
+        '진행 중인 운영 기간',
+      );
+      const endDate = formatAdminDateForApiDateOnly(new Date());
 
-      if (!prayerSeasonForm.endDate.trim()) {
-        throw new FaithLogApiError({
-          kind: 'error',
-          message: 'endDate 값을 입력해 주세요.',
-        });
-      }
-
-      setPrayerSeasonCloseTarget({
-        seasonId,
-        endDate: prayerSeasonForm.endDate.trim(),
-      });
+      setPrayerSeasonCloseTarget({seasonId, endDate});
       setActionError(null);
     } catch (error) {
-      setActionError(toApiError(error, '기도 시즌 종료 입력값이 올바르지 않습니다.'));
+      setActionError(toApiError(error, '기도 운영 기간 종료 입력값이 올바르지 않습니다.'));
     }
   };
 
@@ -1224,24 +1457,29 @@ export function AdminScreen({
         return;
       }
 
-      const season = await closeAdminPrayerSeason(accessToken, target.seasonId, {
-        endDate: target.endDate,
+      const season = await prayerApi.closeSeason(
+        accessToken,
+        target.seasonId,
+        {endDate: formatAdminDateForApiDateOnly(new Date())},
+      );
+
+      clearPrayerSeasonState();
+      setNotice({
+        tone: 'warning',
+        title: '기도 운영 기간 종료',
+        message: `${season.name} 운영 기간을 종료했습니다. 새 기간을 시작한 뒤 조를 다시 편성해 주세요.`,
       });
 
       setPrayerSeasonCloseTarget(null);
-      setPrayerSeasonForm((current) => ({
-        ...current,
-        endDate: season.endDate ?? current.endDate,
-        seasonId: String(season.seasonId),
-      }));
-      setNotice({
-        tone: 'warning',
-        title: '기도 시즌 종료',
-        message: `${season.name} 시즌을 ${season.endDate ?? target.endDate}에 종료했습니다.`,
-      });
-      setPrayerState({status: 'idle'});
+      await clearStoredPrayerSeason(campusId);
+      setAssignablePrayerMembersState({status: 'success', members: []});
+      setPrayerState((current) =>
+        current.status === 'success' || current.status === 'empty'
+          ? {status: 'empty', board: toPrayerBoardWithoutCurrentSeason(current.board)}
+          : current,
+      );
     } catch (error) {
-      const apiError = toApiError(error, '기도 시즌을 종료하지 못했습니다.');
+      const apiError = toApiError(error, '기도 운영 기간을 종료하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, setAuthState);
     } finally {
@@ -1251,7 +1489,7 @@ export function AdminScreen({
 
   const savePrayerGroup = async () => {
     if (actionState.status !== 'idle') {
-      return;
+      return false;
     }
 
     setActionState({status: 'savingPrayerGroup', groupId: null});
@@ -1264,7 +1502,7 @@ export function AdminScreen({
       const accessToken = await resolveAccessToken(setAuthState);
 
       if (!accessToken) {
-        return;
+        return false;
       }
 
       setActionState({status: 'savingPrayerGroup', groupId: editingGroupId});
@@ -1273,40 +1511,65 @@ export function AdminScreen({
         name: prayerGroupForm.name,
         sortOrder: parseRequiredPositiveInt(prayerGroupForm.sortOrder, 'sortOrder'),
       };
+      const unavailableUserIds = getUnavailablePrayerMemberIds(prayerState, editingGroupId);
+      const selectedUserIds = parseUserIdList(prayerGroupMembersForm.userIds).filter(
+        (userId) => !unavailableUserIds.has(userId),
+      );
+
+      if (selectedUserIds.length === 0) {
+        setActionError({
+          kind: 'error',
+          message: '기도조 멤버를 1명 이상 선택해 주세요.',
+        });
+        return false;
+      }
+
       const group =
         editingGroupId === null
-          ? await createAdminPrayerGroup(
+          ? await prayerApi.createGroup(
               accessToken,
-              parseRequiredPositiveInt(prayerGroupForm.seasonId, 'seasonId'),
+              parseRequiredPositiveInt(prayerGroupForm.seasonId, '진행 중인 운영 기간'),
               request,
             )
-          : await updateAdminPrayerGroup(accessToken, editingGroupId, {
+          : await prayerApi.updateGroup(accessToken, editingGroupId, {
               ...request,
               isActive: prayerGroupForm.isActive,
             });
+      const savedGroup = await prayerApi.replaceGroupMembers(accessToken, group.groupId, {
+        userIds: selectedUserIds,
+      });
 
       setPrayerGroupForm({
         ...emptyPrayerGroupForm,
-        groupId: String(group.groupId),
-        name: group.name,
-        seasonId: String(group.seasonId),
-        sortOrder: String(group.sortOrder),
-        isActive: group.active,
+        groupId: String(savedGroup.groupId),
+        name: savedGroup.name,
+        seasonId: String(savedGroup.seasonId),
+        sortOrder: String(savedGroup.sortOrder),
+        isActive: savedGroup.active,
       });
-      setPrayerGroupMembersForm((current) => ({
-        ...current,
-        groupId: String(group.groupId),
-      }));
+      setPrayerGroupMembersForm({
+        groupId: String(savedGroup.groupId),
+        userIds: savedGroup.members.map((member) => String(member.userId)).join(', '),
+      });
       setNotice({
-        tone: group.active ? 'success' : 'warning',
+        tone: savedGroup.active ? 'success' : 'warning',
         title: editingGroupId === null ? '기도조 생성' : '기도조 수정',
-        message: `${group.name} 조 정보를 저장했습니다.`,
+        message: `${savedGroup.name} 조와 조원 ${savedGroup.members.length}명을 저장했습니다.`,
       });
       setPrayerState({status: 'idle'});
+      return true;
     } catch (error) {
       const apiError = toApiError(error, '기도조를 저장하지 못했습니다.');
-      setActionError(apiError);
+      setActionError(
+        apiError.kind === 'conflict'
+          ? {
+              ...apiError,
+              message: '이미 다른 조에 배정된 멤버가 있어요. 멤버 목록을 새로고침한 뒤 다시 선택해 주세요.',
+            }
+          : apiError,
+      );
       void handleAuthError(apiError, setAuthState);
+      return false;
     } finally {
       setActionState({status: 'idle'});
     }
@@ -1329,62 +1592,40 @@ export function AdminScreen({
     setActionError(null);
   };
 
-  const savePrayerGroupMembers = async () => {
-    if (actionState.status !== 'idle') {
-      return;
-    }
-
-    setActionState({status: 'savingPrayerMembers', groupId: 0});
-    setActionError(null);
-
-    try {
-      const groupId = parseRequiredPositiveInt(prayerGroupMembersForm.groupId, 'groupId');
-      const userIds = parseUserIdList(prayerGroupMembersForm.userIds);
-      const accessToken = await resolveAccessToken(setAuthState);
-
-      if (!accessToken) {
-        return;
-      }
-
-      setActionState({status: 'savingPrayerMembers', groupId});
-
-      const group = await replaceAdminPrayerGroupMembers(accessToken, groupId, {userIds});
-      setPrayerGroupMembersForm({
-        groupId: String(group.groupId),
-        userIds: group.members.map((member) => String(member.userId)).join(', '),
-      });
-      setNotice({
-        tone: group.members.length === 0 ? 'warning' : 'success',
-        title: '기도조 멤버 저장',
-        message:
-          group.members.length === 0
-            ? `${group.name} 조를 빈 조로 저장했습니다.`
-            : `${group.name} 조에 ${group.members.length}명을 배정했습니다.`,
-      });
-      setPrayerState({status: 'idle'});
-    } catch (error) {
-      const apiError = toApiError(error, '기도조 멤버를 저장하지 못했습니다.');
-      setActionError(apiError);
-      void handleAuthError(apiError, setAuthState);
-    } finally {
-      setActionState({status: 'idle'});
-    }
-  };
-
   const updateChargeFilter = <Key extends keyof AdminChargeFilters>(
     key: Key,
     value: AdminChargeFilters[Key],
   ) => {
-    setChargeFilters((current) => ({...current, [key]: value}));
+    const nextFilters = {...chargeFilters, [key]: value};
+
+    setChargeFilters(nextFilters);
+    setChargeDetailState({status: 'idle'});
+
+    if (chargeFilterDebounceRef.current) {
+      clearTimeout(chargeFilterDebounceRef.current);
+    }
+
+    if (key === 'keyword') {
+      chargeFilterDebounceRef.current = setTimeout(() => {
+        void loadSettlement(nextFilters);
+      }, 350);
+      return;
+    }
+
+    void loadSettlement(nextFilters);
   };
 
   const resetChargeFilters = () => {
     const nextFilters: AdminChargeFilters = {
       keyword: '',
-      paymentCategory: 'ALL',
-      status: 'ALL',
+      paymentCategory: 'PENALTY',
+      status: 'UNPAID',
       userId: '',
     };
+
+    if (chargeFilterDebounceRef.current) {
+      clearTimeout(chargeFilterDebounceRef.current);
+    }
 
     setChargeFilters(nextFilters);
     setChargeDetailState({status: 'idle'});
@@ -1402,10 +1643,13 @@ export function AdminScreen({
         return;
       }
 
-      const charges = await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
-        paymentCategory: chargeFilters.paymentCategory,
-        status: chargeFilters.status,
-      });
+      const charges = filterAdminMemberChargeList(
+        await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
+          paymentCategory: chargeFilters.paymentCategory,
+          status: chargeFilters.status,
+        }),
+        chargeFilters,
+      );
 
       setChargeDetailState(
         charges.items.length === 0
@@ -1830,6 +2074,18 @@ export function AdminScreen({
     setTab(nextTab);
   };
 
+  const openMemberRoles = () => {
+    setSelectedMemberId(null);
+    setMemberSection('roles');
+    setTab('members');
+  };
+
+  const openPrayerManagement = () => {
+    setSelectedMemberId(null);
+    setDevotionSection('prayer');
+    setTab('devotion');
+  };
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -1849,12 +2105,13 @@ export function AdminScreen({
           <AdminShellHeader
             activeTab={tab}
             campusLabel={getCampusLabel(state)}
-            onBackToUserMode={onBackToUserMode}
+            onOpenUserMode={onBackToUserMode}
           />
           <AdminHome
             prayerState={prayerState}
             summary={loadState.summary}
             onOpenMembers={() => setTab('members')}
+            onOpenPrayer={openPrayerManagement}
           />
           <Empty
             title="활성 멤버가 없습니다"
@@ -1884,7 +2141,7 @@ export function AdminScreen({
       <AdminShellHeader
         activeTab={tab}
         campusLabel={getCampusLabel(state)}
-        onBackToUserMode={onBackToUserMode}
+        onOpenUserMode={onBackToUserMode}
       />
       {actionError ? <AdminInlineError error={actionError} /> : null}
       {selectedMember ? (
@@ -1906,23 +2163,59 @@ export function AdminScreen({
           prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
-          onOpenRoles={() => setTab('roles')}
+          onOpenPrayer={openPrayerManagement}
+          onOpenRoles={openMemberRoles}
         />
       ) : tab === 'devotion' ? (
-        <AdminDevotionMissing
+        <AdminDevotionPage
+          assignableMembersState={assignablePrayerMembersState}
+          devotionSection={devotionSection}
+          members={loadState.members}
           missingState={missingDevotionState}
-          notificationState={notificationState}
+          notificationSendState={notificationState}
+          onChangeDevotionSection={setDevotionSection}
+          onChangePrayerGroupForm={(patch) =>
+            setPrayerGroupForm((current) => ({...current, ...patch}))
+          }
+          onChangePrayerMembersForm={(patch) =>
+            setPrayerGroupMembersForm((current) => ({...current, ...patch}))
+          }
+          onChangePrayerSeasonForm={(patch) =>
+            setPrayerSeasonForm((current) => ({...current, ...patch}))
+          }
           onChangeWeek={changeMissingWeek}
+          onEditPrayerGroup={editPrayerGroup}
           onOpenNotificationConfirm={openNotificationConfirm}
           onOpenNotificationLogs={openNotificationLogsForRequest}
-          onRetry={loadMissingDevotions}
+          onOpenPrayerCloseSeason={openPrayerSeasonCloseConfirm}
+          onRetryMissing={loadMissingDevotions}
+          onRetryPrayer={loadPrayerBoard}
+          onSavePrayerGroup={savePrayerGroup}
+          onSavePrayerSeason={savePrayerSeason}
+          prayerActionState={actionState}
+          prayerBoardState={prayerState}
+          prayerGroupForm={prayerGroupForm}
+          prayerMembersForm={prayerGroupMembersForm}
+          prayerSeasonForm={prayerSeasonForm}
           summary={loadState.summary}
           weekStartDate={weekStartDate}
         />
       ) : tab === 'polls' ? (
         <AdminPollManagement
           campusId={campusId}
-          coffeeDuty={coffeeDuty}
+          currentUserId={state.user.id}
+          knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+          onRequestCoffeeAccountCreate={() => {
+            setTab('settlement');
+            setSettlementSection('accounts');
+            setSelectedPaymentAccount(null);
+            setActionError(null);
+            setPaymentAccountForm((current) => ({
+              ...current,
+              accountType: 'COFFEE',
+              nickname: current.nickname.trim() ? current.nickname : '커피 계좌',
+            }));
+          }}
           onSessionStateChange={setAuthState}
           setNotice={setNotice}
         />
@@ -1962,6 +2255,7 @@ export function AdminScreen({
       ) : tab === 'prayer' ? (
         <AdminPrayerManagement
           actionState={actionState}
+          assignableMembersState={assignablePrayerMembersState}
           boardState={prayerState}
           groupForm={prayerGroupForm}
           members={loadState.members}
@@ -1980,20 +2274,21 @@ export function AdminScreen({
           onOpenCloseSeason={openPrayerSeasonCloseConfirm}
           onRetry={loadPrayerBoard}
           onSaveGroup={savePrayerGroup}
-          onSaveMembers={savePrayerGroupMembers}
           onSaveSeason={savePrayerSeason}
           seasonForm={prayerSeasonForm}
           weekStartDate={weekStartDate}
         />
       ) : tab === 'settlement' ? (
-        <AdminSettlement
-          actionState={actionState}
-          detailState={chargeDetailState}
-          filters={chargeFilters}
-          onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
-          onChangePaymentAccountForm={(patch) =>
-            setPaymentAccountForm((current) => ({...current, ...patch}))
-          }
+          <AdminSettlement
+            actionState={actionState}
+            detailState={chargeDetailState}
+            filters={chargeFilters}
+            currentUserId={state.user.id}
+            knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+            onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
+            onChangePaymentAccountForm={(patch) =>
+              setPaymentAccountForm((current) => ({...current, ...patch}))
+            }
           onChangePenaltyRuleForm={(patch) =>
             setPenaltyRuleForm((current) => ({...current, ...patch}))
           }
@@ -2004,9 +2299,11 @@ export function AdminScreen({
           }}
           onBackToSummary={() => setChargeDetailState({status: 'idle'})}
           onBlockedPaid={setPaidBlockedTarget}
+          onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
           onOpenMemberCharges={openMemberCharges}
+          onRequestDeletePaymentAccount={setPaymentAccountDeleteTarget}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
           onSelectPaymentAccount={setSelectedPaymentAccount}
           onRequestStatusChange={requestChargeStatusChange}
@@ -2017,10 +2314,6 @@ export function AdminScreen({
           onRetrySummary={() => void loadSettlement()}
           onSavePaymentAccount={() => void savePaymentAccount()}
           onSavePenaltyRule={() => void savePenaltyRule()}
-          onSearch={() => {
-            setChargeDetailState({status: 'idle'});
-            void loadSettlement();
-          }}
           onUpdateFilter={updateChargeFilter}
           paymentAccountForm={paymentAccountForm}
           paymentAccountCopyFeedback={accountCopyFeedback}
@@ -2033,25 +2326,34 @@ export function AdminScreen({
           settlementState={settlementState}
         />
       ) : tab === 'members' ? (
-        <AdminMembers
+        <AdminMemberPage
+          actionState={actionState}
+          coffeeDuty={coffeeDuty}
           filter={memberFilter}
+          globalRole={state.user.role}
           inviteCodeCopyState={inviteCodeCopyState}
           inviteCodeState={inviteCodeState}
+          memberSearch={memberSearch}
           members={loadState.members}
+          onAssignCoffee={assignCoffee}
+          onChangeSection={setMemberSection}
           onCopyInviteCode={copyInviteCode}
-          onOpenRoles={() => setTab('roles')}
+          onChangeMemberSearch={setMemberSearch}
+          onRevokeCoffee={revokeCoffee}
           onSelectFilter={setMemberFilter}
           onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
+          onSelectRoleFilter={setRoleFilter}
+          roleFilter={roleFilter}
+          section={memberSection}
+          selectedCampusRole={state.selectedCampus.campusRole}
         />
       ) : (
         <AdminRoleManagement
-          actionState={actionState}
           filter={roleFilter}
           globalRole={state.user.role}
           members={loadState.members}
           onSelectFilter={setRoleFilter}
           onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
-          onUpdateRole={updateRole}
           selectedCampusRole={state.selectedCampus.campusRole}
         />
       )}
@@ -2094,6 +2396,16 @@ export function AdminScreen({
         onCopyAccount={copyAccountNumber}
         onConfirm={confirmDeactivatePaymentAccount}
       />
+      <DeletePaymentAccountSheet
+        account={paymentAccountDeleteTarget}
+        copyFeedback={accountCopyFeedback}
+        copyOpacity={accountCopyOpacity}
+        error={actionError}
+        loading={actionState.status === 'deletingPaymentAccount'}
+        onCancel={() => setPaymentAccountDeleteTarget(null)}
+        onCopyAccount={copyAccountNumber}
+        onConfirm={confirmDeletePaymentAccount}
+      />
       <PrayerSeasonCloseSheet
         error={actionError}
         loading={actionState.status === 'closingPrayerSeason'}
@@ -2108,32 +2420,29 @@ export function AdminScreen({
 function AdminShellHeader({
   activeTab,
   campusLabel,
-  onBackToUserMode,
+  onOpenUserMode,
 }: {
   activeTab: AdminTab;
   campusLabel: string;
-  onBackToUserMode: () => void;
+  onOpenUserMode: () => void;
 }) {
   return (
     <View style={styles.adminShellHeader}>
-      <View style={styles.adminHeaderContext}>
-        <View style={styles.chipRow}>
-          <Chip label={campusLabel} tone="info" />
-          <Chip label="관리자" tone="success" />
-        </View>
-        <Pressable
-          accessibilityLabel="일반 모드로 전환"
-          accessibilityRole="button"
-          onPress={onBackToUserMode}
-          style={({pressed}) => [
-            styles.modeReturnButton,
-            pressed ? styles.modeReturnButtonPressed : null,
-          ]}>
-          <IconexIcon color={adminFigmaTokens.primary} name="user" size={18} strokeWidth={1.7} />
-          <Text style={styles.modeReturnButtonText}>일반 모드</Text>
-        </Pressable>
-      </View>
-      <Text style={styles.figmaScreenTitle}>{getAdminShellTitle(activeTab)}</Text>
+      <FaithLogHeaderTopRow campusLabel={campusLabel} contextLabel="관리자">
+        <FaithLogHeaderPillButton
+          accessibilityLabel="일반 사용자로 이동"
+          label="사용자"
+          onPress={onOpenUserMode}
+        />
+      </FaithLogHeaderTopRow>
+      <Text
+        adjustsFontSizeToFit
+        ellipsizeMode="tail"
+        minimumFontScale={0.82}
+        numberOfLines={1}
+        style={styles.adminScreenTitle}>
+        {getAdminShellTitle(activeTab)}
+      </Text>
     </View>
   );
 }
@@ -2198,14 +2507,14 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 }
 
 function AdminHome({
-  coffeeDuty,
-  onOpenMembers,
+  onOpenPrayer,
   onOpenRoles,
   prayerState,
   summary,
 }: {
   coffeeDuty?: DutyAssignment | null;
-  onOpenMembers: () => void;
+  onOpenMembers?: () => void;
+  onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
   prayerState: AdminPrayerState;
   summary: AdminDashboardSummary;
@@ -2213,9 +2522,10 @@ function AdminHome({
   return (
     <>
       <Card>
-        <Eyebrow>운영 개요</Eyebrow>
-        <Title>{summary.campus.campusName} 운영 체크</Title>
-        <Body>경건 미제출, 기도제목 미제출, 미납을 한 화면에서 확인합니다.</Body>
+        <Eyebrow>오늘 운영</Eyebrow>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.adminHomeCampusTitle}>
+          {summary.campus.campusName}
+        </Text>
         <View style={styles.metricGrid}>
           <Metric label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
           <Metric label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
@@ -2224,31 +2534,25 @@ function AdminHome({
           <Metric label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
           <Metric label="미납" value={formatCompactWon(summary.charges.unpaidAmount)} />
         </View>
-        <Body>
-          기준 주차 {summary.devotion.weekStartDate}, 기도제목은 같은 주차 제출 현황 기준
-        </Body>
       </Card>
       <Card>
-        <Eyebrow>빠른 관리</Eyebrow>
-        <ListRow
-          label="멤버 관리"
-          supportingText="ACTIVE 멤버 목록과 상세 관리"
-          value="보기"
-          onPress={onOpenMembers}
-          accessibilityLabel="관리자 멤버 관리 화면으로 이동"
-        />
-        <ListRow
-          label="커피 담당자"
-          supportingText={coffeeDuty ? `${coffeeDuty.name} · ${coffeeDuty.email}` : '현재 지정된 담당자가 없습니다'}
-          value={coffeeDuty ? '지정됨' : '미지정'}
-        />
+        <Eyebrow>바로가기</Eyebrow>
         {onOpenRoles ? (
           <ListRow
             label="역할 관리"
-            supportingText="캠퍼스 권한 변경 전용입니다. 전체 권한은 변경하지 않습니다."
+            supportingText="캠퍼스 권한 변경"
             value="보기"
             onPress={onOpenRoles}
             accessibilityLabel="관리자 역할 관리 화면으로 이동"
+          />
+        ) : null}
+        {onOpenPrayer ? (
+          <ListRow
+            label="기도 관리"
+            supportingText="운영 기간, 조, 조원 배정"
+            value="보기"
+            onPress={onOpenPrayer}
+            accessibilityLabel="관리자 기도 관리 화면으로 이동"
           />
         ) : null}
       </Card>
@@ -2257,8 +2561,10 @@ function AdminHome({
 }
 
 type AdminPollSection = 'manage' | 'create' | 'results' | 'missing' | 'templates' | 'status';
+type AdminPollPrimarySection = 'ongoing' | 'closed' | 'create' | 'templates';
 type AdminPollCreateStep = 'type' | 'detail';
 type AdminPollTemplateStep = 'info' | 'schedule' | 'options' | 'confirm';
+type AdminPollTemplateMode = 'list' | 'editor';
 type AdminPollTypeFilter = AdminPollType | 'ALL';
 type AdminPollListState =
   | {status: 'loading'}
@@ -2332,10 +2638,11 @@ type AdminPollCreateForm = {
   title: string;
 };
 
-const pollSections: Array<{id: AdminPollSection; label: string}> = [
-  {id: 'manage', label: '관리'},
-  {id: 'results', label: '결과'},
-  {id: 'missing', label: '미참여'},
+const pollPrimarySections: Array<{id: AdminPollPrimarySection; label: string}> = [
+  {id: 'ongoing', label: '진행'},
+  {id: 'closed', label: '마감'},
+  {id: 'create', label: '생성'},
+  {id: 'templates', label: '반복'},
 ];
 
 const adminPollWeekdays: Array<{id: string; label: string}> = [
@@ -2355,22 +2662,16 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
   {id: 'COFFEE', label: '커피'},
   {id: 'CUSTOM', label: '커스텀'},
 ];
-const adminPollStatusTabs: Array<{id: AdminPollStatusTab; label: string}> = [
-  {id: 'ongoing', label: '진행중'},
-  {id: 'closed', label: '마감'},
-];
-
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
   {id: 'CUSTOM', label: '커스텀'},
-  {id: 'COFFEE', label: '커피'},
   {id: 'WEDNESDAY', label: '수요'},
   {id: 'SATURDAY', label: '토요'},
 ];
 
 const adminPollCreateTypes: Array<{id: AdminPollType; label: string}> = [
+  {id: 'COFFEE', label: '커피 주문'},
   {id: 'WEDNESDAY', label: '수요예배 참석'},
   {id: 'SATURDAY', label: '토요 목자모임'},
-  {id: 'COFFEE', label: '커피 주문'},
   {id: 'CUSTOM', label: '커스텀 투표'},
 ];
 
@@ -2417,29 +2718,33 @@ function createEmptyAdminPollForm(): AdminPollCreateForm {
   const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
 
   return {
-    allowUserOptionAdd: false,
-    chargeGenerationType: 'NONE',
+    allowUserOptionAdd: true,
+    chargeGenerationType: 'OPTION_PRICE',
     endsAt: endsAt.toISOString(),
     isAnonymous: false,
-    optionsText: '참석, 불참',
+    optionsText: defaultCoffeePollOptionsText,
     paymentAccountId: '',
-    paymentCategory: 'NONE',
-    pollType: 'CUSTOM',
+    paymentCategory: 'COFFEE',
+    pollType: 'COFFEE',
     selectionType: 'SINGLE',
     startsAt: startsAt.toISOString(),
     templateId: '',
-    title: '',
+    title: '커피 주문',
   };
 }
 
 function AdminPollManagement({
   campusId,
-  coffeeDuty,
+  currentUserId,
+  knownOwnedCoffeeAccountIds,
+  onRequestCoffeeAccountCreate,
   onSessionStateChange,
   setNotice,
 }: {
   campusId: number;
-  coffeeDuty: DutyAssignment | null;
+  currentUserId: number;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onRequestCoffeeAccountCreate: () => void;
   onSessionStateChange: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
 }) {
@@ -2454,10 +2759,12 @@ function AdminPollManagement({
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [createStep, setCreateStep] = useState<AdminPollCreateStep>('type');
   const [templateStep, setTemplateStep] = useState<AdminPollTemplateStep>('info');
+  const [templateMode, setTemplateMode] = useState<AdminPollTemplateMode>('list');
   const [pollTypeFilter, setPollTypeFilter] = useState<AdminPollTypeFilter>('ALL');
   const [pollStatusTab, setPollStatusTab] = useState<AdminPollStatusTab>('ongoing');
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   const [pollCloseTarget, setPollCloseTarget] = useState<PollCloseTarget>(null);
+  const [templateDeleteTarget, setTemplateDeleteTarget] = useState<AdminPollTemplate | null>(null);
   const [templateForm, setTemplateForm] = useState<AdminPollTemplateForm>(
     emptyAdminPollTemplateForm,
   );
@@ -2479,7 +2786,7 @@ function AdminPollManagement({
       const [polls, templates, accounts] = await Promise.all([
         fetchAdminPolls(accessToken, campusId),
         fetchAdminPollTemplates(accessToken, campusId),
-        fetchPaymentAccounts(accessToken, campusId),
+        fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'}),
       ]);
 
       setListState(
@@ -2546,7 +2853,7 @@ function AdminPollManagement({
 
   const templates =
     listState.status === 'success' || listState.status === 'empty' ? listState.templates : [];
-  const displayTemplates = withDefaultCoffeePollTemplate(templates, campusId);
+  const displayTemplates = getVisibleAdminPollTemplates(templates);
   const polls =
     listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
   const accounts =
@@ -2560,7 +2867,12 @@ function AdminPollManagement({
     ? polls.find((poll) => poll.id === selectedPollId) ?? null
     : null;
   const busy = actionState.status !== 'idle';
-  const coffeeWarning = getAdminPollCoffeeWarning(pollForm, coffeeDuty);
+  const coffeeWarning = getAdminPollCoffeeWarning(
+    pollForm,
+    accounts,
+    currentUserId,
+    knownOwnedCoffeeAccountIds,
+  );
 
   const saveTemplate = async () => {
     if (busy) {
@@ -2602,7 +2914,8 @@ function AdminPollManagement({
       setTemplateForm(toTemplateForm(saved));
       await loadPolls();
       setTemplateStep('info');
-      setSection('manage');
+      setTemplateMode('list');
+      setSection('templates');
     } catch (error) {
       const apiError = toApiError(error, '반복투표를 저장하지 못했습니다.');
       setActionError(apiError);
@@ -2621,6 +2934,18 @@ function AdminPollManagement({
 
     if (deadlineValidationMessage) {
       setActionError({kind: 'error', message: deadlineValidationMessage});
+      return;
+    }
+
+    const coffeeValidationMessage = getAdminPollCoffeeWarning(
+      pollForm,
+      accounts,
+      currentUserId,
+      knownOwnedCoffeeAccountIds,
+    );
+
+    if (coffeeValidationMessage) {
+      setActionError({kind: 'error', message: coffeeValidationMessage});
       return;
     }
 
@@ -2644,6 +2969,43 @@ function AdminPollManagement({
       setSection('manage');
     } catch (error) {
       const apiError = toApiError(error, '투표를 생성하지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      setActionState({status: 'idle'});
+    }
+  };
+
+  const confirmDeleteTemplate = async () => {
+    if (!templateDeleteTarget || busy || isDefaultCoffeePollTemplate(templateDeleteTarget)) {
+      return;
+    }
+
+    const target = templateDeleteTarget;
+    setActionState({status: 'deletingTemplate', templateId: target.id});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const deleted = await deleteAdminPollTemplate(accessToken, campusId, target.id);
+      setTemplateDeleteTarget(null);
+      setTemplateForm(emptyAdminPollTemplateForm);
+      setTemplateStep('info');
+      setTemplateMode('list');
+      setSection('templates');
+      await loadPolls();
+      setNotice({
+        tone: 'warning',
+        title: '반복투표 삭제',
+        message: `${deleted.title} 반복투표를 삭제했습니다.`,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '반복투표를 삭제하지 못했습니다.');
       setActionError(apiError);
       void handleAuthError(apiError, onSessionStateChange);
     } finally {
@@ -2801,30 +3163,60 @@ function AdminPollManagement({
   };
 
   const startCreateTemplate = () => {
+    setTemplateDeleteTarget(null);
     setTemplateForm(emptyAdminPollTemplateForm);
     setTemplateStep('info');
+    setTemplateMode('editor');
+    setSection('templates');
+  };
+
+  const openTemplateList = () => {
+    setTemplateDeleteTarget(null);
+    setTemplateForm(emptyAdminPollTemplateForm);
+    setTemplateStep('info');
+    setTemplateMode('list');
     setSection('templates');
   };
 
   const editTemplate = (template: AdminPollTemplate) => {
-    setTemplateForm(
-      isDefaultCoffeePollTemplate(template)
-        ? toDefaultCoffeePollTemplateForm()
-        : toTemplateForm(template),
-    );
+    setTemplateDeleteTarget(null);
+    setTemplateForm(toTemplateForm(template));
     setTemplateStep('info');
+    setTemplateMode('editor');
+    setSection('templates');
+  };
+
+  const activePrimarySection: AdminPollPrimarySection =
+    section === 'create'
+      ? 'create'
+      : section === 'templates'
+        ? 'templates'
+        : pollStatusTab === 'closed'
+          ? 'closed'
+          : 'ongoing';
+  const selectPrimarySection = (nextSection: AdminPollPrimarySection) => {
+    setActionError(null);
+
+    if (nextSection === 'create') {
+      startCreatePoll();
+      return;
+    }
+
+    if (nextSection === 'templates') {
+      openTemplateList();
+      return;
+    }
+
+    setPollStatusTab(nextSection);
+    setSection('manage');
   };
 
   return (
     <>
-      {section === 'create' || section === 'templates' ? null : (
-        <AdminPollTopActions
-          activeSection={section}
-          onCreate={startCreatePoll}
-          onCreateTemplate={startCreateTemplate}
-          onSelectSection={setSection}
-        />
-      )}
+      <AdminPollTopActions
+        activeSection={activePrimarySection}
+        onSelectSection={selectPrimarySection}
+      />
       {actionError && section !== 'create' && section !== 'templates' ? (
         <AdminInlineError error={actionError} />
       ) : null}
@@ -2838,46 +3230,48 @@ function AdminPollManagement({
             <AdminPollList
               filter={pollTypeFilter}
               onChangeFilter={setPollTypeFilter}
-              onChangeStatusTab={setPollStatusTab}
               onRefresh={loadPolls}
-              onCreateTemplate={startCreateTemplate}
-              onManageTemplate={(template) => {
-                editTemplate(template);
-                setSection('templates');
-              }}
               onClosePoll={setPollCloseTarget}
               onViewResults={(poll) => {
                 selectPoll(poll);
                 setSection('results');
                 void loadResults(poll.id);
               }}
-              onSelectPoll={selectPoll}
               polls={visiblePolls}
               selectedPollId={selectedPollId}
               statusTab={pollStatusTab}
-              templates={displayTemplates}
             />
           ) : null}
           {section === 'templates' ? (
-            <AdminPollTemplateEditor
-              actionState={actionState}
-              actionError={actionError}
-              accounts={accounts}
-              coffeeCatalogState={coffeeCatalogState}
-              form={templateForm}
-              onCancel={() => {
-                setTemplateForm(emptyAdminPollTemplateForm);
-                setTemplateStep('info');
-                setSection('manage');
-              }}
-              onChangeForm={(patch) =>
-                setTemplateForm((current) => ({...current, ...patch}))
-              }
-              onChangeStep={setTemplateStep}
-              onRetryCoffeeCatalog={loadCoffeeCatalog}
-              onSave={saveTemplate}
-              step={templateStep}
-            />
+            templateMode === 'editor' ? (
+              <AdminPollTemplateEditor
+                actionState={actionState}
+                actionError={actionError}
+                accounts={accounts}
+                coffeeCatalogState={coffeeCatalogState}
+                form={templateForm}
+                onCancel={openTemplateList}
+                onChangeForm={(patch) =>
+                  setTemplateForm((current) => ({...current, ...patch}))
+                }
+                onChangeStep={setTemplateStep}
+                onRetryCoffeeCatalog={loadCoffeeCatalog}
+                onSave={saveTemplate}
+                step={templateStep}
+              />
+            ) : (
+              <AdminPollTemplateListPanel
+                actionError={actionError}
+                actionState={actionState}
+                deleteTarget={templateDeleteTarget}
+                onCancelDelete={() => setTemplateDeleteTarget(null)}
+                onConfirmDelete={confirmDeleteTemplate}
+                onDeleteTemplate={setTemplateDeleteTarget}
+                onEditTemplate={editTemplate}
+                onNewTemplate={startCreateTemplate}
+                templates={displayTemplates}
+              />
+            )
           ) : null}
           {section === 'create' ? (
             <AdminPollCreatePanel
@@ -2887,7 +3281,9 @@ function AdminPollManagement({
               coffeeCatalogState={coffeeCatalogState}
               createStep={createStep}
               coffeeWarning={coffeeWarning}
+              currentUserId={currentUserId}
               form={pollForm}
+              knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
               onCancel={() => {
                 setPollForm(createEmptyAdminPollForm());
                 setCreateStep('type');
@@ -2896,6 +3292,7 @@ function AdminPollManagement({
               onChangeForm={(patch) => setPollForm((current) => ({...current, ...patch}))}
               onChangeStep={setCreateStep}
               onCreate={createPoll}
+              onRequestCoffeeAccountCreate={onRequestCoffeeAccountCreate}
               onRetryCoffeeCatalog={loadCoffeeCatalog}
               onReset={() => setPollForm(createEmptyAdminPollForm())}
               templates={displayTemplates}
@@ -2945,34 +3342,18 @@ function AdminPollManagement({
 
 function AdminPollTopActions({
   activeSection,
-  onCreate,
-  onCreateTemplate,
   onSelectSection,
 }: {
-  activeSection: AdminPollSection;
-  onCreate: () => void;
-  onCreateTemplate: () => void;
-  onSelectSection: (section: AdminPollSection) => void;
+  activeSection: AdminPollPrimarySection;
+  onSelectSection: (section: AdminPollPrimarySection) => void;
 }) {
   return (
     <View style={styles.pollSectionShell}>
-      <View style={styles.pollQuickActions}>
-        <Pressable
-          accessibilityLabel="투표 만들기 화면으로 이동"
-          accessibilityRole="button"
-          onPress={onCreate}
-          style={({pressed}) => [styles.pollPrimaryPill, pressed ? styles.pressed : null]}>
-          <Text style={styles.pollPrimaryPillText}>투표 만들기</Text>
-        </Pressable>
-        <Pressable
-          accessibilityLabel="반복투표 만들기 화면으로 이동"
-          accessibilityRole="button"
-          onPress={onCreateTemplate}
-          style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
-          <Text style={styles.pollSoftPillText}>반복투표 만들기</Text>
-        </Pressable>
-      </View>
-      <SegmentedControl items={pollSections} selectedId={activeSection} onSelect={onSelectSection} />
+      <SegmentedControl
+        items={pollPrimarySections}
+        selectedId={activeSection}
+        onSelect={onSelectSection}
+      />
     </View>
   );
 }
@@ -2980,39 +3361,27 @@ function AdminPollTopActions({
 function AdminPollList({
   filter,
   onChangeFilter,
-  onChangeStatusTab,
   onClosePoll,
-  onCreateTemplate,
-  onManageTemplate,
   onRefresh,
-  onSelectPoll,
   onViewResults,
   polls,
   selectedPollId,
   statusTab,
-  templates,
 }: {
   filter: AdminPollTypeFilter;
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
-  onChangeStatusTab: (tab: AdminPollStatusTab) => void;
   onClosePoll: (poll: PollSummary) => void;
-  onCreateTemplate: () => void;
-  onManageTemplate: (template: AdminPollTemplate) => void;
   onRefresh: () => void;
-  onSelectPoll: (poll: PollSummary) => void;
   onViewResults: (poll: PollSummary) => void;
   polls: PollSummary[];
   selectedPollId: number | null;
   statusTab: AdminPollStatusTab;
-  templates: AdminPollTemplate[];
 }) {
-  const serverTemplates = templates.filter((template) => !isDefaultCoffeePollTemplate(template));
-
-  if (polls.length === 0 && templates.length === 0) {
+  if (polls.length === 0) {
     return (
       <Empty
-        title="투표와 반복투표가 없습니다"
-        message="반복투표를 먼저 만들거나 직접 생성으로 투표를 시작할 수 있습니다."
+        title={statusTab === 'ongoing' ? '진행 중인 투표가 없습니다' : '마감된 투표가 없습니다'}
+        message="상단 생성 또는 반복 탭에서 새 투표를 준비할 수 있습니다."
         actionLabel="다시 불러오기"
         actionAccessibilityLabel="투표 관리 목록 다시 불러오기"
         onActionPress={onRefresh}
@@ -3023,12 +3392,9 @@ function AdminPollList({
   return (
     <>
       <View style={styles.pollSectionShell}>
-        <Text style={styles.sectionTitle}>투표 목록</Text>
-        <SegmentedControl
-          items={adminPollStatusTabs}
-          selectedId={statusTab}
-          onSelect={onChangeStatusTab}
-        />
+        <Text style={styles.sectionTitle}>
+          {statusTab === 'ongoing' ? '진행 투표' : '마감 투표'}
+        </Text>
         <SegmentedControl
           items={adminPollTypeFilters}
           selectedId={filter}
@@ -3043,10 +3409,9 @@ function AdminPollList({
         ) : null}
         {polls.map((poll) => (
           <AdminPollListItem
-            accessibilityLabel={`${poll.title} 투표 선택`}
+            accessibilityLabel={`${poll.title} 투표 결과 보기`}
             key={poll.id}
-            onPress={() => onSelectPoll(poll)}
-            onActionPress={() => onViewResults(poll)}
+            onPress={() => onViewResults(poll)}
             onClosePress={() => onClosePoll(poll)}
             poll={poll}
             selected={poll.id === selectedPollId}
@@ -3060,90 +3425,19 @@ function AdminPollList({
           <Text style={styles.pollSoftButtonText}>새로고침</Text>
         </Pressable>
       </View>
-      <View style={styles.pollSectionShell}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Text style={styles.sectionTitle}>반복투표 설정</Text>
-            <Body>저장된 반복투표가 이곳에 표시됩니다.</Body>
-          </View>
-          <Pressable
-            accessibilityLabel="반복투표 만들기"
-            accessibilityRole="button"
-            onPress={onCreateTemplate}
-            style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
-            <Text style={styles.pollSoftPillText}>만들기</Text>
-          </Pressable>
-        </View>
-        {serverTemplates.length === 0 ? (
-          <View style={styles.pollTemplateEntry}>
-            <View style={styles.pollIconBox}>
-              <Text style={styles.pollIconText}>반복</Text>
-            </View>
-            <View style={styles.pollItemText}>
-              <Text style={styles.pollItemTitle}>설정된 반복투표가 없습니다</Text>
-              <Text style={styles.pollItemMeta}>반복투표 만들기에서 주간 규칙을 저장해 주세요.</Text>
-            </View>
-          </View>
-        ) : (
-          serverTemplates.map((template) => (
-            <AdminRepeatTemplateCard
-              key={template.id}
-              onManage={() => onManageTemplate(template)}
-              template={template}
-            />
-          ))
-        )}
-      </View>
     </>
-  );
-}
-
-function AdminRepeatTemplateCard({
-  onManage,
-  template,
-}: {
-  onManage: () => void;
-  template: AdminPollTemplate;
-}) {
-  return (
-    <View style={styles.pollTemplateEntry}>
-      <View style={styles.pollIconBox}>
-        <Text style={styles.pollIconText}>{getAdminPollInitial(template.pollType)}</Text>
-      </View>
-      <View style={styles.pollItemText}>
-        <View style={styles.pollTemplateTitleRow}>
-          <Text style={styles.pollItemTitle}>{template.title}</Text>
-          <Chip label={template.autoCreateEnabled ? '반복 ON' : '반복 OFF'} tone="info" />
-        </View>
-        <Text style={styles.pollItemMeta}>
-          {`${formatTemplateEndpointLabelFromValues(template.startDayOfWeek, template.startTime, '시작')} · ${formatTemplateEndpointLabelFromValues(template.endDayOfWeek, template.endTime, '마감')}`}
-        </Text>
-        <Text style={styles.pollItemMeta}>
-          {`${getPollTypeLabel(template.pollType)} · ${getSelectionTypeLabel(template.selectionType)}`}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityLabel={`${template.title} 반복투표 수정`}
-        accessibilityRole="button"
-        onPress={onManage}
-        style={({pressed}) => [styles.pollResultPill, pressed ? styles.pressed : null]}>
-        <Text style={styles.pollResultPillText}>수정</Text>
-      </Pressable>
-    </View>
   );
 }
 
 function AdminPollListItem({
   accessibilityLabel,
   onClosePress,
-  onActionPress,
   onPress,
   poll,
   selected,
 }: {
   accessibilityLabel: string;
   onClosePress: () => void;
-  onActionPress: () => void;
   onPress: () => void;
   poll: PollSummary;
   selected: boolean;
@@ -3173,25 +3467,175 @@ function AdminPollListItem({
           {getAdminPollListMeta(poll)}
         </Text>
       </View>
-      <Pressable
-        accessibilityLabel={`${poll.title} 결과 확인`}
-        accessibilityRole="button"
-        onPress={onActionPress}
-        style={({pressed}) => [styles.pollResultPill, pressed ? styles.pressed : null]}>
-        <Text style={styles.pollResultPillText}>
-          {poll.pollType === 'CUSTOM' && poll.responded ? '댓글' : '결과'}
-        </Text>
-      </Pressable>
       {canClose ? (
         <Pressable
           accessibilityLabel={`${poll.title} 투표 종료`}
           accessibilityRole="button"
-          onPress={onClosePress}
+          onPress={(event) => {
+            event.stopPropagation();
+            onClosePress();
+          }}
           style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
           <Text style={styles.pollClosePillText}>종료</Text>
         </Pressable>
       ) : null}
     </Pressable>
+  );
+}
+
+function AdminPollTemplateListPanel({
+  actionError,
+  actionState,
+  deleteTarget,
+  onCancelDelete,
+  onConfirmDelete,
+  onDeleteTemplate,
+  onEditTemplate,
+  onNewTemplate,
+  templates,
+}: {
+  actionError: ApiError | null;
+  actionState: AdminPollActionState;
+  deleteTarget: AdminPollTemplate | null;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+  onDeleteTemplate: (template: AdminPollTemplate) => void;
+  onEditTemplate: (template: AdminPollTemplate) => void;
+  onNewTemplate: () => void;
+  templates: AdminPollTemplate[];
+}) {
+  const busy = actionState.status !== 'idle';
+  const serverTemplates = templates.filter((template) => !isDefaultCoffeePollTemplate(template));
+  const activeServerTemplates = serverTemplates.filter(
+    (template) => template.isActive && template.autoCreateEnabled,
+  );
+
+  return (
+    <View style={styles.pollSectionShell}>
+      <View style={styles.pollTemplateSummary}>
+        <View style={styles.headerText}>
+          <Text style={styles.pollTemplateSummaryTitle}>
+            {`활성 반복 ${activeServerTemplates.length}개`}
+          </Text>
+          <Text style={styles.pollTemplateSummaryText}>반복투표를 만들고 편집합니다.</Text>
+        </View>
+        <Button
+          accessibilityLabel="새 반복투표 만들기"
+          disabled={busy}
+          onPress={onNewTemplate}
+          variant="secondary">
+          새 반복
+        </Button>
+      </View>
+
+      {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
+
+      {serverTemplates.length === 0 ? (
+        <Body>저장된 반복투표가 없습니다.</Body>
+      ) : null}
+
+      {templates.map((template) => {
+        const isDefaultCoffeePreset = isDefaultCoffeePollTemplate(template);
+        const isCoffeeChargeTemplate =
+          template.pollType === 'COFFEE' &&
+          template.chargeGenerationType === 'OPTION_PRICE';
+        const statusLabel = isDefaultCoffeePreset
+          ? '기본'
+          : template.isActive
+            ? isCoffeeChargeTemplate
+              ? '주의'
+              : 'ON'
+            : 'OFF';
+        const canDelete = template.isActive && !isDefaultCoffeePollTemplate(template);
+        const deleting =
+          actionState.status === 'deletingTemplate' && actionState.templateId === template.id;
+
+        return (
+          <Pressable
+            accessibilityLabel={`${template.title} 반복투표 수정`}
+            accessibilityRole="button"
+            disabled={busy}
+            key={template.id}
+            onPress={() => onEditTemplate(template)}
+            style={({pressed}) => [styles.pollTemplateRow, pressed ? styles.pressed : null]}>
+            <View style={styles.pollItemText}>
+              <View style={styles.pollTemplateTitleRow}>
+                <Text numberOfLines={1} style={styles.pollItemTitle}>
+                  {template.title}
+                </Text>
+                {isDefaultCoffeePreset ? <Chip label="추천" tone="info" /> : null}
+              </View>
+              <Text numberOfLines={1} style={styles.pollItemMeta}>
+                {isDefaultCoffeePreset
+                  ? '저장 전 기본값'
+                  : getTemplateScheduleLabel(template)}
+              </Text>
+            </View>
+            <View style={styles.pollTemplateActions}>
+              <View
+                style={[
+                  styles.pollStatusPill,
+                  !template.isActive ? styles.pollStatusPillMuted : null,
+                  isDefaultCoffeePreset
+                    ? styles.pollStatusPillInfo
+                    : isCoffeeChargeTemplate
+                      ? styles.pollStatusPillDanger
+                      : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.pollStatusPillText,
+                    !template.isActive ? styles.pollStatusPillTextMuted : null,
+                    isDefaultCoffeePreset
+                      ? styles.pollStatusPillTextInfo
+                      : isCoffeeChargeTemplate
+                        ? styles.pollStatusPillTextDanger
+                        : null,
+                  ]}>
+                  {statusLabel}
+                </Text>
+              </View>
+              {canDelete ? (
+                <Pressable
+                  accessibilityLabel={`${template.title} 반복투표 삭제 확인`}
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onDeleteTemplate(template);
+                  }}
+                  style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
+                  <Text style={styles.pollClosePillText}>{deleting ? '삭제중' : '삭제'}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </Pressable>
+        );
+      })}
+
+      {deleteTarget ? (
+        <Card>
+          <Title>{deleteTarget.title}</Title>
+          <Body>이 반복투표를 삭제할까요? 이미 생성된 투표는 그대로 유지됩니다.</Body>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel={`${deleteTarget.title} 반복투표 삭제 실행`}
+              disabled={busy}
+              onPress={onConfirmDelete}
+              variant="danger">
+              {actionState.status === 'deletingTemplate' ? '삭제 중...' : '삭제'}
+            </Button>
+            <Button
+              accessibilityLabel="반복투표 삭제 취소"
+              disabled={busy}
+              onPress={onCancelDelete}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </Card>
+      ) : null}
+    </View>
   );
 }
 
@@ -4241,10 +4685,13 @@ function AdminPollCreatePanel({
   coffeeWarning,
   createStep,
   form,
+  currentUserId,
+  knownOwnedCoffeeAccountIds,
   onCancel,
   onChangeForm,
   onChangeStep,
   onCreate,
+  onRequestCoffeeAccountCreate,
   onRetryCoffeeCatalog,
   onReset,
   templates,
@@ -4256,10 +4703,13 @@ function AdminPollCreatePanel({
   coffeeWarning: string | null;
   createStep: AdminPollCreateStep;
   form: AdminPollCreateForm;
+  currentUserId: number;
+  knownOwnedCoffeeAccountIds: Set<number>;
   onCancel: () => void;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
   onChangeStep: (step: AdminPollCreateStep) => void;
   onCreate: () => void;
+  onRequestCoffeeAccountCreate: () => void;
   onRetryCoffeeCatalog: () => void;
   onReset: () => void;
   templates: AdminPollTemplate[];
@@ -4272,12 +4722,28 @@ function AdminPollCreatePanel({
   const deadlineDate = getAdminDateTimeValue(form.endsAt);
   const deadlineValidationReason = getAdminPollDeadlineValidationMessage(form);
   const createDisabledReason = getAdminPollCreateDisabledReason(form, coffeeWarning);
+  const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
+    accounts,
+    currentUserId,
+    knownOwnedCoffeeAccountIds,
+  );
+  const selectablePaymentAccounts =
+    form.pollType === 'COFFEE' ? ownedCoffeeAccounts : accounts;
   const knownCoffeeMenuIds =
     coffeeCatalogState.status === 'success'
       ? new Set(coffeeCatalogState.menus.map((menu) => menu.id))
       : new Set<number>();
   const selectType = (pollType: AdminPollType) => {
-    onChangeForm(getCreatePollTypePatch(pollType, form, templates));
+    const patch = getCreatePollTypePatch(pollType, form, templates);
+
+    if (pollType === 'COFFEE') {
+      const selectedId = toOptionalPositiveId(form.paymentAccountId);
+      const selectedAccount = ownedCoffeeAccounts.find((account) => account.id === selectedId);
+      patch.paymentAccountId = String(selectedAccount?.id ?? ownedCoffeeAccounts[0]?.id ?? '');
+      patch.paymentCategory = 'COFFEE';
+    }
+
+    onChangeForm(patch);
   };
   const goToDetail = () => {
     onChangeForm(getCreatePollTimeRefreshPatch(form));
@@ -4583,10 +5049,23 @@ function AdminPollCreatePanel({
           {coffeeWarning ? (
             <View style={styles.inlineError}>
               <Text style={styles.inlineErrorText}>{coffeeWarning}</Text>
+              {form.pollType === 'COFFEE' ? (
+                <Pressable
+                  accessibilityLabel="커피 계좌 등록 화면으로 이동"
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={onRequestCoffeeAccountCreate}
+                  style={({pressed}) => [
+                    styles.inlineErrorAction,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <Text style={styles.inlineErrorActionText}>계좌 등록</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
           <PaymentAccountPicker
-            accounts={accounts}
+            accounts={selectablePaymentAccounts}
             category={form.paymentCategory}
             onSelect={(account) =>
               onChangeForm({
@@ -5397,6 +5876,105 @@ function AdminPollPicker({
   );
 }
 
+function AdminDevotionPage({
+  assignableMembersState,
+  devotionSection,
+  members,
+  missingState,
+  notificationSendState,
+  onChangeDevotionSection,
+  onChangePrayerGroupForm,
+  onChangePrayerMembersForm,
+  onChangePrayerSeasonForm,
+  onChangeWeek,
+  onEditPrayerGroup,
+  onOpenNotificationConfirm,
+  onOpenNotificationLogs,
+  onOpenPrayerCloseSeason,
+  onRetryMissing,
+  onRetryPrayer,
+  onSavePrayerGroup,
+  onSavePrayerSeason,
+  prayerActionState,
+  prayerBoardState,
+  prayerGroupForm,
+  prayerMembersForm,
+  prayerSeasonForm,
+  summary,
+  weekStartDate,
+}: {
+  assignableMembersState: AssignablePrayerMembersState;
+  devotionSection: AdminDevotionSection;
+  members: AdminCampusMember[];
+  missingState: MissingDevotionState;
+  notificationSendState: NotificationSendState;
+  onChangeDevotionSection: (section: AdminDevotionSection) => void;
+  onChangePrayerGroupForm: (patch: Partial<PrayerGroupForm>) => void;
+  onChangePrayerMembersForm: (patch: Partial<PrayerGroupMembersForm>) => void;
+  onChangePrayerSeasonForm: (patch: Partial<PrayerSeasonForm>) => void;
+  onChangeWeek: (direction: -1 | 1) => void;
+  onEditPrayerGroup: (group: AdminPrayerGroup | PrayerWeekSummary['groups'][number]) => void;
+  onOpenNotificationConfirm: (targets: AdminMissingDevotionMember[]) => void;
+  onOpenNotificationLogs: (requestId: string) => void;
+  onOpenPrayerCloseSeason: (seasonId?: string) => void;
+  onRetryMissing: () => void;
+  onRetryPrayer: () => void;
+  onSavePrayerGroup: () => Promise<boolean>;
+  onSavePrayerSeason: () => void;
+  prayerActionState: AdminActionState;
+  prayerBoardState: AdminPrayerState;
+  prayerGroupForm: PrayerGroupForm;
+  prayerMembersForm: PrayerGroupMembersForm;
+  prayerSeasonForm: PrayerSeasonForm;
+  summary: AdminDashboardSummary;
+  weekStartDate: string;
+}) {
+  return (
+    <>
+      <AdminSubpageSwitcher
+        accessibilityLabelPrefix="관리자 경건 하위 페이지"
+        items={adminDevotionSections}
+        onSelect={onChangeDevotionSection}
+        selectedId={devotionSection}
+        subtitle="경건 제출과 기도제목 운영을 나누어 봅니다."
+        title="경건 관리"
+      />
+      {devotionSection === 'missing' ? (
+        <AdminDevotionMissing
+          missingState={missingState}
+          notificationState={notificationSendState}
+          onChangeWeek={onChangeWeek}
+          onOpenNotificationConfirm={onOpenNotificationConfirm}
+          onOpenNotificationLogs={onOpenNotificationLogs}
+          onRetry={onRetryMissing}
+          summary={summary}
+          weekStartDate={weekStartDate}
+        />
+      ) : (
+        <AdminPrayerManagement
+          actionState={prayerActionState}
+          assignableMembersState={assignableMembersState}
+          boardState={prayerBoardState}
+          groupForm={prayerGroupForm}
+          members={members}
+          membersForm={prayerMembersForm}
+          onChangeGroupForm={onChangePrayerGroupForm}
+          onChangeMembersForm={onChangePrayerMembersForm}
+          onChangeSeasonForm={onChangePrayerSeasonForm}
+          onChangeWeek={onChangeWeek}
+          onEditGroup={onEditPrayerGroup}
+          onOpenCloseSeason={onOpenPrayerCloseSeason}
+          onRetry={onRetryPrayer}
+          onSaveGroup={onSavePrayerGroup}
+          onSaveSeason={onSavePrayerSeason}
+          seasonForm={prayerSeasonForm}
+          weekStartDate={weekStartDate}
+        />
+      )}
+    </>
+  );
+}
+
 function AdminDevotionMissing({
   missingState,
   notificationState,
@@ -5429,9 +6007,6 @@ function AdminDevotionMissing({
       <Card>
         <Eyebrow>경건 현황</Eyebrow>
         <Title>경건 제출 현황</Title>
-        <Body>
-          {weekStartDate} 주차 기준으로 아직 경건생활을 제출하지 않은 활성 멤버를 조회합니다.
-        </Body>
         <View style={styles.metricGrid}>
           <Metric label="선택 주차" value={formatShortWeekLabel(weekStartDate)} />
           <Metric label="미제출" value={`${missingCount}명`} />
@@ -5441,28 +6016,28 @@ function AdminDevotionMissing({
           />
           <Metric label="조회" value="미제출자" />
         </View>
-        <View style={styles.actionRow}>
-          <Button
+        <View style={styles.compactActionRow}>
+          <AdminCompactButton
             accessibilityLabel="이전 주 경건 미제출자 조회"
             disabled={missingState.status === 'loading' || notificationState.status === 'sending'}
             onPress={() => onChangeWeek(-1)}
             variant="secondary">
-            이전 주
-          </Button>
-          <Button
+            이전
+          </AdminCompactButton>
+          <AdminCompactButton
             accessibilityLabel="다음 주 경건 미제출자 조회"
             disabled={missingState.status === 'loading' || notificationState.status === 'sending'}
             onPress={() => onChangeWeek(1)}
             variant="secondary">
-            다음 주
-          </Button>
-          <Button
+            다음
+          </AdminCompactButton>
+          <AdminCompactButton
             accessibilityLabel="경건 미제출자 다시 불러오기"
             disabled={missingState.status === 'loading' || notificationState.status === 'sending'}
             onPress={onRetry}
             variant="ghost">
-            다시 조회
-          </Button>
+            새로고침
+          </AdminCompactButton>
         </View>
       </Card>
       {renderMissingDevotionBody({
@@ -5513,14 +6088,13 @@ function renderMissingDevotionBody({
             <View style={styles.headerText}>
               <Eyebrow>미제출자 목록</Eyebrow>
               <Title>미제출자 {missingState.members.length}명</Title>
-              <Body>발송 전 대상자를 확인한 뒤 알림을 큐잉합니다.</Body>
             </View>
-            <Button
+            <AdminCompactButton
               accessibilityLabel="경건 미제출자 알림 발송 확인 열기"
               disabled={notificationState.status === 'sending'}
               onPress={() => onOpenNotificationConfirm(missingState.members)}>
               알림 발송
-            </Button>
+            </AdminCompactButton>
           </View>
           {missingState.members.map((member) => (
             <MissingDevotionMemberRow key={member.campusMemberId} member={member} />
@@ -5538,9 +6112,7 @@ function MissingDevotionMemberRow({member}: {member: AdminMissingDevotionMember}
       <Avatar name={member.name} role="MEMBER" />
       <View style={styles.headerText}>
         <Text style={styles.memberName}>{member.name}</Text>
-        <Text style={styles.memberMeta}>
-          {member.region} {member.campusName}
-        </Text>
+        <Text style={styles.memberMeta}>{member.campusName}</Text>
         <Text style={styles.memberMeta}>{member.email}</Text>
       </View>
       <Chip label="대상" tone="info" />
@@ -6104,6 +6676,7 @@ function renderNotificationResult(
 
 function AdminPrayerManagement({
   actionState,
+  assignableMembersState,
   boardState,
   groupForm,
   members,
@@ -6116,12 +6689,12 @@ function AdminPrayerManagement({
   onOpenCloseSeason,
   onRetry,
   onSaveGroup,
-  onSaveMembers,
   onSaveSeason,
   seasonForm,
   weekStartDate,
 }: {
   actionState: AdminActionState;
+  assignableMembersState: AssignablePrayerMembersState;
   boardState: AdminPrayerState;
   groupForm: PrayerGroupForm;
   members: AdminCampusMember[];
@@ -6131,71 +6704,148 @@ function AdminPrayerManagement({
   onChangeSeasonForm: (patch: Partial<PrayerSeasonForm>) => void;
   onChangeWeek: (direction: -1 | 1) => void;
   onEditGroup: (group: AdminPrayerGroup | PrayerWeekSummary['groups'][number]) => void;
-  onOpenCloseSeason: () => void;
+  onOpenCloseSeason: (seasonId?: string) => void;
   onRetry: () => void;
-  onSaveGroup: () => void;
-  onSaveMembers: () => void;
+  onSaveGroup: () => Promise<boolean>;
   onSaveSeason: () => void;
   seasonForm: PrayerSeasonForm;
   weekStartDate: string;
 }) {
   const busy = actionState.status !== 'idle';
+  const [section, setSection] = useState<AdminPrayerManagementSection>('status');
+  const [groupFlow, setGroupFlow] = useState<AdminPrayerGroupFlow>('list');
+  const editGroupAndOpenManagement = (
+    group: AdminPrayerGroup | PrayerWeekSummary['groups'][number],
+  ) => {
+    onEditGroup(group);
+    setGroupFlow('details');
+    setSection('groups');
+  };
+  const startGroupCreate = () => {
+    onChangeGroupForm({
+      groupId: '',
+      isActive: true,
+      name: '',
+      seasonId: groupForm.seasonId,
+      sortOrder: String(getNextPrayerGroupSortOrder(boardState)),
+    });
+    onChangeMembersForm(emptyPrayerGroupMembersForm);
+    setGroupFlow('details');
+  };
+  const saveGroupAndReturnToList = async () => {
+    const saved = await onSaveGroup();
+
+    if (saved) {
+      setGroupFlow('list');
+    }
+  };
 
   return (
     <>
-      <Card>
-        <Eyebrow>기도제목 운영</Eyebrow>
-        <Title>기도제목 시즌/조 관리</Title>
-        <Body>
-          시즌 생성, 조 편집, 조원 배정, 주간 제출 현황을 한 화면에서 관리합니다.
-        </Body>
-        <View style={styles.actionRow}>
-          <Button
-            accessibilityLabel="이전 주 기도제목 관리자 현황 조회"
-            disabled={busy || boardState.status === 'loading'}
-            onPress={() => onChangeWeek(-1)}
-            variant="secondary">
-            이전 주
-          </Button>
-          <Button
-            accessibilityLabel="다음 주 기도제목 관리자 현황 조회"
-            disabled={busy || boardState.status === 'loading'}
-            onPress={() => onChangeWeek(1)}
-            variant="secondary">
-            다음 주
-          </Button>
-          <Button
-            accessibilityLabel="기도제목 관리자 현황 다시 조회"
-            disabled={busy || boardState.status === 'loading'}
-            onPress={onRetry}
-            variant="ghost">
-            다시 조회
-          </Button>
-        </View>
-      </Card>
-      {renderAdminPrayerBoard({boardState, onEditGroup, onRetry, weekStartDate})}
-      <AdminPrayerSeasonForm
-        busy={busy}
-        form={seasonForm}
-        onChangeForm={onChangeSeasonForm}
-        onOpenCloseSeason={onOpenCloseSeason}
-        onSave={onSaveSeason}
+      <AdminSubpageSwitcher
+        accessibilityLabelPrefix="기도제목 관리 하위 페이지"
+        items={adminPrayerManagementSections}
+        onSelect={setSection}
+        selectedId={section}
+        subtitle={getPrayerManagementSectionSubtitle(section)}
+        title="기도제목 관리"
       />
-      <AdminPrayerGroupForm
-        busy={busy}
-        form={groupForm}
-        onChangeForm={onChangeGroupForm}
-        onSave={onSaveGroup}
-      />
-      <AdminPrayerMembersForm
-        busy={busy}
-        form={membersForm}
-        members={members}
-        onChangeForm={onChangeMembersForm}
-        onSave={onSaveMembers}
-      />
+      {section === 'status' ? (
+        <>
+          <Card>
+            <View style={styles.headerRow}>
+              <View style={styles.headerText}>
+                <Eyebrow>주간 현황</Eyebrow>
+                <Title>{formatShortWeekLabel(weekStartDate)} 기도제목</Title>
+              </View>
+            </View>
+            <View style={styles.compactActionRow}>
+              <AdminCompactButton
+                accessibilityLabel="이전 주 기도제목 관리자 현황 조회"
+                disabled={busy || boardState.status === 'loading'}
+                onPress={() => onChangeWeek(-1)}
+                variant="secondary">
+                이전
+              </AdminCompactButton>
+              <AdminCompactButton
+                accessibilityLabel="다음 주 기도제목 관리자 현황 조회"
+                disabled={busy || boardState.status === 'loading'}
+                onPress={() => onChangeWeek(1)}
+                variant="secondary">
+                다음
+              </AdminCompactButton>
+              <AdminCompactButton
+                accessibilityLabel="기도제목 관리자 현황 다시 조회"
+                disabled={busy || boardState.status === 'loading'}
+                onPress={onRetry}
+                variant="ghost">
+                새로고침
+              </AdminCompactButton>
+            </View>
+          </Card>
+          {renderAdminPrayerBoard({
+            boardState,
+            onEditGroup: editGroupAndOpenManagement,
+            onRetry,
+            weekStartDate,
+          })}
+        </>
+      ) : section === 'groups' ? (
+        groupFlow === 'list' ? (
+          <AdminPrayerGroupList
+            boardState={boardState}
+            canCreate={groupForm.seasonId.trim().length > 0}
+            onCreate={startGroupCreate}
+            onEdit={editGroupAndOpenManagement}
+            onRetry={onRetry}
+          />
+        ) : groupFlow === 'details' ? (
+          <AdminPrayerGroupForm
+            busy={busy}
+            form={groupForm}
+            onBack={() => setGroupFlow('list')}
+            onChangeForm={onChangeGroupForm}
+            onNext={() => setGroupFlow('members')}
+          />
+        ) : (
+          <AdminPrayerMembersForm
+            allowWithoutGroupId={groupForm.groupId.trim().length === 0}
+            assignableMembersState={assignableMembersState}
+            busy={busy}
+            form={membersForm}
+            members={members}
+            onBack={() => setGroupFlow('details')}
+            boardState={boardState}
+            onChangeForm={onChangeMembersForm}
+            onSave={saveGroupAndReturnToList}
+            submitLabel={groupForm.groupId.trim() ? '조 수정' : '조 생성'}
+          />
+        )
+      ) : (
+        <AdminPrayerSeasonForm
+          boardState={boardState}
+          busy={busy}
+          form={seasonForm}
+          onChangeForm={onChangeSeasonForm}
+          onOpenCloseSeason={onOpenCloseSeason}
+          onSave={onSaveSeason}
+        />
+      )}
     </>
   );
+}
+
+function getPrayerManagementSectionSubtitle(section: AdminPrayerManagementSection) {
+  switch (section) {
+    case 'status':
+      return '주차별 제출 현황만 확인합니다.';
+    case 'groups':
+      return '기도조 생성, 수정, 조원 배정을 처리합니다.';
+    case 'period':
+      return '기도제목 운영 기간을 시작하거나 종료합니다.';
+    default:
+      return assertNever(section);
+  }
 }
 
 function renderAdminPrayerBoard({
@@ -6221,7 +6871,7 @@ function renderAdminPrayerBoard({
           <PrayerBoardSummaryCard board={boardState.board} />
           <Empty
             title="활성 기도조 또는 조원이 없습니다"
-            message={`${weekStartDate} 주차 board는 조회됐지만 관리할 활성 조원이 없습니다. 시즌과 조를 만든 뒤 멤버를 배정해 주세요.`}
+            message={`${weekStartDate} 주차 현황은 조회됐지만 관리할 활성 조원이 없습니다. 운영 기간과 조를 확인해 주세요.`}
             actionLabel="다시 조회"
             actionAccessibilityLabel="기도제목 빈 board 다시 조회"
             onActionPress={onRetry}
@@ -6233,7 +6883,7 @@ function renderAdminPrayerBoard({
         <>
           <PrayerBoardSummaryCard board={boardState.board} />
           <Card>
-            <Eyebrow>기도조 관리</Eyebrow>
+            <Eyebrow>조별 작성 현황</Eyebrow>
             <Title>활성 기도조</Title>
             {boardState.board.groups
               .slice()
@@ -6244,7 +6894,7 @@ function renderAdminPrayerBoard({
                     <View style={styles.headerText}>
                       <Text style={styles.memberName}>{group.groupName}</Text>
                       <Text style={styles.memberMeta}>
-                        기도조 ID {group.groupId} · 정렬 순서 {group.sortOrder}
+                        조원 {group.members.length}명
                       </Text>
                     </View>
                     <Chip
@@ -6272,7 +6922,7 @@ function renderAdminPrayerBoard({
                     accessibilityLabel={`${group.groupName} 기도조 수정 폼으로 불러오기`}
                     onPress={() => onEditGroup(group)}
                     variant="secondary">
-                    조/멤버 편집
+                    조 관리로 이동
                   </Button>
                 </View>
               ))}
@@ -6284,14 +6934,115 @@ function renderAdminPrayerBoard({
   }
 }
 
+function AdminPrayerGroupList({
+  boardState,
+  canCreate,
+  onCreate,
+  onEdit,
+  onRetry,
+}: {
+  boardState: AdminPrayerState;
+  canCreate: boolean;
+  onCreate: () => void;
+  onEdit: (group: PrayerWeekSummary['groups'][number]) => void;
+  onRetry: () => void;
+}) {
+  switch (boardState.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="기도조 목록을 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={boardState.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <>
+          <Card>
+            <View style={styles.headerRow}>
+              <View style={styles.headerText}>
+                <Eyebrow>활성 기도조</Eyebrow>
+                <Title>아직 조가 없습니다</Title>
+              </View>
+              <AdminCompactButton
+                accessibilityLabel="기도조 생성 시작"
+                disabled={!canCreate}
+                onPress={onCreate}>
+                조 생성
+              </AdminCompactButton>
+            </View>
+            {!canCreate ? (
+              <View style={styles.inlineInfo}>
+                <Text style={styles.inlineInfoText}>
+                  운영 기간을 먼저 시작하면 새 조를 만들 수 있습니다.
+                </Text>
+              </View>
+            ) : null}
+          </Card>
+          <Empty
+            title="활성 기도조가 없습니다"
+            message="조 생성 버튼으로 새 조를 만들고 조원을 배정해 주세요."
+            actionLabel="다시 조회"
+            actionAccessibilityLabel="조 관리 빈 목록 다시 조회"
+            onActionPress={onRetry}
+          />
+        </>
+      );
+    case 'success':
+      return (
+        <Card>
+          <View style={styles.headerRow}>
+            <View style={styles.headerText}>
+              <Eyebrow>활성 기도조</Eyebrow>
+              <Title>조 목록</Title>
+            </View>
+            <AdminCompactButton
+              accessibilityLabel="기도조 생성 시작"
+              disabled={!canCreate}
+              onPress={onCreate}>
+              조 생성
+            </AdminCompactButton>
+          </View>
+          {!canCreate ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>
+                운영 기간을 먼저 시작하면 새 조를 만들 수 있습니다.
+              </Text>
+            </View>
+          ) : null}
+          {boardState.board.groups
+            .slice()
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((group) => (
+              <View key={group.groupId} style={styles.roleRow}>
+                <View style={styles.headerRow}>
+                  <View style={styles.headerText}>
+                    <Text style={styles.memberName}>{group.groupName}</Text>
+                    <Text style={styles.memberMeta}>조원 {group.members.length}명</Text>
+                  </View>
+                  <Chip
+                    label={`${countSubmittedMembers(group)}/${group.members.length}`}
+                    tone={countSubmittedMembers(group) === group.members.length ? 'success' : 'warning'}
+                  />
+                </View>
+                <AdminCompactButton
+                  accessibilityLabel={`${group.groupName} 기도조 수정 폼으로 불러오기`}
+                  onPress={() => onEdit(group)}
+                  variant="secondary">
+                  편집
+                </AdminCompactButton>
+              </View>
+            ))}
+        </Card>
+      );
+    default:
+      return assertNever(boardState);
+  }
+}
+
 function PrayerBoardSummaryCard({board}: {board: PrayerWeekSummary}) {
   return (
     <Card>
       <Eyebrow>주간 제출 현황</Eyebrow>
       <Title>기도제목 주간 현황</Title>
-      <Body>
-        선택한 주차의 기도조별 작성 현황을 기준으로 제출률을 확인합니다.
-      </Body>
       <View style={styles.metricGrid}>
         <Metric label="주차" value={formatShortWeekLabel(board.weekStartDate)} />
         <Metric label="상태" value={board.status} />
@@ -6302,138 +7053,459 @@ function PrayerBoardSummaryCard({board}: {board: PrayerWeekSummary}) {
   );
 }
 
+function getNextPrayerGroupSortOrder(boardState: AdminPrayerState) {
+  if (boardState.status !== 'success' && boardState.status !== 'empty') {
+    return 1;
+  }
+
+  const maxSortOrder = boardState.board.groups.reduce(
+    (currentMax, group) => Math.max(currentMax, group.sortOrder),
+    0,
+  );
+
+  return maxSortOrder + 1;
+}
+
+function getPrayerGroupIdFromForm(form: PrayerGroupMembersForm) {
+  const groupId = Number(form.groupId);
+
+  return Number.isInteger(groupId) && groupId > 0 ? groupId : null;
+}
+
+function getUnavailablePrayerMemberAssignments(
+  boardState: AdminPrayerState,
+  currentGroupId: number | null,
+) {
+  const assignments = new Map<number, string>();
+
+  if (boardState.status !== 'success' && boardState.status !== 'empty') {
+    return assignments;
+  }
+
+  for (const group of boardState.board.groups) {
+    if (group.groupId === currentGroupId) {
+      continue;
+    }
+
+    for (const member of group.members) {
+      if (!assignments.has(member.userId)) {
+        assignments.set(member.userId, group.groupName);
+      }
+    }
+  }
+
+  return assignments;
+}
+
+function getUnavailablePrayerMemberIds(
+  boardState: AdminPrayerState,
+  currentGroupId: number | null,
+) {
+  return new Set(getUnavailablePrayerMemberAssignments(boardState, currentGroupId).keys());
+}
+
+function getPrayerAssignableMemberOptions({
+  assignableMembersState,
+  boardState,
+  currentGroupId,
+  members,
+}: {
+  assignableMembersState: AssignablePrayerMembersState;
+  boardState: AdminPrayerState;
+  currentGroupId: number | null;
+  members: AdminCampusMember[];
+}) {
+  if (assignableMembersState.status === 'success' && assignableMembersState.members.length > 0) {
+    return assignableMembersState.members;
+  }
+
+  const unavailableAssignments = getUnavailablePrayerMemberAssignments(boardState, currentGroupId);
+
+  return members.map((member): AdminPrayerAssignableMember => {
+    const assignedGroupName = unavailableAssignments.get(member.userId) ?? null;
+
+    return {
+      assignable: assignedGroupName === null,
+      assignedGroupId: null,
+      assignedGroupName,
+      email: member.email,
+      name: member.name,
+      userId: member.userId,
+    };
+  });
+}
+
+function isPrayerAssignableMemberSelectable(
+  member: AdminPrayerAssignableMember,
+  currentGroupId: number | null,
+) {
+  if (member.assignedGroupId === null || member.assignedGroupId === undefined) {
+    return member.assignable;
+  }
+
+  return member.assignedGroupId === currentGroupId;
+}
+
+async function getCurrentPrayerSeasonWithFallback(
+  accessToken: string,
+  campusId: number,
+  weekBoard: PrayerWeekSummary,
+) {
+  try {
+    const currentSeason = await prayerApi.getCurrentSeason(accessToken, campusId);
+
+    if (currentSeason) {
+      return currentSeason;
+    }
+  } catch (error) {
+    if (!isPrayerEndpointMissing(error)) {
+      throw error;
+    }
+  }
+
+  const boardSeason = getPrayerBoardActiveSeason(weekBoard);
+
+  return boardSeason
+    ? {
+        campusId,
+        endDate: null,
+        name: boardSeason.name,
+        seasonId: boardSeason.seasonId,
+        startDate: boardSeason.startDate,
+        status: 'ACTIVE',
+      }
+    : null;
+}
+
+function isPrayerEndpointMissing(error: unknown) {
+  return error instanceof FaithLogApiError && (error.detail.status === 404 || error.detail.status === 501);
+}
+
+function toPrayerBoardWithoutCurrentSeason(board: PrayerWeekSummary): PrayerWeekSummary {
+  return {
+    ...board,
+    activeSeason: null,
+    currentSeason: null,
+    endDate: null,
+    groups: [],
+    myGroupId: null,
+    season: null,
+    seasonEndDate: null,
+    seasonId: null,
+    seasonName: null,
+    seasonStartDate: null,
+    seasonStatus: 'CLOSED',
+    submittedCount: 0,
+    targetMemberCount: 0,
+  };
+}
+
+function mergePrayerBoardWithSeasonGroups(
+  board: PrayerWeekSummary,
+  season: AdminPrayerSeason,
+  groups: AdminPrayerGroup[],
+): PrayerWeekSummary {
+  const weeklyGroupsById = new Map(board.groups.map((group) => [group.groupId, group]));
+  const mergedGroups =
+    groups.length > 0
+      ? groups
+          .filter((group) => group.active)
+          .map((group) => {
+            const weeklyGroup = weeklyGroupsById.get(group.groupId);
+            const weeklyMembersById = new Map(
+              (weeklyGroup?.members ?? []).map((member) => [member.userId, member]),
+            );
+
+            return {
+              groupId: group.groupId,
+              groupName: group.name,
+              members: group.members.map((member) => {
+                const weeklyMember = weeklyMembersById.get(member.userId);
+
+                return {
+                  content: weeklyMember?.content ?? null,
+                  editable: weeklyMember?.editable ?? false,
+                  email: member.email ?? weeklyMember?.email ?? null,
+                  name: member.name,
+                  submissionId: weeklyMember?.submissionId ?? null,
+                  submitted:
+                    weeklyMember?.submitted ??
+                    Boolean(weeklyMember?.submittedAt || weeklyMember?.content),
+                  submittedAt: weeklyMember?.submittedAt ?? null,
+                  userId: member.userId,
+                  version: weeklyMember?.version ?? 0,
+                };
+              }),
+              seasonId: group.seasonId,
+              sortOrder: group.sortOrder,
+            };
+          })
+      : board.groups;
+  const submittedCount = countPrayerBoardSubmittedMembers(mergedGroups);
+  const targetMemberCount = countPrayerBoardTargetMembers(mergedGroups);
+
+  return {
+    ...board,
+    currentSeason: {
+      endDate: season.endDate,
+      name: season.name,
+      seasonId: season.seasonId,
+      startDate: season.startDate,
+      status: season.status,
+    },
+    groups: mergedGroups,
+    seasonEndDate: season.endDate,
+    seasonId: season.seasonId,
+    seasonName: season.name,
+    seasonStartDate: season.startDate,
+    seasonStatus: season.status,
+    submittedCount: targetMemberCount > 0 ? submittedCount : board.submittedCount,
+    targetMemberCount: targetMemberCount > 0 ? targetMemberCount : board.targetMemberCount,
+  };
+}
+
+function toAdminPrayerGroupFromSummary(group: PrayerWeekSummary['groups'][number]): AdminPrayerGroup {
+  return {
+    active: true,
+    groupId: group.groupId,
+    members: group.members.map((member) => ({
+      email: member.email ?? null,
+      name: member.name,
+      userId: member.userId,
+    })),
+    name: group.groupName,
+    seasonId: group.seasonId ?? 0,
+    sortOrder: group.sortOrder,
+  };
+}
+
+function countPrayerBoardSubmittedMembers(groups: PrayerWeekSummary['groups']) {
+  return groups.reduce(
+    (count, group) => count + group.members.filter(hasPrayerMemberSubmitted).length,
+    0,
+  );
+}
+
+function countPrayerBoardTargetMembers(groups: PrayerWeekSummary['groups']) {
+  return groups.reduce((count, group) => count + group.members.length, 0);
+}
+
 function AdminPrayerSeasonForm({
+  boardState,
   busy,
   form,
   onChangeForm,
   onOpenCloseSeason,
   onSave,
 }: {
+  boardState: AdminPrayerState;
   busy: boolean;
   form: PrayerSeasonForm;
   onChangeForm: (patch: Partial<PrayerSeasonForm>) => void;
-  onOpenCloseSeason: () => void;
+  onOpenCloseSeason: (seasonId?: string) => void;
   onSave: () => void;
 }) {
+  const boardSeason =
+    boardState.status === 'success' || boardState.status === 'empty'
+      ? getPrayerBoardActiveSeason(boardState.board)
+      : null;
+  const activeSeasonId = form.seasonId.trim() || (boardSeason ? String(boardSeason.seasonId) : '');
+  const hasKnownActivePeriod = activeSeasonId.length > 0;
+  const hasActivePeriod = hasKnownActivePeriod || hasPrayerBoardActivePeriod(boardState);
+  const startDisabled = busy || !form.name.trim();
+  const closeDisabled = busy || !hasKnownActivePeriod;
+  const activeSeasonName = form.name.trim() || boardSeason?.name || '진행 중';
+  const activeSeasonStartDate = form.startDate || boardSeason?.startDate || '';
+  const todayLabel = formatAdminDateOnlyDisplay(formatAdminDateForApiDateOnly(new Date()));
+
   return (
     <Card>
-      <Eyebrow>기도 시즌</Eyebrow>
-      <Title>기도 시즌 생성/종료</Title>
-      <Body>중복 ACTIVE 시즌은 서버가 409 `PRAYER_ACTIVE_SEASON_ALREADY_EXISTS`로 거부합니다.</Body>
-      <TextField
-        accessibilityLabel="기도 시즌 이름"
-        label="시즌 이름"
-        onChangeText={(name) => onChangeForm({name})}
-        placeholder="2026 여름 나눔조"
-        value={form.name}
-      />
-      <View style={styles.filterGrid}>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="기도 시즌 시작일"
-            label="시작일"
-            onChangeText={(startDate) => onChangeForm({startDate})}
-            placeholder="YYYY-MM-DD"
-            value={form.startDate}
-          />
+      <Eyebrow>기도 운영 기간</Eyebrow>
+      <Title>{hasActivePeriod ? '진행 중 운영 기간' : '새 운영 기간 시작'}</Title>
+      <Body>
+        {hasActivePeriod
+          ? '진행 중에는 새 기간을 시작할 수 없습니다. 먼저 현재 기간을 종료해 주세요.'
+          : '새 운영 기간은 오늘 날짜로 바로 시작합니다.'}
+      </Body>
+      {hasActivePeriod && !hasKnownActivePeriod ? (
+        <View style={styles.inlineInfo}>
+          <Text style={styles.inlineInfoText}>
+            진행 중인 운영 기간은 확인됐지만 현재 응답만으로는 종료 요청을 보낼 수 없습니다.
+          </Text>
         </View>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="종료할 기도 시즌 ID"
-            keyboardType="number-pad"
-            label="시즌 ID"
-            onChangeText={(seasonId) => onChangeForm({seasonId: seasonId.replace(/\D/g, '')})}
-            placeholder="종료/조 생성에 사용"
-            value={form.seasonId}
-          />
-        </View>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="기도 시즌 종료일"
-            label="종료일"
-            onChangeText={(endDate) => onChangeForm({endDate})}
-            placeholder="YYYY-MM-DD"
-            value={form.endDate}
-          />
-        </View>
-      </View>
-      <View style={styles.actionRow}>
-        <Button
-          accessibilityLabel="기도 시즌 생성"
-          disabled={busy}
-          onPress={onSave}>
-          {busy ? '처리 중...' : '시즌 생성'}
-        </Button>
-        <Button
-          accessibilityLabel="기도 시즌 종료 확인 열기"
-          disabled={busy}
-          onPress={onOpenCloseSeason}
-          variant="danger">
-          시즌 종료
-        </Button>
-      </View>
+      ) : null}
+      {hasActivePeriod ? (
+        <>
+          <View style={styles.prayerPeriodDateStack}>
+            <View style={styles.prayerPeriodDateField}>
+              <AdminDateInfoCard
+                label="운영 기간"
+                value={activeSeasonName}
+              />
+            </View>
+            <View style={styles.prayerPeriodDateField}>
+              <AdminDateInfoCard
+                label="시작일"
+                value={
+                  activeSeasonStartDate
+                    ? formatAdminDateOnlyDisplay(activeSeasonStartDate)
+                    : '확인 필요'
+                }
+              />
+            </View>
+          </View>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="현재 기도 운영 기간 종료 확인 열기"
+              disabled={closeDisabled}
+              onPress={() => onOpenCloseSeason(activeSeasonId)}
+              variant="danger">
+              {busy ? '처리 중...' : '운영 종료'}
+            </Button>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={styles.prayerPeriodDateStack}>
+            <TextField
+              accessibilityLabel="기도 운영 기간 이름"
+              label="운영 기간 이름"
+              onChangeText={(name) => onChangeForm({name})}
+              placeholder="2026 여름 나눔조"
+              value={form.name}
+            />
+            <AdminDateInfoCard
+              label="시작일"
+              value={todayLabel}
+            />
+          </View>
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="기도 운영 기간 시작"
+              disabled={startDisabled}
+              onPress={onSave}>
+              {busy ? '처리 중...' : '운영 기간 시작'}
+            </Button>
+          </View>
+        </>
+      )}
     </Card>
+  );
+}
+
+function hasPrayerBoardActivePeriod(boardState: AdminPrayerState) {
+  if (boardState.status !== 'success' && boardState.status !== 'empty') {
+    return false;
+  }
+
+  return getPrayerBoardActiveSeason(boardState.board) !== null;
+}
+
+function getPrayerBoardActiveSeason(board: PrayerWeekSummary) {
+  const nestedSeason = board.activeSeason ?? board.currentSeason ?? board.season;
+
+  if (
+    nestedSeason?.seasonId &&
+    nestedSeason.endDate === null &&
+    nestedSeason.status !== 'CLOSED'
+  ) {
+    return {
+      name: nestedSeason.name,
+      seasonId: nestedSeason.seasonId,
+      startDate: nestedSeason.startDate,
+    };
+  }
+
+  const rootSeasonEndDate = 'seasonEndDate' in board ? board.seasonEndDate : board.endDate;
+
+  if (board.seasonId && rootSeasonEndDate === null && board.seasonStatus !== 'CLOSED') {
+    return {
+      name: board.seasonName ?? '',
+      seasonId: board.seasonId,
+      startDate: board.seasonStartDate ?? board.weekStartDate,
+    };
+  }
+
+  return null;
+}
+
+function AdminDateInfoCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.dateTimeSelectCard}>
+      <Text style={styles.dateTimeSelectLabel}>{label}</Text>
+      <Text style={styles.dateTimeSelectValue}>{value}</Text>
+    </View>
   );
 }
 
 function AdminPrayerGroupForm({
   busy,
   form,
+  onBack,
   onChangeForm,
-  onSave,
+  onNext,
 }: {
   busy: boolean;
   form: PrayerGroupForm;
+  onBack: () => void;
   onChangeForm: (patch: Partial<PrayerGroupForm>) => void;
-  onSave: () => void;
+  onNext: () => void;
 }) {
+  const hasActivePeriod = form.seasonId.trim().length > 0;
+  const isEditing = form.groupId.trim().length > 0;
+  const nextDisabled = busy || !form.name.trim() || (!hasActivePeriod && !isEditing);
+
   return (
     <Card>
-      <Eyebrow>기도조 편집</Eyebrow>
-      <Title>{form.groupId ? '기도조 수정' : '기도조 생성'}</Title>
-      <View style={styles.filterGrid}>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="기도조 시즌 ID"
-            keyboardType="number-pad"
-            label="시즌 ID"
-            onChangeText={(seasonId) => onChangeForm({seasonId: seasonId.replace(/\D/g, '')})}
-            placeholder="필수"
-            value={form.seasonId}
-          />
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Eyebrow>기도조</Eyebrow>
+          <Title>{isEditing ? '조 정보 수정' : '새 조 만들기'}</Title>
         </View>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="수정할 기도조 ID"
-            keyboardType="number-pad"
-            label="기도조 ID"
-            onChangeText={(groupId) => onChangeForm({groupId: groupId.replace(/\D/g, '')})}
-            placeholder="비우면 생성"
-            value={form.groupId}
-          />
-        </View>
+        {isEditing ? (
+          <AdminCompactButton
+            accessibilityLabel="새 기도조 생성 모드로 전환"
+            disabled={busy}
+            onPress={() =>
+              onChangeForm({
+                groupId: '',
+                isActive: true,
+                name: '',
+                sortOrder: '1',
+              })
+            }
+            variant="ghost">
+            새 조
+          </AdminCompactButton>
+        ) : null}
       </View>
-      <View style={styles.filterGrid}>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="기도조 이름"
-            label="조 이름"
-            onChangeText={(name) => onChangeForm({name})}
-            placeholder="2조"
-            value={form.name}
-          />
+      {!hasActivePeriod && !isEditing ? (
+        <View style={styles.inlineInfo}>
+          <Text style={styles.inlineInfoText}>
+            운영 기간을 먼저 시작하면 새 조를 생성할 수 있습니다.
+          </Text>
         </View>
-        <View style={styles.filterField}>
-          <TextField
-            accessibilityLabel="기도조 정렬 순서"
-            keyboardType="number-pad"
-            label="정렬 순서"
-            onChangeText={(sortOrder) => onChangeForm({sortOrder: sortOrder.replace(/\D/g, '')})}
-            placeholder="1"
-            value={form.sortOrder}
-          />
+      ) : null}
+      {isEditing ? (
+        <View style={styles.inlineInfo}>
+          <Text style={styles.inlineInfoText}>
+            아래 목록에서 선택한 조를 수정합니다.
+          </Text>
         </View>
-      </View>
+      ) : null}
+      <TextField
+        accessibilityLabel="기도조 이름"
+        label="조 이름"
+        onChangeText={(name) => onChangeForm({name})}
+        placeholder="2조"
+        value={form.name}
+      />
       {form.groupId ? (
         <SegmentedControl
           items={[
@@ -6444,77 +7516,208 @@ function AdminPrayerGroupForm({
           onSelect={(value) => onChangeForm({isActive: value === 'active'})}
         />
       ) : null}
-      <Button
-        accessibilityLabel="기도조 저장"
-        disabled={busy}
-        onPress={onSave}>
-        {busy ? '저장 중...' : '조 저장'}
-      </Button>
+      <View style={styles.actionRow}>
+        <Button
+          accessibilityLabel="기도조 목록으로 돌아가기"
+          disabled={busy}
+          onPress={onBack}
+          variant="secondary">
+          목록
+        </Button>
+        <Button
+          accessibilityLabel="기도조 멤버 선택 단계로 이동"
+          disabled={nextDisabled}
+          onPress={onNext}>
+          다음
+        </Button>
+      </View>
     </Card>
   );
 }
 
 function AdminPrayerMembersForm({
+  allowWithoutGroupId = false,
+  assignableMembersState,
+  boardState,
   busy,
   form,
   members,
+  onBack,
   onChangeForm,
   onSave,
+  submitLabel = '멤버 저장',
 }: {
+  allowWithoutGroupId?: boolean;
+  assignableMembersState: AssignablePrayerMembersState;
+  boardState: AdminPrayerState;
   busy: boolean;
   form: PrayerGroupMembersForm;
   members: AdminCampusMember[];
+  onBack: () => void;
   onChangeForm: (patch: Partial<PrayerGroupMembersForm>) => void;
-  onSave: () => void;
+  onSave: () => Promise<void>;
+  submitLabel?: string;
 }) {
+  const [searchText, setSearchText] = useState('');
+  const hasSelectedGroup = allowWithoutGroupId || form.groupId.trim().length > 0;
+  const currentGroupId = getPrayerGroupIdFromForm(form);
+  const unavailableAssignments = getUnavailablePrayerMemberAssignments(boardState, currentGroupId);
+  const memberOptions = getPrayerAssignableMemberOptions({
+    assignableMembersState,
+    boardState,
+    currentGroupId,
+    members,
+  });
+  const selectedUserIds = new Set(
+    parsePrayerMemberSelection(form.userIds).filter((userId) => {
+      const option = memberOptions.find((member) => member.userId === userId);
+
+      return option ? isPrayerAssignableMemberSelectable(option, currentGroupId) : true;
+    }),
+  );
+  const canSave = hasSelectedGroup && selectedUserIds.size > 0 && !busy;
+  const toggleMember = (userId: number) => {
+    const option = memberOptions.find((member) => member.userId === userId);
+
+    if (option && !isPrayerAssignableMemberSelectable(option, currentGroupId)) {
+      return;
+    }
+
+    const next = new Set(selectedUserIds);
+
+    if (next.has(userId)) {
+      next.delete(userId);
+    } else {
+      next.add(userId);
+    }
+
+    onChangeForm({userIds: Array.from(next).sort((a, b) => a - b).join(', ')});
+  };
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const displayMembers = memberOptions.filter((member) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+
+    return (
+      member.name.toLowerCase().includes(normalizedSearch) ||
+      member.email.toLowerCase().includes(normalizedSearch)
+    );
+  });
+
   return (
     <Card>
       <Eyebrow>조원 배정</Eyebrow>
-      <Title>조 멤버 전체 교체</Title>
+      <Title>멤버 선택</Title>
       <Body>
-        입력한 사용자 ID만 조원으로 남기고 빠진 멤버는 배정에서 제외합니다. 빈 값으로 저장하면 빈 조 상태가 됩니다.
+        선택한 멤버만 조원으로 남기고, 선택하지 않은 멤버는 이 조에서 제외합니다.
       </Body>
-      <TextField
-        accessibilityLabel="기도조 멤버 배정 기도조 ID"
-        keyboardType="number-pad"
-        label="기도조 ID"
-        onChangeText={(groupId) => onChangeForm({groupId: groupId.replace(/\D/g, '')})}
-        placeholder="필수"
-        value={form.groupId}
-      />
-      <TextField
-        accessibilityLabel="기도조 멤버 사용자 ID 목록"
-        helper="쉼표, 공백, 줄바꿈으로 구분합니다. 예: 98, 99, 100"
-        label="사용자 ID 목록"
-        onChangeText={(userIds) => onChangeForm({userIds})}
-        placeholder="98, 99, 100"
-        value={form.userIds}
-      />
-      <Button
-        accessibilityLabel="기도조 멤버 전체 교체 저장"
-        disabled={busy}
-        onPress={onSave}>
-        {busy ? '저장 중...' : '멤버 저장'}
-      </Button>
-      <View style={styles.confirmTargetList}>
-        <Text style={styles.confirmTargetText}>활성 멤버 사용자 ID 참고</Text>
-        {members.slice(0, 8).map((member) => (
-          <Text key={member.userId} style={styles.confirmTargetText}>
-            {member.name} · 사용자 ID {member.userId}
+      {hasSelectedGroup ? (
+        <View style={styles.inlineInfo}>
+          <Text style={styles.inlineInfoText}>
+            선택한 멤버 목록으로 조를 저장합니다.
           </Text>
-        ))}
-        {members.length > 8 ? (
-          <Text style={styles.confirmTargetText}>외 {members.length - 8}명</Text>
-        ) : null}
-      </View>
+        </View>
+      ) : (
+        <View style={styles.inlineInfo}>
+          <Text style={styles.inlineInfoText}>
+            아래 활성 기도조에서 편집을 누르면 멤버 저장을 할 수 있습니다.
+          </Text>
+        </View>
+      )}
+      {hasSelectedGroup ? (
+        <>
+          <View style={styles.headerRow}>
+            <Text style={styles.sectionTitle}>멤버 선택</Text>
+            <Chip
+              label={`${selectedUserIds.size}명 선택`}
+              tone={selectedUserIds.size > 0 ? 'success' : 'default'}
+            />
+          </View>
+          <TextField
+            accessibilityLabel="기도조 배정 멤버 검색"
+            label="검색"
+            onChangeText={setSearchText}
+            placeholder="이름 또는 이메일"
+            value={searchText}
+          />
+          {assignableMembersState.status === 'loading' ? (
+            <Body>배정 가능 멤버를 불러오고 있어요.</Body>
+          ) : assignableMembersState.status === 'error' ? (
+            <AdminInlineError error={assignableMembersState.error} />
+          ) : null}
+          {selectedUserIds.size === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>조원 1명 이상을 선택해야 저장할 수 있어요.</Text>
+            </View>
+          ) : null}
+          <View style={styles.prayerMemberSelectList}>
+            {displayMembers.map((member) => {
+              const assignedGroupName =
+                member.assignedGroupName ?? unavailableAssignments.get(member.userId) ?? null;
+              const disabled =
+                busy || !isPrayerAssignableMemberSelectable(member, currentGroupId);
+              const selected = selectedUserIds.has(member.userId);
+
+              return (
+                <Pressable
+                  accessibilityLabel={
+                    assignedGroupName
+                      ? `${member.name} 조원 ${assignedGroupName}에 배정됨`
+                      : `${member.name} 조원 ${selected ? '선택 해제' : '선택'}`
+                  }
+                  accessibilityRole="checkbox"
+                  accessibilityState={{checked: selected, disabled}}
+                  disabled={disabled}
+                  key={member.userId}
+                  onPress={() => toggleMember(member.userId)}
+                  style={({pressed}) => [
+                    styles.prayerMemberSelectRow,
+                    selected ? styles.prayerMemberSelectRowActive : null,
+                    disabled ? styles.prayerMemberSelectRowDisabled : null,
+                    pressed ? styles.pressed : null,
+                  ]}>
+                  <View style={styles.headerText}>
+                    <Text style={styles.memberName}>{member.name}</Text>
+                    <Text style={styles.memberMeta}>{member.email}</Text>
+                    {assignedGroupName ? (
+                      <Text style={styles.memberMeta}>{assignedGroupName}에 배정됨</Text>
+                    ) : null}
+                  </View>
+                  <Chip
+                    label={assignedGroupName && disabled ? '배정됨' : selected ? '선택됨' : '선택'}
+                    tone={selected ? 'success' : 'default'}
+                  />
+                </Pressable>
+              );
+            })}
+          </View>
+          <Button
+            accessibilityLabel="기도조 멤버 전체 교체 저장"
+            disabled={!canSave}
+            onPress={onSave}>
+            {busy ? '저장 중...' : submitLabel}
+          </Button>
+          <Button
+            accessibilityLabel="기도조 정보 입력 단계로 돌아가기"
+            disabled={busy}
+            onPress={onBack}
+            variant="secondary">
+            이전
+          </Button>
+        </>
+      ) : null}
     </Card>
   );
 }
 
 function AdminSettlement({
   actionState,
+  currentUserId,
   detailState,
   filters,
+  knownOwnedCoffeeAccountIds,
+  onActivatePaymentAccount,
   onCancelPenaltyRuleEdit,
   onChangePaymentAccountForm,
   onChangePenaltyRuleForm,
@@ -6524,6 +7727,7 @@ function AdminSettlement({
   onCopyPaymentAccount,
   onEditPenaltyRule,
   onOpenMemberCharges,
+  onRequestDeletePaymentAccount,
   onRequestDeactivatePaymentAccount,
   onRequestStatusChange,
   onRetryPaymentAccounts,
@@ -6533,7 +7737,6 @@ function AdminSettlement({
   onRetrySummary,
   onSavePaymentAccount,
   onSavePenaltyRule,
-  onSearch,
   onSelectPaymentAccount,
   onUpdateFilter,
   paymentAccountForm,
@@ -6547,8 +7750,11 @@ function AdminSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
+  currentUserId: number;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onActivatePaymentAccount: (account: PaymentAccount) => void;
   onCancelPenaltyRuleEdit: () => void;
   onChangePaymentAccountForm: (patch: Partial<PaymentAccountForm>) => void;
   onChangePenaltyRuleForm: (patch: Partial<PenaltyRuleForm>) => void;
@@ -6558,6 +7764,7 @@ function AdminSettlement({
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
   onRetryPaymentAccounts: () => void;
@@ -6567,7 +7774,6 @@ function AdminSettlement({
   onRetrySummary: () => void;
   onSavePaymentAccount: () => void;
   onSavePenaltyRule: () => void;
-  onSearch: () => void;
   onSelectPaymentAccount: (account: PaymentAccount | null) => void;
   onUpdateFilter: <Key extends keyof AdminChargeFilters>(
     key: Key,
@@ -6607,7 +7813,6 @@ function AdminSettlement({
           onResetFilters={onResetFilters}
           onRetryDetail={onRetryDetail}
           onRetrySummary={onRetrySummary}
-          onSearch={onSearch}
           onUpdateFilter={onUpdateFilter}
           settlementState={settlementState}
         />
@@ -6616,9 +7821,13 @@ function AdminSettlement({
           busy={busy}
           copyFeedback={paymentAccountCopyFeedback}
           copyOpacity={paymentAccountCopyOpacity}
+          currentUserId={currentUserId}
           form={paymentAccountForm}
+          knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+          onActivateAccount={onActivatePaymentAccount}
           onChangeForm={onChangePaymentAccountForm}
           onBackToList={() => onSelectPaymentAccount(null)}
+          onRequestDelete={onRequestDeletePaymentAccount}
           onRequestDeactivate={onRequestDeactivatePaymentAccount}
           onCopyAccount={onCopyPaymentAccount}
           onRetry={onRetryPaymentAccounts}
@@ -6654,7 +7863,6 @@ function AdminChargeSettlement({
   onResetFilters,
   onRetryDetail,
   onRetrySummary,
-  onSearch,
   onUpdateFilter,
   settlementState,
 }: {
@@ -6668,20 +7876,33 @@ function AdminChargeSettlement({
   onResetFilters: () => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
   onRetrySummary: () => void;
-  onSearch: () => void;
   onUpdateFilter: <Key extends keyof AdminChargeFilters>(
     key: Key,
     value: AdminChargeFilters[Key],
   ) => void;
   settlementState: AdminSettlementState;
 }) {
+  const summary =
+    settlementState.status === 'success' || settlementState.status === 'empty'
+      ? settlementState.charges
+      : null;
+
   return (
     <>
-      <SettlementSectionHeader
-        description="상태, 유형, 회원 검색으로 정산 대상을 좁혀 봅니다."
-        title="조회 조건"
-      />
-      <View style={styles.figmaFormCard}>
+      {summary ? <SettlementSummaryCard charges={summary} /> : null}
+      <View style={styles.chargeFilterCard}>
+        <View style={styles.chargeFilterHeader}>
+          <View style={styles.headerText}>
+            <Text style={styles.sectionTitle}>청구</Text>
+            <Text style={styles.settlementSectionDescription}>필터를 누르면 바로 반영됩니다.</Text>
+          </View>
+          <Button
+            accessibilityLabel="관리자 정산 필터 초기화"
+            onPress={onResetFilters}
+            variant="ghost">
+            초기화
+          </Button>
+        </View>
         <FigmaSegmentedControl
           items={chargeStatusFilters}
           selectedId={filters.status}
@@ -6698,34 +7919,18 @@ function AdminChargeSettlement({
               accessibilityLabel="정산 이름 또는 이메일 검색어"
               label="회원 검색"
               onChangeText={(keyword) => onUpdateFilter('keyword', keyword)}
-              onSubmitEditing={onSearch}
-              placeholder="이름 또는 이메일"
-              returnKeyType="search"
+              placeholder="이름, 이메일"
               value={filters.keyword}
             />
           </View>
-        </View>
-        <View style={styles.actionRow}>
-          <Button accessibilityLabel="관리자 정산 필터 적용" onPress={onSearch}>
-            조회
-          </Button>
-          <Button
-            accessibilityLabel="관리자 정산 필터 초기화"
-            onPress={onResetFilters}
-            variant="secondary">
-            초기화
-          </Button>
         </View>
       </View>
       {renderSettlementSummary({
         onOpenMemberCharges,
         onRetrySummary,
         settlementState,
+        showSummary: summary === null,
       })}
-      <SettlementSectionHeader
-        description="회원을 선택하면 청구 항목과 상태 변경 액션을 확인할 수 있습니다."
-        title="선택 회원 상세"
-      />
       {renderChargeDetail({
         actionState,
         detailState,
@@ -6757,10 +7962,14 @@ function AdminPaymentAccounts({
   busy,
   copyFeedback,
   copyOpacity,
+  currentUserId,
   form,
+  knownOwnedCoffeeAccountIds,
+  onActivateAccount,
   onChangeForm,
   onBackToList,
   onCopyAccount,
+  onRequestDelete,
   onRequestDeactivate,
   onRetry,
   onSave,
@@ -6771,10 +7980,14 @@ function AdminPaymentAccounts({
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
+  currentUserId: number;
   form: PaymentAccountForm;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onActivateAccount: (account: PaymentAccount) => void;
   onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
   onBackToList: () => void;
   onCopyAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSave: () => void;
@@ -6789,8 +8002,10 @@ function AdminPaymentAccounts({
         busy={busy}
         copyFeedback={copyFeedback}
         copyOpacity={copyOpacity}
+        onActivateAccount={onActivateAccount}
         onBack={onBackToList}
         onCopyAccount={onCopyAccount}
+        onRequestDelete={onRequestDelete}
         onRequestDeactivate={onRequestDeactivate}
       />
     );
@@ -6799,12 +8014,21 @@ function AdminPaymentAccounts({
   return (
     <>
       <SettlementSectionHeader
-        description="현재 활성 계좌를 확인하고 필요한 계좌를 등록합니다."
+        description="벌금 계좌는 캠퍼스 기준 1개만 활성화되고, 커피 계좌는 내 계좌만 커피투표에 사용할 수 있습니다."
         title="계좌 관리"
       />
-      {renderPaymentAccountList({busy, onRetry, onSelectAccount, state})}
+      {renderPaymentAccountList({
+        busy,
+        currentUserId,
+        knownOwnedCoffeeAccountIds,
+        onActivateAccount,
+        onRequestDelete,
+        onRetry,
+        onSelectAccount,
+        state,
+      })}
       <SettlementSectionHeader
-        description="새 정산 연결에 사용할 벌금 또는 커피 계좌를 추가합니다."
+        description="벌금 계좌는 새로 저장하면 기존 활성 계좌가 이전 계좌로 내려갑니다. 커피 계좌는 내 계좌로 등록됩니다."
         title="계좌 등록"
       />
       <View style={styles.figmaFormCard}>
@@ -6867,18 +8091,24 @@ function PaymentAccountDetail({
   busy,
   copyFeedback,
   copyOpacity,
+  onActivateAccount,
   onBack,
   onCopyAccount,
+  onRequestDelete,
   onRequestDeactivate,
 }: {
   account: PaymentAccount;
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
+  onActivateAccount: (account: PaymentAccount) => void;
   onBack: () => void;
   onCopyAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
 }) {
+  const active = isPaymentAccountActive(account);
+
   return (
     <>
       <View style={styles.figmaHeroCard}>
@@ -6911,7 +8141,7 @@ function PaymentAccountDetail({
                 </Text>
               </Animated.View>
             ) : null}
-            <Chip label={getPaymentCategoryLabel(account.accountType)} tone="info" />
+            <Chip label={getPaymentAccountStatusLabel(account)} tone={active ? 'success' : 'warning'} />
           </View>
         </View>
         <Text style={styles.figmaBodyText}>
@@ -6929,13 +8159,31 @@ function PaymentAccountDetail({
         </View>
       </View>
       <View style={styles.actionRow}>
-        <Button
-          accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
-          disabled={busy}
-          onPress={() => onRequestDeactivate(account)}
-          variant="danger">
-          비활성화
-        </Button>
+        {active ? (
+          <Button
+            accessibilityLabel={`${account.nickname} 계좌 비활성화 확인 열기`}
+            disabled={busy}
+            onPress={() => onRequestDeactivate(account)}
+            variant="danger">
+            비활성화
+          </Button>
+        ) : (
+          <>
+            <Button
+              accessibilityLabel={`${account.nickname} 계좌 활성화`}
+              disabled={busy}
+              onPress={() => onActivateAccount(account)}>
+              활성화
+            </Button>
+            <Button
+              accessibilityLabel={`${account.nickname} 비활성 계좌 삭제 확인 열기`}
+              disabled={busy}
+              onPress={() => onRequestDelete(account)}
+              variant="danger">
+              삭제
+            </Button>
+          </>
+        )}
         <Button accessibilityLabel="납부 계좌 목록으로 돌아가기" onPress={onBack} variant="secondary">
           목록
         </Button>
@@ -6946,11 +8194,19 @@ function PaymentAccountDetail({
 
 function renderPaymentAccountList({
   busy,
+  currentUserId,
+  knownOwnedCoffeeAccountIds,
+  onActivateAccount,
+  onRequestDelete,
   onRetry,
   onSelectAccount,
   state,
 }: {
   busy: boolean;
+  currentUserId: number;
+  knownOwnedCoffeeAccountIds: Set<number>;
+  onActivateAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSelectAccount: (account: PaymentAccount) => void;
   state: PaymentAccountState;
@@ -6964,54 +8220,178 @@ function renderPaymentAccountList({
     case 'empty':
       return (
         <Empty
-          title="활성 납부 계좌가 없습니다"
-          message="정산 전에 벌금 또는 커피 계좌를 등록해 주세요."
+          title="등록된 계좌가 없습니다"
+          message="벌금 정산 계좌 또는 커피투표에 사용할 내 커피 계좌를 등록해 주세요."
           actionLabel="다시 조회"
           actionAccessibilityLabel="납부 계좌 empty state에서 다시 조회"
           onActionPress={onRetry}
         />
       );
     case 'success':
+      const activePenaltyAccounts = state.accounts
+        .filter((account) => account.accountType === 'PENALTY' && isPaymentAccountActive(account))
+        .sort(comparePaymentAccountsForDisplay);
+      const inactivePenaltyAccounts = state.accounts
+        .filter((account) => account.accountType === 'PENALTY' && !isPaymentAccountActive(account))
+        .sort(comparePaymentAccountsForDisplay);
+      const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
+        state.accounts,
+        currentUserId,
+        knownOwnedCoffeeAccountIds,
+        {includeInactive: true},
+      ).sort(comparePaymentAccountsForDisplay);
+      const activeOwnedCoffeeAccounts = ownedCoffeeAccounts.filter(isPaymentAccountActive);
+      const inactiveOwnedCoffeeAccounts = ownedCoffeeAccounts.filter(
+        (account) => !isPaymentAccountActive(account),
+      );
+
       return (
         <>
           <View style={styles.figmaHeroCard}>
-            <Text style={styles.figmaHeroLabel}>활성 납부 계좌</Text>
+            <Text style={styles.figmaHeroLabel}>활성 벌금 계좌</Text>
             <View style={styles.figmaHeroRow}>
-              <Text style={styles.figmaHeroCount}>{state.accounts.length}개</Text>
+              <Text style={styles.figmaHeroCount}>{activePenaltyAccounts.length}개</Text>
               <Text style={styles.figmaActionPill}>관리</Text>
             </View>
           </View>
-          {state.accounts.map((account) => (
-            <View key={account.id} style={styles.figmaListItem}>
-              <View style={styles.figmaIconBox}>
-                <IconexIcon
-                  color={adminFigmaTokens.primary}
-                  name={account.accountType === 'COFFEE' ? 'credit-card' : 'wallet'}
-                  size={22}
-                />
-              </View>
-              <View style={styles.figmaListContent}>
-                <View style={styles.figmaListText}>
-                  <Text style={styles.figmaCardTitle}>{account.nickname}</Text>
-                  <Text style={styles.figmaBodyText}>
-                    {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
-                  </Text>
-                </View>
-                <Button
-                  accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
-                  disabled={busy}
-                  onPress={() => onSelectAccount(account)}
-                  variant="secondary">
-                  상세
-                </Button>
-              </View>
+          {activePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>
+                현재 활성 벌금 계좌가 없습니다. 새 벌금 계좌를 등록하거나 이전 벌금 계좌를 활성화해 주세요.
+              </Text>
             </View>
-          ))}
+          ) : (
+            activePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem
+                account={account}
+                busy={busy}
+                key={account.id}
+                onSelectAccount={onSelectAccount}
+              />
+            ))
+          )}
+          <SettlementSectionHeader
+            description="비활성 벌금 계좌만 다시 활성화하거나 삭제할 수 있습니다."
+            title="이전 벌금 계좌"
+          />
+          {inactivePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>이전 벌금 계좌가 없습니다.</Text>
+            </View>
+          ) : (
+            inactivePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem
+                account={account}
+                busy={busy}
+                key={account.id}
+                onActivateAccount={onActivateAccount}
+                onRequestDelete={onRequestDelete}
+                onSelectAccount={onSelectAccount}
+              />
+            ))
+          )}
+          <SettlementSectionHeader
+            description="커피투표 생성에는 현재 로그인한 사용자의 활성 커피 계좌만 사용할 수 있습니다."
+            title="내 커피 계좌"
+          />
+          {ownedCoffeeAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>내 커피 계좌가 없습니다. 커피투표를 만들려면 커피 계좌를 등록해 주세요.</Text>
+            </View>
+          ) : (
+            <>
+              {activeOwnedCoffeeAccounts.map((account) => (
+                <PaymentAccountListItem
+                  account={account}
+                  busy={busy}
+                  key={account.id}
+                  onSelectAccount={onSelectAccount}
+                />
+              ))}
+              {inactiveOwnedCoffeeAccounts.map((account) => (
+                <PaymentAccountListItem
+                  account={account}
+                  busy={busy}
+                  key={account.id}
+                  onActivateAccount={onActivateAccount}
+                  onRequestDelete={onRequestDelete}
+                  onSelectAccount={onSelectAccount}
+                />
+              ))}
+            </>
+          )}
         </>
       );
     default:
       return assertNever(state);
   }
+}
+
+function PaymentAccountListItem({
+  account,
+  busy,
+  onActivateAccount,
+  onRequestDelete,
+  onSelectAccount,
+}: {
+  account: PaymentAccount;
+  busy: boolean;
+  onActivateAccount?: (account: PaymentAccount) => void;
+  onRequestDelete?: (account: PaymentAccount) => void;
+  onSelectAccount: (account: PaymentAccount) => void;
+}) {
+  const active = isPaymentAccountActive(account);
+
+  return (
+    <View style={styles.figmaListItem}>
+      <View style={styles.figmaIconBox}>
+        <IconexIcon
+          color={active ? adminFigmaTokens.primary : adminFigmaTokens.textMuted}
+          name={account.accountType === 'COFFEE' ? 'credit-card' : 'wallet'}
+          size={22}
+        />
+      </View>
+      <View style={styles.figmaListContent}>
+        <View style={styles.figmaListText}>
+          <View style={styles.headerRowCompact}>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCardTitle}>
+              {account.nickname}
+            </Text>
+            <Chip label={getPaymentAccountStatusLabel(account)} tone={active ? 'success' : 'warning'} />
+          </View>
+          <Text style={styles.figmaBodyText}>
+            {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
+          </Text>
+        </View>
+        <View style={styles.compactActionRow}>
+          {!active && onActivateAccount ? (
+            <AdminCompactButton
+              accessibilityLabel={`${account.nickname} 계좌 활성화`}
+              disabled={busy}
+              onPress={() => onActivateAccount(account)}>
+              활성화
+            </AdminCompactButton>
+          ) : null}
+          {!active && onRequestDelete ? (
+            <AdminCompactButton
+              accessibilityLabel={`${account.nickname} 비활성 계좌 삭제 확인 열기`}
+              disabled={busy}
+              onPress={() => onRequestDelete(account)}
+              variant="danger">
+              삭제
+            </AdminCompactButton>
+          ) : null}
+          <AdminCompactButton
+            accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
+            disabled={busy}
+            onPress={() => onSelectAccount(account)}
+            variant="secondary">
+            상세
+          </AdminCompactButton>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function AdminPenaltyRules({
@@ -7238,10 +8618,12 @@ function PenaltyRuleModeSummary({
 function renderSettlementSummary({
   onOpenMemberCharges,
   onRetrySummary,
+  showSummary,
   settlementState,
 }: {
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRetrySummary: () => void;
+  showSummary: boolean;
   settlementState: AdminSettlementState;
 }) {
   switch (settlementState.status) {
@@ -7253,36 +8635,21 @@ function renderSettlementSummary({
     case 'empty':
       return (
         <>
-          <SettlementSectionHeader
-            description="현재 필터 기준의 총액과 미납 금액입니다."
-            title="정산 요약"
-          />
-          <SettlementSummaryCard charges={settlementState.charges} />
-          <SettlementSectionHeader
-            description="조건에 맞는 회원별 청구 상태를 표시합니다."
-            title="회원별 청구·미납 상세"
-          />
+          {showSummary ? <SettlementSummaryCard charges={settlementState.charges} /> : null}
           <Empty
-            title="조건에 맞는 청구 회원이 없습니다"
-            message="상태, 유형, 검색어 필터를 조정해 주세요."
-            actionLabel="다시 조회"
-            actionAccessibilityLabel="관리자 정산 empty state에서 다시 조회"
-            onActionPress={onRetrySummary}
+            title="표시할 청구가 없습니다"
+            message="필터를 바꾸면 자동으로 다시 표시됩니다."
           />
         </>
       );
     case 'success':
       return (
         <>
-          <SettlementSectionHeader
-            description="현재 필터 기준의 총액과 미납 금액입니다."
-            title="정산 요약"
-          />
-          <SettlementSummaryCard charges={settlementState.charges} />
-          <SettlementSectionHeader
-            description="미납 금액이 있는 회원부터 빠르게 확인하고 상세로 들어갑니다."
-            title="회원별 청구·미납 상세"
-          />
+          {showSummary ? <SettlementSummaryCard charges={settlementState.charges} /> : null}
+          <View style={styles.chargeListHeader}>
+            <Text style={styles.sectionTitle}>회원별 청구</Text>
+            <Text style={styles.chargeListCount}>{settlementState.charges.members.length}명</Text>
+          </View>
           <View style={styles.figmaListStack}>
             {settlementState.charges.members.map((member) => (
               <SettlementMemberRow
@@ -7305,10 +8672,10 @@ function SettlementSummaryCard({charges}: {charges: AdminCampusChargeSummary}) {
       <Text style={styles.figmaHeroLabel}>이번 달 총 미납</Text>
       <View style={styles.figmaHeroRow}>
         <Text style={styles.figmaHeroAmount}>{formatWon(charges.summary.unpaidAmount)}</Text>
-        <Text style={styles.figmaDangerPill}>미납 알림</Text>
+        <Text style={styles.figmaDangerPill}>미납</Text>
       </View>
       <Text style={styles.figmaHeroMeta}>
-        {charges.region} {charges.campusName} · 총 {formatWon(charges.summary.totalAmount)}
+        {charges.campusName} · 총 {formatWon(charges.summary.totalAmount)} · 납부 {formatWon(charges.summary.paidAmount)}
       </Text>
     </View>
   );
@@ -7336,7 +8703,7 @@ function SettlementMemberRow({
       <View style={styles.figmaIconBox}>
         <IconexIcon
           color={adminFigmaTokens.primary}
-          name={member.unpaidAmount > 0 ? 'wallet' : 'check'}
+          name="wallet"
           size={22}
           strokeWidth={2.2}
         />
@@ -7344,16 +8711,112 @@ function SettlementMemberRow({
       <View style={styles.figmaListContent}>
         <View style={styles.figmaListText}>
           <Text style={styles.figmaCardTitle}>{member.name}</Text>
-          <Text style={styles.figmaBodyText}>
-            {member.unpaidAmount > 0
-              ? `미납 ${formatWon(member.unpaidAmount)} · 납부 ${formatWon(member.paidAmount)}`
-              : `납부 완료 ${formatWon(member.paidAmount)}`}
-          </Text>
+          <Text style={styles.figmaBodyText}>{getChargeMemberSummaryText(member)}</Text>
         </View>
         <Text style={styles.figmaActionPill}>상세</Text>
       </View>
     </Pressable>
   );
+}
+
+function filterAdminCampusChargeSummary(
+  charges: AdminCampusChargeSummary,
+  filters: AdminChargeFilters,
+): AdminCampusChargeSummary {
+  const members = charges.members.filter((member) =>
+    doesChargeAmountSummaryMatchFilter(member, filters.status),
+  );
+  const summary = summarizeChargeMembers(members);
+
+  return {...charges, members, summary};
+}
+
+function filterAdminMemberChargeList(
+  charges: AdminMemberChargeList,
+  filters: AdminChargeFilters,
+): AdminMemberChargeList {
+  const items = charges.items.filter((charge) => {
+    if (charge.amount <= 0) {
+      return false;
+    }
+
+    if (filters.status !== 'ALL' && charge.status !== filters.status) {
+      return false;
+    }
+
+    if (filters.paymentCategory !== 'ALL' && charge.paymentCategory !== filters.paymentCategory) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return {...charges, items};
+}
+
+function doesChargeAmountSummaryMatchFilter(
+  summary: ChargeAmountSummary,
+  status: ChargeStatusFilter,
+) {
+  if (summary.totalAmount <= 0) {
+    return false;
+  }
+
+  switch (status) {
+    case 'UNPAID':
+      return summary.unpaidAmount > 0;
+    case 'PAID':
+      return summary.paidAmount > 0;
+    case 'WAIVED':
+      return summary.waivedAmount > 0;
+    case 'CANCELED':
+      return summary.canceledAmount > 0;
+    case 'ALL':
+      return summary.totalAmount > 0;
+    default:
+      return assertNever(status);
+  }
+}
+
+function summarizeChargeMembers(
+  members: AdminCampusChargeSummary['members'],
+): ChargeAmountSummary {
+  return members.reduce<ChargeAmountSummary>(
+    (summary, member) => ({
+      totalAmount: summary.totalAmount + member.totalAmount,
+      unpaidAmount: summary.unpaidAmount + member.unpaidAmount,
+      paidAmount: summary.paidAmount + member.paidAmount,
+      waivedAmount: summary.waivedAmount + member.waivedAmount,
+      canceledAmount: summary.canceledAmount + member.canceledAmount,
+    }),
+    {
+      totalAmount: 0,
+      unpaidAmount: 0,
+      paidAmount: 0,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    },
+  );
+}
+
+function getChargeMemberSummaryText(summary: ChargeAmountSummary) {
+  if (summary.unpaidAmount > 0) {
+    return `미납 ${formatWon(summary.unpaidAmount)} · 납부 ${formatWon(summary.paidAmount)}`;
+  }
+
+  if (summary.paidAmount > 0) {
+    return `납부 완료 ${formatWon(summary.paidAmount)}`;
+  }
+
+  if (summary.waivedAmount > 0) {
+    return `면제 ${formatWon(summary.waivedAmount)}`;
+  }
+
+  if (summary.canceledAmount > 0) {
+    return `취소 ${formatWon(summary.canceledAmount)}`;
+  }
+
+  return '청구 없음';
 }
 
 function renderChargeDetail({
@@ -7465,6 +8928,9 @@ function ChargeItemRow({
   onBlockedPaid: () => void;
   onRequestStatusChange: (status: AdminWritableChargeStatus) => void;
 }) {
+  const statusActions: AdminWritableChargeStatus[] =
+    charge.status === 'UNPAID' ? ['WAIVED', 'CANCELED'] : ['UNPAID'];
+
   return (
     <View style={styles.figmaChargeItem}>
       <View style={styles.figmaIconBox}>
@@ -7490,65 +8956,153 @@ function ChargeItemRow({
         </Text>
       ) : null}
       <View style={styles.roleGrid}>
-        {adminWritableChargeStatuses.map((status) => (
+        {statusActions.map((status) => (
           <Button
             accessibilityLabel={`${charge.title} 상태를 ${getChargeStatusLabel(status)}로 변경 확인`}
             disabled={busy || charge.status === status}
             key={status}
             onPress={() => onRequestStatusChange(status)}
             variant={status === 'CANCELED' ? 'danger' : 'secondary'}>
-            {getChargeStatusLabel(status)}
+            {getChargeStatusActionLabel(status)}
           </Button>
         ))}
-        <Button
-          accessibilityLabel={`${charge.title} 납부 완료 직접 변경 불가 안내`}
-          disabled={busy}
-          onPress={onBlockedPaid}
-          variant="ghost">
-          납부 완료
-        </Button>
+        {charge.status === 'UNPAID' ? (
+          <Button
+            accessibilityLabel={`${charge.title} 납부 완료 직접 변경 불가 안내`}
+            disabled={busy}
+            onPress={onBlockedPaid}
+            variant="ghost">
+            납부 완료
+          </Button>
+        ) : null}
       </View>
     </View>
   );
 }
 
-function AdminMembers({
+function AdminMemberPage({
+  actionState,
+  coffeeDuty,
   filter,
+  globalRole,
   inviteCodeCopyState,
   inviteCodeState,
+  memberSearch,
   members,
+  onAssignCoffee,
+  onChangeMemberSearch,
+  onChangeSection,
   onCopyInviteCode,
-  onOpenRoles,
+  onRevokeCoffee,
+  onSelectFilter,
+  onSelectMember,
+  onSelectRoleFilter,
+  roleFilter,
+  section,
+  selectedCampusRole,
+}: {
+  actionState: AdminActionState;
+  coffeeDuty: DutyAssignment | null;
+  filter: MemberFilter;
+  globalRole: string;
+  inviteCodeCopyState: InviteCodeCopyState;
+  inviteCodeState: InviteCodeState;
+  memberSearch: string;
+  members: AdminCampusMember[];
+  onAssignCoffee: (member: AdminCampusMember) => void;
+  onChangeMemberSearch: (value: string) => void;
+  onChangeSection: (section: AdminMemberSection) => void;
+  onCopyInviteCode: (inviteCode: string) => void;
+  onRevokeCoffee: (assignment: DutyAssignment) => void;
+  onSelectFilter: (filter: MemberFilter) => void;
+  onSelectMember: (member: AdminCampusMember) => void;
+  onSelectRoleFilter: (filter: RoleFilter) => void;
+  roleFilter: RoleFilter;
+  section: AdminMemberSection;
+  selectedCampusRole: CampusRole;
+}) {
+  return (
+    <>
+      <AdminSubpageSwitcher
+        accessibilityLabelPrefix="관리자 멤버 하위 페이지"
+        items={adminMemberSections}
+        onSelect={onChangeSection}
+        selectedId={section}
+        subtitle="목록, 권한, 커피 담당자를 분리해서 봅니다."
+        title="멤버 관리"
+      />
+      <InviteCodeCopyRow
+        copyState={inviteCodeCopyState}
+        inviteCodeState={inviteCodeState}
+        onCopy={onCopyInviteCode}
+      />
+      {section === 'list' ? (
+        <AdminMembers
+          filter={filter}
+          memberSearch={memberSearch}
+          members={members}
+          onChangeMemberSearch={onChangeMemberSearch}
+          onSelectFilter={onSelectFilter}
+          onSelectMember={onSelectMember}
+        />
+      ) : section === 'roles' ? (
+        <AdminRoleManagement
+          filter={roleFilter}
+          globalRole={globalRole}
+          members={members}
+          onSelectFilter={onSelectRoleFilter}
+          onSelectMember={onSelectMember}
+          selectedCampusRole={selectedCampusRole}
+        />
+      ) : (
+        <AdminCoffeeDutyManagement
+          actionState={actionState}
+          coffeeDuty={coffeeDuty}
+          members={members}
+          onAssignCoffee={onAssignCoffee}
+          onRevokeCoffee={onRevokeCoffee}
+        />
+      )}
+    </>
+  );
+}
+
+function AdminMembers({
+  filter,
+  memberSearch,
+  members,
+  onChangeMemberSearch,
   onSelectFilter,
   onSelectMember,
 }: {
   filter: MemberFilter;
-  inviteCodeCopyState: InviteCodeCopyState;
-  inviteCodeState: InviteCodeState;
+  memberSearch: string;
   members: AdminCampusMember[];
-  onCopyInviteCode: (inviteCode: string) => void;
-  onOpenRoles: () => void;
+  onChangeMemberSearch: (value: string) => void;
   onSelectFilter: (filter: MemberFilter) => void;
   onSelectMember: (member: AdminCampusMember) => void;
 }) {
-  const filteredMembers = filterMembers(members, filter);
+  const keyword = memberSearch.trim().toLowerCase();
+  const filteredMembers = filterMembers(members, filter).filter((member) =>
+    keyword
+      ? `${member.name} ${member.email} ${member.campusRole}`.toLowerCase().includes(keyword)
+      : true,
+  );
 
   return (
     <Card>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
           <Eyebrow>멤버 관리</Eyebrow>
-          <Title>멤버 관리</Title>
-          <Body>멤버 상세에서 역할 변경, 커피 담당자 지정, 위험 액션을 처리합니다.</Body>
+          <Title>멤버 목록</Title>
         </View>
-        <Button accessibilityLabel="역할 관리 화면으로 이동" onPress={onOpenRoles} variant="secondary">
-          역할 관리
-        </Button>
       </View>
-      <InviteCodeCopyRow
-        copyState={inviteCodeCopyState}
-        inviteCodeState={inviteCodeState}
-        onCopy={onCopyInviteCode}
+      <TextField
+        accessibilityLabel="관리자 멤버 검색"
+        label="검색"
+        onChangeText={onChangeMemberSearch}
+        placeholder="이름 또는 이메일"
+        value={memberSearch}
       />
       <SegmentedControl items={memberFilters} selectedId={filter} onSelect={onSelectFilter} />
       {filteredMembers.length === 0 ? (
@@ -7563,6 +9117,74 @@ function AdminMembers({
         ))
       )}
     </Card>
+  );
+}
+
+function AdminCoffeeDutyManagement({
+  actionState,
+  coffeeDuty,
+  members,
+  onAssignCoffee,
+  onRevokeCoffee,
+}: {
+  actionState: AdminActionState;
+  coffeeDuty: DutyAssignment | null;
+  members: AdminCampusMember[];
+  onAssignCoffee: (member: AdminCampusMember) => void;
+  onRevokeCoffee: (assignment: DutyAssignment) => void;
+}) {
+  const busy = actionState.status !== 'idle';
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>커피 담당</Eyebrow>
+        <Title>{coffeeDuty ? coffeeDuty.name : '담당자 없음'}</Title>
+        <Body>
+          {coffeeDuty
+            ? `${coffeeDuty.email} · 활성 담당자`
+            : '커피 정산 관리 권한을 줄 멤버를 지정해 주세요.'}
+        </Body>
+      </Card>
+      <Card>
+        <Eyebrow>담당자 지정</Eyebrow>
+        {members.map((member) => {
+          const assigned = coffeeDuty?.userId === member.userId;
+
+          return (
+            <View key={member.membershipId} style={styles.roleRow}>
+              <View style={styles.roleRowHeader}>
+                <Avatar name={member.name} role={member.campusRole} />
+                <View style={styles.headerText}>
+                  <Text style={styles.memberName}>{member.name}</Text>
+                  <Text style={styles.memberMeta}>{member.email}</Text>
+                </View>
+                <Chip label={assigned ? '담당' : member.campusRole} tone={assigned ? 'success' : 'default'} />
+              </View>
+              <View style={styles.actionRow}>
+                {assigned && coffeeDuty ? (
+                  <Button
+                    accessibilityLabel={`${member.name} 커피 담당자 해제`}
+                    disabled={busy}
+                    onPress={() => onRevokeCoffee(coffeeDuty)}
+                    variant="danger">
+                    {actionState.status === 'revokingCoffee' ? '해제 중...' : '해제'}
+                  </Button>
+                ) : (
+                  <Button
+                    accessibilityLabel={`${member.name} 커피 담당자로 지정`}
+                    disabled={busy}
+                    onPress={() => onAssignCoffee(member)}
+                    variant="secondary">
+                    {actionState.status === 'assigningCoffee' ? '지정 중...' : '지정'}
+                  </Button>
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </Card>
+    </>
   );
 }
 
@@ -7730,22 +9352,18 @@ function AdminMemberDetail({
 }
 
 function AdminRoleManagement({
-  actionState,
   filter,
   globalRole,
   members,
   onSelectFilter,
   onSelectMember,
-  onUpdateRole,
   selectedCampusRole,
 }: {
-  actionState: AdminActionState;
   filter: RoleFilter;
   globalRole: string;
   members: AdminCampusMember[];
   onSelectFilter: (filter: RoleFilter) => void;
   onSelectMember: (member: AdminCampusMember) => void;
-  onUpdateRole: (member: AdminCampusMember, role: CampusRole) => void;
   selectedCampusRole: CampusRole;
 }) {
   const filteredMembers = filterMembers(members, filter);
@@ -7759,7 +9377,7 @@ function AdminRoleManagement({
         <Body>
           캠퍼스 관리자 {adminCount}명. 현재 계정은 전체 권한 {globalRole}, 캠퍼스 권한 {selectedCampusRole}입니다.
         </Body>
-        <Body>전체 권한 변경은 이 화면에서 하지 않습니다. 권한 위계 위반은 서버 403 UX로 분리합니다.</Body>
+        <Body>전체 권한 변경은 이 화면에서 하지 않습니다. 권한이 없는 변경은 저장되지 않습니다.</Body>
       </Card>
       <Card>
         <Eyebrow>역할별 보기</Eyebrow>
@@ -7767,33 +9385,19 @@ function AdminRoleManagement({
         {filteredMembers.map((member) => (
           <View key={member.membershipId} style={styles.roleRow}>
             <Pressable
-              accessibilityLabel={`${member.name} 상세 보기`}
+              accessibilityLabel={`${member.name} 역할 상세 보기`}
               accessibilityRole="button"
               onPress={() => onSelectMember(member)}
               style={({pressed}) => [styles.roleRowHeader, pressed ? styles.pressed : null]}>
               <Avatar name={member.name} role={member.campusRole} />
               <View style={styles.headerText}>
                 <Text style={styles.memberName}>{member.name}</Text>
-                <Text style={styles.memberMeta}>{member.email}</Text>
+                <Text style={styles.memberMeta}>
+                  {member.email} · {member.campusRole}
+                </Text>
               </View>
-              <Chip label={member.campusRole} tone={adminCampusRoles.has(member.campusRole) ? 'info' : 'default'} />
+              <Text style={styles.figmaActionPill}>상세</Text>
             </Pressable>
-            <View style={styles.roleGrid}>
-              {campusRoleOptions.map((role) => (
-                <Button
-                  accessibilityLabel={`${member.name} 캠퍼스 역할을 ${role}로 변경`}
-                  disabled={
-                    actionState.status !== 'idle' ||
-                    member.campusRole === role ||
-                    (adminCount <= 1 && adminCampusRoles.has(member.campusRole) && role === 'MEMBER')
-                  }
-                  key={role}
-                  onPress={() => onUpdateRole(member, role)}
-                  variant={member.campusRole === role ? 'ghost' : 'secondary'}>
-                  {role}
-                </Button>
-              ))}
-            </View>
           </View>
         ))}
       </Card>
@@ -8161,6 +9765,91 @@ function DeactivatePaymentAccountSheet({
   );
 }
 
+function DeletePaymentAccountSheet({
+  account,
+  copyFeedback,
+  copyOpacity,
+  error,
+  loading,
+  onCancel,
+  onCopyAccount,
+  onConfirm,
+}: {
+  account: PaymentAccount | null;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
+  error: ApiError | null;
+  loading: boolean;
+  onCancel: () => void;
+  onCopyAccount: (account: PaymentAccount) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheet}>
+          <Title>{account ? `${account.nickname} 계좌를 삭제할까요?` : '계좌 삭제'}</Title>
+          <Body>
+            삭제는 비활성 계좌에만 사용할 수 있습니다. 이미 청구에 연결된 계좌라면 서버 정책에 따라
+            삭제가 거절될 수 있어요.
+          </Body>
+          {account ? (
+            <>
+              <ListRow label="계좌 유형" value={getPaymentCategoryLabel(account.accountType)} />
+              <View style={styles.accountCopyRow}>
+                <ListRow
+                  accessibilityLabel={`${account.nickname} 계좌번호 복사`}
+                  label={account.bankName}
+                  onPress={() => onCopyAccount(account)}
+                  supportingText={account.accountHolder}
+                  value={account.accountNumber}
+                />
+                {copyFeedback?.accountId === account.id ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.accountCopyBadge,
+                      styles.accountCopyRowBadge,
+                      {opacity: copyOpacity},
+                    ]}>
+                    <Text
+                      accessibilityLabel={copyFeedback.message}
+                      style={[
+                        styles.accountCopyHint,
+                        copyFeedback.tone === 'warning'
+                          ? styles.accountCopyHintWarning
+                          : null,
+                      ]}>
+                      {copyFeedback.message}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+          {error ? <AdminInlineError error={error} /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              accessibilityLabel="비활성 납부 계좌 삭제 실행"
+              disabled={loading}
+              onPress={onConfirm}
+              variant="danger">
+              {loading ? '삭제 중...' : '삭제'}
+            </Button>
+            <Button
+              accessibilityLabel="납부 계좌 삭제 취소"
+              disabled={loading}
+              onPress={onCancel}
+              variant="secondary">
+              취소
+            </Button>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function PrayerSeasonCloseSheet({
   error,
   loading,
@@ -8178,28 +9867,22 @@ function PrayerSeasonCloseSheet({
     <Modal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Eyebrow>시즌 종료 확인</Eyebrow>
-          <Title>{target ? `시즌 ID ${target.seasonId}을 종료할까요?` : '기도 시즌 종료'}</Title>
+          <Eyebrow>운영 종료 확인</Eyebrow>
+          <Title>운영 기간을 종료할까요?</Title>
           <Body>
-            종료 후 해당 시즌은 CLOSED 상태가 됩니다. active season 중복 생성 409를 풀기 위한 위험 액션이라 확인 후 실행합니다.
+            진행 중인 기도 운영 기간을 오늘 날짜로 종료합니다. 종료 후 새 운영 기간을 시작하면 조를 다시 편성할 수 있습니다.
           </Body>
-          {target ? (
-            <>
-              <ListRow label="시즌 ID" value={String(target.seasonId)} />
-              <ListRow label="종료일" value={target.endDate} />
-            </>
-          ) : null}
           {error ? <AdminInlineError error={error} /> : null}
           <View style={styles.actionRow}>
             <Button
-              accessibilityLabel="기도 시즌 종료 실행"
+              accessibilityLabel="기도 운영 기간 종료 실행"
               disabled={loading}
               onPress={onConfirm}
               variant="danger">
-              {loading ? '종료 중...' : '종료'}
+              {loading ? '처리 중...' : '운영 종료'}
             </Button>
             <Button
-              accessibilityLabel="기도 시즌 종료 취소"
+              accessibilityLabel="기도 운영 기간 종료 취소"
               disabled={loading}
               onPress={onCancel}
               variant="secondary">
@@ -8210,6 +9893,128 @@ function PrayerSeasonCloseSheet({
       </View>
     </Modal>
   );
+}
+
+function AdminSubpageSwitcher<T extends string>({
+  accessibilityLabelPrefix,
+  items,
+  onSelect,
+  selectedId,
+  subtitle,
+  title,
+}: {
+  accessibilityLabelPrefix: string;
+  items: Array<{id: T; label: string}>;
+  onSelect: (id: T) => void;
+  selectedId: T;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <View style={styles.adminSubpageSwitcher}>
+      <View style={styles.headerText}>
+        <Text style={styles.adminSubpageTitle}>{title}</Text>
+        <Text style={styles.adminSubpageSubtitle}>{subtitle}</Text>
+      </View>
+      <View style={styles.adminSubpageSegments}>
+        {items.map((item) => {
+          const active = item.id === selectedId;
+
+          return (
+            <Pressable
+              accessibilityLabel={`${accessibilityLabelPrefix} ${item.label} 선택`}
+              accessibilityRole="tab"
+              accessibilityState={{selected: active}}
+              key={item.id}
+              onPress={() => onSelect(item.id)}
+              style={({pressed}) => [
+                styles.adminSubpageSegment,
+                active ? styles.adminSubpageSegmentActive : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.adminSubpageSegmentText,
+                  active ? styles.adminSubpageSegmentTextActive : null,
+                ]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function AdminCompactButton({
+  accessibilityLabel,
+  children,
+  disabled = false,
+  onPress,
+  variant = 'primary',
+}: {
+  accessibilityLabel: string;
+  children: string;
+  disabled?: boolean;
+  onPress: () => void;
+  variant?: AdminCompactButtonVariant;
+}) {
+  const variantStyle = getAdminCompactButtonStyle(variant);
+  const textStyle = getAdminCompactButtonTextStyle(variant);
+
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.adminCompactButton,
+        variantStyle,
+        disabled ? styles.adminCompactButtonDisabled : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text
+        ellipsizeMode="tail"
+        numberOfLines={1}
+        style={[styles.adminCompactButtonText, textStyle]}>
+        {children}
+      </Text>
+    </Pressable>
+  );
+}
+
+function getAdminCompactButtonStyle(variant: AdminCompactButtonVariant) {
+  switch (variant) {
+    case 'primary':
+      return styles.adminCompactButtonPrimary;
+    case 'secondary':
+      return styles.adminCompactButtonSecondary;
+    case 'danger':
+      return styles.adminCompactButtonDanger;
+    case 'ghost':
+      return styles.adminCompactButtonGhost;
+    default:
+      return assertNever(variant);
+  }
+}
+
+function getAdminCompactButtonTextStyle(variant: AdminCompactButtonVariant) {
+  switch (variant) {
+    case 'primary':
+      return styles.adminCompactButtonTextPrimary;
+    case 'secondary':
+      return styles.adminCompactButtonTextSecondary;
+    case 'danger':
+      return styles.adminCompactButtonTextDanger;
+    case 'ghost':
+      return styles.adminCompactButtonTextGhost;
+    default:
+      return assertNever(variant);
+  }
 }
 
 function SegmentedControl<T extends string>({
@@ -8502,7 +10307,7 @@ function getAdminTabIcon(tab: AdminTab): IconexIconName {
 }
 
 function getCampusLabel(state: AuthenticatedState) {
-  return `${state.selectedCampus.region} ${state.selectedCampus.campusName}`;
+  return state.selectedCampus.campusName || '내 캠퍼스';
 }
 
 function getWeekStartDate(date: Date) {
@@ -8556,6 +10361,40 @@ function getAdminDateTimeValue(value: Date | string) {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
+function getAdminDateOnlyValue(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+
+  if (!match) {
+    return new Date();
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return new Date();
+  }
+
+  return date;
+}
+
+function formatAdminDateForApiDateOnly(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`;
+}
+
+function formatAdminDateOnlyDisplay(value: string) {
+  return formatAdminDateLabel(getAdminDateOnlyValue(value));
+}
+
 function parseTemplateDayOfWeek(value: string) {
   const parsed = Number(value);
 
@@ -8573,30 +10412,6 @@ function parseAdminTimeParts(value: string) {
   const minute = Math.min(59, Math.max(0, Number(match[2])));
 
   return {hour, minute};
-}
-
-function parseAdminTimeMinutes(value: string) {
-  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value.trim());
-
-  if (!match) {
-    return null;
-  }
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-
-  if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return null;
-  }
-
-  return hour * 60 + minute;
 }
 
 function formatAdminTimeParts(hour: number, minute: number) {
@@ -8634,14 +10449,6 @@ function formatTemplateDateTimeLabel(dayOfWeekValue: string, timeValue: string) 
   const dayOfWeek = parseTemplateDayOfWeek(dayOfWeekValue);
 
   return `${getDayOfWeekLabel(dayOfWeek)} ${formatShortTime(timeValue)}`;
-}
-
-function formatTemplateEndpointLabelFromValues(
-  dayOfWeekValue: number | string,
-  timeValue: string,
-  suffix: '마감' | '시작',
-) {
-  return `${formatTemplateDateTimeLabel(String(dayOfWeekValue), timeValue)} ${suffix}`;
 }
 
 function formatAdminDateTimeForApi(date: Date) {
@@ -8707,6 +10514,13 @@ function wrapTimeStepperValue(value: number, min: number, max: number, step: num
 function toAdminPollTemplateFormRequest(
   form: AdminPollTemplateForm,
 ): AdminPollTemplateRequest {
+  if (form.pollType === 'COFFEE') {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '커피 반복투표는 더 이상 관리자 반복투표에서 만들지 않습니다.',
+    });
+  }
+
   const validationMessage = getAdminPollTemplateValidationMessage(form);
 
   if (validationMessage) {
@@ -8772,24 +10586,6 @@ function toTemplateForm(template: AdminPollTemplate): AdminPollTemplateForm {
   };
 }
 
-function toDefaultCoffeePollTemplateForm(): AdminPollTemplateForm {
-  return {
-    autoCreateEnabled: false,
-    chargeGenerationType: 'OPTION_PRICE',
-    endDayOfWeek: '4',
-    endTime: '09:00:00',
-    optionsText: defaultCoffeePollOptionsText,
-    paymentAccountId: '',
-    paymentCategory: 'COFFEE',
-    pollType: 'COFFEE',
-    selectionType: 'SINGLE',
-    startDayOfWeek: '3',
-    startTime: '09:00:00',
-    templateId: defaultCoffeePollTemplateId,
-    title: '커피 주문 투표',
-  };
-}
-
 function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
   return {
     allowUserOptionAdd: Boolean(poll.allowUserOptionAdd),
@@ -8810,52 +10606,17 @@ function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
   };
 }
 
-function withDefaultCoffeePollTemplate(
-  templates: AdminPollTemplate[],
-  campusId: number,
-): AdminPollTemplate[] {
-  const hasCoffeeTemplate = templates.some(
-    (template) => template.pollType === 'COFFEE' && template.isActive,
+function getVisibleAdminPollTemplates(templates: AdminPollTemplate[]) {
+  return templates.filter(
+    (template) => template.pollType !== 'COFFEE' && !isDefaultCoffeePollTemplate(template),
   );
-
-  if (hasCoffeeTemplate) {
-    return templates;
-  }
-
-  return [createDefaultCoffeePollTemplate(campusId), ...templates];
-}
-
-function createDefaultCoffeePollTemplate(campusId: number): AdminPollTemplate {
-  return {
-    autoCreateEnabled: false,
-    campusId,
-    chargeGenerationType: 'OPTION_PRICE',
-    endDayOfWeek: 4,
-    endTime: '09:00:00',
-    id: defaultCoffeePollTemplateId,
-    isActive: true,
-    isDefault: true,
-    options: [
-      {
-        composeMenuCode: null,
-        content: defaultCoffeePollOptionsText,
-        id: defaultCoffeePollTemplateId,
-        priceAmount: 0,
-        sortOrder: 1,
-      },
-    ],
-    paymentAccountId: null,
-    paymentCategory: 'COFFEE',
-    pollType: 'COFFEE',
-    selectionType: 'SINGLE',
-    startDayOfWeek: 3,
-    startTime: '09:00:00',
-    title: '커피 주문 투표',
-  };
 }
 
 function isDefaultCoffeePollTemplate(template: AdminPollTemplate) {
-  return isDefaultCoffeePollTemplateId(template.id);
+  return (
+    isDefaultCoffeePollTemplateId(template.id) ||
+    (template.isDefault === true && template.pollType === 'COFFEE')
+  );
 }
 
 function isDefaultCoffeePollTemplateId(templateId: number | null) {
@@ -8950,21 +10711,95 @@ function parseNullablePositiveInt(value: string | number | null | undefined) {
 
 function getAdminPollCoffeeWarning(
   form: AdminPollCreateForm,
-  coffeeDuty: DutyAssignment | null,
+  accounts: PaymentAccount[],
+  currentUserId: number,
+  knownOwnedCoffeeAccountIds: Set<number>,
 ) {
   if (form.pollType !== 'COFFEE' || form.chargeGenerationType !== 'OPTION_PRICE') {
     return null;
   }
 
-  if (form.paymentCategory !== 'COFFEE' || !form.paymentAccountId.trim()) {
-    return '커피 투표를 생성하려면 커피 청구 계좌를 선택해 주세요. 계좌가 없다면 정산 화면에서 먼저 등록해 주세요.';
+  const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
+    accounts,
+    currentUserId,
+    knownOwnedCoffeeAccountIds,
+  );
+
+  if (ownedCoffeeAccounts.length === 0) {
+    return '커피 투표를 만들려면 먼저 내가 만든 커피 계좌를 등록해 주세요.';
   }
 
-  if (!coffeeDuty) {
-    return '커피 투표를 생성하려면 커피 담당자를 먼저 지정해 주세요.';
+  const selectedPaymentAccountId = toOptionalPositiveId(form.paymentAccountId);
+  const selectedOwnedCoffeeAccount = ownedCoffeeAccounts.some(
+    (account) => account.id === selectedPaymentAccountId,
+  );
+
+  if (form.paymentCategory !== 'COFFEE' || !selectedOwnedCoffeeAccount) {
+    return '커피 투표 정산에 사용할 내 커피 계좌를 선택해 주세요.';
   }
 
   return null;
+}
+
+function getOwnedCoffeePaymentAccounts(
+  accounts: PaymentAccount[],
+  currentUserId: number,
+  knownOwnedCoffeeAccountIds: Set<number>,
+  options: {includeInactive?: boolean} = {},
+) {
+  return accounts.filter((account) => {
+    if (account.accountType !== 'COFFEE') {
+      return false;
+    }
+
+    if (!options.includeInactive && account.isActive === false) {
+      return false;
+    }
+
+    if (account.ownerUserId === currentUserId) {
+      return true;
+    }
+
+    return account.ownerUserId === undefined && knownOwnedCoffeeAccountIds.has(account.id);
+  });
+}
+
+function mergePaymentAccounts(...accountGroups: PaymentAccount[][]) {
+  const accountMap = new Map<number, PaymentAccount>();
+
+  accountGroups.forEach((accounts) => {
+    accounts.forEach((account) => {
+      accountMap.set(account.id, account);
+    });
+  });
+
+  return Array.from(accountMap.values());
+}
+
+function isPaymentAccountActive(account: PaymentAccount) {
+  return account.isActive !== false;
+}
+
+function isPaymentAccountListEndpointMissing(error: unknown) {
+  return error instanceof FaithLogApiError && (error.detail.status === 404 || error.detail.status === 501);
+}
+
+function getPaymentAccountStatusLabel(account: PaymentAccount) {
+  return isPaymentAccountActive(account) ? '활성' : '비활성';
+}
+
+function comparePaymentAccountsForDisplay(a: PaymentAccount, b: PaymentAccount) {
+  const typePriority = getPaymentAccountTypePriority(a.accountType) - getPaymentAccountTypePriority(b.accountType);
+
+  if (typePriority !== 0) {
+    return typePriority;
+  }
+
+  return a.id - b.id;
+}
+
+function getPaymentAccountTypePriority(type: PaymentCategory) {
+  return type === 'PENALTY' ? 0 : 1;
 }
 
 function getAdminPollCreateDisabledReason(
@@ -8985,23 +10820,12 @@ function getAdminPollCreateDisabledReason(
 }
 
 function getAdminPollTemplateValidationMessage(form: AdminPollTemplateForm) {
-  const startDayOfWeek = parseTemplateDayOfWeek(form.startDayOfWeek);
-  const endDayOfWeek = parseTemplateDayOfWeek(form.endDayOfWeek);
-  const startMinutes = parseAdminTimeMinutes(form.startTime);
-  const endMinutes = parseAdminTimeMinutes(form.endTime);
-
-  if (startMinutes === null || endMinutes === null) {
-    return '시간은 HH:mm 형식으로 선택해 주세요.';
-  }
-
-  const startTotalMinutes = (startDayOfWeek - 1) * 24 * 60 + startMinutes;
-  const endTotalMinutes = (endDayOfWeek - 1) * 24 * 60 + endMinutes;
-
-  if (endTotalMinutes <= startTotalMinutes) {
-    return '마감 요일과 시간은 시작보다 뒤여야 합니다.';
-  }
-
-  return null;
+  return getRepeatScheduleValidationMessage({
+    endDayOfWeek: form.endDayOfWeek,
+    endTime: form.endTime,
+    startDayOfWeek: form.startDayOfWeek,
+    startTime: form.startTime,
+  });
 }
 
 function getAdminPollTemplateOptionsValidationMessage(
@@ -9576,6 +11400,14 @@ function parseUserIdList(value: string) {
   return ids;
 }
 
+function parsePrayerMemberSelection(value: string) {
+  try {
+    return parseUserIdList(value);
+  } catch {
+    return [];
+  }
+}
+
 function getPenaltyRuleTypeLabel(ruleType: PenaltyRuleType) {
   switch (ruleType) {
     case 'QUIET_TIME':
@@ -9644,6 +11476,14 @@ function getChargeStatusLabel(status: ChargeStatus) {
     default:
       return assertNever(status);
   }
+}
+
+function getChargeStatusActionLabel(status: AdminWritableChargeStatus) {
+  if (status === 'UNPAID') {
+    return '미납 복구';
+  }
+
+  return getChargeStatusLabel(status);
 }
 
 function getChargeIcon(charge: ChargeItem): IconexIconName {
@@ -9725,7 +11565,7 @@ function toNotificationTargetFromMissingMember(
 ): AdminNotificationTarget {
   return {
     email: member.email,
-    meta: `${member.region} ${member.campusName}`,
+    meta: member.campusName,
     name: member.name,
     userId: member.userId,
   };
@@ -9916,6 +11756,53 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     maxWidth: 140,
   },
+  adminCompactButton: {
+    alignItems: 'center',
+    borderRadius: 13,
+    justifyContent: 'center',
+    minHeight: 36,
+    minWidth: 66,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  adminCompactButtonDanger: {
+    backgroundColor: adminFigmaTokens.danger,
+  },
+  adminCompactButtonDisabled: {
+    opacity: 0.45,
+  },
+  adminCompactButtonGhost: {
+    backgroundColor: 'transparent',
+    borderColor: adminFigmaTokens.borderSoft,
+    borderWidth: 1,
+  },
+  adminCompactButtonPrimary: {
+    backgroundColor: adminFigmaTokens.primary,
+  },
+  adminCompactButtonSecondary: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderWidth: 1,
+  },
+  adminCompactButtonText: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  adminCompactButtonTextDanger: {
+    color: adminFigmaTokens.surface,
+  },
+  adminCompactButtonTextGhost: {
+    color: adminFigmaTokens.textSecondary,
+  },
+  adminCompactButtonTextPrimary: {
+    color: adminFigmaTokens.surface,
+  },
+  adminCompactButtonTextSecondary: {
+    color: adminFigmaTokens.primary,
+  },
   adminResultMutedText: {
     color: colors.textSecondary,
     fontSize: 14,
@@ -9932,39 +11819,38 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   adminBottomNavContent: {
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 6,
-  },
-  adminBottomNavFrame: {
+    alignSelf: 'center',
     backgroundColor: adminFigmaTokens.surface,
     borderColor: adminFigmaTokens.borderSoft,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
-    bottom: 0,
-    left: 0,
-    paddingBottom: 10,
-    paddingTop: 8,
-    position: 'absolute',
-    right: 0,
-    shadowColor: adminFigmaTokens.textPrimary,
-    shadowOffset: {width: 0, height: -8},
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
+    flexDirection: 'row',
+    height: 66,
+    justifyContent: 'space-between',
+    overflow: 'hidden',
+    paddingHorizontal: 1,
+    paddingVertical: 7,
+    width: '100%',
+  },
+  adminBottomNavFrame: {
+    flexShrink: 0,
   },
   adminBottomNavItem: {
     alignItems: 'center',
-    borderRadius: 18,
-    flex: 1,
-    gap: 5,
+    borderRadius: 16,
+    flexBasis: 68,
+    flexGrow: 1,
+    flexShrink: 1,
+    gap: 3,
+    height: 52,
     justifyContent: 'center',
-    minHeight: 54,
     minWidth: 0,
+    maxWidth: 68,
     paddingHorizontal: 4,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   adminBottomNavItemActive: {
-    backgroundColor: adminFigmaTokens.borderSoft,
+    backgroundColor: '#F2F7FF',
   },
   adminBottomNavItemPressed: {
     opacity: 0.72,
@@ -9981,26 +11867,194 @@ const styles = StyleSheet.create({
   adminHeaderContext: {
     alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.gap,
+    gap: 8,
     justifyContent: 'space-between',
+    minHeight: 40,
+    width: '100%',
+  },
+  adminHeaderLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minWidth: 0,
+  },
+  adminCampusChip: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 12,
+    flexShrink: 1,
+    height: 28,
+    justifyContent: 'center',
+    maxWidth: 150,
+    minWidth: 0,
+    paddingHorizontal: 10,
+  },
+  adminCampusText: {
+    color: adminFigmaTokens.faith,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: 130,
+  },
+  adminContextName: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    maxWidth: 90,
+    minWidth: 0,
+  },
+  adminHomeCampusTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 26,
   },
   adminModeContent: {
     flexGrow: 1,
     gap: spacing.gap,
-    paddingBottom: 92,
+    paddingBottom: 12,
+    paddingTop: 4,
   },
   adminModeFrame: {
     flex: 1,
+    marginHorizontal: 0,
+    marginTop: 0,
     minHeight: 0,
-    position: 'relative',
+  },
+  adminModeSheet: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 22,
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+  },
+  adminModeSheetBackdrop: {
+    backgroundColor: adminFigmaTokens.textPrimary,
+    bottom: 0,
+    left: 0,
+    opacity: 0.34,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  adminModeSheetContainer: {
+    bottom: 0,
+    left: 0,
+    padding: 16,
+    position: 'absolute',
+    right: 0,
+  },
+  adminModeSheetOption: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.background,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  adminModeSheetOptionBody: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  adminModeSheetOptionIcon: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  adminModeSheetOptionList: {
+    gap: 10,
+  },
+  adminModeSheetOptionTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  adminModeSheetRoot: {
+    flex: 1,
   },
   adminModeScroll: {
     flex: 1,
     minHeight: 0,
   },
   adminShellHeader: {
-    gap: 14,
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  adminScreenTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 32,
+    minWidth: 0,
+    width: '100%',
+  },
+  adminSubpageSegment: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+    minWidth: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  adminSubpageSegmentActive: {
+    backgroundColor: adminFigmaTokens.surface,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+  },
+  adminSubpageSegments: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
+  },
+  adminSubpageSegmentText: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  adminSubpageSegmentTextActive: {
+    color: adminFigmaTokens.primary,
+  },
+  adminSubpageSubtitle: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  adminSubpageSwitcher: {
+    gap: 10,
+  },
+  adminSubpageTitle: {
+    color: adminFigmaTokens.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 26,
   },
   accountMeta: {
     color: adminFigmaTokens.textMuted,
@@ -10075,9 +12129,44 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  chargeFilterCard: {
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 18,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.025,
+    shadowRadius: 10,
+  },
+  chargeFilterHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  chargeListCount: {
+    color: adminFigmaTokens.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  chargeListHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
   compactBlock: {
     gap: spacing.gap,
     marginBottom: spacing.gap,
+  },
+  compactActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   coffeeBrandChip: {
     alignItems: 'center',
@@ -10156,6 +12245,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.gap,
+  },
+  prayerPeriodDateField: {
+    width: '100%',
+  },
+  prayerPeriodDateStack: {
+    gap: spacing.gap,
+  },
+  prayerMemberSelectList: {
+    gap: 8,
+  },
+  prayerMemberSelectRow: {
+    alignItems: 'center',
+    backgroundColor: adminFigmaTokens.surface,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+    minHeight: 62,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  prayerMemberSelectRowActive: {
+    backgroundColor: '#E8F3FF',
+    borderColor: adminFigmaTokens.primary,
+  },
+  prayerMemberSelectRowDisabled: {
+    opacity: 0.55,
   },
   figmaActionPill: {
     backgroundColor: adminFigmaTokens.borderSoft,
@@ -10547,6 +12665,12 @@ const styles = StyleSheet.create({
     gap: spacing.gap,
     justifyContent: 'space-between',
   },
+  headerRowCompact: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
   headerText: {
     flex: 1,
     gap: 6,
@@ -10558,11 +12682,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     flexDirection: 'row',
     flexShrink: 0,
-    gap: 6,
+    gap: 4,
+    height: 36,
     justifyContent: 'center',
-    minHeight: 40,
+    maxWidth: 76,
+    minWidth: 68,
     paddingHorizontal: 12,
-    paddingVertical: 9,
   },
   modeReturnButtonPressed: {
     opacity: 0.72,
@@ -10572,11 +12697,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     lineHeight: 18,
+    includeFontPadding: false,
+  },
+  modeReturnButtonChevron: {
+    color: adminFigmaTokens.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    marginLeft: 1,
   },
   inlineError: {
     backgroundColor: colors.dangerSoft,
     borderRadius: radius.item,
+    gap: 10,
     padding: spacing.card,
+  },
+  inlineErrorAction: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surface,
+    borderColor: colors.danger,
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  inlineErrorActionText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800',
   },
   inlineErrorText: {
     color: colors.danger,
@@ -10585,6 +12735,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
+  },
+  inlineInfo: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  inlineInfoText: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   inviteCodeCopyButton: {
     alignItems: 'center',
@@ -10943,6 +13106,20 @@ const styles = StyleSheet.create({
   },
   pollListItemSelected: {
     borderColor: colors.primary,
+  },
+  pollManagePill: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 52,
+    paddingHorizontal: 10,
+  },
+  pollManagePillText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
   },
   pollPrimaryPill: {
     alignItems: 'center',
@@ -11307,6 +13484,12 @@ const styles = StyleSheet.create({
     minHeight: 72,
     paddingHorizontal: 20,
     paddingVertical: 14,
+  },
+  pollTemplateActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 8,
   },
   pollTemplateSummary: {
     alignItems: 'center',

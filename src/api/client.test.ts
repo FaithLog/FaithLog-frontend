@@ -11,6 +11,8 @@ import {
   buildApiUrl,
   createCoffeeDutyPaymentAccount,
   FaithLogApiError,
+  fetchAdminCampusCharges,
+  fetchAdminPaymentAccounts,
 } from './client';
 import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 
@@ -177,7 +179,6 @@ describe('FaithLog API client', () => {
         accountType: 'COFFEE',
         bankName: '카카오뱅크',
         nickname: 'QA 커피',
-        ownerUserId: 36,
       }),
     ).rejects.toSatisfy((error) => {
       expectApiError(error, {
@@ -192,6 +193,99 @@ describe('FaithLog API client', () => {
     expect(getStoredTokens).not.toHaveBeenCalled();
     expect(saveTokens).not.toHaveBeenCalled();
     expect(clearTokens).not.toHaveBeenCalled();
+  });
+
+  it('does not send ownerUserId when creating a coffee payment account', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        envelope({
+          accountHolder: 'QA',
+          accountNumber: '9999-0000',
+          accountType: 'COFFEE',
+          bankName: '카카오뱅크',
+          campusId: 2,
+          id: 91,
+          isActive: true,
+          nickname: 'QA 커피',
+          ownerUserId: 36,
+        }),
+      ),
+    );
+
+    await createCoffeeDutyPaymentAccount('active-coffee-duty-token', 2, {
+      accountHolder: 'QA',
+      accountNumber: '9999-0000',
+      accountType: 'COFFEE',
+      bankName: '카카오뱅크',
+      nickname: 'QA 커피',
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse(String(init?.body));
+
+    expect(body).toEqual({
+      accountHolder: 'QA',
+      accountNumber: '9999-0000',
+      accountType: 'COFFEE',
+      bankName: '카카오뱅크',
+      nickname: 'QA 커피',
+    });
+    expect(body).not.toHaveProperty('ownerUserId');
+  });
+
+  it('omits UI-only ALL charge filters while preserving payment account filters', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        envelope({
+          campusId: 2,
+          campusName: '분당 10캠',
+          region: '분당',
+          summary: {
+            canceledAmount: 0,
+            paidAmount: 0,
+            totalAmount: 0,
+            unpaidAmount: 0,
+            waivedAmount: 0,
+          },
+          members: [],
+        }),
+      ),
+    );
+
+    await fetchAdminCampusCharges('access-token', 2, {
+      paymentAccountId: 16,
+      paymentCategory: 'ALL',
+      status: 'ALL',
+    });
+
+    const [url] = fetchMock.mock.calls[0]!;
+    const requestUrl = new URL(String(url));
+
+    expect(requestUrl.pathname).toBe('/root/api/v1/admin/campuses/2/charges');
+    expect(requestUrl.searchParams.get('paymentAccountId')).toBe('16');
+    expect(requestUrl.searchParams.has('paymentCategory')).toBe(false);
+    expect(requestUrl.searchParams.has('status')).toBe(false);
+  });
+
+  it('requests inactive admin payment accounts when asked', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, envelope([])));
+
+    await fetchAdminPaymentAccounts('access-token', 7, {
+      accountType: 'PENALTY',
+      includeInactive: true,
+    });
+
+    const [url] = fetchMock.mock.calls[0]!;
+    const requestUrl = new URL(String(url));
+
+    expect(requestUrl.pathname).toBe('/root/api/v1/admin/campuses/7/payment-accounts');
+    expect(requestUrl.searchParams.get('accountType')).toBe('PENALTY');
+    expect(requestUrl.searchParams.get('includeInactive')).toBe('true');
   });
 
   it('rejects invalid success envelopes as a safe client error', async () => {

@@ -19,6 +19,9 @@ import type {AuthGateState} from '../auth/authGate';
 import {
   Conflict,
   ErrorState,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   Loading,
   Offline,
   PermissionDenied,
@@ -34,6 +37,9 @@ import {
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
 type MonthlyCalendarScreenProps = {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   onOpenWeeklyDevotion: (selectedDate: string) => void;
   setAuthState: (state: AuthGateState) => void;
   state: AuthenticatedState;
@@ -62,6 +68,9 @@ const DEVOTION_FIELD_LABELS = [
 const REQUIRED_DAYS = 5;
 
 export function MonthlyCalendarScreen({
+  canOpenAdminMode,
+  onOpenAdminMode,
+  onOpenNotifications,
   onOpenWeeklyDevotion,
   setAuthState,
   state,
@@ -190,11 +199,24 @@ export function MonthlyCalendarScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <View style={styles.campusChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.campusChipText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
-        </View>
+        <FaithLogHeaderTopRow
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}>
+          <FaithLogHeaderIconButton
+            accessibilityLabel="알림 설정 화면으로 이동"
+            badge
+            iconName="bell"
+            onPress={onOpenNotifications}
+          />
+          {canOpenAdminMode ? (
+            <FaithLogHeaderPillButton
+              accessibilityLabel="관리자 영역 선택"
+              label="관리자"
+              onPress={onOpenAdminMode}
+              showChevron
+            />
+          ) : null}
+        </FaithLogHeaderTopRow>
         <Text style={styles.title}>월간 캘린더</Text>
       </View>
 

@@ -466,7 +466,7 @@ function CampusListSection({
               key={campus.campusId}
               label={campus.name}
               onPress={() => onSelectCampus(campus)}
-              supportingText={`${campus.region} · 멤버 ${campus.memberCount}명 · 관리자 ${campus.adminCount}명`}
+              supportingText={`멤버 ${campus.memberCount}명 · 관리자 ${campus.adminCount}명`}
               value={getCampusStatusLabel(campus.status)}
             />
           ))}

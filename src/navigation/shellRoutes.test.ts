@@ -52,10 +52,8 @@ describe('admin mode routes', () => {
     },
   );
 
-  it('allows global managers to enter campus admin mode', () => {
-    expect(getAdminModeRoutes(createUser('MANAGER'), createCampus('MEMBER'))).toEqual([
-      'campusAdmin',
-    ]);
+  it('hides admin entry points from global managers without a campus admin role', () => {
+    expect(getAdminModeRoutes(createUser('MANAGER'), createCampus('MEMBER'))).toEqual([]);
   });
 
   it('allows global admins to choose campus admin or service admin mode', () => {

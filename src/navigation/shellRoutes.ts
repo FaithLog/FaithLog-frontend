@@ -1,4 +1,4 @@
-import type {CampusMembershipSummary, CurrentUser, UserRole} from '../api/types';
+import type {CampusMembershipSummary, CurrentUser} from '../api/types';
 
 export type ShellRoute =
   | 'userHome'
@@ -11,7 +11,6 @@ export type ShellRoute =
   | 'serviceAdmin';
 
 const CAMPUS_ADMIN_ROLES = new Set(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
-const GLOBAL_CAMPUS_ADMIN_ROLES = new Set<UserRole>(['ADMIN', 'MANAGER']);
 export const USER_BOTTOM_NAV_ROUTES = [
   'userHome',
   'devotion',
@@ -23,7 +22,7 @@ export const USER_BOTTOM_NAV_ROUTES = [
 export type AdminModeRoute = Extract<ShellRoute, 'campusAdmin' | 'serviceAdmin'>;
 
 export function canUseCampusAdmin(user: CurrentUser, campus: CampusMembershipSummary) {
-  return GLOBAL_CAMPUS_ADMIN_ROLES.has(user.role) || CAMPUS_ADMIN_ROLES.has(campus.campusRole);
+  return user.role === 'ADMIN' || CAMPUS_ADMIN_ROLES.has(campus.campusRole);
 }
 
 export function canUseServiceAdmin(user: CurrentUser) {

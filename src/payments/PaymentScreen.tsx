@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -12,7 +12,6 @@ import {
 
 import {
   FaithLogApiError,
-  fetchChargeSummary,
   fetchMyCharges,
   fetchPaymentAccounts,
   markMyChargePaid,
@@ -24,7 +23,6 @@ import type {
   ChargeItem,
   ChargeList,
   ChargeStatus,
-  ChargeSummary,
   MarkChargePaidResponse,
   PaymentAccount,
   PaymentCategory,
@@ -36,6 +34,9 @@ import {
   Conflict,
   Empty,
   ErrorState,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   ListRow,
   Loading,
   Offline,
@@ -54,13 +55,16 @@ type Notice = {
 } | null;
 
 type PaymentScreenProps = {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
 };
 
-type CategoryFilter = 'ALL' | PaymentCategory;
-type StatusFilter = 'ALL' | ChargeStatus;
+type CategoryFilter = PaymentCategory;
+type StatusFilter = ChargeStatus;
 type SortOption = 'createdAtDesc' | 'createdAtAsc' | 'dueDateAsc' | 'amountDesc';
 
 type PaymentLoadState =
@@ -69,7 +73,7 @@ type PaymentLoadState =
       status: 'success';
       accounts: PaymentAccount[];
       charges: ChargeList;
-      summary: ChargeSummary;
+      totalUnpaidAmount: number;
     }
   | {status: 'error'; error: ApiError};
 
@@ -88,15 +92,15 @@ type AccountCopyFeedback = {
 const PAGE_SIZE = 20;
 
 const categoryFilters: Array<{label: string; value: CategoryFilter}> = [
-  {label: '전체', value: 'ALL'},
   {label: '벌금', value: 'PENALTY'},
   {label: '커피', value: 'COFFEE'},
 ];
 
 const statusFilters: Array<{label: string; value: StatusFilter}> = [
-  {label: '전체', value: 'ALL'},
   {label: '미납', value: 'UNPAID'},
-  {label: '납부 완료', value: 'PAID'},
+  {label: '납부', value: 'PAID'},
+  {label: '면제', value: 'WAIVED'},
+  {label: '취소', value: 'CANCELED'},
 ];
 
 const sortOptions: Array<{label: string; value: SortOption}> = [
@@ -106,13 +110,18 @@ const sortOptions: Array<{label: string; value: SortOption}> = [
   {label: '금액순', value: 'amountDesc'},
 ];
 
-export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenProps) {
+export function PaymentScreen({
+  canOpenAdminMode,
+  onOpenAdminMode,
+  onOpenNotifications,
+  setAuthState,
+  setNotice,
+  state,
+}: PaymentScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const {width} = useWindowDimensions();
-  const today = useMemo(() => new Date(), []);
-  const {month, year} = getYearMonth(today);
   const compactPaymentLayout = width <= 360;
-  const [category, setCategory] = useState<CategoryFilter>('ALL');
+  const [category, setCategory] = useState<CategoryFilter>('PENALTY');
   const [status, setStatus] = useState<StatusFilter>('UNPAID');
   const [sort, setSort] = useState<SortOption>('createdAtDesc');
   const [page, setPage] = useState(0);
@@ -165,8 +174,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         return;
       }
 
-      const [summary, charges, accounts] = await Promise.all([
-        fetchChargeSummary(accessToken, campusId, {year, month}),
+      const [charges, totalUnpaidCharges, accounts] = await Promise.all([
         fetchMyCharges(accessToken, campusId, {
           page: nextPage,
           paymentCategory: category,
@@ -174,8 +182,16 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           sort: toChargeSort(sort),
           status,
         }),
+        fetchMyCharges(accessToken, campusId, {
+          page: 0,
+          paymentCategory: 'ALL',
+          size: 1,
+          sort: toChargeSort('createdAtDesc'),
+          status: 'UNPAID',
+        }),
         fetchPaymentAccounts(accessToken, campusId),
       ]);
+      const totalUnpaidAmount = totalUnpaidCharges.summary.unpaidAmount;
 
       if (nextPage > 0 && charges.items.length === 0) {
         const fallbackPage = nextPage - 1;
@@ -199,7 +215,12 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
           sort: toChargeSort(sort),
           status,
         });
-        setLoadState({status: 'success', summary, charges: fallbackCharges, accounts});
+        setLoadState({
+          status: 'success',
+          accounts,
+          charges: fallbackCharges,
+          totalUnpaidAmount,
+        });
         return;
       }
 
@@ -208,7 +229,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       }
 
       setPage(nextPage);
-      setLoadState({status: 'success', summary, charges, accounts});
+      setLoadState({status: 'success', accounts, charges, totalUnpaidAmount});
     } catch (error) {
       const apiError = toApiError(error, '납부 정보를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
@@ -282,7 +303,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
     return <Loading message="납부 요약, 청구 목록, 계좌 정보를 불러오고 있어요." />;
   }
 
-  const {accounts, charges, summary} = loadState;
+  const {accounts, charges, totalUnpaidAmount} = loadState;
   const hasNextPage =
     charges.items.length >= PAGE_SIZE &&
     (lastKnownLastPage === null || page < lastKnownLastPage);
@@ -291,12 +312,25 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
   return (
     <View style={styles.figmaScreen}>
       <View style={styles.figmaHeader}>
+        <FaithLogHeaderTopRow
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}>
+          <FaithLogHeaderIconButton
+            accessibilityLabel="알림 설정 화면으로 이동"
+            badge
+            iconName="bell"
+            onPress={onOpenNotifications}
+          />
+          {canOpenAdminMode ? (
+            <FaithLogHeaderPillButton
+              accessibilityLabel="관리자 영역 선택"
+              label="관리자"
+              onPress={onOpenAdminMode}
+              showChevron
+            />
+          ) : null}
+        </FaithLogHeaderTopRow>
         <Text style={styles.figmaTitle}>납부</Text>
-        <View style={styles.figmaCampusChip}>
-          <Text style={styles.figmaCampusText}>
-            {state.selectedCampus.region} {state.selectedCampus.campusName}
-          </Text>
-        </View>
       </View>
 
       <View style={styles.paymentHeroCard}>
@@ -307,16 +341,9 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
             minimumFontScale={0.72}
             numberOfLines={1}
             style={styles.paymentHeroAmount}>
-            {formatWon(summary.monthlyUnpaidAmount)}
+            {formatWon(totalUnpaidAmount)}
           </Text>
         </View>
-        <Pressable
-          accessibilityLabel="미납 항목 납부 확인"
-          accessibilityRole="button"
-          onPress={() => loadPayments(page)}
-          style={styles.paymentHeroButton}>
-          <Text style={styles.paymentHeroButtonText}>새로고침</Text>
-        </Pressable>
       </View>
 
       {accountMissing ? (
@@ -357,10 +384,14 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       ) : null}
 
       <View style={styles.filterPanel}>
-        <Text style={styles.figmaSectionTitle}>청구 항목</Text>
+        <View style={styles.filterPanelHeader}>
+          <Text style={styles.figmaSectionTitle}>청구 항목</Text>
+          <Text style={styles.filterPanelMeta}>{charges.items.length}건</Text>
+        </View>
         <FilterRow
           accessibilityPrefix="납부 유형 필터"
           items={categoryFilters}
+          label="유형"
           onSelect={(value) => {
             setCategory(value);
             setLastKnownLastPage(null);
@@ -372,6 +403,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         <FilterRow
           accessibilityPrefix="납부 상태 필터"
           items={statusFilters}
+          label="상태"
           onSelect={(value) => {
             setStatus(value);
             setLastKnownLastPage(null);
@@ -383,6 +415,7 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
         <FilterRow
           accessibilityPrefix="납부 목록 정렬"
           items={sortOptions}
+          label="정렬"
           onSelect={(value) => {
             setSort(value);
             setLastKnownLastPage(null);
@@ -396,12 +429,12 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
       {charges.items.length === 0 ? (
         <Empty
           title="조회된 청구가 없습니다"
-          message="선택한 필터에 맞는 청구가 없습니다. 필터를 바꾸거나 나중에 다시 확인해 주세요."
-          actionLabel="전체 보기"
-          actionAccessibilityLabel="납부 목록 필터 전체로 변경"
+          message="선택한 필터에 맞는 청구가 없습니다. 다른 유형이나 상태를 선택해 주세요."
+          actionLabel="미납 보기"
+          actionAccessibilityLabel="납부 목록 필터 미납 벌금으로 변경"
           onActionPress={() => {
-            setCategory('ALL');
-            setStatus('ALL');
+            setCategory('PENALTY');
+            setStatus('UNPAID');
             setLastKnownLastPage(null);
             setPage(0);
           }}
@@ -485,37 +518,42 @@ export function PaymentScreen({setAuthState, setNotice, state}: PaymentScreenPro
 function FilterRow<T extends string>({
   accessibilityPrefix,
   items,
+  label,
   onSelect,
   selected,
 }: {
   accessibilityPrefix: string;
   items: Array<{label: string; value: T}>;
+  label: string;
   onSelect: (value: T) => void;
   selected: T;
 }) {
   return (
-    <View style={styles.filterRow}>
-      {items.map((item) => {
-        const active = item.value === selected;
+    <View style={styles.filterGroup}>
+      <Text style={styles.filterGroupLabel}>{label}</Text>
+      <View style={styles.filterRow}>
+        {items.map((item) => {
+          const active = item.value === selected;
 
-        return (
-          <Pressable
-            accessibilityLabel={`${accessibilityPrefix}: ${item.label}`}
-            accessibilityRole="button"
-            accessibilityState={{selected: active}}
-            key={item.value}
-            onPress={() => onSelect(item.value)}
-            style={({pressed}) => [
-              styles.filterChip,
-              active ? styles.filterChipActive : null,
-              pressed ? styles.pressed : null,
-            ]}>
-            <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+          return (
+            <Pressable
+              accessibilityLabel={`${accessibilityPrefix}: ${item.label}`}
+              accessibilityRole="button"
+              accessibilityState={{selected: active}}
+              key={item.value}
+              onPress={() => onSelect(item.value)}
+              style={({pressed}) => [
+                styles.filterChip,
+                active ? styles.filterChipActive : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -529,8 +567,7 @@ function PaymentAccountMissingState({
   category: CategoryFilter;
   onContactAdmin: () => void;
 }) {
-  const missingTarget =
-    category === 'ALL' ? '납부 계좌' : `${getPaymentCategoryFilterLabel(category)} 계좌`;
+  const missingTarget = `${getPaymentCategoryFilterLabel(category)} 계좌`;
   const reason = accountsEmpty
     ? '현재 활성 납부 계좌가 없습니다.'
     : `${getPaymentCategoryFilterLabel(category)} 청구에 연결된 계좌가 없습니다.`;
@@ -604,35 +641,54 @@ function ChargeCard({
   onMarkPaid: () => void;
 }) {
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
+  const statusTone = getChargeStatusTone(charge.status);
 
   return (
     <View style={[styles.figmaChargeRow, compact ? styles.figmaChargeRowCompact : null]}>
-      <View style={styles.figmaChargeMain}>
-        <View style={styles.figmaChargeIcon}>
-          <IconexIcon
-            color={paymentColors.text}
-            name={getPaymentChargeIcon(charge)}
-            size={22}
-            strokeWidth={2.1}
-          />
+      <View style={styles.figmaChargeTopRow}>
+        <View style={styles.figmaChargeMain}>
+          <View style={styles.figmaChargeIcon}>
+            <IconexIcon
+              color={paymentColors.text}
+              name={getPaymentChargeIcon(charge)}
+              size={20}
+              strokeWidth={2.1}
+            />
+          </View>
+          <View style={styles.figmaChargeText}>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.chargeTitle}>
+              {charge.title}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.chargeReason}>
+              {charge.reason || getPaymentCategoryLabel(charge.paymentCategory)}
+            </Text>
+          </View>
         </View>
-        <View style={styles.figmaChargeText}>
-          <Text style={styles.chargeTitle}>{charge.title}</Text>
-          <Text style={styles.chargeReason}>
-            {charge.status === 'PAID'
-              ? '납부 완료'
-              : charge.reason || getPaymentCategoryLabel(charge.paymentCategory)}
+        <Text
+          style={[
+            styles.chargeStatusPill,
+            statusTone === 'success' ? styles.chargeStatusPillSuccess : null,
+            statusTone === 'danger' ? styles.chargeStatusPillDanger : null,
+            statusTone === 'muted' ? styles.chargeStatusPillMuted : null,
+          ]}>
+          {getChargeStatusLabel(charge.status)}
+        </Text>
+      </View>
+      <View style={styles.figmaChargeBottomRow}>
+        <View style={styles.chargeMetaStack}>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+            numberOfLines={1}
+            style={styles.figmaChargeAmount}>
+            {formatWon(charge.amount)}
+          </Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.chargeAccountText}>
+            {charge.account
+              ? `${charge.account.bankName} · ${charge.account.accountHolder}`
+              : '연결된 계좌 없음'}
           </Text>
         </View>
-      </View>
-      <View style={styles.figmaChargeTrailing}>
-        <Text
-          adjustsFontSizeToFit
-          minimumFontScale={0.78}
-          numberOfLines={1}
-          style={styles.figmaChargeAmount}>
-          {formatWon(charge.amount)}
-        </Text>
         <Pressable
           accessibilityLabel={`${charge.title} 납부 완료 처리`}
           accessibilityRole="button"
@@ -645,7 +701,7 @@ function ChargeCard({
             pressed ? styles.pressed : null,
           ]}>
           <Text style={styles.figmaChargeButtonText}>
-            {markingPaid ? '처리' : charge.status === 'UNPAID' ? '입금' : '완료'}
+            {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '입금' : '완료'}
           </Text>
         </Pressable>
       </View>
@@ -766,7 +822,7 @@ function getAccountMissingState(
   items: ChargeItem[],
   category: CategoryFilter,
 ): CategoryFilter | null {
-  if (category !== 'ALL' && !accounts.some((account) => account.accountType === category)) {
+  if (!accounts.some((account) => account.accountType === category)) {
     return category;
   }
 
@@ -791,7 +847,7 @@ function getPaymentCategoryLabel(category: PaymentCategory) {
 }
 
 function getPaymentCategoryFilterLabel(category: CategoryFilter) {
-  return category === 'ALL' ? '전체' : getPaymentCategoryLabel(category);
+  return getPaymentCategoryLabel(category);
 }
 
 function getPaymentChargeIcon(charge: ChargeItem): IconexIconName {
@@ -802,11 +858,34 @@ function getPaymentChargeIcon(charge: ChargeItem): IconexIconName {
   return charge.paymentCategory === 'COFFEE' ? 'coins' : 'wallet';
 }
 
-function getYearMonth(date: Date) {
-  return {
-    year: date.getFullYear(),
-    month: date.getMonth() + 1,
-  };
+function getChargeStatusLabel(status: ChargeStatus) {
+  switch (status) {
+    case 'UNPAID':
+      return '미납';
+    case 'PAID':
+      return '납부';
+    case 'WAIVED':
+      return '면제';
+    case 'CANCELED':
+      return '취소';
+    default:
+      return assertNever(status);
+  }
+}
+
+function getChargeStatusTone(status: ChargeStatus): 'warning' | 'success' | 'danger' | 'muted' {
+  switch (status) {
+    case 'UNPAID':
+      return 'warning';
+    case 'PAID':
+      return 'success';
+    case 'WAIVED':
+      return 'muted';
+    case 'CANCELED':
+      return 'danger';
+    default:
+      return assertNever(status);
+  }
 }
 
 function formatWon(amount: number) {
@@ -971,22 +1050,54 @@ const styles = StyleSheet.create({
     padding: spacing.gap,
   },
   chargeList: {
-    gap: spacing.gap,
+    gap: 8,
   },
   chargeReason: {
     color: colors.mutedText,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  chargeAccountText: {
+    color: paymentColors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    maxWidth: 190,
+  },
+  chargeMetaStack: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  chargeStatusPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 9,
+    color: colors.warning,
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 15,
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  chargeStatusPillDanger: {
+    color: colors.danger,
+  },
+  chargeStatusPillMuted: {
+    color: colors.textMuted,
+  },
+  chargeStatusPillSuccess: {
+    color: colors.success,
   },
   chargeTitle: {
     color: colors.text,
     flexShrink: 1,
-    flexWrap: 'wrap',
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 22,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   chargeTitleBlock: {
     flex: 1,
@@ -994,28 +1105,53 @@ const styles = StyleSheet.create({
   },
   filterChip: {
     alignItems: 'center',
-    backgroundColor: colors.neutralSoft,
-    borderRadius: radius.pill,
-    minHeight: 40,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexGrow: 1,
+    minHeight: 34,
+    minWidth: 64,
     justifyContent: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   filterChipActive: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.borderSoft,
+    borderColor: colors.borderSoft,
   },
   filterChipText: {
     color: colors.mutedText,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   filterChipTextActive: {
     color: colors.primary,
   },
+  filterGroup: {
+    gap: 8,
+  },
+  filterGroupLabel: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  filterPanelHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  filterPanelMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
   filterRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   figmaCampusChip: {
     alignItems: 'center',
@@ -1035,36 +1171,37 @@ const styles = StyleSheet.create({
   figmaChargeAmount: {
     color: paymentColors.text,
     flexShrink: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    maxWidth: 116,
-    minWidth: 58,
-    textAlign: 'right',
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 22,
   },
   figmaChargeButton: {
     alignItems: 'center',
-    backgroundColor: paymentColors.dark,
-    borderRadius: 12,
+    backgroundColor: colors.borderSoft,
+    borderRadius: 11,
     justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 64,
-    paddingHorizontal: 12,
+    minHeight: 30,
+    minWidth: 58,
+    paddingHorizontal: 10,
   },
   figmaChargeButtonDone: {
-    backgroundColor: paymentColors.chip,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderWidth: 1,
   },
   figmaChargeButtonText: {
-    color: paymentColors.card,
-    fontSize: 15,
+    color: colors.primary,
+    fontSize: 12,
     fontWeight: '700',
+    lineHeight: 16,
   },
   figmaChargeIcon: {
     alignItems: 'center',
     backgroundColor: paymentColors.chip,
-    borderRadius: 14,
-    height: 44,
+    borderRadius: 12,
+    height: 36,
     justifyContent: 'center',
-    width: 44,
+    width: 36,
   },
   figmaChargeIconText: {
     color: paymentColors.text,
@@ -1075,37 +1212,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     minWidth: 0,
   },
   figmaChargeRow: {
-    alignItems: 'center',
+    alignItems: 'stretch',
     backgroundColor: paymentColors.card,
-    borderRadius: 18,
-    flexDirection: 'row',
-    gap: 12,
-    minHeight: 82,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    borderRadius: 16,
+    gap: 8,
+    minHeight: 84,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   figmaChargeRowCompact: {
-    alignItems: 'stretch',
-    flexDirection: 'column',
-    minHeight: 118,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
   },
   figmaChargeText: {
     flex: 1,
-    gap: 6,
+    gap: 4,
     minWidth: 0,
   },
-  figmaChargeTrailing: {
+  figmaChargeTopRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    flexShrink: 0,
     gap: 10,
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     minWidth: 0,
+  },
+  figmaChargeBottomRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
   },
   figmaHeader: {
     alignItems: 'flex-start',
@@ -1128,7 +1266,10 @@ const styles = StyleSheet.create({
     lineHeight: 34,
   },
   filterPanel: {
-    gap: 12,
+    backgroundColor: paymentColors.card,
+    borderRadius: 18,
+    gap: 14,
+    padding: 16,
   },
   headerRow: {
     alignItems: 'flex-start',
@@ -1158,33 +1299,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 50,
   },
-  paymentHeroButton: {
-    alignItems: 'center',
-    backgroundColor: paymentColors.dark,
-    borderRadius: 12,
-    flexShrink: 0,
-    justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 96,
-    paddingHorizontal: 14,
-  },
-  paymentHeroButtonText: {
-    color: paymentColors.card,
-    fontSize: 15,
-    fontWeight: '700',
-  },
   paymentHeroCard: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: paymentColors.card,
     borderRadius: 22,
-    columnGap: 14,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    minHeight: 130,
+    minHeight: 118,
     paddingHorizontal: 24,
     paddingVertical: 20,
-    rowGap: 12,
   },
   paymentHeroLabel: {
     color: paymentColors.text,

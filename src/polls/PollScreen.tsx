@@ -1,5 +1,15 @@
 import {useEffect, useState} from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import {
   addUserPollOption,
@@ -36,6 +46,9 @@ import {
   Empty,
   ErrorState,
   Eyebrow,
+  FaithLogHeaderIconButton,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   Loading,
   Offline,
   PermissionDenied,
@@ -58,6 +71,9 @@ type Notice = {
 } | null;
 
 type PollScreenProps = {
+  canOpenAdminMode: boolean;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -97,7 +113,14 @@ const RESPONSE_ERROR_CODES = new Set([
 ]);
 const COMMENT_MAX_LENGTH = 500;
 
-export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScreenProps) {
+export function PollScreen({
+  canOpenAdminMode,
+  onOpenAdminMode,
+  onOpenNotifications,
+  setAuthState,
+  setNotice: _setNotice,
+  state,
+}: PollScreenProps) {
   const campusId = state.selectedCampus.campusId;
   const [listState, setListState] = useState<ListState>({status: 'loading'});
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
@@ -404,11 +427,22 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
     }
 
     return (
-      <View style={styles.figmaScreen}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={16}
+        style={styles.keyboardRoot}>
+        <ScrollView
+          contentContainerStyle={styles.figmaScreen}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
         <PollDetailHeader
-          campusLabel={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`}
+          canOpenAdminMode={canOpenAdminMode}
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}
           detail={detailState.detail}
           onBack={closeDetail}
+          onOpenAdminMode={onOpenAdminMode}
+          onOpenNotifications={onOpenNotifications}
         />
         <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
         {actionError ? <ActionErrorCard error={actionError} /> : null}
@@ -471,7 +505,8 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
           onSubmit={submitUserOption}
           visible={optionAddVisible}
         />
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     );
   }
 
@@ -491,9 +526,20 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
     pollGroups.respondedPolls.length;
 
   return (
-    <View style={styles.figmaScreen}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={16}
+      style={styles.keyboardRoot}>
+      <ScrollView
+        contentContainerStyle={styles.figmaScreen}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
       <FigmaScreenHeader
-        chip={`${state.selectedCampus.region} ${state.selectedCampus.campusName}`}
+        canOpenAdminMode={canOpenAdminMode}
+        chip={state.selectedCampus.campusName}
+        contextLabel={`${state.user.name}님`}
+        onOpenAdminMode={onOpenAdminMode}
+        onOpenNotifications={onOpenNotifications}
         title="투표"
       />
       <View style={styles.filterRow}>
@@ -566,35 +612,87 @@ export function PollScreen({setAuthState, setNotice: _setNotice, state}: PollScr
           )}
         </>
       )}
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
-function FigmaScreenHeader({chip, title}: {chip: string; title: string}) {
+function FigmaScreenHeader({
+  canOpenAdminMode,
+  chip,
+  contextLabel,
+  onOpenAdminMode,
+  onOpenNotifications,
+  title,
+}: {
+  canOpenAdminMode: boolean;
+  chip: string;
+  contextLabel: string;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
+  title: string;
+}) {
   return (
     <View style={styles.figmaHeader}>
+      <FaithLogHeaderTopRow campusLabel={chip} contextLabel={contextLabel}>
+        <FaithLogHeaderIconButton
+          accessibilityLabel="알림 설정 화면으로 이동"
+          badge
+          iconName="bell"
+          onPress={onOpenNotifications}
+        />
+        {canOpenAdminMode ? (
+          <FaithLogHeaderPillButton
+            accessibilityLabel="관리자 영역 선택"
+            label="관리자"
+            onPress={onOpenAdminMode}
+            showChevron
+          />
+        ) : null}
+      </FaithLogHeaderTopRow>
       <Text style={styles.figmaTitle}>{title}</Text>
-      <View style={styles.figmaCampusChip}>
-        <Text style={styles.figmaCampusText}>{chip}</Text>
-      </View>
     </View>
   );
 }
 
 function PollDetailHeader({
+  canOpenAdminMode,
   campusLabel,
+  contextLabel,
   detail,
   onBack,
+  onOpenAdminMode,
+  onOpenNotifications,
 }: {
+  canOpenAdminMode: boolean;
   campusLabel: string;
+  contextLabel: string;
   detail: PollDetail;
   onBack: () => void;
+  onOpenAdminMode: () => void;
+  onOpenNotifications: () => void;
 }) {
   return (
     <>
-      <FigmaScreenHeader chip={campusLabel} title={getPollDetailTitle(detail)} />
+      <FigmaScreenHeader
+        canOpenAdminMode={canOpenAdminMode}
+        chip={campusLabel}
+        contextLabel={contextLabel}
+        onOpenAdminMode={onOpenAdminMode}
+        onOpenNotifications={onOpenNotifications}
+        title={getPollDetailTitle(detail)}
+      />
       <View style={styles.figmaHeroCard}>
-        <Text style={styles.figmaHeroTitle}>{detail.title}</Text>
+        <View style={styles.figmaHeroHeaderRow}>
+          <Text style={styles.figmaHeroTitle}>{detail.title}</Text>
+          <Pressable
+            accessibilityLabel="투표 목록으로 돌아가기"
+            accessibilityRole="button"
+            onPress={onBack}
+            style={styles.figmaBackButton}>
+            <Text style={styles.figmaBackButtonText}>목록</Text>
+          </Pressable>
+        </View>
         <Text style={styles.figmaHeroMeta}>
           {getPollTypeLabel(detail.pollType)} · {detail.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {detail.isAnonymous ? '익명' : '응답자 공개'}
         </Text>
@@ -603,13 +701,6 @@ function PollDetailHeader({
             {isPollActionable(detail) ? getPollDeadlineLabel(detail.endsAt) : getPollStatusLabel('CLOSED')}
           </Text>
         </View>
-        <Pressable
-          accessibilityLabel="투표 목록으로 돌아가기"
-          accessibilityRole="button"
-          onPress={onBack}
-          style={styles.figmaBackButton}>
-          <Text style={styles.figmaBackButtonText}>목록</Text>
-        </Pressable>
       </View>
       {detail.status === 'SCHEDULED' ? (
         <InlineNotice message="아직 시작 전인 투표라 응답과 댓글 작성이 제한됩니다." tone="warning" />
@@ -861,21 +952,22 @@ function CommentsPanel({
           style={styles.multiInput}
           value={commentContent}
         />
-        <View style={styles.actionRow}>
-          <Button
+        <View style={styles.commentActionRow}>
+          <CompactActionButton
             accessibilityLabel={editingComment ? '댓글 수정 저장' : '댓글 등록'}
             disabled={!isOpen || submitting}
-            onPress={onSubmit}>
+            onPress={onSubmit}
+            tone="primary">
             {submitting ? '저장 중...' : editingComment ? '수정 저장' : '댓글 등록'}
-          </Button>
+          </CompactActionButton>
           {editingComment ? (
-            <Button
+            <CompactActionButton
               accessibilityLabel="댓글 수정 취소"
               disabled={submitting}
               onPress={onCancelEdit}
-              variant="secondary">
+              tone="secondary">
               취소
-            </Button>
+            </CompactActionButton>
           ) : null}
         </View>
       </View>
@@ -890,36 +982,70 @@ function CommentsPanel({
           return (
             <View key={comment.commentId} style={styles.figmaCommentCard}>
               <View style={styles.commentHeader}>
-                <View>
+                <View style={styles.commentAuthorBlock}>
                   <Text style={styles.commentAuthor}>{comment.name}</Text>
                   <Text style={styles.commentTime}>{formatDateTime(comment.updatedAt)}</Text>
                 </View>
-                {comment.deleted ? <Chip label="삭제됨" /> : null}
+                {canEdit ? (
+                  <View style={styles.commentHeaderActions}>
+                    <CompactActionButton
+                      accessibilityLabel={`${comment.name} 댓글 수정`}
+                      disabled={Boolean(actionState)}
+                      onPress={() => onEdit(comment)}
+                      tone="secondary">
+                      수정
+                    </CompactActionButton>
+                    <CompactActionButton
+                      accessibilityLabel={`${comment.name} 댓글 삭제`}
+                      disabled={Boolean(actionState)}
+                      onPress={() => onDelete(comment)}
+                      tone="danger">
+                      {deleting ? '삭제 중...' : '삭제'}
+                    </CompactActionButton>
+                  </View>
+                ) : comment.deleted ? (
+                  <Chip label="삭제됨" />
+                ) : null}
               </View>
               <Body>{comment.content}</Body>
-              {canEdit ? (
-                <View style={styles.actionRow}>
-                  <Button
-                    accessibilityLabel={`${comment.name} 댓글 수정`}
-                    disabled={Boolean(actionState)}
-                    onPress={() => onEdit(comment)}
-                    variant="secondary">
-                    수정
-                  </Button>
-                  <Button
-                    accessibilityLabel={`${comment.name} 댓글 삭제`}
-                    disabled={Boolean(actionState)}
-                    onPress={() => onDelete(comment)}
-                    variant="danger">
-                    {deleting ? '삭제 중...' : '삭제'}
-                  </Button>
-                </View>
-              ) : null}
             </View>
           );
         })
       )}
     </>
+  );
+}
+
+function CompactActionButton({
+  accessibilityLabel,
+  children,
+  disabled = false,
+  onPress,
+  tone,
+}: {
+  accessibilityLabel: string;
+  children: string;
+  disabled?: boolean;
+  onPress: () => void;
+  tone: 'primary' | 'secondary' | 'danger';
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.commentCompactButton,
+        styles[`${tone}CommentCompactButton`],
+        disabled ? styles.addOptionButtonDisabled : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text style={[styles.commentCompactButtonText, styles[`${tone}CommentCompactButtonText`]]}>
+        {children}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -975,7 +1101,9 @@ function ResultsPanel({
         .map((option) => (
           <View key={option.id} style={styles.figmaOptionResultCard}>
             <View style={styles.headerRow}>
-              <Title>{option.content}</Title>
+              <Text numberOfLines={2} style={styles.resultOptionTitle}>
+                {option.content}
+              </Text>
               <Chip label={`${option.responseCount}명`} tone={option.responseCount > 0 ? 'info' : 'default'} />
             </View>
             {results.anonymous ? (
@@ -1096,7 +1224,11 @@ function UserOptionAddSheet({
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
-      <View style={styles.sheetBackdrop}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={16}
+        style={styles.sheetKeyboardRoot}>
+        <View style={styles.sheetBackdrop}>
         <View style={styles.optionAddSheet}>
           <View style={styles.optionAddHeader}>
             <View style={styles.optionAddHeaderText}>
@@ -1204,6 +1336,7 @@ function UserOptionAddSheet({
           )}
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1752,11 +1885,42 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  commentAuthorBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  commentActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
+    marginTop: 4,
+  },
+  commentCompactButton: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    minHeight: 34,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: 13,
+  },
+  commentCompactButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
   commentHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: spacing.gap,
+    justifyContent: 'space-between',
+  },
+  commentHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 6,
   },
   commentTime: {
     color: colors.subtleText,
@@ -1767,11 +1931,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: pollColors.chip,
     borderRadius: 12,
+    flexShrink: 0,
     height: 34,
     justifyContent: 'center',
-    position: 'absolute',
-    right: 24,
-    top: 24,
     width: 58,
   },
   figmaBackButtonText: {
@@ -1837,6 +1999,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 18,
   },
+  figmaHeroHeaderRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+  },
   figmaHeroMeta: {
     color: pollColors.muted,
     fontSize: 15,
@@ -1844,9 +2011,10 @@ const styles = StyleSheet.create({
   },
   figmaHeroTitle: {
     color: pollColors.text,
-    fontSize: 22,
+    flex: 1,
+    fontSize: 19,
     fontWeight: '700',
-    lineHeight: 30,
+    lineHeight: 26,
   },
   figmaMutedText: {
     color: pollColors.muted,
@@ -1912,6 +2080,7 @@ const styles = StyleSheet.create({
   },
   figmaScreen: {
     gap: 20,
+    paddingBottom: 96,
     paddingTop: 2,
   },
   figmaSectionTitle: {
@@ -1936,9 +2105,9 @@ const styles = StyleSheet.create({
   },
   figmaTitle: {
     color: pollColors.text,
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '600',
-    lineHeight: 34,
+    lineHeight: 28,
   },
   headerRow: {
     alignItems: 'flex-start',
@@ -1961,6 +2130,9 @@ const styles = StyleSheet.create({
   },
   inlineWarning: {
     backgroundColor: colors.warningSoft,
+  },
+  keyboardRoot: {
+    flex: 1,
   },
   multiInput: {
     backgroundColor: pollColors.card,
@@ -2197,6 +2369,18 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
+  dangerCommentCompactButton: {
+    backgroundColor: colors.dangerSoft,
+  },
+  dangerCommentCompactButtonText: {
+    color: colors.danger,
+  },
+  primaryCommentCompactButton: {
+    backgroundColor: colors.primary,
+  },
+  primaryCommentCompactButtonText: {
+    color: colors.surface,
+  },
   respondent: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -2210,6 +2394,14 @@ const styles = StyleSheet.create({
     gap: spacing.gap,
     marginTop: spacing.gap,
   },
+  resultOptionTitle: {
+    color: pollColors.text,
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 23,
+    minWidth: 0,
+  },
   respondentName: {
     color: colors.mutedText,
     flex: 1,
@@ -2221,6 +2413,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.textPrimary,
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  sheetKeyboardRoot: {
+    flex: 1,
+  },
+  secondaryCommentCompactButton: {
+    backgroundColor: colors.borderSoft,
+  },
+  secondaryCommentCompactButtonText: {
+    color: colors.textPrimary,
   },
   tab: {
     alignItems: 'center',

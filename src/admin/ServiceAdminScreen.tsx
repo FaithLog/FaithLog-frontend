@@ -28,15 +28,16 @@ import {
   Empty,
   ErrorState,
   Eyebrow,
+  FaithLogHeaderPillButton,
+  FaithLogHeaderTopRow,
   ListRow,
   Loading,
   Offline,
   PermissionDenied,
-  Screen,
-  ScreenHeader,
   TextField,
   Title,
 } from '../components/ui';
+import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {ServiceAdminCampusSection} from './ServiceAdminCampusSection';
 
@@ -50,7 +51,7 @@ type Notice = {
 
 type ServiceAdminScreenProps = {
   onBackToUserMode: () => void;
-  onOpenCampusAdminFeature: () => void;
+  onLogoutPress: () => void;
   setAuthState: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
   state: AuthenticatedState;
@@ -58,8 +59,12 @@ type ServiceAdminScreenProps = {
 
 type RoleFilter = UserRole | 'ALL';
 type RoleOption = UserRole;
-type ServiceAdminSection = 'home' | 'campuses' | 'users';
+type ServiceAdminSection = 'home' | 'campuses' | 'users' | 'profile';
 type UserScreenView = 'list' | 'detail' | 'roleEdit';
+type UserLoadOptions = {
+  page?: number;
+  role?: RoleFilter;
+};
 
 type ServiceAdminHomeData = {
   activeCampusCount: number;
@@ -92,15 +97,17 @@ type RoleChangeState =
 
 const ROLE_OPTIONS: RoleOption[] = ['USER', 'MANAGER', 'ADMIN'];
 const ROLE_FILTERS: RoleFilter[] = ['ALL', ...ROLE_OPTIONS];
+const SERVICE_ADMIN_USER_PAGE_SIZE = 10;
 const SERVICE_ADMIN_SECTIONS: Array<{id: ServiceAdminSection; label: string}> = [
   {id: 'home', label: '홈'},
   {id: 'campuses', label: '캠퍼스'},
   {id: 'users', label: '사용자'},
+  {id: 'profile', label: '내정보'},
 ];
 
 export function ServiceAdminScreen({
   onBackToUserMode,
-  onOpenCampusAdminFeature,
+  onLogoutPress,
   setAuthState,
   setNotice,
   state,
@@ -112,6 +119,7 @@ export function ServiceAdminScreen({
   const [emailFilter, setEmailFilter] = useState('');
   const [userIdFilter, setUserIdFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
+  const [userPage, setUserPage] = useState(0);
   const [listState, setListState] = useState<UserListState>({status: 'loading'});
   const [detailState, setDetailState] = useState<UserDetailState>({status: 'idle'});
   const [roleChangeState, setRoleChangeState] = useState<RoleChangeState>({status: 'idle'});
@@ -163,7 +171,7 @@ export function ServiceAdminScreen({
     }
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async (options: UserLoadOptions = {}) => {
     if (state.user.role !== 'ADMIN') {
       setListState({
         status: 'error',
@@ -184,6 +192,9 @@ export function ServiceAdminScreen({
 
     setFormError(null);
     setListState({status: 'loading'});
+    const requestedPage = options.page ?? userPage;
+    const requestedRole = options.role ?? roleFilter;
+    setUserPage(requestedPage);
 
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -195,7 +206,9 @@ export function ServiceAdminScreen({
       const query = {
         email: emailFilter,
         name: nameFilter,
-        role: roleFilter,
+        page: requestedPage,
+        role: requestedRole,
+        size: SERVICE_ADMIN_USER_PAGE_SIZE,
         ...(userId == null ? {} : {userId}),
       };
 
@@ -207,6 +220,23 @@ export function ServiceAdminScreen({
       setListState({status: 'error', error: apiError});
       void handleAuthError(apiError, setAuthState);
     }
+  };
+
+  const submitUserSearch = () => {
+    setUserPage(0);
+    void loadUsers({page: 0});
+  };
+
+  const selectRoleFilter = (role: RoleFilter) => {
+    setRoleFilter(role);
+    setUserPage(0);
+    void loadUsers({page: 0, role});
+  };
+
+  const changeUserPage = (page: number) => {
+    const safePage = Math.max(0, page);
+    setUserPage(safePage);
+    void loadUsers({page: safePage});
   };
 
   const loadUserDetail = async (userId: number) => {
@@ -310,153 +340,189 @@ export function ServiceAdminScreen({
 
   if (state.user.role !== 'ADMIN') {
     return (
-      <Screen>
+      <View style={styles.serviceAdminRoot}>
         <PermissionDenied
           title="서비스 관리자 권한이 필요합니다"
           message="전역 관리자만 전체 사용자 조회와 역할 변경을 사용할 수 있습니다."
           actionLabel="다시 확인"
           actionAccessibilityLabel="서비스 관리자 권한 다시 확인"
-          onActionPress={loadUsers}
+          onActionPress={() => loadUsers()}
         />
-      </Screen>
+      </View>
     );
   }
 
   return (
-    <Screen>
-      <ScreenHeader
-        action={
-          <Button
-            accessibilityLabel="일반 모드로 전환"
-            onPress={onBackToUserMode}
-            variant="secondary">
-            일반 모드
-          </Button>
-        }
-        eyebrow="서비스 관리자"
-        subtitle="전역 사용자와 캠퍼스 관리를 분리해 운영합니다."
-        title="Service ADMIN"
-      />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.segmentRow}>
-          {SERVICE_ADMIN_SECTIONS.map((section) => (
-            <FilterButton
-              active={activeSection === section.id}
-              key={section.id}
-              label={section.label}
-              onPress={() => setActiveSection(section.id)}
+    <View style={styles.serviceAdminRoot}>
+      <View style={styles.serviceAdminFrame}>
+        <ServiceAdminHeader
+          activeSection={activeSection}
+          onBackToUserMode={onBackToUserMode}
+        />
+        <ScrollView contentContainerStyle={styles.content} style={styles.serviceAdminScroll}>
+          {activeSection === 'home' ? (
+            <ServiceAdminHome
+              homeState={homeState}
+              onOpenCampusAdmin={() => setActiveSection('campuses')}
+              onOpenUsers={() => setActiveSection('users')}
+              onRetry={loadHome}
             />
-          ))}
+          ) : activeSection === 'campuses' ? (
+            <ServiceAdminCampusSection
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          ) : activeSection === 'users' ? (
+            <>
+              {userView === 'list' ? (
+                <Card>
+                  <Eyebrow>사용자 필터</Eyebrow>
+                  <TextField
+                    label="이름"
+                    onChangeText={setNameFilter}
+                    placeholder="이름 검색"
+                    returnKeyType="search"
+                    value={nameFilter}
+                  />
+                  <TextField
+                    label="이메일"
+                    onChangeText={setEmailFilter}
+                    placeholder="email@example.com"
+                    returnKeyType="search"
+                    textContentType="emailAddress"
+                    value={emailFilter}
+                  />
+                  <TextField
+                    error={formError ?? undefined}
+                    keyboardType="number-pad"
+                    label="사용자 번호"
+                    onChangeText={setUserIdFilter}
+                    placeholder="정확한 사용자 번호"
+                    returnKeyType="search"
+                    value={userIdFilter}
+                  />
+                  <View style={styles.segmentRow}>
+                    {ROLE_FILTERS.map((role) => (
+                      <FilterButton
+                        accessibilityLabel={`${getRoleFilterAccessibilityLabel(role)} 필터`}
+                        active={roleFilter === role}
+                        key={role}
+                        label={getRoleFilterLabel(role)}
+                        onPress={() => selectRoleFilter(role)}
+                      />
+                    ))}
+                  </View>
+                  <Button accessibilityLabel="서비스 관리자 사용자 목록 조회" onPress={submitUserSearch}>
+                    조회
+                  </Button>
+                </Card>
+              ) : null}
+
+              <UserListSection
+                listState={listState}
+                onChangePage={changeUserPage}
+                onRetry={() => loadUsers()}
+                onSelectUser={openUserDetail}
+                userView={userView}
+              />
+
+              <UserDetailSection
+                currentUserId={state.user.id}
+                detailState={detailState}
+                onBack={() => setUserView('list')}
+                onEditRole={openRoleEdit}
+                onRetry={(userId) => void loadUserDetail(userId)}
+                userView={userView}
+              />
+
+              <UserRoleEditSection
+                currentUserId={state.user.id}
+                detailState={detailState}
+                onBack={() => setUserView('detail')}
+                onRetry={(userId) => void loadUserDetail(userId)}
+                onRoleSelect={selectRoleDraft}
+                onSubmit={() => void submitRoleChange()}
+                roleChangeState={roleChangeState}
+                selectedRole={roleDraft}
+                userView={userView}
+              />
+            </>
+          ) : (
+            <ServiceAdminProfile
+              onBackToUserMode={onBackToUserMode}
+              onLogoutPress={onLogoutPress}
+              state={state}
+            />
+          )}
+        </ScrollView>
+        <ServiceAdminBottomNav activeSection={activeSection} onSelectSection={setActiveSection} />
+      </View>
+    </View>
+  );
+}
+
+function ServiceAdminProfile({
+  onBackToUserMode,
+  onLogoutPress,
+  state,
+}: {
+  onBackToUserMode: () => void;
+  onLogoutPress: () => void;
+  state: AuthenticatedState;
+}) {
+  return (
+    <>
+      <Card>
+        <View style={styles.profileHeaderRow}>
+          <View style={styles.profileAvatar}>
+            <IconexIcon color={colors.textPrimary} name="user" size={24} strokeWidth={1.7} />
+          </View>
+          <View style={styles.profileText}>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
+              {state.user.name}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileEmail}>
+              {state.user.email}
+            </Text>
+          </View>
+          <Chip label={getGlobalRoleLabel(state.user.role)} tone="info" />
         </View>
+      </Card>
 
-        {activeSection === 'home' ? (
-          <ServiceAdminHome
-            homeState={homeState}
-            onOpenCampusAdmin={() => setActiveSection('campuses')}
-            onOpenCampusAdminFeature={() => {
-              setNotice({
-                tone: 'info',
-                title: '캠퍼스 관리자에서 계속',
-                message:
-                  '알림과 정산은 선택한 캠퍼스의 관리자 화면에서 운영합니다. Service ADMIN 홈에서는 별도 요약을 제공하지 않습니다.',
-              });
-              onOpenCampusAdminFeature();
-            }}
-            onOpenUsers={() => setActiveSection('users')}
-            onRetry={loadHome}
-          />
-        ) : activeSection === 'campuses' ? (
-          <ServiceAdminCampusSection
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
-        ) : (
-          <>
-            {userView === 'list' ? (
-              <Card>
-                <Eyebrow>사용자 필터</Eyebrow>
-                <TextField
-                  label="이름"
-                  onChangeText={setNameFilter}
-                  placeholder="이름 검색"
-                  returnKeyType="search"
-                  value={nameFilter}
-                />
-                <TextField
-                  label="이메일"
-                  onChangeText={setEmailFilter}
-                  placeholder="email@example.com"
-                  returnKeyType="search"
-                  textContentType="emailAddress"
-                  value={emailFilter}
-                />
-                <TextField
-                  error={formError ?? undefined}
-                  keyboardType="number-pad"
-                  label="사용자 번호"
-                  onChangeText={setUserIdFilter}
-                  placeholder="정확한 사용자 번호"
-                  returnKeyType="search"
-                  value={userIdFilter}
-                />
-                <View style={styles.segmentRow}>
-                  {ROLE_FILTERS.map((role) => (
-                    <FilterButton
-                      active={roleFilter === role}
-                      key={role}
-                      label={role === 'ALL' ? '전체' : getRoleLabel(role)}
-                      onPress={() => setRoleFilter(role)}
-                    />
-                  ))}
-                </View>
-                <Button accessibilityLabel="서비스 관리자 사용자 목록 조회" onPress={loadUsers}>
-                  조회
-                </Button>
-              </Card>
-            ) : null}
-
-            <UserListSection
-              listState={listState}
-              onRetry={loadUsers}
-              onSelectUser={openUserDetail}
-              userView={userView}
-            />
-
-            <UserDetailSection
-              currentUserId={state.user.id}
-              detailState={detailState}
-              onBack={() => setUserView('list')}
-              onEditRole={openRoleEdit}
-              onRetry={(userId) => void loadUserDetail(userId)}
-              userView={userView}
-            />
-
-            <UserRoleEditSection
-              currentUserId={state.user.id}
-              detailState={detailState}
-              onBack={() => setUserView('detail')}
-              onRetry={(userId) => void loadUserDetail(userId)}
-              onRoleSelect={selectRoleDraft}
-              onSubmit={() => void submitRoleChange()}
-              roleChangeState={roleChangeState}
-              selectedRole={roleDraft}
-              userView={userView}
-            />
-          </>
-        )}
-      </ScrollView>
-    </Screen>
+      <Card>
+        <Title>계정</Title>
+        <ListRow
+          label="현재 영역"
+          supportingText="전역 관리자"
+          value="Service ADMIN"
+        />
+        <ListRow
+          label="일반 사용자 화면"
+          onPress={onBackToUserMode}
+          supportingText="앱 홈으로 돌아가기"
+          value="이동"
+        />
+        <Button
+          accessibilityLabel="전역 관리자 계정 로그아웃"
+          onPress={onLogoutPress}
+          variant="danger">
+          로그아웃
+        </Button>
+      </Card>
+    </>
   );
 }
 
 function UserListSection({
   listState,
+  onChangePage,
   onRetry,
   onSelectUser,
   userView,
 }: {
   listState: UserListState;
+  onChangePage: (page: number) => void;
   onRetry: () => void;
   onSelectUser: (user: ServiceAdminUserListItem) => void;
   userView: UserScreenView;
@@ -480,19 +546,31 @@ function UserListSection({
       );
     case 'error':
       return <ServiceAdminErrorState error={listState.error} onRetry={onRetry} />;
-    case 'success':
+    case 'success': {
+      const currentPage = listState.data.page;
+      const totalPages = Math.max(listState.data.totalPages, 1);
+      const canGoPrevious = currentPage > 0;
+      const canGoNext = currentPage + 1 < totalPages;
+
       return (
         <Card>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderText}>
               <Eyebrow>사용자 목록</Eyebrow>
               <Body>
-                총 {listState.data.totalElements}명, {listState.data.page + 1}/
-                {Math.max(listState.data.totalPages, 1)} 페이지
+                총 {listState.data.totalElements}명 · {currentPage + 1}/{totalPages} 페이지
               </Body>
             </View>
             <Chip label={`${listState.data.size}개씩`} tone="info" />
           </View>
+          <ServiceAdminPagination
+            canGoNext={canGoNext}
+            canGoPrevious={canGoPrevious}
+            currentPage={currentPage}
+            onNext={() => onChangePage(currentPage + 1)}
+            onPrevious={() => onChangePage(currentPage - 1)}
+            totalPages={totalPages}
+          />
           {listState.data.content.map((user) => (
             <ListRow
               accessibilityLabel={`${user.name} 상세 보기`}
@@ -507,21 +585,81 @@ function UserListSection({
           ))}
         </Card>
       );
+    }
     default:
       return assertNever(listState);
   }
 }
 
+function ServiceAdminPagination({
+  canGoNext,
+  canGoPrevious,
+  currentPage,
+  onNext,
+  onPrevious,
+  totalPages,
+}: {
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  currentPage: number;
+  onNext: () => void;
+  onPrevious: () => void;
+  totalPages: number;
+}) {
+  return (
+    <View style={styles.paginationRow}>
+      <PaginationButton disabled={!canGoPrevious} label="이전" onPress={onPrevious} />
+      <View style={styles.paginationPageBadge}>
+        <Text numberOfLines={1} style={styles.paginationPageText}>
+          {currentPage + 1} / {totalPages}
+        </Text>
+      </View>
+      <PaginationButton disabled={!canGoNext} label="다음" onPress={onNext} />
+    </View>
+  );
+}
+
+function PaginationButton({
+  disabled,
+  label,
+  onPress,
+}: {
+  disabled: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`사용자 목록 ${label} 페이지`}
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.paginationButton,
+        disabled ? styles.paginationButtonDisabled : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.paginationButtonText,
+          disabled ? styles.paginationButtonTextDisabled : null,
+        ]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function ServiceAdminHome({
   homeState,
   onOpenCampusAdmin,
-  onOpenCampusAdminFeature,
   onOpenUsers,
   onRetry,
 }: {
   homeState: ServiceAdminHomeState;
   onOpenCampusAdmin: () => void;
-  onOpenCampusAdminFeature: () => void;
   onOpenUsers: () => void;
   onRetry: () => void;
 }) {
@@ -542,7 +680,6 @@ function ServiceAdminHome({
           />
           <ServiceAdminHomeActions
             onOpenCampusAdmin={onOpenCampusAdmin}
-            onOpenCampusAdminFeature={onOpenCampusAdminFeature}
             onOpenUsers={onOpenUsers}
           />
         </>
@@ -557,7 +694,6 @@ function ServiceAdminHome({
           />
           <ServiceAdminHomeActions
             onOpenCampusAdmin={onOpenCampusAdmin}
-            onOpenCampusAdminFeature={onOpenCampusAdminFeature}
             onOpenUsers={onOpenUsers}
           />
           <ServiceAdminRecentOverview data={homeState.data} />
@@ -607,11 +743,9 @@ function HomeStatCard({label, value}: {label: string; value: string}) {
 
 function ServiceAdminHomeActions({
   onOpenCampusAdmin,
-  onOpenCampusAdminFeature,
   onOpenUsers,
 }: {
   onOpenCampusAdmin: () => void;
-  onOpenCampusAdminFeature: () => void;
   onOpenUsers: () => void;
 }) {
   return (
@@ -633,21 +767,15 @@ function ServiceAdminHomeActions({
         value="열기"
       />
       <ServiceAdminHomeAction
-        label="알림 발송"
-        meta="캠퍼스 관리자 알림 화면에서 처리"
-        onPress={onOpenCampusAdminFeature}
-        value="이동"
-      />
-      <ServiceAdminHomeAction
         label="정산 계좌"
         meta="캠퍼스 관리자 정산 화면에서 처리"
-        onPress={onOpenCampusAdminFeature}
+        onPress={onOpenCampusAdmin}
         value="이동"
       />
       <View style={styles.summaryUnavailable}>
-        <Text style={styles.summaryUnavailableTitle}>알림·정산 요약 미제공</Text>
+        <Text style={styles.summaryUnavailableTitle}>정산 요약 미제공</Text>
         <Text style={styles.summaryUnavailableText}>
-          Service ADMIN 홈에서는 알림·정산 집계를 제공하지 않습니다.
+          Service ADMIN 홈에서는 정산 집계를 제공하지 않습니다.
         </Text>
       </View>
     </Card>
@@ -708,7 +836,7 @@ function ServiceAdminRecentOverview({data}: {data: ServiceAdminHomeData}) {
             <ListRow
               key={campus.campusId}
               label={campus.name}
-              supportingText={`${campus.region} · 멤버 ${campus.memberCount}명`}
+              supportingText={`멤버 ${campus.memberCount}명`}
               value={getServiceAdminCampusStatusLabel(campus.status)}
             />
           ))
@@ -790,7 +918,7 @@ function UserDetailSection({
                 <ListRow
                   key={campus.membershipId}
                   label={campus.campusName}
-                  supportingText={`${campus.region} · 소속 정보 ${campus.membershipId}`}
+                  supportingText={`소속 정보 ${campus.membershipId}`}
                   value={`${campus.campusRole}/${campus.status}`}
                 />
               ))
@@ -1107,12 +1235,82 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
   }
 }
 
+function ServiceAdminHeader({
+  activeSection,
+  onBackToUserMode,
+}: {
+  activeSection: ServiceAdminSection;
+  onBackToUserMode: () => void;
+}) {
+  return (
+    <View style={styles.serviceAdminHeader}>
+      <FaithLogHeaderTopRow campusLabel="Service ADMIN" contextLabel="전역 관리자">
+        <FaithLogHeaderPillButton
+          accessibilityLabel="일반 사용자로 이동"
+          label="사용자"
+          onPress={onBackToUserMode}
+        />
+      </FaithLogHeaderTopRow>
+      <Text style={styles.serviceAdminScreenTitle}>{getServiceAdminShellTitle(activeSection)}</Text>
+    </View>
+  );
+}
+
+function ServiceAdminBottomNav({
+  activeSection,
+  onSelectSection,
+}: {
+  activeSection: ServiceAdminSection;
+  onSelectSection: (section: ServiceAdminSection) => void;
+}) {
+  return (
+    <View style={styles.serviceAdminBottomNavFrame}>
+      <View style={styles.serviceAdminBottomNavContent}>
+        {SERVICE_ADMIN_SECTIONS.map((item) => {
+          const selected = item.id === activeSection;
+
+          return (
+            <Pressable
+              accessibilityLabel={`${item.label} 서비스 관리자 섹션으로 이동`}
+              accessibilityRole="tab"
+              accessibilityState={{selected}}
+              key={item.id}
+              onPress={() => onSelectSection(item.id)}
+              style={({pressed}) => [
+                styles.serviceAdminBottomNavItem,
+                selected ? styles.serviceAdminBottomNavItemActive : null,
+                pressed ? styles.serviceAdminBottomNavItemPressed : null,
+              ]}>
+              <IconexIcon
+                color={selected ? colors.primary : colors.mutedText}
+                name={getServiceAdminTabIcon(item.id)}
+                size={18}
+                strokeWidth={1.7}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.serviceAdminBottomNavLabel,
+                  selected ? styles.serviceAdminBottomNavLabelActive : null,
+                ]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function FilterButton({
+  accessibilityLabel,
   active,
   disabled = false,
   label,
   onPress,
 }: {
+  accessibilityLabel?: string;
   active: boolean;
   disabled?: boolean;
   label: string;
@@ -1120,7 +1318,7 @@ function FilterButton({
 }) {
   return (
     <Pressable
-      accessibilityLabel={`${label} 필터`}
+      accessibilityLabel={accessibilityLabel ?? `${label} 필터`}
       accessibilityRole="button"
       accessibilityState={{disabled, selected: active}}
       disabled={disabled}
@@ -1132,6 +1330,8 @@ function FilterButton({
         pressed ? styles.pressed : null,
       ]}>
       <Text
+        ellipsizeMode="tail"
+        numberOfLines={1}
         style={[
           styles.filterButtonText,
           active ? styles.filterButtonTextActive : null,
@@ -1198,6 +1398,25 @@ function getRoleLabel(role: RoleOption) {
   }
 }
 
+function getRoleFilterLabel(role: RoleFilter) {
+  switch (role) {
+    case 'ALL':
+      return '전체';
+    case 'USER':
+      return '일반';
+    case 'MANAGER':
+      return '관리자';
+    case 'ADMIN':
+      return '전역';
+    default:
+      return assertNever(role);
+  }
+}
+
+function getRoleFilterAccessibilityLabel(role: RoleFilter) {
+  return role === 'ALL' ? '전체 역할' : getRoleLabel(role);
+}
+
 function getServiceAdminCampusStatusLabel(
   status: ServiceAdminCampusList['content'][number]['status'],
 ) {
@@ -1208,6 +1427,49 @@ function getServiceAdminCampusStatusLabel(
       return '중지';
     default:
       return assertNever(status);
+  }
+}
+
+function getServiceAdminShellTitle(section: ServiceAdminSection) {
+  switch (section) {
+    case 'home':
+      return '서비스 홈';
+    case 'campuses':
+      return '캠퍼스';
+    case 'users':
+      return '사용자';
+    case 'profile':
+      return '내정보';
+    default:
+      return assertNever(section);
+  }
+}
+
+function getServiceAdminTabIcon(section: ServiceAdminSection): IconexIconName {
+  switch (section) {
+    case 'home':
+      return 'home';
+    case 'campuses':
+      return 'category';
+    case 'users':
+      return 'users';
+    case 'profile':
+      return 'user';
+    default:
+      return assertNever(section);
+  }
+}
+
+function getGlobalRoleLabel(role: UserRole) {
+  switch (role) {
+    case 'ADMIN':
+      return '전역 관리자';
+    case 'MANAGER':
+      return '매니저';
+    case 'USER':
+      return '사용자';
+    default:
+      return role;
   }
 }
 
@@ -1236,10 +1498,192 @@ function assertNever(value: never): never {
 }
 
 const styles = StyleSheet.create({
+  serviceAdminRoot: {
+    backgroundColor: colors.background,
+    flex: 1,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
   content: {
     gap: spacing.gap,
-    paddingBottom: spacing.bottomSafe,
-    paddingTop: spacing.gap,
+    paddingBottom: 12,
+    paddingTop: 4,
+  },
+  serviceAdminFrame: {
+    flex: 1,
+    marginTop: 0,
+    minHeight: 0,
+  },
+  serviceAdminScroll: {
+    flex: 1,
+    marginHorizontal: 0,
+  },
+  serviceAdminHeader: {
+    backgroundColor: colors.background,
+    gap: 6,
+    marginHorizontal: 0,
+    paddingBottom: 8,
+    paddingTop: 0,
+  },
+  serviceAdminHeaderContext: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 40,
+    width: '100%',
+  },
+  serviceAdminHeaderLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minWidth: 0,
+  },
+  serviceAdminCampusChip: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 12,
+    flexShrink: 1,
+    height: 28,
+    justifyContent: 'center',
+    maxWidth: 150,
+    minWidth: 0,
+    paddingHorizontal: 10,
+  },
+  serviceAdminCampusText: {
+    color: colors.faith,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    maxWidth: 130,
+  },
+  serviceAdminContextName: {
+    color: colors.textSecondary,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    maxWidth: 90,
+    minWidth: 0,
+  },
+  serviceAdminScreenTitle: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 24,
+    fontWeight: '800',
+    lineHeight: 32,
+  },
+  serviceAdminModeButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+    height: 36,
+    justifyContent: 'center',
+    maxWidth: 76,
+    minWidth: 68,
+    paddingHorizontal: 12,
+  },
+  serviceAdminModeButtonPressed: {
+    opacity: 0.72,
+  },
+  serviceAdminModeButtonText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+    includeFontPadding: false,
+    lineHeight: 18,
+  },
+  serviceAdminModeButtonChevron: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    marginLeft: 1,
+  },
+  serviceAdminBottomNavFrame: {
+    flexShrink: 0,
+  },
+  serviceAdminBottomNavContent: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    height: 66,
+    justifyContent: 'space-between',
+    overflow: 'hidden',
+    paddingHorizontal: 1,
+    paddingVertical: 7,
+    width: '100%',
+  },
+  serviceAdminBottomNavItem: {
+    alignItems: 'center',
+    borderRadius: 16,
+    flexBasis: 68,
+    flexGrow: 1,
+    flexShrink: 1,
+    gap: 3,
+    height: 52,
+    justifyContent: 'center',
+    minWidth: 0,
+    maxWidth: 96,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  serviceAdminBottomNavItemActive: {
+    backgroundColor: '#F2F7FF',
+  },
+  serviceAdminBottomNavItemPressed: {
+    opacity: 0.72,
+  },
+  serviceAdminBottomNavLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  serviceAdminBottomNavLabelActive: {
+    color: colors.primary,
+  },
+  profileAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 18,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  profileEmail: {
+    color: colors.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  profileHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profileName: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 24,
+  },
+  profileText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
   },
   homeHeroHeader: {
     alignItems: 'flex-start',
@@ -1296,14 +1740,18 @@ const styles = StyleSheet.create({
   },
   segmentRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexWrap: 'nowrap',
+    gap: 6,
   },
   filterButton: {
+    alignItems: 'center',
     backgroundColor: colors.neutralSoft,
     borderRadius: radius.control,
+    flex: 1,
+    justifyContent: 'center',
     minHeight: 44,
-    paddingHorizontal: 12,
+    minWidth: 0,
+    paddingHorizontal: 8,
     paddingVertical: 10,
   },
   filterButtonActive: {
@@ -1314,8 +1762,11 @@ const styles = StyleSheet.create({
   },
   filterButtonText: {
     color: colors.text,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
+    includeFontPadding: false,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   filterButtonTextActive: {
     color: colors.surface,
@@ -1333,6 +1784,54 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 0,
+  },
+  paginationRow: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: radius.control,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 48,
+    padding: 6,
+  },
+  paginationButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 36,
+    minWidth: 0,
+    paddingHorizontal: 10,
+  },
+  paginationButtonDisabled: {
+    backgroundColor: colors.borderSoft,
+    opacity: 0.65,
+  },
+  paginationButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '800',
+    includeFontPadding: false,
+    lineHeight: 18,
+  },
+  paginationButtonTextDisabled: {
+    color: colors.textMuted,
+  },
+  paginationPageBadge: {
+    alignItems: 'center',
+    flexShrink: 0,
+    justifyContent: 'center',
+    minWidth: 72,
+  },
+  paginationPageText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '800',
+    includeFontPadding: false,
+    lineHeight: 20,
   },
   campusList: {
     gap: spacing.gap,
@@ -1498,6 +1997,71 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
+  },
+  modeSheet: {
+    backgroundColor: colors.surface,
+    borderRadius: 22,
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+  },
+  modeSheetBackdrop: {
+    backgroundColor: colors.text,
+    bottom: 0,
+    left: 0,
+    opacity: 0.34,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  modeSheetContainer: {
+    bottom: 0,
+    left: 0,
+    padding: 16,
+    position: 'absolute',
+    right: 0,
+  },
+  modeSheetOption: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 68,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  modeSheetOptionBody: {
+    color: colors.mutedText,
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  modeSheetOptionList: {
+    gap: 10,
+  },
+  modeSheetOptionIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  modeSheetOptionText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  modeSheetOptionTitle: {
+    color: colors.text,
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  modeSheetRoot: {
+    flex: 1,
   },
   roleSummary: {
     alignItems: 'center',

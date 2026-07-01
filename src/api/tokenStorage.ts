@@ -9,6 +9,7 @@ const FCM_TOKEN_KEY = 'faithlog.fcmToken';
 const FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
 const CLIENT_INSTANCE_ID_KEY = 'faithlog.clientInstanceId';
 const LAST_SELECTED_CAMPUS_ID_KEY = 'faithlog.lastSelectedCampusId';
+const PRAYER_SEASON_KEY_PREFIX = 'faithlog.prayerSeason.';
 const webStorageFallback = new Map<string, string>();
 
 export type StoredTokens = {
@@ -19,6 +20,12 @@ export type StoredTokens = {
 export type StoredFcmRegistration = {
   token: string | null;
   tokenId: number | null;
+};
+
+export type StoredPrayerSeason = {
+  seasonId: number;
+  name: string;
+  startDate: string;
 };
 
 export async function getStoredTokens(): Promise<StoredTokens> {
@@ -61,6 +68,51 @@ export async function saveSelectedCampusId(campusId: number) {
   }
 
   await setStorageItem(LAST_SELECTED_CAMPUS_ID_KEY, String(campusId));
+}
+
+export async function getStoredPrayerSeason(campusId: number): Promise<StoredPrayerSeason | null> {
+  if (!Number.isInteger(campusId) || campusId <= 0) {
+    return null;
+  }
+
+  const value = await getStorageItem(getPrayerSeasonStorageKey(campusId));
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<StoredPrayerSeason>;
+    const seasonId = Number(parsed.seasonId);
+
+    if (!Number.isInteger(seasonId) || seasonId <= 0) {
+      return null;
+    }
+
+    return {
+      seasonId,
+      name: typeof parsed.name === 'string' ? parsed.name : '',
+      startDate: typeof parsed.startDate === 'string' ? parsed.startDate : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveStoredPrayerSeason(campusId: number, season: StoredPrayerSeason) {
+  if (!Number.isInteger(campusId) || campusId <= 0 || season.seasonId <= 0) {
+    return;
+  }
+
+  await setStorageItem(getPrayerSeasonStorageKey(campusId), JSON.stringify(season));
+}
+
+export async function clearStoredPrayerSeason(campusId: number) {
+  if (!Number.isInteger(campusId) || campusId <= 0) {
+    return;
+  }
+
+  await deleteStorageItem(getPrayerSeasonStorageKey(campusId));
 }
 
 export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration> {
@@ -111,6 +163,10 @@ async function getStorageItem(key: string) {
   }
 
   return getBrowserStorage()?.getItem(key) ?? webStorageFallback.get(key) ?? null;
+}
+
+function getPrayerSeasonStorageKey(campusId: number) {
+  return `${PRAYER_SEASON_KEY_PREFIX}${campusId}`;
 }
 
 async function setStorageItem(key: string, value: string) {
