@@ -95,11 +95,14 @@ import {
   deactivateCurrentFcmToken,
   inspectFcmRegistrationStatus,
   registerCurrentFcmToken,
+  registerFcmTokenValue,
   type FcmRegistrationStatus,
 } from '../notifications/fcmRegistration';
+import {initializeNativeFirebaseMessaging} from '../notifications/nativeFirebaseMessaging';
 import {
   getInitialNotificationOpenPayload,
   openNotificationSettings,
+  subscribeDeviceFcmTokenRefresh,
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
@@ -171,8 +174,41 @@ export function FaithLogApp() {
   };
 
   useEffect(() => {
+    void initializeNativeFirebaseMessaging();
     void bootstrapAuthGate().then(setAuthState);
   }, []);
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated') {
+      return undefined;
+    }
+
+    let active = true;
+    let unsubscribe = () => {};
+
+    void initializeNativeFirebaseMessaging().then(() => {
+      if (!active) {
+        return;
+      }
+
+      unsubscribe = subscribeDeviceFcmTokenRefresh((token) => {
+        void getStoredTokens()
+          .then(({accessToken}) => {
+            if (!active || !accessToken) {
+              return null;
+            }
+
+            return registerFcmTokenValue(accessToken, token);
+          })
+          .catch(() => null);
+      });
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [authState]);
 
   useEffect(() => {
     if (authState.status !== 'authenticated') {

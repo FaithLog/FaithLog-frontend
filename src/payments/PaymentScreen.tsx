@@ -22,6 +22,7 @@ import type {
   ApiError,
   ChargeItem,
   ChargeList,
+  ChargePaymentAccountSnapshot,
   ChargeStatus,
   MarkChargePaidResponse,
   PaymentAccount,
@@ -128,6 +129,7 @@ export function PaymentScreen({
   const [lastKnownLastPage, setLastKnownLastPage] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<PaymentLoadState>({status: 'loading'});
   const [actionState, setActionState] = useState<PaymentActionState>({status: 'idle'});
+  const [selectedChargeId, setSelectedChargeId] = useState<number | null>(null);
   const [accountCopyFeedback, setAccountCopyFeedback] =
     useState<AccountCopyFeedback>(null);
   const accountCopyOpacity = useRef(new Animated.Value(0)).current;
@@ -268,6 +270,7 @@ export function PaymentScreen({
 
       const paid = await markMyChargePaid(accessToken, campusId, charge.id);
       setActionState({status: 'complete', charge: paid});
+      setSelectedChargeId(null);
       setNotice({
         tone: 'success',
         title: '납부 완료 처리',
@@ -281,14 +284,15 @@ export function PaymentScreen({
     }
   };
 
-  const copyAccountNumber = async (account: PaymentAccount) => {
+  const copyAccountNumber = async (account: PaymentAccount | ChargePaymentAccountSnapshot) => {
+    const accountId = 'id' in account ? account.id : account.paymentAccountId;
     const copyText = formatAccountClipboardText(account);
     const result = await copyTextToClipboard(copyText);
     const copied = result.status === 'copied';
     const message = copied ? '계좌번호를 복사했습니다.' : result.message;
 
     setAccountCopyFeedback({
-      accountId: account.id,
+      accountId,
       message: copied ? '복사됨' : '복사 불가',
       tone: copied ? 'success' : 'warning',
     });
@@ -308,6 +312,73 @@ export function PaymentScreen({
     charges.items.length >= PAGE_SIZE &&
     (lastKnownLastPage === null || page < lastKnownLastPage);
   const accountMissing = getAccountMissingState(accounts, charges.items, category);
+  const selectedCharge = selectedChargeId
+    ? charges.items.find((charge) => charge.id === selectedChargeId) ?? null
+    : null;
+
+  if (selectedCharge) {
+    return (
+      <View style={styles.figmaScreen}>
+        <View style={styles.figmaHeader}>
+          <FaithLogHeaderTopRow
+            campusLabel={state.selectedCampus.campusName}
+            contextLabel={`${state.user.name}님`}>
+            <FaithLogHeaderIconButton
+              accessibilityLabel="알림 설정 화면으로 이동"
+              badge
+              iconName="bell"
+              onPress={onOpenNotifications}
+            />
+            {canOpenAdminMode ? (
+              <FaithLogHeaderPillButton
+                accessibilityLabel="관리자 영역 선택"
+                label="관리자"
+                onPress={onOpenAdminMode}
+                showChevron
+              />
+            ) : null}
+          </FaithLogHeaderTopRow>
+          <View style={styles.detailTitleRow}>
+            <Text style={styles.figmaTitle}>청구 상세</Text>
+            <Button
+              accessibilityLabel="납부 목록으로 돌아가기"
+              onPress={() => setSelectedChargeId(null)}
+              variant="ghost">
+              목록
+            </Button>
+          </View>
+        </View>
+
+        {actionState.status === 'markingPaid' ? (
+          <PaymentStatusNotice
+            message="선택한 청구를 납부 완료로 바꾸고 있어요."
+            title="납부 완료 처리 중"
+            tone="loading"
+          />
+        ) : null}
+
+        {actionState.status === 'error' ? (
+          <PaymentErrorState
+            error={actionState.error}
+            onRetry={() => loadPayments(page, {showLoading: false})}
+          />
+        ) : null}
+
+        <PaymentChargeDetail
+          charge={selectedCharge}
+          copyFeedback={accountCopyFeedback}
+          copyOpacity={accountCopyOpacity}
+          disabled={actionState.status === 'markingPaid'}
+          markingPaid={
+            actionState.status === 'markingPaid' &&
+            actionState.chargeItemId === selectedCharge.id
+          }
+          onCopyAccount={copyAccountNumber}
+          onMarkPaid={() => markPaid(selectedCharge)}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.figmaScreen}>
@@ -397,6 +468,7 @@ export function PaymentScreen({
             setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
+            setSelectedChargeId(null);
           }}
           selected={category}
         />
@@ -409,6 +481,7 @@ export function PaymentScreen({
             setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
+            setSelectedChargeId(null);
           }}
           selected={status}
         />
@@ -421,6 +494,7 @@ export function PaymentScreen({
             setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
+            setSelectedChargeId(null);
           }}
           selected={sort}
         />
@@ -437,6 +511,7 @@ export function PaymentScreen({
             setStatus('UNPAID');
             setLastKnownLastPage(null);
             setPage(0);
+            setSelectedChargeId(null);
           }}
         />
       ) : (
@@ -452,6 +527,7 @@ export function PaymentScreen({
                   actionState.chargeItemId === charge.id
                 }
                 onMarkPaid={() => markPaid(charge)}
+                onOpenDetail={() => setSelectedChargeId(charge.id)}
                 compact={compactPaymentLayout}
               />
             ))}
@@ -633,18 +709,28 @@ function ChargeCard({
   disabled,
   markingPaid,
   onMarkPaid,
+  onOpenDetail,
 }: {
   charge: ChargeItem;
   compact: boolean;
   disabled: boolean;
   markingPaid: boolean;
   onMarkPaid: () => void;
+  onOpenDetail: () => void;
 }) {
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
   const statusTone = getChargeStatusTone(charge.status);
 
   return (
-    <View style={[styles.figmaChargeRow, compact ? styles.figmaChargeRowCompact : null]}>
+    <Pressable
+      accessibilityLabel={`${charge.title} 청구 상세 보기`}
+      accessibilityRole="button"
+      onPress={onOpenDetail}
+      style={({pressed}) => [
+        styles.figmaChargeRow,
+        compact ? styles.figmaChargeRowCompact : null,
+        pressed ? styles.pressed : null,
+      ]}>
       <View style={styles.figmaChargeTopRow}>
         <View style={styles.figmaChargeMain}>
           <View style={styles.figmaChargeIcon}>
@@ -694,7 +780,10 @@ function ChargeCard({
           accessibilityRole="button"
           accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
           disabled={disabled || !canMarkPaid}
-          onPress={onMarkPaid}
+          onPress={(event) => {
+            event.stopPropagation();
+            onMarkPaid();
+          }}
           style={({pressed}) => [
             styles.figmaChargeButton,
             !canMarkPaid ? styles.figmaChargeButtonDone : null,
@@ -705,7 +794,130 @@ function ChargeCard({
           </Text>
         </Pressable>
       </View>
-    </View>
+    </Pressable>
+  );
+}
+
+function PaymentChargeDetail({
+  charge,
+  copyFeedback,
+  copyOpacity,
+  disabled,
+  markingPaid,
+  onCopyAccount,
+  onMarkPaid,
+}: {
+  charge: ChargeItem;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
+  disabled: boolean;
+  markingPaid: boolean;
+  onCopyAccount: (account: ChargePaymentAccountSnapshot) => void;
+  onMarkPaid: () => void;
+}) {
+  const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
+  const account = charge.account ?? null;
+
+  return (
+    <>
+      <View style={styles.detailHeroCard}>
+        <View style={styles.detailHeroTopRow}>
+          <View style={styles.figmaChargeIcon}>
+            <IconexIcon
+              color={paymentColors.text}
+              name={getPaymentChargeIcon(charge)}
+              size={22}
+              strokeWidth={2.1}
+            />
+          </View>
+          <Text
+            style={[
+              styles.chargeStatusPill,
+              getChargeStatusTone(charge.status) === 'success'
+                ? styles.chargeStatusPillSuccess
+                : null,
+              getChargeStatusTone(charge.status) === 'danger'
+                ? styles.chargeStatusPillDanger
+                : null,
+              getChargeStatusTone(charge.status) === 'muted'
+                ? styles.chargeStatusPillMuted
+                : null,
+            ]}>
+            {getChargeStatusLabel(charge.status)}
+          </Text>
+        </View>
+        <Text style={styles.detailTitle}>{charge.title}</Text>
+        <Text style={styles.detailSubtitle}>
+          {getPaymentCategoryLabel(charge.paymentCategory)}
+          {charge.reason ? ` · ${charge.reason}` : ''}
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          numberOfLines={1}
+          style={styles.detailAmount}>
+          {formatWon(charge.amount)}
+        </Text>
+      </View>
+
+      <View style={styles.detailInfoCard}>
+        <Text style={styles.figmaSectionTitle}>청구 정보</Text>
+        <ListRow label="상태" value={getChargeStatusLabel(charge.status)} />
+        <ListRow label="기한" value={formatOptionalDate(charge.dueDate)} />
+        <ListRow label="납부일" value={formatOptionalDate(charge.paidAt)} />
+      </View>
+
+      <View style={styles.detailInfoCard}>
+        <Text style={styles.figmaSectionTitle}>납부 계좌</Text>
+        {account ? (
+          <View style={styles.accountCopyRow}>
+            <ListRow
+              accessibilityLabel={`${account.bankName} 계좌번호 복사`}
+              label={`${account.bankName} · ${account.accountHolder}`}
+              onPress={() => onCopyAccount(account)}
+              supportingText="눌러서 계좌번호 복사"
+              value={account.accountNumber}
+            />
+            {copyFeedback?.accountId === account.paymentAccountId ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.accountCopyBadge, {opacity: copyOpacity}]}>
+                <Text
+                  accessibilityLabel={copyFeedback.message}
+                  style={[
+                    styles.accountCopyHint,
+                    copyFeedback.tone === 'warning' ? styles.accountCopyHintWarning : null,
+                  ]}>
+                  {copyFeedback.message}
+                </Text>
+              </Animated.View>
+            ) : null}
+          </View>
+        ) : (
+          <Body>연결된 납부 계좌가 없습니다. 관리자에게 계좌 연결을 요청해 주세요.</Body>
+        )}
+      </View>
+
+      <Pressable
+        accessibilityLabel={`${charge.title} 납부 완료 처리`}
+        accessibilityRole="button"
+        accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
+        disabled={disabled || !canMarkPaid}
+        onPress={onMarkPaid}
+        style={({pressed}) => [
+          styles.detailPrimaryButton,
+          !canMarkPaid ? styles.detailPrimaryButtonDisabled : null,
+          pressed ? styles.pressed : null,
+        ]}>
+        <Text
+          style={[
+            styles.detailPrimaryButtonText,
+            !canMarkPaid ? styles.detailPrimaryButtonTextDisabled : null,
+          ]}>
+          {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '입금 완료' : '처리 완료'}
+        </Text>
+      </Pressable>
+    </>
   );
 }
 
@@ -890,6 +1102,14 @@ function getChargeStatusTone(status: ChargeStatus): 'warning' | 'success' | 'dan
 
 function formatWon(amount: number) {
   return `${Math.max(0, amount).toLocaleString('ko-KR')}원`;
+}
+
+function formatOptionalDate(value?: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  return value.slice(0, 10);
 }
 
 function assertNever(value: never): never {
@@ -1103,6 +1323,70 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  detailAmount: {
+    color: colors.danger,
+    fontSize: 32,
+    fontWeight: '700',
+    lineHeight: 42,
+  },
+  detailHeroCard: {
+    backgroundColor: paymentColors.card,
+    borderRadius: 22,
+    gap: 12,
+    padding: 22,
+  },
+  detailHeroTopRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  detailInfoCard: {
+    backgroundColor: paymentColors.card,
+    borderRadius: 18,
+    gap: 10,
+    padding: 18,
+  },
+  detailPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: paymentColors.dark,
+    borderRadius: 16,
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingHorizontal: 18,
+  },
+  detailPrimaryButtonDisabled: {
+    backgroundColor: colors.borderSoft,
+  },
+  detailPrimaryButtonText: {
+    color: paymentColors.card,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  detailPrimaryButtonTextDisabled: {
+    color: colors.textMuted,
+  },
+  detailSubtitle: {
+    color: paymentColors.muted,
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  detailTitle: {
+    color: paymentColors.text,
+    flexShrink: 1,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 30,
+  },
+  detailTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    minWidth: 0,
+    width: '100%',
+  },
   filterChip: {
     alignItems: 'center',
     backgroundColor: colors.surface,
@@ -1293,7 +1577,7 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   paymentHeroAmount: {
-    color: paymentColors.text,
+    color: colors.danger,
     flexShrink: 1,
     fontSize: 24,
     fontWeight: '600',

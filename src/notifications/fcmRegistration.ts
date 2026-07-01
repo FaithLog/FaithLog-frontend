@@ -86,16 +86,41 @@ export async function registerCurrentFcmToken(
     };
   }
 
+  const registration = await registerFcmTokenValue(accessToken, token);
+
+  if (!registration) {
+    return {
+      status: 'tokenUnavailable',
+      permission,
+      message: '권한은 켜져 있지만 기기 FCM token을 가져오지 못했습니다.',
+    };
+  }
+
+  return {status: 'registered', permission, registration};
+}
+
+export async function registerFcmTokenValue(
+  accessToken: string,
+  token: string,
+): Promise<FcmTokenRegisterResponse | null> {
+  const normalizedToken = token.trim();
+
+  if (!normalizedToken) {
+    return null;
+  }
+
+  await saveFcmToken(normalizedToken);
+
   const registration = await registerMyFcmToken(accessToken, {
     appVersion: APP_VERSION,
     clientInstanceId: await getOrCreateClientInstanceId(),
     deviceType: getDeviceType(),
-    token,
+    token: normalizedToken,
   });
 
   await saveFcmTokenId(registration.tokenId);
 
-  return {status: 'registered', permission, registration};
+  return registration;
 }
 
 async function loadAndPersistDeviceFcmToken(permission: NotificationPermissionStatus) {

@@ -5,10 +5,12 @@
     "scheme": "faithlog",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
+      "icon": "./assets/icon.png",
       "bundleIdentifier": "com.faithlog.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -17,6 +19,7 @@
     "android": {
       "package": "com.faithlog.app",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#FFFFFF"
       }
     },

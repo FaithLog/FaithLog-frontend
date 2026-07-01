@@ -18,6 +18,8 @@
     "hooks:validate:commit": "node scripts/validate-commit-message.js"
   },
   "dependencies": {
+    "@react-native-firebase/app": "^25.1.0",
+    "@react-native-firebase/messaging": "^25.1.0",
     "expo": "~56.0.0",
     "expo-clipboard": "~56.0.4",
     "expo-secure-store": "~56.0.4",

@@ -463,6 +463,33 @@ const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: st
   {id: 'SELECTED', label: '직접선택'},
 ];
 
+const quickNotificationMessages: Record<
+  'missingDevotion' | PaymentCategory,
+  Pick<AdminNotificationDraft, 'body' | 'sourceLabel' | 'targetId' | 'targetWeekStartDate' | 'title'>
+> = {
+  missingDevotion: {
+    body: '이번 주 경건생활을 제출해 주세요.',
+    sourceLabel: '경건 미제출',
+    targetId: null,
+    targetWeekStartDate: null,
+    title: '경건생활 제출 알림',
+  },
+  PENALTY: {
+    body: '아직 납부하지 않은 벌금이 있어요. 납부 페이지에서 금액과 계좌를 확인해 주세요.',
+    sourceLabel: '벌금 미납',
+    targetId: null,
+    targetWeekStartDate: null,
+    title: '미납 벌금 납부 안내',
+  },
+  COFFEE: {
+    body: '아직 납부하지 않은 커피 정산 금액이 있어요. 납부 페이지에서 확인해 주세요.',
+    sourceLabel: '커피 미납',
+    targetId: null,
+    targetWeekStartDate: null,
+    title: '커피 정산 납부 안내',
+  },
+};
+
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 const adminFigmaTokens = {
@@ -580,6 +607,8 @@ export function AdminScreen({
     status: 'UNPAID',
     userId: '',
   });
+  const [chargeReminderLoadingCategory, setChargeReminderLoadingCategory] =
+    useState<PaymentCategory | null>(null);
   const chargeFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settlementSection, setSettlementSection] =
     useState<AdminSettlementSection>('charges');
@@ -1743,18 +1772,91 @@ export function AdminScreen({
       return;
     }
 
+    const message = quickNotificationMessages.missingDevotion;
     setNotificationState({
       status: 'confirming',
       draft: {
-        body: '이번 주 경건생활을 제출해 주세요.',
-        sourceLabel: '경건 미제출',
+        body: message.body,
+        sourceLabel: message.sourceLabel,
         targetId: null,
         targetWeekStartDate: weekStartDate,
-        title: '경건생활 제출 알림',
+        title: message.title,
       },
       targets: targets.map(toNotificationTargetFromMissingMember),
     });
     setActionError(null);
+  };
+
+  const openChargeReminderConfirm = async (paymentCategory: PaymentCategory) => {
+    if (notificationState.status === 'sending' || chargeReminderLoadingCategory !== null) {
+      return;
+    }
+
+    setActionError(null);
+    setChargeReminderLoadingCategory(paymentCategory);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const charges = await fetchAdminCampusCharges(accessToken, campusId, {
+        paymentCategory,
+        status: 'UNPAID',
+        size: 100,
+      });
+      const visibleCharges = filterAdminCampusChargeSummary(charges, {
+        keyword: '',
+        paymentCategory,
+        status: 'UNPAID',
+        userId: '',
+      });
+      const targets = dedupeNotificationTargets(
+        visibleCharges.members
+          .filter((member) => member.unpaidAmount > 0)
+          .map((member) => toNotificationTargetFromChargeMember(member, paymentCategory)),
+      );
+
+      if (targets.length === 0) {
+        throw new FaithLogApiError({
+          kind: 'error',
+          message: `${getPaymentCategoryLabel(paymentCategory)} 미납 알림을 받을 대상이 없습니다.`,
+        });
+      }
+
+      const message = quickNotificationMessages[paymentCategory];
+      setNotificationState({
+        status: 'confirming',
+        draft: {
+          body: message.body,
+          sourceLabel: message.sourceLabel,
+          targetId: null,
+          targetWeekStartDate: null,
+          title: message.title,
+        },
+        targets,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '미납 알림 대상을 불러오지 못했습니다.');
+      const message = quickNotificationMessages[paymentCategory];
+      setNotificationState({
+        status: 'failed',
+        draft: {
+          body: message.body,
+          sourceLabel: message.sourceLabel,
+          targetId: null,
+          targetWeekStartDate: null,
+          title: message.title,
+        },
+        error: apiError,
+        targetCount: 0,
+      });
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setChargeReminderLoadingCategory(null);
+    }
   };
 
   const updateNotificationSendForm = (patch: Partial<AdminNotificationSendForm>) => {
@@ -2281,10 +2383,12 @@ export function AdminScreen({
       ) : tab === 'settlement' ? (
           <AdminSettlement
             actionState={actionState}
+            chargeReminderLoadingCategory={chargeReminderLoadingCategory}
             detailState={chargeDetailState}
             filters={chargeFilters}
             currentUserId={state.user.id}
             knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+            notificationState={notificationState}
             onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
             onChangePaymentAccountForm={(patch) =>
               setPaymentAccountForm((current) => ({...current, ...patch}))
@@ -2302,7 +2406,11 @@ export function AdminScreen({
           onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
+          onOpenChargeReminderConfirm={(paymentCategory) =>
+            void openChargeReminderConfirm(paymentCategory)
+          }
           onOpenMemberCharges={openMemberCharges}
+          onOpenNotificationLogs={openNotificationLogsForRequest}
           onRequestDeletePaymentAccount={setPaymentAccountDeleteTarget}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
           onSelectPaymentAccount={setSelectedPaymentAccount}
@@ -7713,10 +7821,12 @@ function AdminPrayerMembersForm({
 
 function AdminSettlement({
   actionState,
+  chargeReminderLoadingCategory,
   currentUserId,
   detailState,
   filters,
   knownOwnedCoffeeAccountIds,
+  notificationState,
   onActivatePaymentAccount,
   onCancelPenaltyRuleEdit,
   onChangePaymentAccountForm,
@@ -7726,7 +7836,9 @@ function AdminSettlement({
   onBlockedPaid,
   onCopyPaymentAccount,
   onEditPenaltyRule,
+  onOpenChargeReminderConfirm,
   onOpenMemberCharges,
+  onOpenNotificationLogs,
   onRequestDeletePaymentAccount,
   onRequestDeactivatePaymentAccount,
   onRequestStatusChange,
@@ -7750,10 +7862,12 @@ function AdminSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
+  chargeReminderLoadingCategory: PaymentCategory | null;
   currentUserId: number;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
   knownOwnedCoffeeAccountIds: Set<number>;
+  notificationState: NotificationSendState;
   onActivatePaymentAccount: (account: PaymentAccount) => void;
   onCancelPenaltyRuleEdit: () => void;
   onChangePaymentAccountForm: (patch: Partial<PaymentAccountForm>) => void;
@@ -7763,7 +7877,9 @@ function AdminSettlement({
   onBlockedPaid: (charge: ChargeItem) => void;
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
+  onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onOpenNotificationLogs: (requestId: string) => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
@@ -7790,25 +7906,32 @@ function AdminSettlement({
   settlementState: AdminSettlementState;
 }) {
   const busy = actionState.status !== 'idle';
+  const chargeDetailOpen = section === 'charges' && detailState.status !== 'idle';
 
   return (
     <>
-      <View style={styles.settlementTabBlock}>
-        <FigmaSegmentedControl
-          items={settlementSections}
-          selectedId={section}
-          onSelect={onChangeSection}
-        />
-        <Text style={styles.settlementTabHint}>{getSettlementSectionHint(section)}</Text>
-      </View>
+      {chargeDetailOpen ? null : (
+        <View style={styles.settlementTabBlock}>
+          <FigmaSegmentedControl
+            items={settlementSections}
+            selectedId={section}
+            onSelect={onChangeSection}
+          />
+          <Text style={styles.settlementTabHint}>{getSettlementSectionHint(section)}</Text>
+        </View>
+      )}
       {section === 'charges' ? (
         <AdminChargeSettlement
           actionState={actionState}
+          chargeReminderLoadingCategory={chargeReminderLoadingCategory}
           detailState={detailState}
           filters={filters}
+          notificationState={notificationState}
           onBackToSummary={onBackToSummary}
           onBlockedPaid={onBlockedPaid}
+          onOpenChargeReminderConfirm={onOpenChargeReminderConfirm}
           onOpenMemberCharges={onOpenMemberCharges}
+          onOpenNotificationLogs={onOpenNotificationLogs}
           onRequestStatusChange={onRequestStatusChange}
           onResetFilters={onResetFilters}
           onRetryDetail={onRetryDetail}
@@ -7854,11 +7977,15 @@ function AdminSettlement({
 
 function AdminChargeSettlement({
   actionState,
+  chargeReminderLoadingCategory,
   detailState,
   filters,
+  notificationState,
   onBackToSummary,
   onBlockedPaid,
+  onOpenChargeReminderConfirm,
   onOpenMemberCharges,
+  onOpenNotificationLogs,
   onRequestStatusChange,
   onResetFilters,
   onRetryDetail,
@@ -7867,11 +7994,15 @@ function AdminChargeSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
+  chargeReminderLoadingCategory: PaymentCategory | null;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
+  notificationState: NotificationSendState;
   onBackToSummary: () => void;
   onBlockedPaid: (charge: ChargeItem) => void;
+  onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onOpenNotificationLogs: (requestId: string) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
   onResetFilters: () => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
@@ -7882,10 +8013,23 @@ function AdminChargeSettlement({
   ) => void;
   settlementState: AdminSettlementState;
 }) {
+  if (detailState.status !== 'idle') {
+    return renderChargeDetail({
+      actionState,
+      detailState,
+      onBackToSummary,
+      onBlockedPaid,
+      onRequestStatusChange,
+      onRetryDetail,
+    });
+  }
+
   const summary =
     settlementState.status === 'success' || settlementState.status === 'empty'
       ? settlementState.charges
       : null;
+  const notificationBusy =
+    notificationState.status === 'sending' || chargeReminderLoadingCategory !== null;
 
   return (
     <>
@@ -7913,6 +8057,30 @@ function AdminChargeSettlement({
           selectedId={filters.paymentCategory}
           onSelect={(paymentCategory) => onUpdateFilter('paymentCategory', paymentCategory)}
         />
+        <View style={styles.chargeReminderBox}>
+          <View style={styles.headerText}>
+            <Text style={styles.chargeReminderTitle}>미납 푸시 알림</Text>
+            <Text style={styles.settlementSectionDescription}>
+              문서 기준 미납 청구 조회 후 대상자에게만 보냅니다.
+            </Text>
+          </View>
+          <View style={styles.compactActionRow}>
+            <AdminCompactButton
+              accessibilityLabel="벌금 미납자 푸시 알림 발송 확인 열기"
+              disabled={notificationBusy}
+              onPress={() => onOpenChargeReminderConfirm('PENALTY')}
+              variant="secondary">
+              {chargeReminderLoadingCategory === 'PENALTY' ? '조회 중...' : '벌금 미납 알림'}
+            </AdminCompactButton>
+            <AdminCompactButton
+              accessibilityLabel="커피 미납자 푸시 알림 발송 확인 열기"
+              disabled={notificationBusy}
+              onPress={() => onOpenChargeReminderConfirm('COFFEE')}
+              variant="secondary">
+              {chargeReminderLoadingCategory === 'COFFEE' ? '조회 중...' : '커피 미납 알림'}
+            </AdminCompactButton>
+          </View>
+        </View>
         <View style={styles.filterGrid}>
           <View style={styles.filterField}>
             <TextField
@@ -7925,19 +8093,14 @@ function AdminChargeSettlement({
           </View>
         </View>
       </View>
+      {isChargeReminderNotificationState(notificationState)
+        ? renderNotificationResult(notificationState, onOpenNotificationLogs)
+        : null}
       {renderSettlementSummary({
         onOpenMemberCharges,
         onRetrySummary,
         settlementState,
         showSummary: summary === null,
-      })}
-      {renderChargeDetail({
-        actionState,
-        detailState,
-        onBackToSummary,
-        onBlockedPaid,
-        onRequestStatusChange,
-        onRetryDetail,
       })}
     </>
   );
@@ -9489,7 +9652,7 @@ function NotificationConfirmSheet({
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Eyebrow>알림 발송 확인</Eyebrow>
-          <Title>{targets.length}명에게 경건 알림을 보낼까요?</Title>
+          <Title>{targets.length}명에게 알림을 보낼까요?</Title>
           <Body>
             {state.status === 'confirming' || state.status === 'sending'
               ? `${state.draft.sourceLabel} 대상에게 알림을 발송합니다.`
@@ -9523,13 +9686,13 @@ function NotificationConfirmSheet({
           </View>
           <View style={styles.actionRow}>
             <Button
-              accessibilityLabel="경건 미제출 알림 발송 실행"
+              accessibilityLabel="관리자 알림 발송 실행"
               disabled={loading}
               onPress={onConfirm}>
               {loading ? '발송 중...' : '발송'}
             </Button>
             <Button
-              accessibilityLabel="경건 미제출 알림 발송 취소"
+              accessibilityLabel="관리자 알림 발송 취소"
               disabled={loading}
               onPress={onCancel}
               variant="secondary">
@@ -11571,6 +11734,42 @@ function toNotificationTargetFromMissingMember(
   };
 }
 
+function toNotificationTargetFromChargeMember(
+  member: AdminCampusChargeSummary['members'][number],
+  paymentCategory: PaymentCategory,
+): AdminNotificationTarget {
+  return {
+    email: member.email,
+    meta: `${getPaymentCategoryLabel(paymentCategory)} 미납 ${formatWon(member.unpaidAmount)}`,
+    name: member.name,
+    userId: member.userId,
+  };
+}
+
+function dedupeNotificationTargets(targets: AdminNotificationTarget[]) {
+  const seen = new Set<number>();
+
+  return targets.filter((target) => {
+    if (seen.has(target.userId)) {
+      return false;
+    }
+
+    seen.add(target.userId);
+    return true;
+  });
+}
+
+function isChargeReminderNotificationState(state: NotificationSendState) {
+  if (state.status === 'idle') {
+    return false;
+  }
+
+  return (
+    state.draft.sourceLabel === quickNotificationMessages.PENALTY.sourceLabel ||
+    state.draft.sourceLabel === quickNotificationMessages.COFFEE.sourceLabel
+  );
+}
+
 function getNotificationTargetModeLabel(mode: AdminNotificationTargetMode) {
   switch (mode) {
     case 'ALL':
@@ -12145,6 +12344,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.gap,
     justifyContent: 'space-between',
+  },
+  chargeReminderBox: {
+    backgroundColor: adminFigmaTokens.background,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  chargeReminderTitle: {
+    color: adminFigmaTokens.textPrimary,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
   },
   chargeListCount: {
     color: adminFigmaTokens.textMuted,
