@@ -9,9 +9,11 @@ vi.mock('./tokenStorage', () => ({
 import {
   apiRequest,
   buildApiUrl,
+  createAdminPaymentAccount,
   createCoffeeDutyPaymentAccount,
   FaithLogApiError,
   fetchAdminCampusCharges,
+  fetchAdminCampusChargesForMyAccounts,
   fetchAdminPaymentAccounts,
 } from './client';
 import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
@@ -157,23 +159,73 @@ describe('FaithLog API client', () => {
       });
       return true;
     });
-  });
 
-  it('can treat a protected admin 401 as permission denied without refreshing auth', async () => {
-    const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValueOnce(
+    vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(
-        401,
+        403,
         envelope(null, {
           success: false,
-          code: 'AUTH_UNAUTHORIZED',
-          message: '인증이 필요합니다.',
+          code: 'PAYMENT_ACCOUNT_FORBIDDEN',
+          message: '납부 계좌 관리 권한이 없습니다.',
         }),
       ),
     );
 
     await expect(
-      createCoffeeDutyPaymentAccount('active-coffee-duty-token', 2, {
+      apiRequest('/users/me', {exposeServerErrorMessage: true}),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'permissionDenied',
+        status: 403,
+        code: 'PAYMENT_ACCOUNT_FORBIDDEN',
+        message: '납부 계좌 관리 권한이 없습니다. (PAYMENT_ACCOUNT_FORBIDDEN)',
+      });
+      return true;
+    });
+  });
+
+  it('refreshes once for coffee duty payment account create before keeping endpoint 401 inline', async () => {
+    vi.mocked(getStoredTokens).mockResolvedValue({
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          401,
+          envelope(null, {
+            success: false,
+            code: 'AUTH_UNAUTHORIZED',
+            message: 'expired',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          envelope({
+            accessToken: 'fresh-access-token',
+            refreshToken: 'fresh-refresh-token',
+            accessTokenExpiresIn: 3600,
+            refreshTokenExpiresIn: 7200,
+            tokenType: 'Bearer',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          401,
+          envelope(null, {
+            success: false,
+            code: 'AUTH_UNAUTHORIZED',
+            message: '권한이 없습니다.',
+          }),
+        ),
+      );
+
+    await expect(
+      createCoffeeDutyPaymentAccount('expired-access-token', 2, {
         accountHolder: 'QA',
         accountNumber: '9999-0000',
         accountType: 'COFFEE',
@@ -189,9 +241,89 @@ describe('FaithLog API client', () => {
       return true;
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(getStoredTokens).not.toHaveBeenCalled();
-    expect(saveTokens).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'https://api.faithlog.test/root/api/v1/auth/refresh',
+    );
+    expect(saveTokens).toHaveBeenCalledWith({
+      accessToken: 'fresh-access-token',
+      refreshToken: 'fresh-refresh-token',
+      accessTokenExpiresIn: 3600,
+      refreshTokenExpiresIn: 7200,
+      tokenType: 'Bearer',
+    });
+    expect(clearTokens).not.toHaveBeenCalled();
+  });
+
+  it('refreshes once for admin payment account create before keeping endpoint 401 inline', async () => {
+    vi.mocked(getStoredTokens).mockResolvedValue({
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    const fetchMock = vi.mocked(fetch);
+
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          401,
+          envelope(null, {
+            success: false,
+            code: 'AUTH_UNAUTHORIZED',
+            message: 'expired',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          envelope({
+            accessToken: 'fresh-access-token',
+            refreshToken: 'fresh-refresh-token',
+            accessTokenExpiresIn: 3600,
+            refreshTokenExpiresIn: 7200,
+            tokenType: 'Bearer',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          401,
+          envelope(null, {
+            success: false,
+            code: 'AUTH_UNAUTHORIZED',
+            message: '권한이 없습니다.',
+          }),
+        ),
+      );
+
+    await expect(
+      createAdminPaymentAccount('expired-access-token', 2, {
+        accountHolder: 'QA',
+        accountNumber: '9999-0000',
+        accountType: 'PENALTY',
+        bankName: '카카오뱅크',
+        nickname: 'QA 벌금',
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'permissionDenied',
+        status: 401,
+        code: 'AUTH_UNAUTHORIZED',
+      });
+      return true;
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'https://api.faithlog.test/root/api/v1/auth/refresh',
+    );
+    expect(saveTokens).toHaveBeenCalledWith({
+      accessToken: 'fresh-access-token',
+      refreshToken: 'fresh-refresh-token',
+      accessTokenExpiresIn: 3600,
+      refreshTokenExpiresIn: 7200,
+      tokenType: 'Bearer',
+    });
     expect(clearTokens).not.toHaveBeenCalled();
   });
 
@@ -269,6 +401,40 @@ describe('FaithLog API client', () => {
     expect(requestUrl.searchParams.get('paymentAccountId')).toBe('16');
     expect(requestUrl.searchParams.has('paymentCategory')).toBe(false);
     expect(requestUrl.searchParams.has('status')).toBe(false);
+  });
+
+  it('requests admin charges for my accounts', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        envelope({
+          campusId: 2,
+          campusName: '분당 10캠',
+          region: '분당',
+          summary: {
+            canceledAmount: 0,
+            paidAmount: 0,
+            totalAmount: 0,
+            unpaidAmount: 0,
+            waivedAmount: 0,
+          },
+          members: [],
+        }),
+      ),
+    );
+
+    await fetchAdminCampusChargesForMyAccounts('access-token', 2, {
+      paymentCategory: 'COFFEE',
+      status: 'UNPAID',
+    });
+
+    const [url] = fetchMock.mock.calls[0]!;
+    const requestUrl = new URL(String(url));
+
+    expect(requestUrl.pathname).toBe('/root/api/v1/admin/campuses/2/charges/my-accounts');
+    expect(requestUrl.searchParams.get('paymentCategory')).toBe('COFFEE');
+    expect(requestUrl.searchParams.get('status')).toBe('UNPAID');
   });
 
   it('requests inactive admin payment accounts when asked', async () => {

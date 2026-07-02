@@ -6,6 +6,7 @@ import {
   setInitialNotificationOpenPayloadProvider,
   setNotificationOpenPayloadSubscriber,
 } from './notificationAdapter';
+import {isFcmRuntimeEnabled} from './fcmEnvironment';
 
 import type {RemoteMessage} from '@react-native-firebase/messaging';
 
@@ -24,7 +25,11 @@ const pushParamKeys = [
 let initializationPromise: Promise<void> | null = null;
 
 export function initializeNativeFirebaseMessaging() {
-  if (Platform.OS === 'web' || !hasNativeFirebaseMessagingModule()) {
+  if (
+    Platform.OS === 'web' ||
+    !isFcmRuntimeEnabled() ||
+    !hasNativeFirebaseMessagingModule()
+  ) {
     return Promise.resolve();
   }
 

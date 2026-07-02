@@ -21,7 +21,7 @@ import {
   deleteAdminPaymentAccount,
   deleteCampusMember,
   FaithLogApiError,
-  fetchAdminCampusCharges,
+  fetchAdminCampusChargesForMyAccounts,
   fetchAdminCampusMembers,
   fetchAdminDashboardSummary,
   fetchAdminMemberCharges,
@@ -1060,7 +1060,7 @@ export function AdminScreen({
       }
 
       const userId = parseOptionalPositiveInt(filters.userId, 'userId');
-      const charges = await fetchAdminCampusCharges(accessToken, campusId, {
+      const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
         keyword: filters.keyword,
         paymentCategory: filters.paymentCategory,
         status: filters.status,
@@ -1802,7 +1802,7 @@ export function AdminScreen({
         return;
       }
 
-      const charges = await fetchAdminCampusCharges(accessToken, campusId, {
+      const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
         paymentCategory,
         status: 'UNPAID',
         size: 100,
@@ -2173,6 +2173,7 @@ export function AdminScreen({
 
   const selectAdminTab = (nextTab: AdminTab) => {
     setSelectedMemberId(null);
+    setActionError(null);
     setTab(nextTab);
   };
 
@@ -2245,7 +2246,7 @@ export function AdminScreen({
         campusLabel={getCampusLabel(state)}
         onOpenUserMode={onBackToUserMode}
       />
-      {actionError ? <AdminInlineError error={actionError} /> : null}
+      {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
       {selectedMember ? (
         <AdminMemberDetail
           actionState={actionState}
@@ -7907,6 +7908,7 @@ function AdminSettlement({
 }) {
   const busy = actionState.status !== 'idle';
   const chargeDetailOpen = section === 'charges' && detailState.status !== 'idle';
+  const sectionHint = getSettlementSectionHint(section);
 
   return (
     <>
@@ -7917,7 +7919,7 @@ function AdminSettlement({
             selectedId={section}
             onSelect={onChangeSection}
           />
-          <Text style={styles.settlementTabHint}>{getSettlementSectionHint(section)}</Text>
+          {sectionHint ? <Text style={styles.settlementTabHint}>{sectionHint}</Text> : null}
         </View>
       )}
       {section === 'charges' ? (
@@ -8158,6 +8160,21 @@ function AdminPaymentAccounts({
   selectedAccount: PaymentAccount | null;
   state: PaymentAccountState;
 }) {
+  const [accountPage, setAccountPage] = useState<'overview' | 'penaltyAccounts'>('overview');
+
+  if (accountPage === 'penaltyAccounts') {
+    return (
+      <PenaltyAccountManager
+        busy={busy}
+        onActivateAccount={onActivateAccount}
+        onBack={() => setAccountPage('overview')}
+        onRequestDelete={onRequestDelete}
+        onRetry={onRetry}
+        state={state}
+      />
+    );
+  }
+
   if (selectedAccount) {
     return (
       <PaymentAccountDetail
@@ -8176,24 +8193,18 @@ function AdminPaymentAccounts({
 
   return (
     <>
-      <SettlementSectionHeader
-        description="벌금 계좌는 캠퍼스 기준 1개만 활성화되고, 커피 계좌는 내 계좌만 커피투표에 사용할 수 있습니다."
-        title="계좌 관리"
-      />
+      <SettlementSectionHeader title="계좌 관리" />
       {renderPaymentAccountList({
         busy,
         currentUserId,
         knownOwnedCoffeeAccountIds,
-        onActivateAccount,
+        onOpenPenaltyAccountManager: () => setAccountPage('penaltyAccounts'),
         onRequestDelete,
         onRetry,
         onSelectAccount,
         state,
       })}
-      <SettlementSectionHeader
-        description="벌금 계좌는 새로 저장하면 기존 활성 계좌가 이전 계좌로 내려갑니다. 커피 계좌는 내 계좌로 등록됩니다."
-        title="계좌 등록"
-      />
+      <SettlementSectionHeader title="계좌 등록" />
       <View style={styles.figmaFormCard}>
         <FigmaSegmentedControl
           items={paymentAccountTypeOptions}
@@ -8238,12 +8249,21 @@ function AdminPaymentAccounts({
             />
           </View>
         </View>
-        <Button
+        <Pressable
           accessibilityLabel="관리자 납부 계좌 등록"
+          accessibilityRole="button"
+          accessibilityState={{disabled: busy}}
           disabled={busy}
-          onPress={onSave}>
-          {busy ? '저장 중...' : '계좌 저장'}
-        </Button>
+          onPress={onSave}
+          style={({pressed}) => [
+            styles.paymentAccountSubmitButton,
+            busy ? styles.adminCompactButtonDisabled : null,
+            pressed ? styles.pressed : null,
+          ]}>
+          <Text style={styles.paymentAccountSubmitButtonText}>
+            {busy ? '저장 중...' : '계좌 저장'}
+          </Text>
+        </Pressable>
       </View>
     </>
   );
@@ -8359,7 +8379,7 @@ function renderPaymentAccountList({
   busy,
   currentUserId,
   knownOwnedCoffeeAccountIds,
-  onActivateAccount,
+  onOpenPenaltyAccountManager,
   onRequestDelete,
   onRetry,
   onSelectAccount,
@@ -8368,7 +8388,7 @@ function renderPaymentAccountList({
   busy: boolean;
   currentUserId: number;
   knownOwnedCoffeeAccountIds: Set<number>;
-  onActivateAccount: (account: PaymentAccount) => void;
+  onOpenPenaltyAccountManager: () => void;
   onRequestDelete: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSelectAccount: (account: PaymentAccount) => void;
@@ -8410,56 +8430,40 @@ function renderPaymentAccountList({
 
       return (
         <>
-          <View style={styles.figmaHeroCard}>
-            <Text style={styles.figmaHeroLabel}>활성 벌금 계좌</Text>
-            <View style={styles.figmaHeroRow}>
-              <Text style={styles.figmaHeroCount}>{activePenaltyAccounts.length}개</Text>
-              <Text style={styles.figmaActionPill}>관리</Text>
-            </View>
-          </View>
+          <SettlementSectionHeader title="활성 벌금 계좌" />
           {activePenaltyAccounts.length === 0 ? (
             <View style={styles.inlineInfo}>
               <Text style={styles.inlineInfoText}>
-                현재 활성 벌금 계좌가 없습니다. 새 벌금 계좌를 등록하거나 이전 벌금 계좌를 활성화해 주세요.
+                새 벌금 계좌를 등록하거나 비활성 계좌를 활성화해 주세요.
               </Text>
+              {inactivePenaltyAccounts.length > 0 ? (
+                <AdminCompactButton
+                  accessibilityLabel="벌금 계좌 변경 페이지 열기"
+                  disabled={busy}
+                  onPress={onOpenPenaltyAccountManager}
+                  variant="secondary">
+                  벌금 계좌 변경
+                </AdminCompactButton>
+              ) : null}
             </View>
           ) : (
-            activePenaltyAccounts.map((account) => (
-              <PaymentAccountListItem
-                account={account}
-                busy={busy}
-                key={account.id}
-                onSelectAccount={onSelectAccount}
-              />
-            ))
+            <>
+              {activePenaltyAccounts.map((account) => (
+                <PaymentAccountListItem
+                  account={account}
+                  busy={busy}
+                  key={account.id}
+                  onSelectAccount={() => onOpenPenaltyAccountManager()}
+                  selectAccessibilityLabel="벌금 계좌 변경 페이지 열기"
+                  selectLabel="벌금 계좌 변경"
+                />
+              ))}
+            </>
           )}
-          <SettlementSectionHeader
-            description="비활성 벌금 계좌만 다시 활성화하거나 삭제할 수 있습니다."
-            title="이전 벌금 계좌"
-          />
-          {inactivePenaltyAccounts.length === 0 ? (
-            <View style={styles.inlineInfo}>
-              <Text style={styles.inlineInfoText}>이전 벌금 계좌가 없습니다.</Text>
-            </View>
-          ) : (
-            inactivePenaltyAccounts.map((account) => (
-              <PaymentAccountListItem
-                account={account}
-                busy={busy}
-                key={account.id}
-                onActivateAccount={onActivateAccount}
-                onRequestDelete={onRequestDelete}
-                onSelectAccount={onSelectAccount}
-              />
-            ))
-          )}
-          <SettlementSectionHeader
-            description="커피투표 생성에는 현재 로그인한 사용자의 활성 커피 계좌만 사용할 수 있습니다."
-            title="내 커피 계좌"
-          />
+          <SettlementSectionHeader title="내 커피 계좌" />
           {ownedCoffeeAccounts.length === 0 ? (
             <View style={styles.inlineInfo}>
-              <Text style={styles.inlineInfoText}>내 커피 계좌가 없습니다. 커피투표를 만들려면 커피 계좌를 등록해 주세요.</Text>
+              <Text style={styles.inlineInfoText}>커피투표를 만들려면 내 커피 계좌를 등록해 주세요.</Text>
             </View>
           ) : (
             <>
@@ -8476,12 +8480,139 @@ function renderPaymentAccountList({
                   account={account}
                   busy={busy}
                   key={account.id}
-                  onActivateAccount={onActivateAccount}
                   onRequestDelete={onRequestDelete}
                   onSelectAccount={onSelectAccount}
                 />
               ))}
             </>
+          )}
+        </>
+      );
+    default:
+      return assertNever(state);
+  }
+}
+
+function PenaltyAccountManager({
+  busy,
+  onActivateAccount,
+  onBack,
+  onRequestDelete,
+  onRetry,
+  state,
+}: {
+  busy: boolean;
+  onActivateAccount: (account: PaymentAccount) => void;
+  onBack: () => void;
+  onRequestDelete: (account: PaymentAccount) => void;
+  onRetry: () => void;
+  state: PaymentAccountState;
+}) {
+  return (
+    <>
+      <View style={styles.accountSubpageHeader}>
+        <View style={styles.headerText}>
+          <Text style={styles.sectionTitle}>벌금 계좌 변경</Text>
+          <Text style={styles.settlementSectionDescription}>
+            활성 계좌를 바꾸거나 쓰지 않는 비활성 계좌를 정리합니다.
+          </Text>
+        </View>
+        <AdminCompactButton
+          accessibilityLabel="계좌 관리로 돌아가기"
+          disabled={busy}
+          onPress={onBack}
+          variant="secondary">
+          뒤로
+        </AdminCompactButton>
+      </View>
+      {renderPenaltyAccountManagerList({
+        busy,
+        onActivateAccount,
+        onRequestDelete,
+        onRetry,
+        state,
+      })}
+    </>
+  );
+}
+
+function renderPenaltyAccountManagerList({
+  busy,
+  onActivateAccount,
+  onRequestDelete,
+  onRetry,
+  state,
+}: {
+  busy: boolean;
+  onActivateAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
+  onRetry: () => void;
+  state: PaymentAccountState;
+}) {
+  switch (state.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="벌금 계좌를 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={state.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <Empty
+          title="등록된 벌금 계좌가 없습니다"
+          message="계좌 관리로 돌아가 새 벌금 계좌를 등록해 주세요."
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="벌금 계좌 변경 empty state에서 다시 조회"
+          onActionPress={onRetry}
+        />
+      );
+    case 'success':
+      const penaltyAccounts = state.accounts
+        .filter((account) => account.accountType === 'PENALTY')
+        .sort(comparePaymentAccountsForDisplay);
+      const activePenaltyAccounts = penaltyAccounts.filter(isPaymentAccountActive);
+      const inactivePenaltyAccounts = penaltyAccounts.filter(
+        (account) => !isPaymentAccountActive(account),
+      );
+
+      if (penaltyAccounts.length === 0) {
+        return (
+          <Empty
+            title="등록된 벌금 계좌가 없습니다"
+            message="계좌 관리로 돌아가 새 벌금 계좌를 등록해 주세요."
+            actionLabel="다시 조회"
+            actionAccessibilityLabel="벌금 계좌 변경 목록 다시 조회"
+            onActionPress={onRetry}
+          />
+        );
+      }
+
+      return (
+        <>
+          <SettlementSectionHeader title="현재 활성 계좌" />
+          {activePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>현재 활성 벌금 계좌가 없습니다.</Text>
+            </View>
+          ) : (
+            activePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem account={account} busy={busy} key={account.id} />
+            ))
+          )}
+          <SettlementSectionHeader title="비활성 계좌" />
+          {inactivePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>바꿀 수 있는 비활성 계좌가 없습니다.</Text>
+            </View>
+          ) : (
+            inactivePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem
+                account={account}
+                busy={busy}
+                key={account.id}
+                onActivateAccount={onActivateAccount}
+                onRequestDelete={onRequestDelete}
+              />
+            ))
           )}
         </>
       );
@@ -8496,12 +8627,16 @@ function PaymentAccountListItem({
   onActivateAccount,
   onRequestDelete,
   onSelectAccount,
+  selectAccessibilityLabel,
+  selectLabel = '상세',
 }: {
   account: PaymentAccount;
   busy: boolean;
   onActivateAccount?: (account: PaymentAccount) => void;
   onRequestDelete?: (account: PaymentAccount) => void;
-  onSelectAccount: (account: PaymentAccount) => void;
+  onSelectAccount?: (account: PaymentAccount) => void;
+  selectAccessibilityLabel?: string;
+  selectLabel?: string;
 }) {
   const active = isPaymentAccountActive(account);
 
@@ -8514,19 +8649,39 @@ function PaymentAccountListItem({
           size={22}
         />
       </View>
-      <View style={styles.figmaListContent}>
-        <View style={styles.figmaListText}>
-          <View style={styles.headerRowCompact}>
+      <View style={styles.accountListContent}>
+        <View style={styles.accountListHeader}>
+          <View style={styles.accountListText}>
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCardTitle}>
               {account.nickname}
             </Text>
-            <Chip label={getPaymentAccountStatusLabel(account)} tone={active ? 'success' : 'warning'} />
+            <Text style={styles.figmaBodyText}>
+              {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.accountListAccountNumber}>
+              계좌번호 {account.accountNumber}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.accountListAccountHolder}>
+              예금주 {account.accountHolder}
+            </Text>
           </View>
-          <Text style={styles.figmaBodyText}>
-            {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
-          </Text>
+          <View
+            style={[
+              styles.accountStatusBadge,
+              active ? styles.accountStatusBadgeActive : styles.accountStatusBadgeInactive,
+            ]}>
+            <Text
+              style={[
+                styles.accountStatusBadgeText,
+                active
+                  ? styles.accountStatusBadgeTextActive
+                  : styles.accountStatusBadgeTextInactive,
+              ]}>
+              {getPaymentAccountStatusLabel(account)}
+            </Text>
+          </View>
         </View>
-        <View style={styles.compactActionRow}>
+        <View style={styles.accountActionRow}>
           {!active && onActivateAccount ? (
             <AdminCompactButton
               accessibilityLabel={`${account.nickname} 계좌 활성화`}
@@ -8544,13 +8699,15 @@ function PaymentAccountListItem({
               삭제
             </AdminCompactButton>
           ) : null}
-          <AdminCompactButton
-            accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
-            disabled={busy}
-            onPress={() => onSelectAccount(account)}
-            variant="secondary">
-            상세
-          </AdminCompactButton>
+          {onSelectAccount ? (
+            <AdminCompactButton
+              accessibilityLabel={selectAccessibilityLabel ?? `${account.nickname} 계좌 상세 보기`}
+              disabled={busy}
+              onPress={() => onSelectAccount(account)}
+              variant="secondary">
+              {selectLabel}
+            </AdminCompactButton>
+          ) : null}
         </View>
       </View>
     </View>
@@ -10387,7 +10544,10 @@ function getAdminActionErrorMessage(
 ) {
   switch (error.kind) {
     case 'permissionDenied':
-      return '권한이 부족합니다. 같은 단계 이상의 캠퍼스 권한 변경이나 멤버 비활성화는 서버가 403으로 거부할 수 있습니다.';
+      return error.message.trim() &&
+        error.message !== '현재 계정으로는 이 작업을 진행할 수 없습니다.'
+        ? error.message
+        : '현재 계정으로는 이 작업을 진행할 수 없습니다. 권한이나 서버 정책을 확인해 주세요.';
     case 'conflict':
       return '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
     case 'offline':
@@ -11891,7 +12051,7 @@ function getSettlementSectionHint(section: AdminSettlementSection) {
     case 'charges':
       return '청구 요약, 회원별 미납 현황, 선택 회원 상세를 확인합니다.';
     case 'accounts':
-      return '활성 납부 계좌와 새 계좌 등록을 관리합니다.';
+      return null;
     case 'penaltyRules':
       return '벌금 규칙과 금액 계산 기준을 관리합니다.';
     default:
@@ -12116,7 +12276,7 @@ const styles = StyleSheet.create({
   adminModeContent: {
     flexGrow: 1,
     gap: spacing.gap,
-    paddingBottom: 12,
+    paddingBottom: 96,
     paddingTop: 4,
   },
   adminModeFrame: {
@@ -12293,6 +12453,102 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     flexShrink: 0,
     gap: 6,
+  },
+  accountSubpageHeader: {
+    alignItems: 'flex-start',
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.025,
+    shadowRadius: 10,
+  },
+  accountActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
+    width: '100%',
+  },
+  paymentAccountSubmitButton: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: adminFigmaTokens.primary,
+    borderRadius: 16,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  paymentAccountSubmitButtonText: {
+    color: adminFigmaTokens.surface,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  accountListContent: {
+    flex: 1,
+    gap: 10,
+    minWidth: 0,
+  },
+  accountListHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  accountListText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  accountListAccountNumber: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 19,
+  },
+  accountListAccountHolder: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  accountStatusBadge: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flexShrink: 0,
+    justifyContent: 'center',
+    minHeight: 28,
+    minWidth: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  accountStatusBadgeActive: {
+    backgroundColor: '#DCFCE7',
+  },
+  accountStatusBadgeInactive: {
+    backgroundColor: '#FEF3C7',
+  },
+  accountStatusBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 16,
+  },
+  accountStatusBadgeTextActive: {
+    color: adminFigmaTokens.success,
+  },
+  accountStatusBadgeTextInactive: {
+    color: adminFigmaTokens.warning,
   },
   accountNumber: {
     color: adminFigmaTokens.textPrimary,
@@ -12953,6 +13209,7 @@ const styles = StyleSheet.create({
   inlineInfo: {
     backgroundColor: adminFigmaTokens.borderSoft,
     borderRadius: 14,
+    gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },

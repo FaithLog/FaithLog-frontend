@@ -74,6 +74,7 @@ type PaymentLoadState =
       status: 'success';
       accounts: PaymentAccount[];
       charges: ChargeList;
+      coffeeAccountIdsWithCharges: number[];
       totalUnpaidAmount: number;
     }
   | {status: 'error'; error: ApiError};
@@ -176,7 +177,7 @@ export function PaymentScreen({
         return;
       }
 
-      const [charges, totalUnpaidCharges, accounts] = await Promise.all([
+      const [charges, totalUnpaidCharges, coffeeCharges, accounts] = await Promise.all([
         fetchMyCharges(accessToken, campusId, {
           page: nextPage,
           paymentCategory: category,
@@ -191,9 +192,17 @@ export function PaymentScreen({
           sort: toChargeSort('createdAtDesc'),
           status: 'UNPAID',
         }),
+        fetchMyCharges(accessToken, campusId, {
+          page: 0,
+          paymentCategory: 'COFFEE',
+          size: 100,
+          sort: toChargeSort('createdAtDesc'),
+          status: 'ALL',
+        }),
         fetchPaymentAccounts(accessToken, campusId),
       ]);
       const totalUnpaidAmount = totalUnpaidCharges.summary.unpaidAmount;
+      const coffeeAccountIdsWithCharges = getLinkedPaymentAccountIds(coffeeCharges.items);
 
       if (nextPage > 0 && charges.items.length === 0) {
         const fallbackPage = nextPage - 1;
@@ -220,6 +229,7 @@ export function PaymentScreen({
         setLoadState({
           status: 'success',
           accounts,
+          coffeeAccountIdsWithCharges,
           charges: fallbackCharges,
           totalUnpaidAmount,
         });
@@ -231,7 +241,13 @@ export function PaymentScreen({
       }
 
       setPage(nextPage);
-      setLoadState({status: 'success', accounts, charges, totalUnpaidAmount});
+      setLoadState({
+        status: 'success',
+        accounts,
+        coffeeAccountIdsWithCharges,
+        charges,
+        totalUnpaidAmount,
+      });
     } catch (error) {
       const apiError = toApiError(error, '납부 정보를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
@@ -307,7 +323,8 @@ export function PaymentScreen({
     return <Loading message="납부 요약, 청구 목록, 계좌 정보를 불러오고 있어요." />;
   }
 
-  const {accounts, charges, totalUnpaidAmount} = loadState;
+  const {accounts, charges, coffeeAccountIdsWithCharges, totalUnpaidAmount} = loadState;
+  const visibleAccounts = getVisiblePaymentAccounts(accounts, coffeeAccountIdsWithCharges);
   const hasNextPage =
     charges.items.length >= PAGE_SIZE &&
     (lastKnownLastPage === null || page < lastKnownLastPage);
@@ -419,7 +436,7 @@ export function PaymentScreen({
 
       {accountMissing ? (
         <PaymentAccountMissingState
-          accountsEmpty={accounts.length === 0}
+          accountsEmpty={visibleAccounts.length === 0}
           category={accountMissing}
           onContactAdmin={() =>
             setNotice({
@@ -553,36 +570,18 @@ export function PaymentScreen({
 
       <View style={styles.accountPanel}>
         <Text style={styles.figmaSectionTitle}>납부 계좌</Text>
-        {accounts.length === 0 ? (
+        {visibleAccounts.length === 0 ? (
           <Body>현재 활성 납부 계좌가 없습니다. 관리자에게 계좌 등록을 요청해 주세요.</Body>
         ) : (
           <View style={styles.chargeList}>
-            {accounts.map((account) => (
-              <View key={account.id} style={styles.accountCopyRow}>
-                <ListRow
-                  accessibilityLabel={`${account.nickname} 계좌번호 복사`}
-                  label={`${getPaymentCategoryLabel(account.accountType)} · ${account.bankName}`}
-                  onPress={() => copyAccountNumber(account)}
-                  supportingText={`${account.nickname} · ${account.accountHolder}`}
-                  value={account.accountNumber}
-                />
-                {accountCopyFeedback?.accountId === account.id ? (
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[styles.accountCopyBadge, {opacity: accountCopyOpacity}]}>
-                    <Text
-                      accessibilityLabel={accountCopyFeedback.message}
-                      style={[
-                        styles.accountCopyHint,
-                        accountCopyFeedback.tone === 'warning'
-                          ? styles.accountCopyHintWarning
-                          : null,
-                      ]}>
-                      {accountCopyFeedback.message}
-                    </Text>
-                  </Animated.View>
-                ) : null}
-              </View>
+            {visibleAccounts.map((account) => (
+              <PaymentAccountCopyCard
+                account={account}
+                copyFeedback={accountCopyFeedback}
+                copyOpacity={accountCopyOpacity}
+                key={account.id}
+                onCopy={copyAccountNumber}
+              />
             ))}
           </View>
         )}
@@ -630,6 +629,70 @@ function FilterRow<T extends string>({
           );
         })}
       </View>
+    </View>
+  );
+}
+
+function PaymentAccountCopyCard({
+  account,
+  copyFeedback,
+  copyOpacity,
+  onCopy,
+}: {
+  account: PaymentAccount;
+  copyFeedback: AccountCopyFeedback;
+  copyOpacity: Animated.Value;
+  onCopy: (account: PaymentAccount) => void;
+}) {
+  return (
+    <View style={styles.paymentAccountCard}>
+      <View style={styles.paymentAccountCardIcon}>
+        <IconexIcon
+          color={paymentColors.dark}
+          name={account.accountType === 'COFFEE' ? 'coins' : 'wallet'}
+          size={21}
+          strokeWidth={2.2}
+        />
+      </View>
+      <View style={styles.paymentAccountCardBody}>
+        <Text style={styles.paymentAccountCardTitle}>
+          {getPaymentCategoryLabel(account.accountType)} 계좌
+        </Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.paymentAccountCardMeta}>
+          {account.nickname} · {account.bankName} · {account.accountHolder}
+        </Text>
+        <Text
+          ellipsizeMode="tail"
+          numberOfLines={1}
+          selectable
+          style={styles.paymentAccountCardNumber}>
+          {account.accountNumber}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={`${getPaymentCategoryLabel(account.accountType)} 계좌번호 복사`}
+        accessibilityRole="button"
+        onPress={() => onCopy(account)}
+        style={({pressed}) => [
+          styles.paymentAccountCopyButton,
+          pressed ? styles.pressed : null,
+        ]}>
+        <Text style={styles.paymentAccountCopyButtonText}>복사</Text>
+      </Pressable>
+      {copyFeedback?.accountId === account.id ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.accountCopyBadge, {opacity: copyOpacity}]}>
+          <Text
+            accessibilityLabel={copyFeedback.message}
+            style={[
+              styles.accountCopyHint,
+              copyFeedback.tone === 'warning' ? styles.accountCopyHintWarning : null,
+            ]}>
+            {copyFeedback.message}
+          </Text>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -1047,6 +1110,35 @@ function getAccountMissingState(
   return unpaidWithoutAccount?.paymentCategory ?? null;
 }
 
+function getLinkedPaymentAccountIds(items: ChargeItem[]) {
+  return Array.from(
+    new Set(
+      items
+        .map((item) => item.account?.paymentAccountId)
+        .filter((accountId): accountId is number => typeof accountId === 'number' && accountId > 0),
+    ),
+  );
+}
+
+function getVisiblePaymentAccounts(
+  accounts: PaymentAccount[],
+  coffeeAccountIdsWithCharges: number[],
+) {
+  const coffeeAccountIdSet = new Set(coffeeAccountIdsWithCharges);
+
+  return accounts.filter((account) => {
+    if (account.accountType === 'PENALTY') {
+      return true;
+    }
+
+    if (account.accountType === 'COFFEE') {
+      return coffeeAccountIdSet.has(account.id);
+    }
+
+    return false;
+  });
+}
+
 function getPaymentCategoryLabel(category: PaymentCategory) {
   switch (category) {
     case 'PENALTY':
@@ -1203,6 +1295,68 @@ const styles = StyleSheet.create({
   },
   accountCopyRow: {
     position: 'relative',
+  },
+  paymentAccountCard: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderColor: paymentColors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 88,
+    padding: 14,
+    position: 'relative',
+  },
+  paymentAccountCardBody: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  paymentAccountCardIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 14,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  paymentAccountCardMeta: {
+    color: paymentColors.muted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  paymentAccountCardNumber: {
+    color: paymentColors.text,
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 21,
+  },
+  paymentAccountCardTitle: {
+    color: paymentColors.text,
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  paymentAccountCopyButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 12,
+    flexShrink: 0,
+    justifyContent: 'center',
+    minHeight: 38,
+    minWidth: 54,
+    paddingHorizontal: 12,
+  },
+  paymentAccountCopyButtonText: {
+    color: paymentColors.dark,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 19,
   },
   accountMissingPanel: {
     alignItems: 'flex-start',
