@@ -13,6 +13,11 @@ import {
 import type {FcmTokenRegisterResponse} from '../api/types';
 import {APP_VERSION} from './appInfo';
 import {
+  getFcmRuntimeAvailability,
+  isFcmRuntimeEnabled,
+  type FcmRuntimeDisabledReason,
+} from './fcmEnvironment';
+import {
   checkNotificationPermission,
   getDeviceFcmToken,
   getDeviceType,
@@ -43,9 +48,25 @@ export type FcmRegistrationStatus =
       status: 'tokenUnavailable';
       permission: 'authorized';
       message: string;
+    }
+  | {
+      status: 'disabled';
+      reason: FcmRuntimeDisabledReason;
+      message: string;
     };
 
 export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationStatus> {
+  const availability = getFcmRuntimeAvailability();
+
+  if (!availability.enabled) {
+    await clearFcmRegistration();
+    return {
+      status: 'disabled',
+      reason: availability.reason,
+      message: availability.message,
+    };
+  }
+
   const [permission, stored] = await Promise.all([
     checkNotificationPermission(),
     getStoredFcmRegistration(),
@@ -69,6 +90,17 @@ export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationSta
 export async function registerCurrentFcmToken(
   accessToken: string,
 ): Promise<FcmRegistrationStatus> {
+  const availability = getFcmRuntimeAvailability();
+
+  if (!availability.enabled) {
+    await clearFcmRegistration();
+    return {
+      status: 'disabled',
+      reason: availability.reason,
+      message: availability.message,
+    };
+  }
+
   const permission = await requestNotificationPermission();
 
   if (permission !== 'authorized') {
@@ -86,16 +118,45 @@ export async function registerCurrentFcmToken(
     };
   }
 
+  const registration = await registerFcmTokenValue(accessToken, token);
+
+  if (!registration) {
+    return {
+      status: 'tokenUnavailable',
+      permission,
+      message: '권한은 켜져 있지만 기기 FCM token을 가져오지 못했습니다.',
+    };
+  }
+
+  return {status: 'registered', permission, registration};
+}
+
+export async function registerFcmTokenValue(
+  accessToken: string,
+  token: string,
+): Promise<FcmTokenRegisterResponse | null> {
+  if (!isFcmRuntimeEnabled()) {
+    return null;
+  }
+
+  const normalizedToken = token.trim();
+
+  if (!normalizedToken) {
+    return null;
+  }
+
+  await saveFcmToken(normalizedToken);
+
   const registration = await registerMyFcmToken(accessToken, {
     appVersion: APP_VERSION,
     clientInstanceId: await getOrCreateClientInstanceId(),
     deviceType: getDeviceType(),
-    token,
+    token: normalizedToken,
   });
 
   await saveFcmTokenId(registration.tokenId);
 
-  return {status: 'registered', permission, registration};
+  return registration;
 }
 
 async function loadAndPersistDeviceFcmToken(permission: NotificationPermissionStatus) {
@@ -111,6 +172,11 @@ async function loadAndPersistDeviceFcmToken(permission: NotificationPermissionSt
 }
 
 export async function deactivateCurrentFcmToken(accessToken: string) {
+  if (!isFcmRuntimeEnabled()) {
+    await clearFcmRegistration();
+    return {status: 'skipped' as const};
+  }
+
   const {tokenId} = await getStoredFcmRegistration();
 
   if (!tokenId) {

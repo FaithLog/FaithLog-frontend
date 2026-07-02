@@ -271,6 +271,16 @@ type PaymentAccountQueryParams = {
   accountType?: PaymentCategory;
   includeInactive?: boolean;
 };
+type AdminCampusChargeQueryParams = {
+  keyword?: string;
+  page?: number;
+  paymentAccountId?: number;
+  paymentCategory?: PaymentCategory | 'ALL';
+  size?: number;
+  sort?: {direction: SortDirection; key: ChargeSortKey};
+  status?: ChargeStatus | 'ALL';
+  userId?: number;
+};
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
 const paymentCategories = ['PENALTY', 'COFFEE'] as const;
@@ -374,16 +384,7 @@ function toSafeChargeListQuery(params: {
   return query.toString();
 }
 
-function toSafeAdminCampusChargeQuery(params: {
-  keyword?: string;
-  page?: number;
-  paymentAccountId?: number;
-  paymentCategory?: PaymentCategory | 'ALL';
-  size?: number;
-  sort?: {direction: SortDirection; key: ChargeSortKey};
-  status?: ChargeStatus | 'ALL';
-  userId?: number;
-}) {
+function toSafeAdminCampusChargeQuery(params: AdminCampusChargeQueryParams) {
   const query = new URLSearchParams(toSafeChargeListQuery(params));
   const keyword = typeof params.keyword === 'string' ? params.keyword.trim().slice(0, 80) : '';
 
@@ -961,7 +962,10 @@ function getExposedServerErrorMessage(
   envelope: Partial<ApiEnvelope<unknown>> | undefined,
   options: {exposeServerErrorMessage?: boolean},
 ) {
-  if (options.exposeServerErrorMessage !== true || status !== 400 && status !== 422) {
+  if (
+    options.exposeServerErrorMessage !== true ||
+    status !== 400 && status !== 403 && status !== 422
+  ) {
     return null;
   }
 
@@ -1117,8 +1121,13 @@ export async function apiRequest<T>(
 }
 
 function shouldRetryWithRefreshedAccessToken(error: ApiError, options: RequestOptions) {
+  const retryablePermissionDenied401 =
+    error.kind === 'permissionDenied' &&
+    error.status === 401 &&
+    options.treatUnauthorizedAsPermissionDenied === true;
+
   return (
-    error.kind === 'sessionExpired' &&
+    (error.kind === 'sessionExpired' || retryablePermissionDenied401) &&
     Boolean(options.accessToken) &&
     options.skipAuthRefresh !== true
   );
@@ -1423,7 +1432,9 @@ export function createAdminPaymentAccount(
     {
       accessToken,
       body: toPaymentAccountCreateRequest(body),
+      exposeServerErrorMessage: true,
       method: 'POST',
+      treatUnauthorizedAsPermissionDenied: true,
     },
   );
 }
@@ -1438,8 +1449,8 @@ export function createCoffeeDutyPaymentAccount(
     {
       accessToken,
       body: toPaymentAccountCreateRequest(body),
+      exposeServerErrorMessage: true,
       method: 'POST',
-      skipAuthRefresh: true,
       treatUnauthorizedAsPermissionDenied: true,
     },
   );
@@ -1455,7 +1466,9 @@ export function deactivateAdminPaymentAccount(accessToken: string, accountId: un
     ),
     {
       accessToken,
+      exposeServerErrorMessage: true,
       method: 'PATCH',
+      treatUnauthorizedAsPermissionDenied: true,
     },
   );
 }
@@ -1474,7 +1487,9 @@ export function activateAdminPaymentAccount(
     ),
     {
       accessToken,
+      exposeServerErrorMessage: true,
       method: 'PATCH',
+      treatUnauthorizedAsPermissionDenied: true,
     },
   );
 }
@@ -1492,7 +1507,9 @@ export function deleteAdminPaymentAccount(
     ),
     {
       accessToken,
+      exposeServerErrorMessage: true,
       method: 'DELETE',
+      treatUnauthorizedAsPermissionDenied: true,
     },
   );
 }
@@ -1507,8 +1524,8 @@ export function deactivateCoffeeDutyPaymentAccount(accessToken: string, accountI
     ),
     {
       accessToken,
+      exposeServerErrorMessage: true,
       method: 'PATCH',
-      skipAuthRefresh: true,
       treatUnauthorizedAsPermissionDenied: true,
     },
   );
@@ -1889,21 +1906,25 @@ export function fetchAdminCampusMembers(accessToken: string, campusId: unknown) 
 export function fetchAdminCampusCharges(
   accessToken: string,
   campusId: unknown,
-  params: {
-    keyword?: string;
-    page?: number;
-    paymentAccountId?: number;
-    paymentCategory?: PaymentCategory | 'ALL';
-    size?: number;
-    sort?: {direction: SortDirection; key: ChargeSortKey};
-    status?: ChargeStatus | 'ALL';
-    userId?: number;
-  } = {},
+  params: AdminCampusChargeQueryParams = {},
 ) {
   const query = toSafeAdminCampusChargeQuery(params);
 
   return apiRequest<AdminCampusChargeSummary>(
     `${buildAdminCampusPath(campusId, 'charges')}?${query}`,
+    {accessToken},
+  );
+}
+
+export function fetchAdminCampusChargesForMyAccounts(
+  accessToken: string,
+  campusId: unknown,
+  params: AdminCampusChargeQueryParams = {},
+) {
+  const query = toSafeAdminCampusChargeQuery(params);
+
+  return apiRequest<AdminCampusChargeSummary>(
+    `${buildAdminCampusPath(campusId, 'charges', 'my-accounts')}?${query}`,
     {accessToken},
   );
 }

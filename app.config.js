@@ -4,6 +4,10 @@ const path = require('path');
 const { expo: baseExpoConfig } = require('./app.json');
 
 const EAS_PROJECT_ID = 'd44726b8-2e0c-4be8-8c24-7911ff0c740b';
+const firebasePlugins = [
+  '@react-native-firebase/app',
+  '@react-native-firebase/messaging',
+];
 
 function firebaseConfigFile(envName, fallbackPath, base64EnvName) {
   const configuredPath = process.env[envName]?.trim() || fallbackPath;
@@ -32,6 +36,7 @@ module.exports = () => {
   return {
     ...baseExpoConfig,
     owner: 'josephuk77',
+    plugins: [...(baseExpoConfig.plugins || []), ...firebasePlugins],
     ios: {
       ...baseExpoConfig.ios,
       ...(iosGoogleServicesFile

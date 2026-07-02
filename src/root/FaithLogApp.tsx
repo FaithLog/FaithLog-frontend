@@ -95,11 +95,15 @@ import {
   deactivateCurrentFcmToken,
   inspectFcmRegistrationStatus,
   registerCurrentFcmToken,
+  registerFcmTokenValue,
   type FcmRegistrationStatus,
 } from '../notifications/fcmRegistration';
+import {isFcmRuntimeEnabled} from '../notifications/fcmEnvironment';
+import {initializeNativeFirebaseMessaging} from '../notifications/nativeFirebaseMessaging';
 import {
   getInitialNotificationOpenPayload,
   openNotificationSettings,
+  subscribeDeviceFcmTokenRefresh,
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
@@ -171,8 +175,41 @@ export function FaithLogApp() {
   };
 
   useEffect(() => {
+    void initializeNativeFirebaseMessaging();
     void bootstrapAuthGate().then(setAuthState);
   }, []);
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated' || !isFcmRuntimeEnabled()) {
+      return undefined;
+    }
+
+    let active = true;
+    let unsubscribe = () => {};
+
+    void initializeNativeFirebaseMessaging().then(() => {
+      if (!active) {
+        return;
+      }
+
+      unsubscribe = subscribeDeviceFcmTokenRefresh((token) => {
+        void getStoredTokens()
+          .then(({accessToken}) => {
+            if (!active || !accessToken) {
+              return null;
+            }
+
+            return registerFcmTokenValue(accessToken, token);
+          })
+          .catch(() => null);
+      });
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [authState]);
 
   useEffect(() => {
     if (authState.status !== 'authenticated') {
@@ -3030,6 +3067,7 @@ function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthG
     state.status === 'checking' ||
     state.status === 'registering' ||
     state.status === 'deactivating';
+  const fcmDisabled = state.status === 'disabled';
 
   return (
     <View style={styles.notificationDetailCard}>
@@ -3055,13 +3093,13 @@ function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthG
         </Button>
         <Button
           accessibilityLabel={openSystemSettings ? 'OS 알림 설정 열기' : '기기 알림 등록 다시 시도'}
-          disabled={busy}
+          disabled={busy || fcmDisabled}
           onPress={openSystemSettings ? () => void openNotificationSettings() : register}>
           {openSystemSettings ? '설정 열기' : state.status === 'registering' ? '등록 중...' : '알림 켜기'}
         </Button>
         <Button
           accessibilityLabel="이 기기 알림 연결 해제"
-          disabled={busy}
+          disabled={busy || fcmDisabled}
           onPress={deactivate}
           variant="danger">
           {state.status === 'deactivating' ? '비활성화 중...' : '비활성화'}
@@ -3114,6 +3152,13 @@ function renderNotificationSettingRows(state: NotificationUiState) {
         <>
           <ListRow label="권한" supportingText="기기 알림은 허용됨" value="허용됨" />
           <ListRow label="연결" supportingText="앱 알림 어댑터 연결 필요" value="대기" />
+        </>
+      );
+    case 'disabled':
+      return (
+        <>
+          <ListRow label="상태" supportingText={state.message} value="꺼짐" />
+          <ListRow label="연결" supportingText="preview/prod 앱 빌드에서만 사용" value="대기" />
         </>
       );
     case 'error':

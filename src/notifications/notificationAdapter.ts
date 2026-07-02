@@ -18,6 +18,10 @@ export type DeviceFcmTokenResult =
   | {status: 'error'; message: string};
 
 export type DeviceFcmTokenProvider = () => Promise<string | null>;
+export type DeviceFcmTokenRefreshListener = (token: string) => void | Promise<void>;
+export type DeviceFcmTokenRefreshSubscriber = (
+  listener: DeviceFcmTokenRefreshListener,
+) => () => void;
 export type NotificationOpenPayloadListener = (payload: unknown) => void;
 export type NotificationOpenPayloadSubscriber = (
   listener: NotificationOpenPayloadListener,
@@ -25,12 +29,19 @@ export type NotificationOpenPayloadSubscriber = (
 export type InitialNotificationOpenPayloadProvider = () => Promise<unknown | null>;
 
 let deviceFcmTokenProvider: DeviceFcmTokenProvider | null = null;
+let deviceFcmTokenRefreshSubscriber: DeviceFcmTokenRefreshSubscriber | null = null;
 let notificationOpenPayloadSubscriber: NotificationOpenPayloadSubscriber | null = null;
 let initialNotificationOpenPayloadProvider: InitialNotificationOpenPayloadProvider | null =
   null;
 
 export function setDeviceFcmTokenProvider(provider: DeviceFcmTokenProvider | null) {
   deviceFcmTokenProvider = provider;
+}
+
+export function setDeviceFcmTokenRefreshSubscriber(
+  subscriber: DeviceFcmTokenRefreshSubscriber | null,
+) {
+  deviceFcmTokenRefreshSubscriber = subscriber;
 }
 
 export function setNotificationOpenPayloadSubscriber(
@@ -65,6 +76,14 @@ export function subscribeNotificationOpenPayload(
   }
 
   return notificationOpenPayloadSubscriber(listener);
+}
+
+export function subscribeDeviceFcmTokenRefresh(listener: DeviceFcmTokenRefreshListener) {
+  if (!deviceFcmTokenRefreshSubscriber) {
+    return () => {};
+  }
+
+  return deviceFcmTokenRefreshSubscriber(listener);
 }
 
 export async function getDeviceFcmToken(

@@ -21,7 +21,7 @@ import {
   deleteAdminPaymentAccount,
   deleteCampusMember,
   FaithLogApiError,
-  fetchAdminCampusCharges,
+  fetchAdminCampusChargesForMyAccounts,
   fetchAdminCampusMembers,
   fetchAdminDashboardSummary,
   fetchAdminMemberCharges,
@@ -463,6 +463,33 @@ const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: st
   {id: 'SELECTED', label: '직접선택'},
 ];
 
+const quickNotificationMessages: Record<
+  'missingDevotion' | PaymentCategory,
+  Pick<AdminNotificationDraft, 'body' | 'sourceLabel' | 'targetId' | 'targetWeekStartDate' | 'title'>
+> = {
+  missingDevotion: {
+    body: '이번 주 경건생활을 제출해 주세요.',
+    sourceLabel: '경건 미제출',
+    targetId: null,
+    targetWeekStartDate: null,
+    title: '경건생활 제출 알림',
+  },
+  PENALTY: {
+    body: '아직 납부하지 않은 벌금이 있어요. 납부 페이지에서 금액과 계좌를 확인해 주세요.',
+    sourceLabel: '벌금 미납',
+    targetId: null,
+    targetWeekStartDate: null,
+    title: '미납 벌금 납부 안내',
+  },
+  COFFEE: {
+    body: '아직 납부하지 않은 커피 정산 금액이 있어요. 납부 페이지에서 확인해 주세요.',
+    sourceLabel: '커피 미납',
+    targetId: null,
+    targetWeekStartDate: null,
+    title: '커피 정산 납부 안내',
+  },
+};
+
 const campusRoleOptions: CampusRole[] = ['MEMBER', 'CAMPUS_LEADER', 'ELDER', 'MINISTER'];
 const adminCampusRoles = new Set<CampusRole>(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 const adminFigmaTokens = {
@@ -580,6 +607,8 @@ export function AdminScreen({
     status: 'UNPAID',
     userId: '',
   });
+  const [chargeReminderLoadingCategory, setChargeReminderLoadingCategory] =
+    useState<PaymentCategory | null>(null);
   const chargeFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settlementSection, setSettlementSection] =
     useState<AdminSettlementSection>('charges');
@@ -1031,7 +1060,7 @@ export function AdminScreen({
       }
 
       const userId = parseOptionalPositiveInt(filters.userId, 'userId');
-      const charges = await fetchAdminCampusCharges(accessToken, campusId, {
+      const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
         keyword: filters.keyword,
         paymentCategory: filters.paymentCategory,
         status: filters.status,
@@ -1743,18 +1772,91 @@ export function AdminScreen({
       return;
     }
 
+    const message = quickNotificationMessages.missingDevotion;
     setNotificationState({
       status: 'confirming',
       draft: {
-        body: '이번 주 경건생활을 제출해 주세요.',
-        sourceLabel: '경건 미제출',
+        body: message.body,
+        sourceLabel: message.sourceLabel,
         targetId: null,
         targetWeekStartDate: weekStartDate,
-        title: '경건생활 제출 알림',
+        title: message.title,
       },
       targets: targets.map(toNotificationTargetFromMissingMember),
     });
     setActionError(null);
+  };
+
+  const openChargeReminderConfirm = async (paymentCategory: PaymentCategory) => {
+    if (notificationState.status === 'sending' || chargeReminderLoadingCategory !== null) {
+      return;
+    }
+
+    setActionError(null);
+    setChargeReminderLoadingCategory(paymentCategory);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+
+      if (!accessToken) {
+        return;
+      }
+
+      const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
+        paymentCategory,
+        status: 'UNPAID',
+        size: 100,
+      });
+      const visibleCharges = filterAdminCampusChargeSummary(charges, {
+        keyword: '',
+        paymentCategory,
+        status: 'UNPAID',
+        userId: '',
+      });
+      const targets = dedupeNotificationTargets(
+        visibleCharges.members
+          .filter((member) => member.unpaidAmount > 0)
+          .map((member) => toNotificationTargetFromChargeMember(member, paymentCategory)),
+      );
+
+      if (targets.length === 0) {
+        throw new FaithLogApiError({
+          kind: 'error',
+          message: `${getPaymentCategoryLabel(paymentCategory)} 미납 알림을 받을 대상이 없습니다.`,
+        });
+      }
+
+      const message = quickNotificationMessages[paymentCategory];
+      setNotificationState({
+        status: 'confirming',
+        draft: {
+          body: message.body,
+          sourceLabel: message.sourceLabel,
+          targetId: null,
+          targetWeekStartDate: null,
+          title: message.title,
+        },
+        targets,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '미납 알림 대상을 불러오지 못했습니다.');
+      const message = quickNotificationMessages[paymentCategory];
+      setNotificationState({
+        status: 'failed',
+        draft: {
+          body: message.body,
+          sourceLabel: message.sourceLabel,
+          targetId: null,
+          targetWeekStartDate: null,
+          title: message.title,
+        },
+        error: apiError,
+        targetCount: 0,
+      });
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setChargeReminderLoadingCategory(null);
+    }
   };
 
   const updateNotificationSendForm = (patch: Partial<AdminNotificationSendForm>) => {
@@ -2071,6 +2173,7 @@ export function AdminScreen({
 
   const selectAdminTab = (nextTab: AdminTab) => {
     setSelectedMemberId(null);
+    setActionError(null);
     setTab(nextTab);
   };
 
@@ -2143,7 +2246,7 @@ export function AdminScreen({
         campusLabel={getCampusLabel(state)}
         onOpenUserMode={onBackToUserMode}
       />
-      {actionError ? <AdminInlineError error={actionError} /> : null}
+      {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
       {selectedMember ? (
         <AdminMemberDetail
           actionState={actionState}
@@ -2281,10 +2384,12 @@ export function AdminScreen({
       ) : tab === 'settlement' ? (
           <AdminSettlement
             actionState={actionState}
+            chargeReminderLoadingCategory={chargeReminderLoadingCategory}
             detailState={chargeDetailState}
             filters={chargeFilters}
             currentUserId={state.user.id}
             knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+            notificationState={notificationState}
             onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
             onChangePaymentAccountForm={(patch) =>
               setPaymentAccountForm((current) => ({...current, ...patch}))
@@ -2302,7 +2407,11 @@ export function AdminScreen({
           onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
+          onOpenChargeReminderConfirm={(paymentCategory) =>
+            void openChargeReminderConfirm(paymentCategory)
+          }
           onOpenMemberCharges={openMemberCharges}
+          onOpenNotificationLogs={openNotificationLogsForRequest}
           onRequestDeletePaymentAccount={setPaymentAccountDeleteTarget}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
           onSelectPaymentAccount={setSelectedPaymentAccount}
@@ -7713,10 +7822,12 @@ function AdminPrayerMembersForm({
 
 function AdminSettlement({
   actionState,
+  chargeReminderLoadingCategory,
   currentUserId,
   detailState,
   filters,
   knownOwnedCoffeeAccountIds,
+  notificationState,
   onActivatePaymentAccount,
   onCancelPenaltyRuleEdit,
   onChangePaymentAccountForm,
@@ -7726,7 +7837,9 @@ function AdminSettlement({
   onBlockedPaid,
   onCopyPaymentAccount,
   onEditPenaltyRule,
+  onOpenChargeReminderConfirm,
   onOpenMemberCharges,
+  onOpenNotificationLogs,
   onRequestDeletePaymentAccount,
   onRequestDeactivatePaymentAccount,
   onRequestStatusChange,
@@ -7750,10 +7863,12 @@ function AdminSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
+  chargeReminderLoadingCategory: PaymentCategory | null;
   currentUserId: number;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
   knownOwnedCoffeeAccountIds: Set<number>;
+  notificationState: NotificationSendState;
   onActivatePaymentAccount: (account: PaymentAccount) => void;
   onCancelPenaltyRuleEdit: () => void;
   onChangePaymentAccountForm: (patch: Partial<PaymentAccountForm>) => void;
@@ -7763,7 +7878,9 @@ function AdminSettlement({
   onBlockedPaid: (charge: ChargeItem) => void;
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
+  onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onOpenNotificationLogs: (requestId: string) => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
@@ -7790,25 +7907,33 @@ function AdminSettlement({
   settlementState: AdminSettlementState;
 }) {
   const busy = actionState.status !== 'idle';
+  const chargeDetailOpen = section === 'charges' && detailState.status !== 'idle';
+  const sectionHint = getSettlementSectionHint(section);
 
   return (
     <>
-      <View style={styles.settlementTabBlock}>
-        <FigmaSegmentedControl
-          items={settlementSections}
-          selectedId={section}
-          onSelect={onChangeSection}
-        />
-        <Text style={styles.settlementTabHint}>{getSettlementSectionHint(section)}</Text>
-      </View>
+      {chargeDetailOpen ? null : (
+        <View style={styles.settlementTabBlock}>
+          <FigmaSegmentedControl
+            items={settlementSections}
+            selectedId={section}
+            onSelect={onChangeSection}
+          />
+          {sectionHint ? <Text style={styles.settlementTabHint}>{sectionHint}</Text> : null}
+        </View>
+      )}
       {section === 'charges' ? (
         <AdminChargeSettlement
           actionState={actionState}
+          chargeReminderLoadingCategory={chargeReminderLoadingCategory}
           detailState={detailState}
           filters={filters}
+          notificationState={notificationState}
           onBackToSummary={onBackToSummary}
           onBlockedPaid={onBlockedPaid}
+          onOpenChargeReminderConfirm={onOpenChargeReminderConfirm}
           onOpenMemberCharges={onOpenMemberCharges}
+          onOpenNotificationLogs={onOpenNotificationLogs}
           onRequestStatusChange={onRequestStatusChange}
           onResetFilters={onResetFilters}
           onRetryDetail={onRetryDetail}
@@ -7854,11 +7979,15 @@ function AdminSettlement({
 
 function AdminChargeSettlement({
   actionState,
+  chargeReminderLoadingCategory,
   detailState,
   filters,
+  notificationState,
   onBackToSummary,
   onBlockedPaid,
+  onOpenChargeReminderConfirm,
   onOpenMemberCharges,
+  onOpenNotificationLogs,
   onRequestStatusChange,
   onResetFilters,
   onRetryDetail,
@@ -7867,11 +7996,15 @@ function AdminChargeSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
+  chargeReminderLoadingCategory: PaymentCategory | null;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
+  notificationState: NotificationSendState;
   onBackToSummary: () => void;
   onBlockedPaid: (charge: ChargeItem) => void;
+  onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onOpenNotificationLogs: (requestId: string) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
   onResetFilters: () => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
@@ -7882,10 +8015,23 @@ function AdminChargeSettlement({
   ) => void;
   settlementState: AdminSettlementState;
 }) {
+  if (detailState.status !== 'idle') {
+    return renderChargeDetail({
+      actionState,
+      detailState,
+      onBackToSummary,
+      onBlockedPaid,
+      onRequestStatusChange,
+      onRetryDetail,
+    });
+  }
+
   const summary =
     settlementState.status === 'success' || settlementState.status === 'empty'
       ? settlementState.charges
       : null;
+  const notificationBusy =
+    notificationState.status === 'sending' || chargeReminderLoadingCategory !== null;
 
   return (
     <>
@@ -7913,6 +8059,30 @@ function AdminChargeSettlement({
           selectedId={filters.paymentCategory}
           onSelect={(paymentCategory) => onUpdateFilter('paymentCategory', paymentCategory)}
         />
+        <View style={styles.chargeReminderBox}>
+          <View style={styles.headerText}>
+            <Text style={styles.chargeReminderTitle}>미납 푸시 알림</Text>
+            <Text style={styles.settlementSectionDescription}>
+              문서 기준 미납 청구 조회 후 대상자에게만 보냅니다.
+            </Text>
+          </View>
+          <View style={styles.compactActionRow}>
+            <AdminCompactButton
+              accessibilityLabel="벌금 미납자 푸시 알림 발송 확인 열기"
+              disabled={notificationBusy}
+              onPress={() => onOpenChargeReminderConfirm('PENALTY')}
+              variant="secondary">
+              {chargeReminderLoadingCategory === 'PENALTY' ? '조회 중...' : '벌금 미납 알림'}
+            </AdminCompactButton>
+            <AdminCompactButton
+              accessibilityLabel="커피 미납자 푸시 알림 발송 확인 열기"
+              disabled={notificationBusy}
+              onPress={() => onOpenChargeReminderConfirm('COFFEE')}
+              variant="secondary">
+              {chargeReminderLoadingCategory === 'COFFEE' ? '조회 중...' : '커피 미납 알림'}
+            </AdminCompactButton>
+          </View>
+        </View>
         <View style={styles.filterGrid}>
           <View style={styles.filterField}>
             <TextField
@@ -7925,19 +8095,14 @@ function AdminChargeSettlement({
           </View>
         </View>
       </View>
+      {isChargeReminderNotificationState(notificationState)
+        ? renderNotificationResult(notificationState, onOpenNotificationLogs)
+        : null}
       {renderSettlementSummary({
         onOpenMemberCharges,
         onRetrySummary,
         settlementState,
         showSummary: summary === null,
-      })}
-      {renderChargeDetail({
-        actionState,
-        detailState,
-        onBackToSummary,
-        onBlockedPaid,
-        onRequestStatusChange,
-        onRetryDetail,
       })}
     </>
   );
@@ -7995,6 +8160,21 @@ function AdminPaymentAccounts({
   selectedAccount: PaymentAccount | null;
   state: PaymentAccountState;
 }) {
+  const [accountPage, setAccountPage] = useState<'overview' | 'penaltyAccounts'>('overview');
+
+  if (accountPage === 'penaltyAccounts') {
+    return (
+      <PenaltyAccountManager
+        busy={busy}
+        onActivateAccount={onActivateAccount}
+        onBack={() => setAccountPage('overview')}
+        onRequestDelete={onRequestDelete}
+        onRetry={onRetry}
+        state={state}
+      />
+    );
+  }
+
   if (selectedAccount) {
     return (
       <PaymentAccountDetail
@@ -8013,24 +8193,18 @@ function AdminPaymentAccounts({
 
   return (
     <>
-      <SettlementSectionHeader
-        description="벌금 계좌는 캠퍼스 기준 1개만 활성화되고, 커피 계좌는 내 계좌만 커피투표에 사용할 수 있습니다."
-        title="계좌 관리"
-      />
+      <SettlementSectionHeader title="계좌 관리" />
       {renderPaymentAccountList({
         busy,
         currentUserId,
         knownOwnedCoffeeAccountIds,
-        onActivateAccount,
+        onOpenPenaltyAccountManager: () => setAccountPage('penaltyAccounts'),
         onRequestDelete,
         onRetry,
         onSelectAccount,
         state,
       })}
-      <SettlementSectionHeader
-        description="벌금 계좌는 새로 저장하면 기존 활성 계좌가 이전 계좌로 내려갑니다. 커피 계좌는 내 계좌로 등록됩니다."
-        title="계좌 등록"
-      />
+      <SettlementSectionHeader title="계좌 등록" />
       <View style={styles.figmaFormCard}>
         <FigmaSegmentedControl
           items={paymentAccountTypeOptions}
@@ -8075,12 +8249,21 @@ function AdminPaymentAccounts({
             />
           </View>
         </View>
-        <Button
+        <Pressable
           accessibilityLabel="관리자 납부 계좌 등록"
+          accessibilityRole="button"
+          accessibilityState={{disabled: busy}}
           disabled={busy}
-          onPress={onSave}>
-          {busy ? '저장 중...' : '계좌 저장'}
-        </Button>
+          onPress={onSave}
+          style={({pressed}) => [
+            styles.paymentAccountSubmitButton,
+            busy ? styles.adminCompactButtonDisabled : null,
+            pressed ? styles.pressed : null,
+          ]}>
+          <Text style={styles.paymentAccountSubmitButtonText}>
+            {busy ? '저장 중...' : '계좌 저장'}
+          </Text>
+        </Pressable>
       </View>
     </>
   );
@@ -8196,7 +8379,7 @@ function renderPaymentAccountList({
   busy,
   currentUserId,
   knownOwnedCoffeeAccountIds,
-  onActivateAccount,
+  onOpenPenaltyAccountManager,
   onRequestDelete,
   onRetry,
   onSelectAccount,
@@ -8205,7 +8388,7 @@ function renderPaymentAccountList({
   busy: boolean;
   currentUserId: number;
   knownOwnedCoffeeAccountIds: Set<number>;
-  onActivateAccount: (account: PaymentAccount) => void;
+  onOpenPenaltyAccountManager: () => void;
   onRequestDelete: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSelectAccount: (account: PaymentAccount) => void;
@@ -8247,56 +8430,40 @@ function renderPaymentAccountList({
 
       return (
         <>
-          <View style={styles.figmaHeroCard}>
-            <Text style={styles.figmaHeroLabel}>활성 벌금 계좌</Text>
-            <View style={styles.figmaHeroRow}>
-              <Text style={styles.figmaHeroCount}>{activePenaltyAccounts.length}개</Text>
-              <Text style={styles.figmaActionPill}>관리</Text>
-            </View>
-          </View>
+          <SettlementSectionHeader title="활성 벌금 계좌" />
           {activePenaltyAccounts.length === 0 ? (
             <View style={styles.inlineInfo}>
               <Text style={styles.inlineInfoText}>
-                현재 활성 벌금 계좌가 없습니다. 새 벌금 계좌를 등록하거나 이전 벌금 계좌를 활성화해 주세요.
+                새 벌금 계좌를 등록하거나 비활성 계좌를 활성화해 주세요.
               </Text>
+              {inactivePenaltyAccounts.length > 0 ? (
+                <AdminCompactButton
+                  accessibilityLabel="벌금 계좌 변경 페이지 열기"
+                  disabled={busy}
+                  onPress={onOpenPenaltyAccountManager}
+                  variant="secondary">
+                  벌금 계좌 변경
+                </AdminCompactButton>
+              ) : null}
             </View>
           ) : (
-            activePenaltyAccounts.map((account) => (
-              <PaymentAccountListItem
-                account={account}
-                busy={busy}
-                key={account.id}
-                onSelectAccount={onSelectAccount}
-              />
-            ))
+            <>
+              {activePenaltyAccounts.map((account) => (
+                <PaymentAccountListItem
+                  account={account}
+                  busy={busy}
+                  key={account.id}
+                  onSelectAccount={() => onOpenPenaltyAccountManager()}
+                  selectAccessibilityLabel="벌금 계좌 변경 페이지 열기"
+                  selectLabel="벌금 계좌 변경"
+                />
+              ))}
+            </>
           )}
-          <SettlementSectionHeader
-            description="비활성 벌금 계좌만 다시 활성화하거나 삭제할 수 있습니다."
-            title="이전 벌금 계좌"
-          />
-          {inactivePenaltyAccounts.length === 0 ? (
-            <View style={styles.inlineInfo}>
-              <Text style={styles.inlineInfoText}>이전 벌금 계좌가 없습니다.</Text>
-            </View>
-          ) : (
-            inactivePenaltyAccounts.map((account) => (
-              <PaymentAccountListItem
-                account={account}
-                busy={busy}
-                key={account.id}
-                onActivateAccount={onActivateAccount}
-                onRequestDelete={onRequestDelete}
-                onSelectAccount={onSelectAccount}
-              />
-            ))
-          )}
-          <SettlementSectionHeader
-            description="커피투표 생성에는 현재 로그인한 사용자의 활성 커피 계좌만 사용할 수 있습니다."
-            title="내 커피 계좌"
-          />
+          <SettlementSectionHeader title="내 커피 계좌" />
           {ownedCoffeeAccounts.length === 0 ? (
             <View style={styles.inlineInfo}>
-              <Text style={styles.inlineInfoText}>내 커피 계좌가 없습니다. 커피투표를 만들려면 커피 계좌를 등록해 주세요.</Text>
+              <Text style={styles.inlineInfoText}>커피투표를 만들려면 내 커피 계좌를 등록해 주세요.</Text>
             </View>
           ) : (
             <>
@@ -8313,12 +8480,139 @@ function renderPaymentAccountList({
                   account={account}
                   busy={busy}
                   key={account.id}
-                  onActivateAccount={onActivateAccount}
                   onRequestDelete={onRequestDelete}
                   onSelectAccount={onSelectAccount}
                 />
               ))}
             </>
+          )}
+        </>
+      );
+    default:
+      return assertNever(state);
+  }
+}
+
+function PenaltyAccountManager({
+  busy,
+  onActivateAccount,
+  onBack,
+  onRequestDelete,
+  onRetry,
+  state,
+}: {
+  busy: boolean;
+  onActivateAccount: (account: PaymentAccount) => void;
+  onBack: () => void;
+  onRequestDelete: (account: PaymentAccount) => void;
+  onRetry: () => void;
+  state: PaymentAccountState;
+}) {
+  return (
+    <>
+      <View style={styles.accountSubpageHeader}>
+        <View style={styles.headerText}>
+          <Text style={styles.sectionTitle}>벌금 계좌 변경</Text>
+          <Text style={styles.settlementSectionDescription}>
+            활성 계좌를 바꾸거나 쓰지 않는 비활성 계좌를 정리합니다.
+          </Text>
+        </View>
+        <AdminCompactButton
+          accessibilityLabel="계좌 관리로 돌아가기"
+          disabled={busy}
+          onPress={onBack}
+          variant="secondary">
+          뒤로
+        </AdminCompactButton>
+      </View>
+      {renderPenaltyAccountManagerList({
+        busy,
+        onActivateAccount,
+        onRequestDelete,
+        onRetry,
+        state,
+      })}
+    </>
+  );
+}
+
+function renderPenaltyAccountManagerList({
+  busy,
+  onActivateAccount,
+  onRequestDelete,
+  onRetry,
+  state,
+}: {
+  busy: boolean;
+  onActivateAccount: (account: PaymentAccount) => void;
+  onRequestDelete: (account: PaymentAccount) => void;
+  onRetry: () => void;
+  state: PaymentAccountState;
+}) {
+  switch (state.status) {
+    case 'idle':
+    case 'loading':
+      return <Loading message="벌금 계좌를 불러오고 있어요." />;
+    case 'error':
+      return <AdminErrorState error={state.error} onRetry={onRetry} />;
+    case 'empty':
+      return (
+        <Empty
+          title="등록된 벌금 계좌가 없습니다"
+          message="계좌 관리로 돌아가 새 벌금 계좌를 등록해 주세요."
+          actionLabel="다시 조회"
+          actionAccessibilityLabel="벌금 계좌 변경 empty state에서 다시 조회"
+          onActionPress={onRetry}
+        />
+      );
+    case 'success':
+      const penaltyAccounts = state.accounts
+        .filter((account) => account.accountType === 'PENALTY')
+        .sort(comparePaymentAccountsForDisplay);
+      const activePenaltyAccounts = penaltyAccounts.filter(isPaymentAccountActive);
+      const inactivePenaltyAccounts = penaltyAccounts.filter(
+        (account) => !isPaymentAccountActive(account),
+      );
+
+      if (penaltyAccounts.length === 0) {
+        return (
+          <Empty
+            title="등록된 벌금 계좌가 없습니다"
+            message="계좌 관리로 돌아가 새 벌금 계좌를 등록해 주세요."
+            actionLabel="다시 조회"
+            actionAccessibilityLabel="벌금 계좌 변경 목록 다시 조회"
+            onActionPress={onRetry}
+          />
+        );
+      }
+
+      return (
+        <>
+          <SettlementSectionHeader title="현재 활성 계좌" />
+          {activePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>현재 활성 벌금 계좌가 없습니다.</Text>
+            </View>
+          ) : (
+            activePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem account={account} busy={busy} key={account.id} />
+            ))
+          )}
+          <SettlementSectionHeader title="비활성 계좌" />
+          {inactivePenaltyAccounts.length === 0 ? (
+            <View style={styles.inlineInfo}>
+              <Text style={styles.inlineInfoText}>바꿀 수 있는 비활성 계좌가 없습니다.</Text>
+            </View>
+          ) : (
+            inactivePenaltyAccounts.map((account) => (
+              <PaymentAccountListItem
+                account={account}
+                busy={busy}
+                key={account.id}
+                onActivateAccount={onActivateAccount}
+                onRequestDelete={onRequestDelete}
+              />
+            ))
           )}
         </>
       );
@@ -8333,12 +8627,16 @@ function PaymentAccountListItem({
   onActivateAccount,
   onRequestDelete,
   onSelectAccount,
+  selectAccessibilityLabel,
+  selectLabel = '상세',
 }: {
   account: PaymentAccount;
   busy: boolean;
   onActivateAccount?: (account: PaymentAccount) => void;
   onRequestDelete?: (account: PaymentAccount) => void;
-  onSelectAccount: (account: PaymentAccount) => void;
+  onSelectAccount?: (account: PaymentAccount) => void;
+  selectAccessibilityLabel?: string;
+  selectLabel?: string;
 }) {
   const active = isPaymentAccountActive(account);
 
@@ -8351,19 +8649,39 @@ function PaymentAccountListItem({
           size={22}
         />
       </View>
-      <View style={styles.figmaListContent}>
-        <View style={styles.figmaListText}>
-          <View style={styles.headerRowCompact}>
+      <View style={styles.accountListContent}>
+        <View style={styles.accountListHeader}>
+          <View style={styles.accountListText}>
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.figmaCardTitle}>
               {account.nickname}
             </Text>
-            <Chip label={getPaymentAccountStatusLabel(account)} tone={active ? 'success' : 'warning'} />
+            <Text style={styles.figmaBodyText}>
+              {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.accountListAccountNumber}>
+              계좌번호 {account.accountNumber}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.accountListAccountHolder}>
+              예금주 {account.accountHolder}
+            </Text>
           </View>
-          <Text style={styles.figmaBodyText}>
-            {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
-          </Text>
+          <View
+            style={[
+              styles.accountStatusBadge,
+              active ? styles.accountStatusBadgeActive : styles.accountStatusBadgeInactive,
+            ]}>
+            <Text
+              style={[
+                styles.accountStatusBadgeText,
+                active
+                  ? styles.accountStatusBadgeTextActive
+                  : styles.accountStatusBadgeTextInactive,
+              ]}>
+              {getPaymentAccountStatusLabel(account)}
+            </Text>
+          </View>
         </View>
-        <View style={styles.compactActionRow}>
+        <View style={styles.accountActionRow}>
           {!active && onActivateAccount ? (
             <AdminCompactButton
               accessibilityLabel={`${account.nickname} 계좌 활성화`}
@@ -8381,13 +8699,15 @@ function PaymentAccountListItem({
               삭제
             </AdminCompactButton>
           ) : null}
-          <AdminCompactButton
-            accessibilityLabel={`${account.nickname} 계좌 상세 보기`}
-            disabled={busy}
-            onPress={() => onSelectAccount(account)}
-            variant="secondary">
-            상세
-          </AdminCompactButton>
+          {onSelectAccount ? (
+            <AdminCompactButton
+              accessibilityLabel={selectAccessibilityLabel ?? `${account.nickname} 계좌 상세 보기`}
+              disabled={busy}
+              onPress={() => onSelectAccount(account)}
+              variant="secondary">
+              {selectLabel}
+            </AdminCompactButton>
+          ) : null}
         </View>
       </View>
     </View>
@@ -9489,7 +9809,7 @@ function NotificationConfirmSheet({
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Eyebrow>알림 발송 확인</Eyebrow>
-          <Title>{targets.length}명에게 경건 알림을 보낼까요?</Title>
+          <Title>{targets.length}명에게 알림을 보낼까요?</Title>
           <Body>
             {state.status === 'confirming' || state.status === 'sending'
               ? `${state.draft.sourceLabel} 대상에게 알림을 발송합니다.`
@@ -9523,13 +9843,13 @@ function NotificationConfirmSheet({
           </View>
           <View style={styles.actionRow}>
             <Button
-              accessibilityLabel="경건 미제출 알림 발송 실행"
+              accessibilityLabel="관리자 알림 발송 실행"
               disabled={loading}
               onPress={onConfirm}>
               {loading ? '발송 중...' : '발송'}
             </Button>
             <Button
-              accessibilityLabel="경건 미제출 알림 발송 취소"
+              accessibilityLabel="관리자 알림 발송 취소"
               disabled={loading}
               onPress={onCancel}
               variant="secondary">
@@ -10224,7 +10544,10 @@ function getAdminActionErrorMessage(
 ) {
   switch (error.kind) {
     case 'permissionDenied':
-      return '권한이 부족합니다. 같은 단계 이상의 캠퍼스 권한 변경이나 멤버 비활성화는 서버가 403으로 거부할 수 있습니다.';
+      return error.message.trim() &&
+        error.message !== '현재 계정으로는 이 작업을 진행할 수 없습니다.'
+        ? error.message
+        : '현재 계정으로는 이 작업을 진행할 수 없습니다. 권한이나 서버 정책을 확인해 주세요.';
     case 'conflict':
       return '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
     case 'offline':
@@ -11571,6 +11894,42 @@ function toNotificationTargetFromMissingMember(
   };
 }
 
+function toNotificationTargetFromChargeMember(
+  member: AdminCampusChargeSummary['members'][number],
+  paymentCategory: PaymentCategory,
+): AdminNotificationTarget {
+  return {
+    email: member.email,
+    meta: `${getPaymentCategoryLabel(paymentCategory)} 미납 ${formatWon(member.unpaidAmount)}`,
+    name: member.name,
+    userId: member.userId,
+  };
+}
+
+function dedupeNotificationTargets(targets: AdminNotificationTarget[]) {
+  const seen = new Set<number>();
+
+  return targets.filter((target) => {
+    if (seen.has(target.userId)) {
+      return false;
+    }
+
+    seen.add(target.userId);
+    return true;
+  });
+}
+
+function isChargeReminderNotificationState(state: NotificationSendState) {
+  if (state.status === 'idle') {
+    return false;
+  }
+
+  return (
+    state.draft.sourceLabel === quickNotificationMessages.PENALTY.sourceLabel ||
+    state.draft.sourceLabel === quickNotificationMessages.COFFEE.sourceLabel
+  );
+}
+
 function getNotificationTargetModeLabel(mode: AdminNotificationTargetMode) {
   switch (mode) {
     case 'ALL':
@@ -11692,7 +12051,7 @@ function getSettlementSectionHint(section: AdminSettlementSection) {
     case 'charges':
       return '청구 요약, 회원별 미납 현황, 선택 회원 상세를 확인합니다.';
     case 'accounts':
-      return '활성 납부 계좌와 새 계좌 등록을 관리합니다.';
+      return null;
     case 'penaltyRules':
       return '벌금 규칙과 금액 계산 기준을 관리합니다.';
     default:
@@ -11917,7 +12276,7 @@ const styles = StyleSheet.create({
   adminModeContent: {
     flexGrow: 1,
     gap: spacing.gap,
-    paddingBottom: 12,
+    paddingBottom: 96,
     paddingTop: 4,
   },
   adminModeFrame: {
@@ -12095,6 +12454,102 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     gap: 6,
   },
+  accountSubpageHeader: {
+    alignItems: 'flex-start',
+    backgroundColor: adminFigmaTokens.surface,
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    shadowColor: adminFigmaTokens.textPrimary,
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.025,
+    shadowRadius: 10,
+  },
+  accountActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
+    width: '100%',
+  },
+  paymentAccountSubmitButton: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: adminFigmaTokens.primary,
+    borderRadius: 16,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  paymentAccountSubmitButtonText: {
+    color: adminFigmaTokens.surface,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  accountListContent: {
+    flex: 1,
+    gap: 10,
+    minWidth: 0,
+  },
+  accountListHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  accountListText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  accountListAccountNumber: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 19,
+  },
+  accountListAccountHolder: {
+    color: adminFigmaTokens.textMuted,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  accountStatusBadge: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flexShrink: 0,
+    justifyContent: 'center',
+    minHeight: 28,
+    minWidth: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  accountStatusBadgeActive: {
+    backgroundColor: '#DCFCE7',
+  },
+  accountStatusBadgeInactive: {
+    backgroundColor: '#FEF3C7',
+  },
+  accountStatusBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 16,
+  },
+  accountStatusBadgeTextActive: {
+    color: adminFigmaTokens.success,
+  },
+  accountStatusBadgeTextInactive: {
+    color: adminFigmaTokens.warning,
+  },
   accountNumber: {
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
@@ -12145,6 +12600,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.gap,
     justifyContent: 'space-between',
+  },
+  chargeReminderBox: {
+    backgroundColor: adminFigmaTokens.background,
+    borderColor: adminFigmaTokens.borderSoft,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  chargeReminderTitle: {
+    color: adminFigmaTokens.textPrimary,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
   },
   chargeListCount: {
     color: adminFigmaTokens.textMuted,
@@ -12739,6 +13209,7 @@ const styles = StyleSheet.create({
   inlineInfo: {
     backgroundColor: adminFigmaTokens.borderSoft,
     borderRadius: 14,
+    gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
