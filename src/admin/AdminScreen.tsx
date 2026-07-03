@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Animated,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12063,6 +12064,8 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled admin value: ${String(value)}`);
 }
 
+const adminAndroidBottomNavInset = Platform.OS === 'android' ? spacing.bottomSafe + 44 : 0;
+
 const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
@@ -12193,6 +12196,7 @@ const styles = StyleSheet.create({
   },
   adminBottomNavFrame: {
     flexShrink: 0,
+    paddingBottom: adminAndroidBottomNavInset,
   },
   adminBottomNavItem: {
     alignItems: 'center',

@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Platform, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {
   FaithLogApiError,
@@ -359,7 +359,12 @@ export function ServiceAdminScreen({
           activeSection={activeSection}
           onBackToUserMode={onBackToUserMode}
         />
-        <ScrollView contentContainerStyle={styles.content} style={styles.serviceAdminScroll}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.serviceAdminScroll}>
           {activeSection === 'home' ? (
             <ServiceAdminHome
               homeState={homeState}
@@ -1497,6 +1502,9 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled ServiceAdminScreen state: ${String(value)}`);
 }
 
+const serviceAdminAndroidBottomNavInset =
+  Platform.OS === 'android' ? spacing.bottomSafe + 44 : 0;
+
 const styles = StyleSheet.create({
   serviceAdminRoot: {
     backgroundColor: colors.background,
@@ -1507,7 +1515,7 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: spacing.gap,
-    paddingBottom: 12,
+    paddingBottom: spacing.bottomSafe + 112,
     paddingTop: 4,
   },
   serviceAdminFrame: {
@@ -1609,6 +1617,7 @@ const styles = StyleSheet.create({
   },
   serviceAdminBottomNavFrame: {
     flexShrink: 0,
+    paddingBottom: serviceAdminAndroidBottomNavInset,
   },
   serviceAdminBottomNavContent: {
     alignSelf: 'center',

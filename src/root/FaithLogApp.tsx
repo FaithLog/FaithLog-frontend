@@ -1,5 +1,6 @@
 import {type PropsWithChildren, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   type KeyboardTypeOptions,
   Modal,
@@ -12,6 +13,7 @@ import {
   Text,
   TextInput,
   type TextInputProps,
+  StatusBar,
   View,
 } from 'react-native';
 
@@ -166,6 +168,7 @@ export function FaithLogApp() {
     authState.status === 'signedOut' ||
     authState.status === 'sessionExpired' ||
     authState.status === 'configurationError';
+  const RootContainer = Platform.OS === 'android' ? View : SafeAreaView;
 
   const retryBootstrap = () => {
     setEntryTarget(null);
@@ -272,44 +275,23 @@ export function FaithLogApp() {
   }, [authState]);
 
   return (
-    <SafeAreaView style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardRoot}>
-        {publicAuthMode ? (
-          <ScrollView
-            contentContainerStyle={styles.authScrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}>
-            {renderAuthState({
-              clearNotice: clearAppMessage,
-              entryTarget,
-              openEntryTarget: setEntryTarget,
-              retry: retryBootstrap,
-              route,
-              setAuthState,
-              setNotice: ignoreAppMessage,
-              setRoute,
-              state: authState,
-            })}
-          </ScrollView>
-        ) : authState.status === 'authenticated' ? (
-          <Screen variant="appShell">
-            <AuthenticatedShell
-              entryTarget={entryTarget}
-              openEntryTarget={setEntryTarget}
-              route={route}
-              setAuthState={setAuthState}
-              setNotice={ignoreAppMessage}
-              setRoute={setRoute}
-              state={authState}
-            />
-          </Screen>
-        ) : (
-          <Screen>
+    <>
+      <StatusBar
+        backgroundColor={colors.background}
+        barStyle="dark-content"
+        translucent={false}
+      />
+      <RootContainer style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+          style={styles.keyboardRoot}>
+          {publicAuthMode ? (
             <ScrollView
-              contentContainerStyle={styles.content}
-              keyboardShouldPersistTaps="handled">
+              contentContainerStyle={styles.authScrollContent}
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
               {renderAuthState({
                 clearNotice: clearAppMessage,
                 entryTarget,
@@ -322,10 +304,40 @@ export function FaithLogApp() {
                 state: authState,
               })}
             </ScrollView>
-          </Screen>
-        )}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          ) : authState.status === 'authenticated' ? (
+            <Screen variant="appShell">
+              <AuthenticatedShell
+                entryTarget={entryTarget}
+                openEntryTarget={setEntryTarget}
+                route={route}
+                setAuthState={setAuthState}
+                setNotice={ignoreAppMessage}
+                setRoute={setRoute}
+                state={authState}
+              />
+            </Screen>
+          ) : (
+            <Screen>
+              <ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled">
+                {renderAuthState({
+                  clearNotice: clearAppMessage,
+                  entryTarget,
+                  openEntryTarget: setEntryTarget,
+                  retry: retryBootstrap,
+                  route,
+                  setAuthState,
+                  setNotice: ignoreAppMessage,
+                  setRoute,
+                  state: authState,
+                })}
+              </ScrollView>
+            </Screen>
+          )}
+        </KeyboardAvoidingView>
+      </RootContainer>
+    </>
   );
 }
 
@@ -1505,6 +1517,7 @@ function AuthenticatedShell({
   const [campusSwitchLoading, setCampusSwitchLoading] = useState(false);
   const [campusSwitchError, setCampusSwitchError] = useState<ApiError | null>(null);
   const [adminModeSelectorVisible, setAdminModeSelectorVisible] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectedCampusDetail, setSelectedCampusDetail] = useState<CampusDetail | null>(null);
   const [campusDetailState, setCampusDetailState] = useState<CardState<CampusDetail>>({
     status: 'idle',
@@ -1525,11 +1538,30 @@ function AuthenticatedShell({
       })),
     [],
   );
-  const shouldShowUserBottomNav = USER_BOTTOM_NAV_ROUTES.some(
-    (availableRoute) => availableRoute === route,
-  ) || route === 'prayers';
+  const shouldShowUserBottomNav =
+    entryTarget === null &&
+    (USER_BOTTOM_NAV_ROUTES.some((availableRoute) => availableRoute === route) ||
+      route === 'prayers');
   const userBottomNavActiveId = route === 'prayers' ? 'userHome' : route;
   const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardVisible(true);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const openPrayers = (entryMode: PrayerEntryMode) => {
     setPrayerEntryMode(entryMode);
@@ -1843,7 +1875,11 @@ function AuthenticatedShell({
         )
       ) : (
         <ScrollView
-          contentContainerStyle={styles.shellContent}
+          contentContainerStyle={[
+            styles.shellContent,
+            keyboardVisible ? styles.shellContentKeyboardOpen : null,
+          ]}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           style={styles.shellScroll}>
@@ -3712,16 +3748,24 @@ const authColors = {
   textMuted: colors.textSecondary,
 };
 
+const androidTopSafeInset =
+  Platform.OS === 'android' ? Math.max(StatusBar.currentHeight ?? 0, 52) + 8 : 0;
+const androidBottomNavInset = Platform.OS === 'android' ? spacing.bottomSafe + 44 : 0;
+
 const styles = StyleSheet.create({
   safeArea: {
+    alignSelf: 'stretch',
     flex: 1,
     backgroundColor: colors.background,
+    paddingTop: androidTopSafeInset,
+    width: '100%',
   },
   authSafeArea: {
     backgroundColor: authColors.background,
   },
   keyboardRoot: {
     flex: 1,
+    width: '100%',
   },
   content: {
     backgroundColor: colors.background,
@@ -3733,26 +3777,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: authColors.background,
     flexGrow: 1,
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === 'android' ? 220 : 40,
     paddingHorizontal: 24,
   },
   authFrame: {
     alignSelf: 'center',
     gap: 12,
     maxWidth: 390,
-    minHeight: 640,
+    minHeight: Platform.OS === 'android' ? 0 : 640,
     width: '100%',
   },
   loginAuthFrame: {
-    paddingTop: 30,
+    paddingTop: Platform.OS === 'android' ? 16 : 30,
   },
   signupAuthFrame: {
-    paddingTop: 30,
+    paddingTop: Platform.OS === 'android' ? 16 : 30,
   },
   loginHero: {
     alignItems: 'flex-start',
     gap: 8,
-    marginBottom: 28,
+    marginBottom: Platform.OS === 'android' ? 12 : 28,
   },
   loginBrandTitle: {
     color: authColors.text,
@@ -3765,14 +3809,14 @@ const styles = StyleSheet.create({
     color: authColors.textMuted,
     fontSize: 15,
     lineHeight: 20,
-    marginBottom: 44,
+    marginBottom: Platform.OS === 'android' ? 20 : 44,
     maxWidth: 300,
     textAlign: 'center',
   },
   signupHeader: {
     alignItems: 'flex-start',
     gap: 10,
-    marginBottom: 34,
+    marginBottom: Platform.OS === 'android' ? 18 : 34,
   },
   signupTitle: {
     color: authColors.text,
@@ -3964,16 +4008,16 @@ const styles = StyleSheet.create({
   },
   onboardingFrame: {
     alignSelf: 'center',
-    gap: 14,
+    gap: Platform.OS === 'android' ? 10 : 14,
     maxWidth: 390,
-    minHeight: 640,
-    paddingTop: 30,
+    minHeight: Platform.OS === 'android' ? 0 : 640,
+    paddingTop: Platform.OS === 'android' ? 12 : 30,
     width: '100%',
   },
   onboardingHeader: {
     alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 8,
+    gap: Platform.OS === 'android' ? 6 : 10,
+    marginBottom: Platform.OS === 'android' ? 2 : 8,
   },
   onboardingTitle: {
     color: colors.textPrimary,
@@ -4053,12 +4097,12 @@ const styles = StyleSheet.create({
   inviteIntroCard: {
     alignSelf: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 20,
-    gap: 8,
+    borderRadius: 18,
+    gap: 6,
     maxWidth: 342,
-    minHeight: 150,
-    paddingHorizontal: 24,
-    paddingVertical: 30,
+    minHeight: Platform.OS === 'android' ? 104 : 150,
+    paddingHorizontal: Platform.OS === 'android' ? 18 : 24,
+    paddingVertical: Platform.OS === 'android' ? 16 : 30,
     width: '100%',
   },
   inviteIntroTitle: {
@@ -4151,10 +4195,14 @@ const styles = StyleSheet.create({
   shellContent: {
     flexGrow: 1,
     gap: 12,
-    paddingBottom: 0,
+    paddingBottom: Platform.OS === 'android' ? spacing.bottomSafe + 120 : 0,
+  },
+  shellContentKeyboardOpen: {
+    paddingBottom: spacing.bottomSafe + 360,
   },
   bottomNavFrame: {
     flexShrink: 0,
+    paddingBottom: androidBottomNavInset,
   },
   userFrame: {
     backgroundColor: colors.background,

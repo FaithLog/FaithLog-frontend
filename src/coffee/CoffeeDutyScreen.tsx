@@ -420,7 +420,11 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
           title="커피 관리 정보를 불러오지 못했습니다"
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
           <CoffeeDutyPageNav page={page} onSelectPage={setPage} />
           {page === 'summary' ? <CoffeeSettlementSummary state={loadState} /> : null}
           {page === 'accounts' ? (
