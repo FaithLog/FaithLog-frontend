@@ -244,7 +244,7 @@ export function FaithLogApp() {
         }
 
         return inspectFcmRegistrationStatus().then((status) => {
-          if (!active || status.status === 'registeredLocal' || status.status === 'registered') {
+          if (!active || status.status === 'registered') {
             return status;
           }
 

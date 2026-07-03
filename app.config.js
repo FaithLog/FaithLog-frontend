@@ -14,6 +14,8 @@ const firebasePlugins = [
   '@react-native-firebase/app',
   '@react-native-firebase/messaging',
 ];
+const iosApsEnvironment =
+  process.env.EXPO_PUBLIC_APP_ENV === 'development' ? 'development' : 'production';
 
 const generatedFirebaseConfigDir = path.join(__dirname, '.eas', 'firebase');
 
@@ -78,6 +80,10 @@ module.exports = ({config}) => {
     ],
     ios: {
       ...config.ios,
+      entitlements: {
+        ...(config.ios?.entitlements || {}),
+        'aps-environment': iosApsEnvironment,
+      },
       ...(iosGoogleServicesFile
         ? { googleServicesFile: iosGoogleServicesFile }
         : {}),

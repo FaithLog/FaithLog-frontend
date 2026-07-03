@@ -109,9 +109,7 @@ export async function registerCurrentFcmToken(
   }
 
   const stored = await getStoredFcmRegistration();
-  const deviceTokenResult = stored.token
-    ? ({status: 'available', token: stored.token} as const)
-    : await loadAndPersistDeviceFcmToken(permission);
+  const deviceTokenResult = await loadAndPersistDeviceFcmToken(permission);
 
   if (deviceTokenResult.status !== 'available') {
     return {
@@ -119,6 +117,10 @@ export async function registerCurrentFcmToken(
       permission,
       message: deviceTokenResult.message,
     };
+  }
+
+  if (stored.tokenId && stored.token === deviceTokenResult.token) {
+    return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
   }
 
   const registration = await registerFcmTokenValue(accessToken, deviceTokenResult.token);
