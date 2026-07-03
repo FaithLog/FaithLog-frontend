@@ -4,7 +4,7 @@
 # dependencies
 node_modules/
 
-# Expo / React Native
+# Expo / React Native local output
 .expo/
 .expo-shared/
 dist/
@@ -15,15 +15,21 @@ web-build/
 android/
 ios/
 
-# Local Codex/Git recovery artifacts
-.codex/
-.codex-artifacts/
+# local Codex/Git recovery artifacts
+.codex
+.codex/**
+.codex-artifacts
+.codex-artifacts/**
 .git.dataless-backup-*
 .git/worktrees.broken-*
-.harness/
+.harness
+.harness/**
 
+# Firebase native config files are restored from EAS environment variables.
 google-services.json
 GoogleService-Info.plist
+
+# signing and provisioning material
 *.jks
 *.p8
 *.p12
