@@ -132,10 +132,12 @@ export async function getDeviceFcmToken(
     }
 
     return {status: 'available', token: normalizedToken};
-  } catch {
+  } catch (error) {
+    const detail = error instanceof Error && error.message ? ` ${error.message}` : '';
+
     return {
       status: 'error',
-      message: '기기 FCM token 조회 중 문제가 발생했습니다.',
+      message: `기기 FCM token 조회 중 문제가 발생했습니다.${detail}`,
     };
   }
 }

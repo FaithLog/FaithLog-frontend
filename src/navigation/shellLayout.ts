@@ -1,7 +1,5 @@
 import {Dimensions, Platform, StatusBar} from 'react-native';
 
-const windowHeight = Dimensions.get('window').height;
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -20,7 +18,13 @@ export function getAndroidBottomNavInset() {
     return 0;
   }
 
-  return clamp(Math.round(windowHeight * 0.012), 8, 16);
+  const navigationBarHeight = getAndroidNavigationBarHeight();
+
+  if (navigationBarHeight >= 36) {
+    return clamp(navigationBarHeight + 4, 40, 64);
+  }
+
+  return 0;
 }
 
 export function getAndroidShellContentBottomPadding() {
@@ -37,4 +41,13 @@ export function getAndroidShellKeyboardBottomPadding() {
   }
 
   return 300;
+}
+
+function getAndroidNavigationBarHeight() {
+  const windowHeight = Dimensions.get('window').height;
+  const screenHeight = Dimensions.get('screen').height;
+  const statusBarHeight = StatusBar.currentHeight ?? 24;
+  const navigationBarHeight = screenHeight - windowHeight - statusBarHeight;
+
+  return Math.max(0, Math.round(navigationBarHeight));
 }

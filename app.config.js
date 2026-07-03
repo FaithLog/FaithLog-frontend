@@ -15,29 +15,58 @@ const firebasePlugins = [
   '@react-native-firebase/messaging',
 ];
 
-function firebaseConfigFile(envName, fallbackPath, base64EnvName) {
-  const configuredPath = process.env[envName]?.trim() || fallbackPath;
-  if (!configuredPath) {
-    return undefined;
+const generatedFirebaseConfigDir = path.join(__dirname, '.eas', 'firebase');
+
+function firebaseConfigFile({
+  pathEnvName,
+  fileEnvName,
+  fallbackPath,
+  base64EnvName,
+  generatedFileName,
+}) {
+  const configuredPath = process.env[pathEnvName]?.trim();
+  if (configuredPath) {
+    return configuredPath;
   }
 
-  const absolutePath = path.resolve(__dirname, configuredPath);
-  return fs.existsSync(absolutePath) || process.env[base64EnvName]?.trim()
-    ? configuredPath
-    : undefined;
+  const fileEnvPath = process.env[fileEnvName]?.trim();
+  if (fileEnvPath) {
+    return fileEnvPath;
+  }
+
+  const base64Value = process.env[base64EnvName]?.trim();
+  if (base64Value) {
+    return writeFirebaseConfigFromBase64(generatedFileName, base64Value);
+  }
+
+  const absolutePath = path.resolve(__dirname, fallbackPath);
+  return fs.existsSync(absolutePath) ? fallbackPath : undefined;
+}
+
+function writeFirebaseConfigFromBase64(fileName, base64Value) {
+  fs.mkdirSync(generatedFirebaseConfigDir, {recursive: true});
+
+  const outputPath = path.join(generatedFirebaseConfigDir, fileName);
+  fs.writeFileSync(outputPath, Buffer.from(base64Value, 'base64'));
+
+  return `./${path.relative(__dirname, outputPath).replace(/\\/g, '/')}`;
 }
 
 module.exports = ({config}) => {
-  const androidGoogleServicesFile = firebaseConfigFile(
-    'GOOGLE_SERVICES_JSON_PATH',
-    './google-services.json',
-    'GOOGLE_SERVICES_JSON_BASE64',
-  );
-  const iosGoogleServicesFile = firebaseConfigFile(
-    'GOOGLE_SERVICE_INFO_PLIST_PATH',
-    './GoogleService-Info.plist',
-    'GOOGLE_SERVICE_INFO_PLIST_BASE64',
-  );
+  const androidGoogleServicesFile = firebaseConfigFile({
+    pathEnvName: 'GOOGLE_SERVICES_JSON_PATH',
+    fileEnvName: 'GOOGLE_SERVICES_JSON',
+    fallbackPath: './google-services.json',
+    base64EnvName: 'GOOGLE_SERVICES_JSON_BASE64',
+    generatedFileName: 'google-services.json',
+  });
+  const iosGoogleServicesFile = firebaseConfigFile({
+    pathEnvName: 'GOOGLE_SERVICE_INFO_PLIST_PATH',
+    fileEnvName: 'GOOGLE_SERVICE_INFO_PLIST',
+    fallbackPath: './GoogleService-Info.plist',
+    base64EnvName: 'GOOGLE_SERVICE_INFO_PLIST_BASE64',
+    generatedFileName: 'GoogleService-Info.plist',
+  });
 
   return {
     ...config,

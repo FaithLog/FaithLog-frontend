@@ -22,6 +22,7 @@ import {
   getDeviceFcmToken,
   getDeviceType,
   requestNotificationPermission,
+  type DeviceFcmTokenResult,
   type NotificationPermissionStatus,
 } from './notificationAdapter';
 
@@ -108,23 +109,25 @@ export async function registerCurrentFcmToken(
   }
 
   const stored = await getStoredFcmRegistration();
-  const token = stored.token ?? (await loadAndPersistDeviceFcmToken(permission));
+  const deviceTokenResult = stored.token
+    ? ({status: 'available', token: stored.token} as const)
+    : await loadAndPersistDeviceFcmToken(permission);
 
-  if (!token) {
+  if (deviceTokenResult.status !== 'available') {
     return {
       status: 'tokenUnavailable',
       permission,
-      message: '권한은 켜져 있지만 기기 FCM token을 가져오지 못했습니다.',
+      message: deviceTokenResult.message,
     };
   }
 
-  const registration = await registerFcmTokenValue(accessToken, token);
+  const registration = await registerFcmTokenValue(accessToken, deviceTokenResult.token);
 
   if (!registration) {
     return {
       status: 'tokenUnavailable',
       permission,
-      message: '권한은 켜져 있지만 기기 FCM token을 가져오지 못했습니다.',
+      message: '기기 FCM token은 확인했지만 서버에 등록하지 못했습니다.',
     };
   }
 
@@ -159,16 +162,18 @@ export async function registerFcmTokenValue(
   return registration;
 }
 
-async function loadAndPersistDeviceFcmToken(permission: NotificationPermissionStatus) {
+async function loadAndPersistDeviceFcmToken(
+  permission: NotificationPermissionStatus,
+): Promise<DeviceFcmTokenResult> {
   const result = await getDeviceFcmToken(permission);
 
   if (result.status !== 'available') {
-    return null;
+    return result;
   }
 
   await saveFcmToken(result.token);
 
-  return result.token;
+  return result;
 }
 
 export async function deactivateCurrentFcmToken(accessToken: string) {

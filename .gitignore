@@ -14,6 +14,7 @@ web-build/
 # EAS builds regenerate these from app.config.js.
 android/
 ios/
+.eas/firebase/
 
 # Local Codex/Git recovery artifacts
 .codex/

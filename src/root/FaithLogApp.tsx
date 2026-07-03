@@ -3241,7 +3241,7 @@ function renderNotificationSettingRows(state: NotificationUiState) {
       return (
         <>
           <ListRow label="권한" supportingText="기기 알림은 허용됨" value="허용됨" />
-          <ListRow label="연결" supportingText="앱 알림 어댑터 연결 필요" value="대기" />
+          <ListRow label="연결" supportingText={state.message} value="대기" />
         </>
       );
     case 'disabled':
