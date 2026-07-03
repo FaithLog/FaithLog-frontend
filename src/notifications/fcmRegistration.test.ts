@@ -37,7 +37,7 @@ vi.mock('./notificationAdapter', () => ({
   requestNotificationPermission: vi.fn(),
 }));
 
-import {registerMyFcmToken} from '../api/client';
+import {deactivateMyFcmToken, registerMyFcmToken} from '../api/client';
 import {
   getOrCreateClientInstanceId,
   getStoredFcmRegistration,
@@ -81,6 +81,7 @@ describe('FCM registration', () => {
     expect(saveFcmToken).toHaveBeenCalledWith('same-device-token');
     expect(registerMyFcmToken).not.toHaveBeenCalled();
     expect(saveFcmTokenId).not.toHaveBeenCalled();
+    expect(deactivateMyFcmToken).not.toHaveBeenCalled();
   });
 
   it('registers the current device token when the stored token is stale', async () => {
@@ -119,5 +120,35 @@ describe('FCM registration', () => {
       token: 'new-device-token',
     });
     expect(saveFcmTokenId).toHaveBeenCalledWith(88);
+    expect(deactivateMyFcmToken).toHaveBeenCalledWith('access-token', 77);
+  });
+
+  it('does not deactivate the previous token when the server refreshes the same token id', async () => {
+    vi.mocked(getStoredFcmRegistration).mockResolvedValue({
+      token: 'old-device-token',
+      tokenId: 77,
+    });
+    vi.mocked(getDeviceFcmToken).mockResolvedValue({
+      status: 'available',
+      token: 'new-device-token',
+    });
+    vi.mocked(registerMyFcmToken).mockResolvedValue({
+      appVersion: '0.1.0-test',
+      clientInstanceId: 'faithlog-client-1',
+      deviceType: 'IOS',
+      isActive: true,
+      lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z',
+      tokenId: 77,
+    });
+
+    await expect(registerCurrentFcmToken('access-token')).resolves.toMatchObject({
+      status: 'registered',
+      registration: {
+        tokenId: 77,
+      },
+    });
+
+    expect(deactivateMyFcmToken).not.toHaveBeenCalled();
   });
 });

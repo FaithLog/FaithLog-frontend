@@ -133,6 +133,8 @@ export async function registerCurrentFcmToken(
     };
   }
 
+  await deactivateStaleFcmToken(accessToken, stored.tokenId, registration.tokenId);
+
   return {status: 'registered', permission, registration};
 }
 
@@ -176,6 +178,22 @@ async function loadAndPersistDeviceFcmToken(
   await saveFcmToken(result.token);
 
   return result;
+}
+
+async function deactivateStaleFcmToken(
+  accessToken: string,
+  previousTokenId: number | null,
+  currentTokenId: number,
+) {
+  if (!previousTokenId || previousTokenId === currentTokenId) {
+    return;
+  }
+
+  try {
+    await deactivateMyFcmToken(accessToken, previousTokenId);
+  } catch {
+    // A stale push token should not block the fresh registration from being used.
+  }
 }
 
 export async function deactivateCurrentFcmToken(accessToken: string) {
