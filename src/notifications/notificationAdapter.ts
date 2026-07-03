@@ -27,12 +27,16 @@ export type NotificationOpenPayloadSubscriber = (
   listener: NotificationOpenPayloadListener,
 ) => () => void;
 export type InitialNotificationOpenPayloadProvider = () => Promise<unknown | null>;
+export type NotificationPermissionChecker = () => Promise<NotificationPermissionStatus>;
+export type NotificationPermissionRequester = () => Promise<NotificationPermissionStatus>;
 
 let deviceFcmTokenProvider: DeviceFcmTokenProvider | null = null;
 let deviceFcmTokenRefreshSubscriber: DeviceFcmTokenRefreshSubscriber | null = null;
 let notificationOpenPayloadSubscriber: NotificationOpenPayloadSubscriber | null = null;
 let initialNotificationOpenPayloadProvider: InitialNotificationOpenPayloadProvider | null =
   null;
+let notificationPermissionChecker: NotificationPermissionChecker | null = null;
+let notificationPermissionRequester: NotificationPermissionRequester | null = null;
 
 export function setDeviceFcmTokenProvider(provider: DeviceFcmTokenProvider | null) {
   deviceFcmTokenProvider = provider;
@@ -54,6 +58,16 @@ export function setInitialNotificationOpenPayloadProvider(
   provider: InitialNotificationOpenPayloadProvider | null,
 ) {
   initialNotificationOpenPayloadProvider = provider;
+}
+
+export function setNotificationPermissionHandlers(
+  handlers: {
+    check: NotificationPermissionChecker;
+    request: NotificationPermissionRequester;
+  } | null,
+) {
+  notificationPermissionChecker = handlers?.check ?? null;
+  notificationPermissionRequester = handlers?.request ?? null;
 }
 
 export async function getInitialNotificationOpenPayload() {
@@ -143,12 +157,20 @@ export async function checkNotificationPermission(): Promise<NotificationPermiss
     return checkAndroidNotificationPermission();
   }
 
+  if (Platform.OS === 'ios' && notificationPermissionChecker) {
+    return notificationPermissionChecker();
+  }
+
   return 'unavailable';
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermissionStatus> {
   if (Platform.OS === 'android') {
     return requestAndroidNotificationPermission();
+  }
+
+  if (Platform.OS === 'ios' && notificationPermissionRequester) {
+    return notificationPermissionRequester();
   }
 
   return 'unavailable';

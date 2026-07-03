@@ -4,6 +4,7 @@ import {
   setDeviceFcmTokenProvider,
   setDeviceFcmTokenRefreshSubscriber,
   setInitialNotificationOpenPayloadProvider,
+  setNotificationPermissionHandlers,
   setNotificationOpenPayloadSubscriber,
 } from './notificationAdapter';
 import {isFcmRuntimeEnabled} from './fcmEnvironment';
@@ -77,12 +78,19 @@ async function setupNativeFirebaseMessaging() {
       }),
     );
 
+    setNotificationPermissionHandlers({
+      check: async () => toNotificationPermissionStatus(await messagingModule.hasPermission(messaging)),
+      request: async () =>
+        toNotificationPermissionStatus(await messagingModule.requestPermission(messaging)),
+    });
+
     messagingModule.setBackgroundMessageHandler(messaging, async () => {});
   } catch {
     setDeviceFcmTokenProvider(null);
     setDeviceFcmTokenRefreshSubscriber(null);
     setInitialNotificationOpenPayloadProvider(null);
     setNotificationOpenPayloadSubscriber(null);
+    setNotificationPermissionHandlers(null);
   }
 }
 
@@ -127,6 +135,23 @@ function getRemoteMessageParams(data: RemoteMessage['data']) {
   });
 
   return params;
+}
+
+function toNotificationPermissionStatus(
+  status: number,
+): 'authorized' | 'blocked' | 'denied' | 'unavailable' {
+  switch (status) {
+    case 1:
+    case 2:
+    case 3:
+      return 'authorized';
+    case -1:
+      return 'denied';
+    case 0:
+      return 'blocked';
+    default:
+      return 'unavailable';
+  }
 }
 
 function parseParamsPayload(value: unknown): Record<string, unknown> {

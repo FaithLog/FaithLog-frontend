@@ -1,9 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
-const { expo: baseExpoConfig } = require('./app.json');
-
 const EAS_PROJECT_ID = 'd44726b8-2e0c-4be8-8c24-7911ff0c740b';
+const buildPropertiesPlugin = [
+  'expo-build-properties',
+  {
+    ios: {
+      useFrameworks: 'static',
+    },
+  },
+];
 const firebasePlugins = [
   '@react-native-firebase/app',
   '@react-native-firebase/messaging',
@@ -21,7 +27,7 @@ function firebaseConfigFile(envName, fallbackPath, base64EnvName) {
     : undefined;
 }
 
-module.exports = () => {
+module.exports = ({config}) => {
   const androidGoogleServicesFile = firebaseConfigFile(
     'GOOGLE_SERVICES_JSON_PATH',
     './google-services.json',
@@ -34,27 +40,31 @@ module.exports = () => {
   );
 
   return {
-    ...baseExpoConfig,
+    ...config,
     owner: 'josephuk77',
-    plugins: [...(baseExpoConfig.plugins || []), ...firebasePlugins],
+    plugins: [
+      ...(config.plugins || []),
+      buildPropertiesPlugin,
+      ...firebasePlugins,
+    ],
     ios: {
-      ...baseExpoConfig.ios,
+      ...config.ios,
       ...(iosGoogleServicesFile
         ? { googleServicesFile: iosGoogleServicesFile }
         : {}),
     },
     android: {
-      ...baseExpoConfig.android,
+      ...config.android,
       ...(androidGoogleServicesFile
         ? { googleServicesFile: androidGoogleServicesFile }
         : {}),
     },
     extra: {
-      ...baseExpoConfig.extra,
+      ...config.extra,
       appEnv: process.env.EXPO_PUBLIC_APP_ENV || 'local',
       apiBaseUrlConfigured: Boolean(process.env.EXPO_PUBLIC_API_BASE_URL),
       eas: {
-        ...baseExpoConfig.extra?.eas,
+        ...config.extra?.eas,
         projectId: EAS_PROJECT_ID,
       },
     },
