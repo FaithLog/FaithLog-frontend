@@ -19,13 +19,12 @@ export function getAndroidBottomNavInset() {
   }
 
   const navigationBarHeight = getAndroidNavigationBarHeight();
-  const floatingGap = getAndroidBottomFloatingGap();
 
   if (navigationBarHeight >= 36) {
-    return clamp(navigationBarHeight + floatingGap, 44, 72);
+    return clamp(navigationBarHeight + getAndroidBottomFloatingGap('buttons'), 48, 78);
   }
 
-  return floatingGap;
+  return getAndroidBottomFloatingGap('gesture');
 }
 
 export function getAndroidShellContentBottomPadding() {
@@ -53,8 +52,10 @@ function getAndroidNavigationBarHeight() {
   return Math.max(0, Math.round(navigationBarHeight));
 }
 
-function getAndroidBottomFloatingGap() {
+function getAndroidBottomFloatingGap(mode: 'buttons' | 'gesture') {
   const windowHeight = Dimensions.get('window').height;
+  const ratio = mode === 'buttons' ? 0.012 : 0.014;
+  const maxGap = mode === 'buttons' ? 16 : 18;
 
-  return clamp(Math.round(windowHeight * 0.011), 8, 14);
+  return clamp(Math.round(windowHeight * ratio), 10, maxGap);
 }
