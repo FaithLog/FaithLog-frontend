@@ -38,6 +38,10 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import {
+  getAndroidBottomNavInset,
+  getAndroidShellContentBottomPadding,
+} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
 import {ServiceAdminCampusSection} from './ServiceAdminCampusSection';
 
@@ -1502,8 +1506,9 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled ServiceAdminScreen state: ${String(value)}`);
 }
 
-const serviceAdminAndroidBottomNavInset =
-  Platform.OS === 'android' ? spacing.bottomSafe + 44 : 0;
+const serviceAdminAndroidBottomNavInset = getAndroidBottomNavInset();
+const serviceAdminContentBottomPadding =
+  Platform.OS === 'android' ? getAndroidShellContentBottomPadding() : spacing.bottomSafe + 112;
 
 const styles = StyleSheet.create({
   serviceAdminRoot: {
@@ -1515,7 +1520,7 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: spacing.gap,
-    paddingBottom: spacing.bottomSafe + 112,
+    paddingBottom: serviceAdminContentBottomPadding,
     paddingTop: 4,
   },
   serviceAdminFrame: {

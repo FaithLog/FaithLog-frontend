@@ -129,6 +129,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import {getAndroidBottomNavInset} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {formatCompactWon, formatWon} from '../utils/money';
@@ -12064,7 +12065,7 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled admin value: ${String(value)}`);
 }
 
-const adminAndroidBottomNavInset = Platform.OS === 'android' ? spacing.bottomSafe + 44 : 0;
+const adminAndroidBottomNavInset = getAndroidBottomNavInset();
 
 const styles = StyleSheet.create({
   actionRow: {

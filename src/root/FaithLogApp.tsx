@@ -90,6 +90,12 @@ import {
   type ShellRoute,
   USER_BOTTOM_NAV_ROUTES,
 } from '../navigation/shellRoutes';
+import {
+  getAndroidBottomNavInset,
+  getAndroidShellContentBottomPadding,
+  getAndroidShellKeyboardBottomPadding,
+  getAndroidTopSafeInset,
+} from '../navigation/shellLayout';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
@@ -162,6 +168,7 @@ export function FaithLogApp() {
   const [route, setRoute] = useState<ShellRoute>('userHome');
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
+  const autoFcmRegistrationAttemptRef = useRef<string | null>(null);
   const clearAppMessage = () => {};
   const ignoreAppMessage = (_notice: AppMessage) => {};
   const publicAuthMode =
@@ -184,6 +191,7 @@ export function FaithLogApp() {
 
   useEffect(() => {
     if (authState.status !== 'authenticated' || !isFcmRuntimeEnabled()) {
+      autoFcmRegistrationAttemptRef.current = null;
       return undefined;
     }
 
@@ -211,6 +219,52 @@ export function FaithLogApp() {
     return () => {
       active = false;
       unsubscribe();
+    };
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated' || !isFcmRuntimeEnabled()) {
+      return undefined;
+    }
+
+    const registrationKey = String(authState.user.id);
+
+    if (autoFcmRegistrationAttemptRef.current === registrationKey) {
+      return undefined;
+    }
+
+    autoFcmRegistrationAttemptRef.current = registrationKey;
+    let active = true;
+
+    void initializeNativeFirebaseMessaging()
+      .then(() => getStoredTokens())
+      .then(({accessToken}) => {
+        if (!active || !accessToken) {
+          return null;
+        }
+
+        return inspectFcmRegistrationStatus().then((status) => {
+          if (!active || status.status === 'registeredLocal' || status.status === 'registered') {
+            return status;
+          }
+
+          return registerCurrentFcmToken(accessToken);
+        });
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+
+        const apiError = toApiError(error, '기기 알림을 자동으로 연결하지 못했습니다.');
+
+        if (apiError.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: apiError.message});
+        }
+      });
+
+    return () => {
+      active = false;
     };
   }, [authState]);
 
@@ -3748,9 +3802,10 @@ const authColors = {
   textMuted: colors.textSecondary,
 };
 
-const androidTopSafeInset =
-  Platform.OS === 'android' ? Math.max(StatusBar.currentHeight ?? 0, 52) + 8 : 0;
-const androidBottomNavInset = Platform.OS === 'android' ? spacing.bottomSafe + 44 : 0;
+const androidTopSafeInset = getAndroidTopSafeInset();
+const androidBottomNavInset = getAndroidBottomNavInset();
+const androidShellContentBottomPadding = getAndroidShellContentBottomPadding();
+const androidShellKeyboardBottomPadding = getAndroidShellKeyboardBottomPadding();
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -4195,10 +4250,11 @@ const styles = StyleSheet.create({
   shellContent: {
     flexGrow: 1,
     gap: 12,
-    paddingBottom: Platform.OS === 'android' ? spacing.bottomSafe + 120 : 0,
+    paddingBottom: Platform.OS === 'android' ? androidShellContentBottomPadding : 0,
   },
   shellContentKeyboardOpen: {
-    paddingBottom: spacing.bottomSafe + 360,
+    paddingBottom:
+      Platform.OS === 'android' ? androidShellKeyboardBottomPadding : spacing.bottomSafe + 360,
   },
   bottomNavFrame: {
     flexShrink: 0,
