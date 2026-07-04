@@ -4,6 +4,9 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+const ANDROID_MIN_BUTTON_NAV_HEIGHT = 36;
+const ANDROID_MAX_STABLE_NAV_HEIGHT = 96;
+
 export function getAndroidTopSafeInset() {
   if (Platform.OS !== 'android') {
     return 0;
@@ -20,8 +23,15 @@ export function getAndroidBottomNavInset() {
 
   const navigationBarHeight = getAndroidNavigationBarHeight();
 
-  if (navigationBarHeight >= 36) {
-    return clamp(navigationBarHeight + getAndroidBottomFloatingGap('buttons'), 48, 78);
+  if (
+    navigationBarHeight >= ANDROID_MIN_BUTTON_NAV_HEIGHT &&
+    navigationBarHeight <= ANDROID_MAX_STABLE_NAV_HEIGHT
+  ) {
+    return clamp(
+      Math.round(navigationBarHeight * 0.25) + getAndroidBottomFloatingGap('buttons'),
+      24,
+      44,
+    );
   }
 
   return getAndroidBottomFloatingGap('gesture');
