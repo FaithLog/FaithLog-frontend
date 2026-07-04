@@ -1594,20 +1594,20 @@ function AuthenticatedShell({
   );
   const shouldShowUserBottomNav =
     entryTarget === null &&
+    !keyboardVisible &&
     (USER_BOTTOM_NAV_ROUTES.some((availableRoute) => availableRoute === route) ||
       route === 'prayers');
   const userBottomNavActiveId = route === 'prayers' ? 'userHome' : route;
   const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
 
   useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return undefined;
-    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+    const showSubscription = Keyboard.addListener(showEvent, () => {
       setKeyboardVisible(true);
     });
-    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
       setKeyboardVisible(false);
     });
 
@@ -4254,7 +4254,7 @@ const styles = StyleSheet.create({
   },
   shellContentKeyboardOpen: {
     paddingBottom:
-      Platform.OS === 'android' ? androidShellKeyboardBottomPadding : spacing.bottomSafe + 360,
+      Platform.OS === 'android' ? androidShellKeyboardBottomPadding : spacing.bottomSafe + 96,
   },
   bottomNavFrame: {
     flexShrink: 0,

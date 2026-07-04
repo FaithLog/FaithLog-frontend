@@ -17,6 +17,13 @@
     "hooks:validate:branch": "node scripts/validate-branch-name.js",
     "hooks:validate:commit": "node scripts/validate-commit-message.js"
   },
+  "expo": {
+    "autolinking": {
+      "searchPaths": [
+        "./node_modules"
+      ]
+    }
+  },
   "dependencies": {
     "@react-native-firebase/app": "^25.1.0",
     "@react-native-firebase/messaging": "^25.1.0",

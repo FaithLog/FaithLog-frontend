@@ -40,7 +40,8 @@ export function getAndroidShellKeyboardBottomPadding() {
     return 0;
   }
 
-  return 300;
+  const windowHeight = Dimensions.get('window').height;
+  return clamp(Math.round(windowHeight * 0.12), 96, 132);
 }
 
 function getAndroidNavigationBarHeight() {
