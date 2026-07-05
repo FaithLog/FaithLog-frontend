@@ -1397,7 +1397,7 @@ function CoffeePollManagement({
 
   const polls =
     listState.status === 'success'
-      ? prioritizePolls(getCoffeePollsByTab(listState.polls, tab), focusPollId)
+      ? prioritizePolls(getCoffeePollsByTab(listState.polls, tab, focusPollId), focusPollId)
       : [];
   const counts =
     listState.status === 'success'
@@ -1836,10 +1836,14 @@ function normalizeTimePart(value: number, max: number) {
   return ((value % max) + max) % max;
 }
 
-function getCoffeePollsByTab(polls: PollSummary[], tab: CoffeePollStatusTab) {
+function getCoffeePollsByTab(
+  polls: PollSummary[],
+  tab: CoffeePollStatusTab,
+  focusPollId: number | null = null,
+) {
   const now = Date.now();
 
-  return polls
+  const sortedPolls = polls
     .filter((poll) => {
       const ended = isEndedPoll(poll, now);
 
@@ -1851,8 +1855,25 @@ function getCoffeePollsByTab(polls: PollSummary[], tab: CoffeePollStatusTab) {
       const rightTime = getSortablePollEndTime(right);
 
       return tab === 'closed' ? rightTime - leftTime : leftTime - rightTime;
-    })
-    .slice(0, 10);
+    });
+
+  return includeFocusedCoffeePoll(sortedPolls, focusPollId);
+}
+
+function includeFocusedCoffeePoll(polls: PollSummary[], focusPollId: number | null) {
+  const limitedPolls = polls.slice(0, 10);
+
+  if (focusPollId === null || limitedPolls.some((poll) => poll.id === focusPollId)) {
+    return limitedPolls;
+  }
+
+  const focusedPoll = polls.find((poll) => poll.id === focusPollId);
+
+  if (!focusedPoll) {
+    return limitedPolls;
+  }
+
+  return [focusedPoll, ...limitedPolls].slice(0, 10);
 }
 
 function prioritizePolls(polls: PollSummary[], focusPollId: number | null) {

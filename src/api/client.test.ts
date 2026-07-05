@@ -15,6 +15,9 @@ import {
   fetchAdminCampusCharges,
   fetchAdminCampusChargesForMyAccounts,
   fetchAdminPaymentAccounts,
+  fetchPollDetail,
+  fetchPollResults,
+  fetchPolls,
 } from './client';
 import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
 
@@ -94,6 +97,131 @@ describe('FaithLog API client', () => {
         method: 'GET',
       }),
     );
+  });
+
+  it('requests poll list with a large page size and unwraps paged content', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        envelope({
+          content: [
+            {
+              pollId: 11,
+              campusId: 2,
+              title: '수련회 장소 투표',
+              pollType: 'CUSTOM',
+              selectionType: 'SINGLE',
+              anonymous: false,
+              startDateTime: '2026-07-05T09:00:00.000Z',
+              endDateTime: '2026-07-06T09:00:00.000Z',
+              status: 'OPEN',
+              hasResponded: false,
+            },
+            {
+              pollId: 12,
+              campusId: 2,
+              title: '간식 신청',
+              pollType: 'CUSTOM',
+              selectionType: 'MULTIPLE',
+              anonymous: true,
+              startDateTime: '2026-07-05T09:00:00.000Z',
+              endDateTime: '2026-07-07T09:00:00.000Z',
+              status: 'OPEN',
+              hasResponded: true,
+            },
+          ],
+          page: 0,
+          size: 2,
+          totalElements: 2,
+          totalPages: 1,
+        }),
+      ),
+    );
+
+    const polls = await fetchPolls('access-token', 2);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.faithlog.test/root/api/v1/campuses/2/polls?page=0&size=100',
+      expect.any(Object),
+    );
+    expect(polls).toHaveLength(2);
+    expect(polls[0]).toMatchObject({
+      id: 11,
+      title: '수련회 장소 투표',
+      startsAt: '2026-07-05T09:00:00.000Z',
+      endsAt: '2026-07-06T09:00:00.000Z',
+      isAnonymous: false,
+      responded: false,
+    });
+    expect(polls[1]).toMatchObject({id: 12, isAnonymous: true, responded: true});
+  });
+
+  it('unwraps poll detail options and result options from paged payloads', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          envelope({
+            poll: {
+              pollId: 11,
+              campusId: 2,
+              title: '수련회 장소 투표',
+              pollType: 'CUSTOM',
+              selectionType: 'SINGLE',
+              anonymous: false,
+              startDateTime: '2026-07-05T09:00:00.000Z',
+              endDateTime: '2026-07-06T09:00:00.000Z',
+              status: 'OPEN',
+              hasResponded: false,
+            },
+            options: {
+              content: [
+                {pollOptionId: 101, optionContent: '가평 숲속 수련원', sortOrder: 1},
+                {pollOptionId: 102, optionContent: '양평 기도원', sortOrder: 2},
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          envelope({
+            pollId: 11,
+            campusId: 2,
+            title: '수련회 장소 투표',
+            pollType: 'CUSTOM',
+            selectionType: 'SINGLE',
+            anonymous: false,
+            status: 'OPEN',
+            startsAt: '2026-07-05T09:00:00.000Z',
+            endsAt: '2026-07-06T09:00:00.000Z',
+            targetMemberCount: 3,
+            respondedCount: 1,
+            notRespondedCount: 2,
+            optionResults: {
+              content: [
+                {pollOptionId: 101, optionContent: '가평 숲속 수련원', responseCount: 1},
+                {pollOptionId: 102, optionContent: '양평 기도원', responseCount: 0},
+              ],
+            },
+          }),
+        ),
+      );
+
+    const detail = await fetchPollDetail('access-token', 2, 11);
+    const results = await fetchPollResults('access-token', 2, 11);
+
+    expect(detail.options.map((option) => option.content)).toEqual([
+      '가평 숲속 수련원',
+      '양평 기도원',
+    ]);
+    expect(results.optionResults.map((option) => option.content)).toEqual([
+      '가평 숲속 수련원',
+      '양평 기도원',
+    ]);
   });
 
   it.each([

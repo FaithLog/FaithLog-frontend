@@ -3,7 +3,6 @@ import {
   AccessibilityInfo,
   Animated,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -2717,6 +2716,9 @@ type AdminPollActionState =
   | {status: 'creatingPoll'}
   | {status: 'closingPoll'; pollId: number}
   | {status: 'sendingMissingNotice'};
+type AdminPollLoadOptions = {
+  focusPoll?: AdminPoll | null;
+};
 
 type AdminPollTemplateForm = {
   autoCreateEnabled: boolean;
@@ -2883,7 +2885,7 @@ function AdminPollManagement({
     createEmptyAdminPollForm(),
   );
 
-  const loadPolls = async () => {
+  const loadPolls = async (options: AdminPollLoadOptions = {}) => {
     setListState({status: 'loading'});
     setActionError(null);
 
@@ -2900,14 +2902,20 @@ function AdminPollManagement({
         fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'}),
       ]);
 
+      const nextPolls = options.focusPoll
+        ? mergePollSummaries(polls, toPollSummary(options.focusPoll))
+        : polls;
+
       setListState(
-        polls.length === 0 && templates.length === 0
-          ? {status: 'empty', accounts, polls, templates}
-          : {status: 'success', accounts, polls, templates},
+        nextPolls.length === 0 && templates.length === 0
+          ? {status: 'empty', accounts, polls: nextPolls, templates}
+          : {status: 'success', accounts, polls: nextPolls, templates},
       );
 
-      if (!selectedPollId && polls[0]) {
-        setSelectedPollId(polls[0].id);
+      if (options.focusPoll) {
+        setSelectedPollId(options.focusPoll.id);
+      } else if (!selectedPollId && nextPolls[0]) {
+        setSelectedPollId(nextPolls[0].id);
       }
     } catch (error) {
       const apiError = toApiError(error, '투표 관리 정보를 불러오지 못했습니다.');
@@ -2969,9 +2977,18 @@ function AdminPollManagement({
     listState.status === 'success' || listState.status === 'empty' ? listState.polls : [];
   const accounts =
     listState.status === 'success' || listState.status === 'empty' ? listState.accounts : [];
+  const pollListNow = new Date();
+  const statusPolls = getAdminPollsForStatusTab(
+    polls,
+    pollStatusTab,
+    pollListNow,
+    selectedPollId,
+  );
   const filteredPolls = getAdminPollsForStatusTab(
     filterAdminPollsByType(polls, pollTypeFilter),
     pollStatusTab,
+    pollListNow,
+    selectedPollId,
   );
   const visiblePolls = prioritizeAdminPolls(filteredPolls, selectedPollId);
   const selectedPoll = selectedPollId
@@ -3076,7 +3093,7 @@ function AdminPollManagement({
       setPollForm(toPollCreateForm(created));
       setPollStatusTab('ongoing');
       setPollTypeFilter('ALL');
-      await loadPolls();
+      await loadPolls({focusPoll: created});
       setSection('manage');
     } catch (error) {
       const apiError = toApiError(error, '투표를 생성하지 못했습니다.');
@@ -3348,6 +3365,7 @@ function AdminPollManagement({
                 setSection('results');
                 void loadResults(poll.id);
               }}
+              hasPollsInStatusTab={statusPolls.length > 0}
               polls={visiblePolls}
               selectedPollId={selectedPollId}
               statusTab={pollStatusTab}
@@ -3471,6 +3489,7 @@ function AdminPollTopActions({
 
 function AdminPollList({
   filter,
+  hasPollsInStatusTab,
   onChangeFilter,
   onClosePoll,
   onRefresh,
@@ -3480,6 +3499,7 @@ function AdminPollList({
   statusTab,
 }: {
   filter: AdminPollTypeFilter;
+  hasPollsInStatusTab: boolean;
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
   onClosePoll: (poll: PollSummary) => void;
   onRefresh: () => void;
@@ -3488,7 +3508,7 @@ function AdminPollList({
   selectedPollId: number | null;
   statusTab: AdminPollStatusTab;
 }) {
-  if (polls.length === 0) {
+  if (!hasPollsInStatusTab) {
     return (
       <Empty
         title={statusTab === 'ongoing' ? '진행 중인 투표가 없습니다' : '마감된 투표가 없습니다'}
@@ -10929,6 +10949,26 @@ function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
     templateId: poll.templateId ? String(poll.templateId) : '',
     title: poll.title,
   };
+}
+
+function toPollSummary(poll: AdminPoll): PollSummary {
+  return {
+    campusId: poll.campusId,
+    id: poll.id,
+    isAnonymous: poll.isAnonymous,
+    allowUserOptionAdd: poll.allowUserOptionAdd,
+    endsAt: poll.endsAt,
+    pollType: poll.pollType,
+    responded: false,
+    selectionType: poll.selectionType,
+    startsAt: poll.startsAt,
+    status: poll.status,
+    title: poll.title,
+  };
+}
+
+function mergePollSummaries(polls: PollSummary[], focusPoll: PollSummary) {
+  return [focusPoll, ...polls.filter((poll) => poll.id !== focusPoll.id)];
 }
 
 function getVisibleAdminPollTemplates(templates: AdminPollTemplate[]) {

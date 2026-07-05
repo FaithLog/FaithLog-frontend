@@ -54,4 +54,20 @@ describe('admin poll list visibility', () => {
     expect(result).toHaveLength(10);
     expect(result.map((item) => item.id)).toEqual([12, 11, 10, 9, 8, 7, 6, 5, 4, 3]);
   });
+
+  it('keeps the focused ongoing poll visible even when it is outside the first 10 deadlines', () => {
+    const polls = Array.from({length: 12}, (_, index) =>
+      poll({
+        id: index + 1,
+        status: 'OPEN',
+        endsAt: `2026-06-29T${String(10 + index).padStart(2, '0')}:00:00.000Z`,
+      }),
+    );
+
+    const result = getAdminPollsForStatusTab(polls, 'ongoing', now, 12);
+
+    expect(result).toHaveLength(10);
+    expect(result[0].id).toBe(12);
+    expect(result.some((item) => item.id === 11)).toBe(false);
+  });
 });

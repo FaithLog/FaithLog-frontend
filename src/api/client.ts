@@ -196,6 +196,15 @@ export function buildAdminCampusPath(campusId: unknown, ...segments: PathSegment
   );
 }
 
+export function buildPollListPath(campusId: unknown) {
+  const query = new URLSearchParams({
+    page: '0',
+    size: '100',
+  });
+
+  return `${buildCampusPath(campusId, 'polls')}?${query.toString()}`;
+}
+
 export function toDatePathSegment(value: unknown, label: string) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new FaithLogApiError({
@@ -1610,15 +1619,52 @@ export function fetchCoffeeMenus(accessToken: string, brandId: unknown) {
   );
 }
 
+export function normalizePollSummaryList(value: unknown): PollSummary[] {
+  return getArrayPayload(value, ['content', 'items', 'polls']).map(normalizePollSummary);
+}
+
+function normalizePollDetail(value: unknown): PollDetail {
+  const source = getNestedRecord(value, 'poll') ?? getRecordPayload(value);
+  const summary = normalizePollSummary(source);
+  const optionsSource = source.options ?? getRecordPayload(value).options;
+
+  return {
+    ...source,
+    ...summary,
+    allowUserOptionAdd: toOptionalBoolean(source.allowUserOptionAdd),
+    chargeGenerationType: toOptionalString(source.chargeGenerationType) ?? 'NONE',
+    paymentAccountId: toOptionalNumber(source.paymentAccountId),
+    paymentCategory: toOptionalString(source.paymentCategory),
+    templateId: toOptionalNumber(source.templateId),
+    options: normalizePollOptions(optionsSource),
+    myResponse: normalizePollResponse(source.myResponse ?? source.response),
+  };
+}
+
+function normalizePollResults(value: unknown): PollResults {
+  const source = getRecordPayload(value);
+  const optionResults = normalizePollOptionResults(
+    source.optionResults ?? source.options ?? source.content ?? source.items,
+  );
+
+  return {
+    ...(source as PollResults),
+    anonymous: Boolean(source.anonymous ?? source.isAnonymous),
+    optionResults,
+  };
+}
+
 export function fetchPolls(accessToken: string, campusId: unknown) {
-  return apiRequest<PollSummary[]>(buildCampusPath(campusId, 'polls'), {accessToken});
+  return apiRequest<unknown>(buildPollListPath(campusId), {accessToken}).then(
+    normalizePollSummaryList,
+  );
 }
 
 export function fetchPollDetail(accessToken: string, campusId: unknown, pollId: unknown) {
-  return apiRequest<PollDetail>(
+  return apiRequest<unknown>(
     buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId')),
     {accessToken},
-  );
+  ).then(normalizePollDetail);
 }
 
 export function savePollResponse(
@@ -1666,7 +1712,7 @@ export function addUserPollOption(
 }
 
 export function fetchPollResults(accessToken: string, campusId: unknown, pollId: unknown) {
-  return apiRequest<PollResults>(
+  return apiRequest<unknown>(
     buildCampusPath(
       campusId,
       'polls',
@@ -1674,7 +1720,7 @@ export function fetchPollResults(accessToken: string, campusId: unknown, pollId:
       'results',
     ),
     {accessToken},
-  );
+  ).then(normalizePollResults);
 }
 
 export function fetchPollComments(accessToken: string, campusId: unknown, pollId: unknown) {
@@ -1687,6 +1733,205 @@ export function fetchPollComments(accessToken: string, campusId: unknown, pollId
     ),
     {accessToken},
   );
+}
+
+function normalizePollSummary(value: unknown): PollSummary {
+  const source = getRecordPayload(value);
+
+  return {
+    ...(source as PollSummary),
+    campusId: toRequiredNumber(source.campusId, 'campusId'),
+    id: toRequiredNumber(source.id ?? source.pollId, 'pollId'),
+    isAnonymous: Boolean(source.isAnonymous ?? source.anonymous),
+    allowUserOptionAdd: toOptionalBoolean(source.allowUserOptionAdd),
+    endsAt: toRequiredDateString(
+      source.endsAt ??
+        source.endAt ??
+        source.endDateTime ??
+        source.deadlineAt ??
+        source.deadline ??
+        source.endDate,
+      'endsAt',
+    ),
+    pollType: toOptionalString(source.pollType) ?? 'CUSTOM',
+    responded: Boolean(source.responded ?? source.hasResponded ?? source.myResponse),
+    selectionType: toOptionalString(source.selectionType) ?? 'SINGLE',
+    startsAt: toRequiredDateString(
+      source.startsAt ??
+        source.startAt ??
+        source.startDateTime ??
+        source.startDate ??
+        source.createdAt,
+      'startsAt',
+    ),
+    status: toOptionalString(source.status) ?? 'OPEN',
+    title: toOptionalString(source.title) ?? '투표',
+  };
+}
+
+function normalizePollOptions(value: unknown): PollOption[] {
+  return getArrayPayload(value, ['content', 'items', 'options']).map((option, index) =>
+    normalizePollOption(option, index),
+  );
+}
+
+function normalizePollOption(value: unknown, index: number): PollOption {
+  const source = getRecordPayload(value);
+
+  return {
+    ...(source as PollOption),
+    id: toRequiredNumber(source.id ?? source.optionId ?? source.pollOptionId, 'optionId'),
+    composeMenuCode: toOptionalString(source.composeMenuCode ?? source.menuCode),
+    content:
+      toOptionalString(
+        source.content ?? source.optionContent ?? source.name ?? source.menuName ?? source.title,
+      ) ??
+      `선택지 ${index + 1}`,
+    priceAmount: toOptionalNumber(source.priceAmount ?? source.price ?? source.amount) ?? 0,
+    sortOrder: toOptionalNumber(source.sortOrder ?? source.order) ?? index + 1,
+    userAdded: toOptionalBoolean(source.userAdded),
+  };
+}
+
+function normalizePollOptionResults(value: unknown): PollResults['optionResults'] {
+  return getArrayPayload(value, ['content', 'items', 'optionResults', 'options']).map(
+    (option, index) => {
+      const source = getRecordPayload(option);
+      const normalizedOption = normalizePollOption(source, index);
+
+      return {
+        ...(source as PollResults['optionResults'][number]),
+        id: normalizedOption.id,
+        content: normalizedOption.content,
+        sortOrder: normalizedOption.sortOrder,
+        responseCount:
+          toOptionalNumber(source.responseCount ?? source.voteCount ?? source.count) ?? 0,
+        respondents: normalizePollRespondents(source.respondents),
+      };
+    },
+  );
+}
+
+function normalizePollRespondents(
+  value: unknown,
+): PollResults['optionResults'][number]['respondents'] {
+  return getArrayPayload(value, ['content', 'items', 'respondents']).map((respondent) => {
+    const source = getRecordPayload(respondent);
+
+    return {
+      userId: toRequiredNumber(source.userId ?? source.id, 'userId'),
+      name: toOptionalString(source.name) ?? '이름 없음',
+      email: toOptionalString(source.email) ?? '',
+    };
+  });
+}
+
+function normalizePollResponse(value: unknown): PollResponse | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const source = getRecordPayload(value);
+
+  return {
+    ...(source as PollResponse),
+    optionIds: getArrayPayload(source.optionIds ?? source.options, ['content', 'items'])
+      .map((optionId) =>
+        typeof optionId === 'number'
+          ? optionId
+          : toOptionalNumber(getRecordPayload(optionId).id ?? getRecordPayload(optionId).optionId),
+      )
+      .filter((optionId): optionId is number => typeof optionId === 'number'),
+    pollId: toOptionalNumber(source.pollId) ?? 0,
+    respondedAt: toOptionalString(source.respondedAt) ?? '',
+    responseId: toOptionalNumber(source.responseId ?? source.id) ?? 0,
+  };
+}
+
+function getArrayPayload(value: unknown, keys: string[]): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (isRecord(value)) {
+    for (const key of keys) {
+      const nested = value[key];
+
+      if (Array.isArray(nested)) {
+        return nested;
+      }
+
+      if (isRecord(nested)) {
+        const nestedArray = getArrayPayload(nested, keys);
+
+        if (nestedArray.length > 0) {
+          return nestedArray;
+        }
+      }
+    }
+  }
+
+  return [];
+}
+
+function getRecordPayload(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function getNestedRecord(value: unknown, key: string) {
+  const source = getRecordPayload(value);
+  const nested = source[key];
+
+  return isRecord(nested) ? nested : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toRequiredNumber(value: unknown, label: string) {
+  const parsed = toOptionalNumber(value);
+
+  if (parsed === null) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: `${label} 응답 값이 올바르지 않습니다.`,
+    });
+  }
+
+  return parsed;
+}
+
+function toOptionalNumber(value: unknown) {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : null;
+
+  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
+}
+
+function toOptionalString(value: unknown) {
+  return typeof value === 'string' ? value : null;
+}
+
+function toOptionalBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function toRequiredDateString(value: unknown, label: string) {
+  const text = toOptionalString(value);
+
+  if (text) {
+    return text;
+  }
+
+  throw new FaithLogApiError({
+    kind: 'error',
+    message: `${label} 응답 값이 올바르지 않습니다.`,
+  });
 }
 
 export function createPollComment(

@@ -2,8 +2,10 @@ import {
   apiRequest,
   buildAdminCampusPath,
   buildCampusPath,
+  buildPollListPath,
   toPositiveIntegerPathSegment,
   FaithLogApiError,
+  normalizePollSummaryList,
 } from './client';
 import type {
   AdminNotificationRequest,
@@ -116,7 +118,9 @@ const chargeGenerationTypes: AdminPollChargeGenerationType[] = ['NONE', 'OPTION_
 const paymentCategories: PaymentCategory[] = ['PENALTY', 'COFFEE'];
 
 export function fetchAdminPolls(accessToken: string, campusId: unknown) {
-  return apiRequest<PollSummary[]>(buildCampusPath(campusId, 'polls'), {accessToken});
+  return apiRequest<unknown>(buildPollListPath(campusId), {accessToken}).then(
+    normalizePollSummaryList,
+  );
 }
 
 export function fetchAdminPollTemplates(accessToken: string, campusId: unknown) {
