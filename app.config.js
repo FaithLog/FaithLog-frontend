@@ -75,6 +75,7 @@ module.exports = ({config}) => {
     owner: 'josephuk77',
     plugins: [
       ...(config.plugins || []),
+      './plugins/withAndroidNavigationMode',
       buildPropertiesPlugin,
       ...firebasePlugins,
     ],

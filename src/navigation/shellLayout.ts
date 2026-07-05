@@ -1,11 +1,14 @@
 import {Dimensions, Platform, StatusBar} from 'react-native';
 
+import {getAndroidNavigationMode} from './androidNavigationMode';
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
 const ANDROID_MIN_BUTTON_NAV_HEIGHT = 36;
-const ANDROID_MAX_STABLE_NAV_HEIGHT = 96;
+const ANDROID_MAX_STABLE_NAV_HEIGHT = 120;
+const ANDROID_BUTTON_NAV_DEFAULT_INSET = 56;
 
 export function getAndroidTopSafeInset() {
   if (Platform.OS !== 'android') {
@@ -22,19 +25,24 @@ export function getAndroidBottomNavInset() {
   }
 
   const navigationBarHeight = getAndroidNavigationBarHeight();
+  const navigationMode = getAndroidNavigationMode();
+
+  if (navigationMode === 'buttons') {
+    return getAndroidButtonNavigationInset(navigationBarHeight);
+  }
+
+  if (navigationMode === 'gesture') {
+    return getAndroidGestureNavigationInset(navigationBarHeight);
+  }
 
   if (
     navigationBarHeight >= ANDROID_MIN_BUTTON_NAV_HEIGHT &&
     navigationBarHeight <= ANDROID_MAX_STABLE_NAV_HEIGHT
   ) {
-    return clamp(
-      Math.round(navigationBarHeight * 0.25) + getAndroidBottomFloatingGap('buttons'),
-      24,
-      44,
-    );
+    return getAndroidButtonNavigationInset(navigationBarHeight);
   }
 
-  return getAndroidBottomFloatingGap('gesture');
+  return getAndroidGestureNavigationInset(navigationBarHeight);
 }
 
 export function getAndroidShellContentBottomPadding() {
@@ -61,6 +69,27 @@ function getAndroidNavigationBarHeight() {
   const navigationBarHeight = screenHeight - windowHeight - statusBarHeight;
 
   return Math.max(0, Math.round(navigationBarHeight));
+}
+
+function getAndroidButtonNavigationInset(navigationBarHeight: number) {
+  const baseInset =
+    navigationBarHeight >= ANDROID_MIN_BUTTON_NAV_HEIGHT
+      ? navigationBarHeight
+      : ANDROID_BUTTON_NAV_DEFAULT_INSET;
+
+  return clamp(Math.round(baseInset) + 8, 48, 72);
+}
+
+function getAndroidGestureNavigationInset(navigationBarHeight: number) {
+  if (navigationBarHeight > 0 && navigationBarHeight < ANDROID_MIN_BUTTON_NAV_HEIGHT) {
+    return clamp(
+      Math.round(navigationBarHeight * 0.5) + getAndroidBottomFloatingGap('gesture'),
+      18,
+      30,
+    );
+  }
+
+  return getAndroidBottomFloatingGap('gesture');
 }
 
 function getAndroidBottomFloatingGap(mode: 'buttons' | 'gesture') {
