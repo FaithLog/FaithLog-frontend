@@ -5492,7 +5492,7 @@ function AdminPollCoffeeOptions({
               </Text>
               <Text style={styles.pollCreateTypeDescription}>
                 {menu
-                  ? `${menu.category} · ${formatWon(menu.priceAmount)}`
+                  ? `${getCoffeeCategoryLabel(menu.category)} · ${formatWon(menu.priceAmount)}`
                   : '목록에 없는 커피 메뉴입니다.'}
               </Text>
             </View>
@@ -11810,6 +11810,37 @@ function getPaymentCategoryLabel(category: PaymentCategory) {
       return '커피';
     default:
       return assertNever(category);
+  }
+}
+
+function getCoffeeCategoryLabel(category: string) {
+  switch (category) {
+    case 'COFFEE':
+      return '커피';
+    case 'DUTCH_COFFEE':
+      return '더치커피';
+    case 'DECAF':
+      return '디카페인';
+    case 'BEVERAGE':
+      return '음료';
+    case 'TEA_BEVERAGE':
+      return '티/음료';
+    case 'SMOOTHIE':
+      return '스무디';
+    case 'ADE':
+      return '에이드';
+    case 'TEA':
+      return '티';
+    case 'JUICE':
+      return '주스';
+    case 'FRAPPE':
+      return '프라페';
+    case 'MILK_SHAKE':
+      return '밀크쉐이크';
+    case 'DESSERT':
+      return '디저트';
+    default:
+      return category;
   }
 }
 
