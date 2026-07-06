@@ -546,9 +546,25 @@ function toPaymentAccountCreateRequest(
 }
 
 function toPollOptionAddRequest(body: PollOptionAddRequest): PollOptionAddRequest {
-  return {
-    content: toRequiredString(body.content, '추가 항목'),
-  };
+  const payload: PollOptionAddRequest = {};
+  const content = typeof body.content === 'string' ? body.content.trim() : '';
+
+  if (content) {
+    payload.content = content;
+  }
+
+  if (body.menuId !== undefined && body.menuId !== null) {
+    payload.menuId = Number(toPositiveIntegerPathSegment(body.menuId, 'menuId'));
+  }
+
+  if (!payload.content && payload.menuId === undefined) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      message: '추가 항목을 선택해 주세요.',
+    });
+  }
+
+  return payload;
 }
 
 function toPenaltyRuleCreateRequest(body: PenaltyRuleCreateRequest): PenaltyRuleCreateRequest {

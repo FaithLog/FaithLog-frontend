@@ -1,10 +1,17 @@
 # macOS
 .DS_Store
 
+# Git metadata / local repo helpers
+.git
+.git/
+.github/
+.githooks/
+
 # dependencies
 node_modules/
 
 # Expo / React Native local output
+.eas/
 .expo/
 .expo-shared/
 dist/
@@ -24,6 +31,17 @@ ios/
 .git/worktrees.broken-*
 .harness
 .harness/**
+
+# Docs, planning, QA reports, and store screenshots are not required by EAS.
+*.md
+docs/
+agent.md
+
+# Docker/local deployment files are unrelated to native app builds.
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
 
 # Firebase native config files are restored from EAS environment variables.
 google-services.json
@@ -62,6 +80,20 @@ firebase-debug.log*
 
 # test / coverage
 coverage/
+**/*.test.ts
+**/*.test.tsx
+**/*.test.js
+**/*.test.jsx
+**/*.test.mjs
+**/*.spec.ts
+**/*.spec.tsx
+**/*.spec.js
+**/*.spec.jsx
+**/*.spec.mjs
+**/__tests__/
+**/__mocks__/
+vitest.config.*
+eslint.config.*
 
 # QA screenshots and store-submission captures
 docs/qa/
@@ -69,6 +101,7 @@ docs/qa/
 
 # Accidental duplicate local copies
 scripts/* 2.*
+**/* 2.*
 
 # TypeScript
 *.tsbuildinfo

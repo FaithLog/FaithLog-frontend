@@ -521,7 +521,8 @@ export type PollDetail = PollSummary & {
 };
 
 export type PollOptionAddRequest = {
-  content: string;
+  content?: string;
+  menuId?: number;
 };
 
 export type PollResponseSaveRequest = {

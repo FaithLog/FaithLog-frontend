@@ -262,7 +262,7 @@ export function PollScreen({
     }
   };
 
-  const submitUserOption = async (content: string) => {
+  const submitUserOption = async (option: string | CoffeeMenu) => {
     if (
       !activeDetail ||
       actionState ||
@@ -272,7 +272,9 @@ export function PollScreen({
       return;
     }
 
-    const trimmed = content.trim();
+    const optionContent = typeof option === 'string' ? option : option.name;
+    const optionMenuId = typeof option === 'string' ? undefined : option.id;
+    const trimmed = optionContent.trim();
 
     if (!trimmed) {
       setActionError({kind: 'error', message: '추가할 항목을 입력해 주세요.'});
@@ -296,8 +298,12 @@ export function PollScreen({
         return;
       }
 
-      const added = await addUserPollOption(accessToken, campusId, activeDetail.id, {
+      const added = await addUserPollOptionWithMenuContractFallback({
+        accessToken,
+        campusId,
         content: trimmed,
+        menuId: optionMenuId,
+        pollId: activeDetail.id,
       });
       setOptionAddContent('');
       setOptionAddVisible(false);
@@ -1199,7 +1205,7 @@ function UserOptionAddSheet({
   detail: PollDetail;
   onCancel: () => void;
   onChangeContent: (value: string) => void;
-  onSubmit: (content: string) => void;
+  onSubmit: (option: string | CoffeeMenu) => void;
   visible: boolean;
 }) {
   const submitting = actionState?.kind === 'optionAdd';
@@ -1264,7 +1270,7 @@ function UserOptionAddSheet({
                     accessibilityRole="button"
                     disabled={submitting || added}
                     key={menu.id}
-                    onPress={() => onSubmit(menu.name)}
+                    onPress={() => onSubmit(menu)}
                     style={({pressed}) => [
                       styles.optionAddMenuRow,
                       added ? styles.optionAddMenuRowAdded : null,
@@ -1432,11 +1438,74 @@ function InlineNotice({message, tone}: {message: string; tone: 'info' | 'warning
 }
 
 function isUserOptionAddAllowed(detail: PollDetail) {
+  if (detail.pollType === 'COFFEE') {
+    return true;
+  }
+
   if (typeof detail.allowUserOptionAdd === 'boolean') {
     return detail.allowUserOptionAdd;
   }
 
-  return detail.pollType === 'COFFEE' || detail.pollType === 'CUSTOM';
+  return detail.pollType === 'CUSTOM';
+}
+
+async function addUserPollOptionWithMenuContractFallback({
+  accessToken,
+  campusId,
+  content,
+  menuId,
+  pollId,
+}: {
+  accessToken: string;
+  campusId: number;
+  content: string;
+  menuId?: number;
+  pollId: number;
+}) {
+  const requests =
+    menuId === undefined
+      ? [{content}]
+      : [{content, menuId}, {menuId}, {content}];
+  let lastError: unknown = null;
+
+  for (const request of requests) {
+    try {
+      return await addUserPollOption(accessToken, campusId, pollId, request);
+    } catch (error) {
+      if (!canRetryPollOptionAddWithNextContract(error)) {
+        throw error;
+      }
+
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+function canRetryPollOptionAddWithNextContract(error: unknown) {
+  if (
+    !(error instanceof FaithLogApiError) ||
+    (error.detail.status !== 400 && error.detail.status !== 422)
+  ) {
+    return false;
+  }
+
+  const message = `${error.detail.code ?? ''} ${error.detail.message}`.toLocaleLowerCase('ko-KR');
+  const nonContractErrorMarkers = [
+    'duplicate',
+    'already',
+    'conflict',
+    'closed',
+    'permission',
+    '이미',
+    '중복',
+    '권한',
+    '마감',
+    '종료',
+  ];
+
+  return !nonContractErrorMarkers.some((marker) => message.includes(marker));
 }
 
 function isDuplicatePollOption(

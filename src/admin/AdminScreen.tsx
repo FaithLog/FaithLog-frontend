@@ -1085,7 +1085,14 @@ export function AdminScreen({
         fetchAdminPaymentAccounts(accessToken, campusId, {
           accountType: 'COFFEE',
           includeInactive: true,
-        }),
+        })
+          .catch((error) => {
+            if (isPaymentAccountListEndpointMissing(error)) {
+              return fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'});
+            }
+
+            throw error;
+          }),
       ]).then(([penaltyAccounts, coffeeAccounts]) =>
         mergePaymentAccounts(penaltyAccounts, coffeeAccounts),
       ).catch((error): Promise<PaymentAccount[]> | PaymentAccount[] => {
@@ -2885,7 +2892,17 @@ function AdminPollManagement({
       const [polls, templates, accounts] = await Promise.all([
         fetchAdminPolls(accessToken, campusId),
         fetchAdminPollTemplates(accessToken, campusId),
-        fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'}),
+        fetchAdminPaymentAccounts(accessToken, campusId, {
+          accountType: 'COFFEE',
+          includeInactive: true,
+        })
+          .catch((error) => {
+            if (isPaymentAccountListEndpointMissing(error)) {
+              return fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'});
+            }
+
+            throw error;
+          }),
       ]);
 
       const nextPolls = options.focusPoll
@@ -5496,9 +5513,7 @@ function AdminPollCoffeeOptions({
 function CoffeeMenuPickerSheet({
   onClose,
   onRetry,
-  onSelectBrand,
   onSelectMenu,
-  selectedBrandId,
   selectedMenuIds,
   state,
   visible,
@@ -5512,105 +5527,83 @@ function CoffeeMenuPickerSheet({
   state: AdminCoffeeCatalogState;
   visible: boolean;
 }) {
-  if (!visible) {
-    return null;
-  }
-
-  const activeBrandId =
-    selectedBrandId ?? (state.status === 'success' ? state.brands[0]?.id ?? null : null);
   const menus =
-    state.status === 'success' && activeBrandId !== null
-      ? state.menus.filter((menu) => menu.brandId === activeBrandId)
+    state.status === 'success'
+      ? state.menus.slice().sort((left, right) => left.name.localeCompare(right.name, 'ko-KR'))
       : [];
 
   return (
-    <View style={[styles.sheet, styles.coffeeMenuSheet, styles.coffeeMenuInlineSheet]}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Eyebrow>커피 메뉴 선택</Eyebrow>
-          <Title>커피 메뉴 선택</Title>
-        </View>
-        <Button accessibilityLabel="커피 메뉴 선택 닫기" onPress={onClose} variant="secondary">
-          닫기
-        </Button>
-      </View>
-      {state.status === 'idle' || state.status === 'loading' ? (
-        <Body>커피 메뉴를 불러오고 있어요.</Body>
-      ) : state.status === 'error' ? (
-        <View style={styles.compactBlock}>
-          <AdminInlineError error={state.error} />
-          <Button accessibilityLabel="커피 메뉴 다시 불러오기" onPress={onRetry} variant="secondary">
-            다시 시도
-          </Button>
-        </View>
-      ) : (
-        <>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.coffeeBrandPicker}>
-            {state.brands.map((brand) => {
-              const selected = brand.id === activeBrandId;
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <View style={[styles.sheet, styles.coffeeMenuSheet]}>
+          <View style={styles.coffeeMenuSheetHeader}>
+            <View style={styles.headerText}>
+              <Text style={styles.pollCreateTitle}>커피 메뉴 추가</Text>
+              <Text style={styles.pollCreateDescription}>투표에 넣을 메뉴를 선택하세요.</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="커피 메뉴 추가 닫기"
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({pressed}) => [styles.pollCreateRemoveOption, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+            </Pressable>
+          </View>
+          {state.status === 'idle' || state.status === 'loading' ? (
+            <Body>커피 메뉴를 불러오고 있어요.</Body>
+          ) : state.status === 'error' ? (
+            <View style={styles.compactBlock}>
+              <AdminInlineError error={state.error} />
+              <Button accessibilityLabel="커피 메뉴 다시 불러오기" onPress={onRetry} variant="secondary">
+                다시 시도
+              </Button>
+            </View>
+          ) : menus.length === 0 ? (
+            <View style={styles.menuSheetEmpty}>
+              <Body>추가할 수 있는 메뉴가 없습니다.</Body>
+              <Button accessibilityLabel="커피 메뉴 다시 불러오기" onPress={onRetry} variant="secondary">
+                새로고침
+              </Button>
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={styles.coffeeMenuScrollContent}
+              style={styles.coffeeMenuList}>
+              {menus.map((menu) => {
+                const added = selectedMenuIds.includes(menu.id);
 
-              return (
-                <Pressable
-                  accessibilityLabel={`${brand.name} 브랜드 메뉴 보기`}
-                  accessibilityRole="button"
-                  accessibilityState={{selected}}
-                  key={brand.id}
-                  onPress={() => onSelectBrand(brand.id)}
-                  style={({pressed}) => [
-                    styles.coffeeBrandChip,
-                    selected ? styles.coffeeBrandChipActive : null,
-                    pressed ? styles.pressed : null,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.coffeeBrandChipText,
-                      selected ? styles.coffeeBrandChipTextActive : null,
+                return (
+                  <Pressable
+                    accessibilityLabel={`${menu.name} 메뉴 ${added ? '추가됨' : '추가'}`}
+                    accessibilityRole="button"
+                    disabled={added}
+                    key={menu.id}
+                    onPress={() => {
+                      onSelectMenu(menu);
+                      onClose();
+                    }}
+                    style={({pressed}) => [
+                      styles.coffeeMenuRow,
+                      added ? styles.coffeeMenuRowAdded : null,
+                      pressed ? styles.pressed : null,
                     ]}>
-                    {brand.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <ScrollView style={styles.coffeeMenuList}>
-            {menus.length === 0 ? <Body>선택할 수 있는 메뉴가 없습니다.</Body> : null}
-            {menus.map((menu) => {
-              const added = selectedMenuIds.includes(menu.id);
-
-              return (
-                <Pressable
-                  accessibilityLabel={`${menu.name} 커피 메뉴 선택`}
-                  accessibilityRole="button"
-                  disabled={added}
-                  key={menu.id}
-                  onPress={() => {
-                    onSelectMenu(menu);
-                    onClose();
-                  }}
-                  style={({pressed}) => [
-                    styles.coffeeMenuRow,
-                    added ? styles.coffeeMenuRowAdded : null,
-                    pressed ? styles.pressed : null,
-                  ]}>
-                  <View style={styles.pollItemText}>
-                    <Text style={styles.pollCreateTypeTitle}>{menu.name}</Text>
-                    <Text style={styles.pollCreateTypeDescription}>
-                      {menu.category} · {formatWon(menu.priceAmount)}
-                    </Text>
-                  </View>
-                  <View style={styles.pollResultPill}>
-                    <Text style={styles.pollResultPillText}>{added ? '추가됨' : '추가'}</Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </>
-      )}
-    </View>
+                    <View style={styles.headerText}>
+                      <Text style={styles.pollCreateTypeTitle}>{menu.name}</Text>
+                      <Text style={styles.pollCreateTypeDescription}>
+                        {getCoffeeCategoryLabel(menu.category)} · {formatWon(menu.priceAmount)}
+                      </Text>
+                    </View>
+                    <View style={styles.pollResultPill}>
+                      <Text style={styles.pollResultPillText}>{added ? '추가됨' : '추가'}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -11124,7 +11117,10 @@ function getOwnedCoffeePaymentAccounts(
       return true;
     }
 
-    return account.ownerUserId === undefined && knownOwnedCoffeeAccountIds.has(account.id);
+    return (
+      (account.ownerUserId === undefined || account.ownerUserId === null) &&
+      knownOwnedCoffeeAccountIds.has(account.id)
+    );
   });
 }
 
@@ -12709,6 +12705,10 @@ const styles = StyleSheet.create({
   coffeeMenuList: {
     maxHeight: 360,
   },
+  coffeeMenuScrollContent: {
+    gap: 10,
+    paddingBottom: 8,
+  },
   coffeeMenuRow: {
     alignItems: 'center',
     borderColor: adminFigmaTokens.borderSoft,
@@ -12729,6 +12729,12 @@ const styles = StyleSheet.create({
   coffeeMenuSheet: {
     maxHeight: '82%',
     width: '100%',
+  },
+  coffeeMenuSheetHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
   },
   coffeeMenuInlineSheet: {
     borderRadius: 24,
@@ -14074,6 +14080,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 24,
     paddingVertical: 20,
+  },
+  menuSheetEmpty: {
+    gap: 10,
   },
   pollTypeList: {
     gap: 14,

@@ -19,6 +19,7 @@ import {
   deactivateCoffeeDutyPaymentAccount,
   FaithLogApiError,
   fetchAdminCampusCharges,
+  fetchAdminPaymentAccounts,
   fetchCoffeeBrands,
   fetchCoffeeMenus,
   fetchMyDutyAssignment,
@@ -174,7 +175,17 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       }
 
       const [accounts, brands] = await Promise.all([
-        fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'}),
+        fetchAdminPaymentAccounts(accessToken, campusId, {
+          accountType: 'COFFEE',
+          includeInactive: true,
+        })
+          .catch((error) => {
+            if (isPaymentAccountListEndpointMissing(error)) {
+              return fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'});
+            }
+
+            throw error;
+          }),
         fetchCoffeeBrands(accessToken),
       ]);
       const nextKnownOwnedCoffeeAccountIds = new Set(
@@ -1709,8 +1720,18 @@ function getOwnedCoffeePaymentAccounts(
       return true;
     }
 
-    return account.ownerUserId === undefined && knownOwnedCoffeeAccountIds.has(account.id);
+    return (
+      (account.ownerUserId === undefined || account.ownerUserId === null) &&
+      knownOwnedCoffeeAccountIds.has(account.id)
+    );
   });
+}
+
+function isPaymentAccountListEndpointMissing(error: unknown) {
+  return (
+    error instanceof FaithLogApiError &&
+    (error.detail.status === 404 || error.detail.status === 501)
+  );
 }
 
 async function resolveCoffeeDutyAssignment(
