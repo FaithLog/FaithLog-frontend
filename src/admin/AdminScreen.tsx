@@ -1018,21 +1018,6 @@ export function AdminScreen({
     setNotificationLogFilters((current) => ({...current, [key]: value, page: 0}));
   };
 
-  const openNotificationLogsForRequest = (requestId: string) => {
-    const filters = {
-      ...emptyNotificationLogFilters,
-      requestId,
-      page: 0,
-    };
-
-    setSelectedMemberId(null);
-    setSelectedNotificationLogId(null);
-    setNotificationSection('logs');
-    setNotificationLogFilters(filters);
-    setTab('notificationLogs');
-    void loadNotificationLogs(filters);
-  };
-
   const changeNotificationLogPage = (direction: -1 | 1) => {
     const currentPage =
       notificationLogState.status === 'success' || notificationLogState.status === 'empty'
@@ -2290,7 +2275,6 @@ export function AdminScreen({
           onChangeWeek={changeMissingWeek}
           onEditPrayerGroup={editPrayerGroup}
           onOpenNotificationConfirm={openNotificationConfirm}
-          onOpenNotificationLogs={openNotificationLogsForRequest}
           onOpenPrayerCloseSeason={openPrayerSeasonCloseConfirm}
           onRetryMissing={loadMissingDevotions}
           onRetryPrayer={loadPrayerBoard}
@@ -2341,7 +2325,6 @@ export function AdminScreen({
             void loadNotificationLogs(emptyNotificationLogFilters);
           }}
           onOpenConfirm={() => void openManualNotificationConfirm()}
-          onOpenResultLogs={openNotificationLogsForRequest}
           onRetry={() => void loadNotificationLogs()}
           onSearch={() => {
             const nextFilters = {...notificationLogFilters, page: 0};
@@ -2412,7 +2395,6 @@ export function AdminScreen({
             void openChargeReminderConfirm(paymentCategory)
           }
           onOpenMemberCharges={openMemberCharges}
-          onOpenNotificationLogs={openNotificationLogsForRequest}
           onRequestDeletePaymentAccount={setPaymentAccountDeleteTarget}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
           onSelectPaymentAccount={setSelectedPaymentAccount}
@@ -2484,6 +2466,10 @@ export function AdminScreen({
         onConfirm={confirmNotificationSend}
         state={notificationState}
         weekStartDate={weekStartDate}
+      />
+      <NotificationSentSheet
+        onClose={() => setNotificationState({status: 'idle'})}
+        state={notificationState}
       />
       <ChargeStatusConfirmSheet
         error={actionError}
@@ -6020,7 +6006,6 @@ function AdminDevotionPage({
   onChangeWeek,
   onEditPrayerGroup,
   onOpenNotificationConfirm,
-  onOpenNotificationLogs,
   onOpenPrayerCloseSeason,
   onRetryMissing,
   onRetryPrayer,
@@ -6046,7 +6031,6 @@ function AdminDevotionPage({
   onChangeWeek: (direction: -1 | 1) => void;
   onEditPrayerGroup: (group: AdminPrayerGroup | PrayerWeekSummary['groups'][number]) => void;
   onOpenNotificationConfirm: (targets: AdminMissingDevotionMember[]) => void;
-  onOpenNotificationLogs: (requestId: string) => void;
   onOpenPrayerCloseSeason: (seasonId?: string) => void;
   onRetryMissing: () => void;
   onRetryPrayer: () => void;
@@ -6076,7 +6060,6 @@ function AdminDevotionPage({
           notificationState={notificationSendState}
           onChangeWeek={onChangeWeek}
           onOpenNotificationConfirm={onOpenNotificationConfirm}
-          onOpenNotificationLogs={onOpenNotificationLogs}
           onRetry={onRetryMissing}
           summary={summary}
           weekStartDate={weekStartDate}
@@ -6111,7 +6094,6 @@ function AdminDevotionMissing({
   notificationState,
   onChangeWeek,
   onOpenNotificationConfirm,
-  onOpenNotificationLogs,
   onRetry,
   summary,
   weekStartDate,
@@ -6120,7 +6102,6 @@ function AdminDevotionMissing({
   notificationState: NotificationSendState;
   onChangeWeek: (direction: -1 | 1) => void;
   onOpenNotificationConfirm: (targets: AdminMissingDevotionMember[]) => void;
-  onOpenNotificationLogs: (requestId: string) => void;
   onRetry: () => void;
   summary: AdminDashboardSummary;
   weekStartDate: string;
@@ -6178,7 +6159,7 @@ function AdminDevotionMissing({
         onRetry,
         weekStartDate,
       })}
-      {renderNotificationResult(notificationState, onOpenNotificationLogs)}
+      {renderNotificationResult(notificationState)}
     </>
   );
 }
@@ -6261,7 +6242,6 @@ function AdminNotificationCenter({
   onChangeSendForm,
   onClearFilters,
   onOpenConfirm,
-  onOpenResultLogs,
   onRetry,
   onSearch,
   onSelectLog,
@@ -6284,7 +6264,6 @@ function AdminNotificationCenter({
   onChangeSendForm: (patch: Partial<AdminNotificationSendForm>) => void;
   onClearFilters: () => void;
   onOpenConfirm: () => void;
-  onOpenResultLogs: (requestId: string) => void;
   onRetry: () => void;
   onSearch: () => void;
   onSelectLog: (logId: number | null) => void;
@@ -6300,7 +6279,7 @@ function AdminNotificationCenter({
       <Card>
         <Eyebrow>알림</Eyebrow>
         <Title>관리자 알림</Title>
-        <Body>대상을 고르고 발송한 뒤 로그에서 성공, 실패, 제외 상태를 확인합니다.</Body>
+        <Body>대상을 고르고 발송하면 완료 창에서 결과를 바로 확인합니다.</Body>
         <FigmaSegmentedControl
           items={notificationSections}
           selectedId={section}
@@ -6313,7 +6292,6 @@ function AdminNotificationCenter({
           members={members}
           onChangeForm={onChangeSendForm}
           onOpenConfirm={onOpenConfirm}
-          onOpenResultLogs={onOpenResultLogs}
           onToggleTarget={onToggleTarget}
           sendState={sendState}
           weekStartDate={weekStartDate}
@@ -6340,7 +6318,6 @@ function AdminNotificationSendForm({
   members,
   onChangeForm,
   onOpenConfirm,
-  onOpenResultLogs,
   onToggleTarget,
   sendState,
   weekStartDate,
@@ -6349,7 +6326,6 @@ function AdminNotificationSendForm({
   members: AdminCampusMember[];
   onChangeForm: (patch: Partial<AdminNotificationSendForm>) => void;
   onOpenConfirm: () => void;
-  onOpenResultLogs: (requestId: string) => void;
   onToggleTarget: (userId: number) => void;
   sendState: NotificationSendState;
   weekStartDate: string;
@@ -6434,7 +6410,7 @@ function AdminNotificationSendForm({
           {disabled ? '발송 중...' : '발송'}
         </Button>
       </Card>
-      {renderNotificationResult(sendState, onOpenResultLogs)}
+      {renderNotificationResult(sendState)}
     </>
   );
 }
@@ -6589,7 +6565,7 @@ function AdminNotificationSendResultSummary({
       <Body>
         {filters.requestId.trim()
           ? '발송 요청 묶음의 현재 페이지 결과입니다.'
-          : '발송 결과의 로그 보기에서 요청 묶음별 결과를 확인할 수 있습니다.'}
+          : '필터 조건에 맞는 발송 이력을 확인합니다.'}
       </Body>
       <View style={styles.metricGrid}>
         <Metric label="SENT" value={`${counts.SENT}건`} />
@@ -6763,7 +6739,6 @@ function AdminNotificationLogDetail({
 
 function renderNotificationResult(
   notificationState: NotificationSendState,
-  onOpenNotificationLogs: (requestId: string) => void,
 ) {
   switch (notificationState.status) {
     case 'idle':
@@ -6772,25 +6747,7 @@ function renderNotificationResult(
     case 'sending':
       return <Loading message="알림을 보내고 있어요. 잠시만 기다려주세요." />;
     case 'sent':
-      return (
-        <Card>
-          <Eyebrow>발송 요청 완료</Eyebrow>
-          <Title>알림을 보냈어요</Title>
-          <Body>
-            대상 {notificationState.targetCount}명 중 {notificationState.result.queuedCount}명에게 발송을 요청했습니다.
-          </Body>
-          <View style={styles.metricGrid}>
-            <Metric label="확인 대상" value={`${notificationState.targetCount}명`} />
-            <Metric label="큐잉" value={`${notificationState.result.queuedCount}명`} />
-            <Metric label="스킵" value={`${notificationState.result.skippedCount}명`} />
-          </View>
-          <Button
-            accessibilityLabel="발송 요청 묶음으로 알림 로그 보기"
-            onPress={() => onOpenNotificationLogs(notificationState.result.notificationRequestId)}>
-            로그 보기
-          </Button>
-        </Card>
-      );
+      return null;
     case 'failed':
       return (
         <Card>
@@ -7861,7 +7818,6 @@ function AdminSettlement({
   onEditPenaltyRule,
   onOpenChargeReminderConfirm,
   onOpenMemberCharges,
-  onOpenNotificationLogs,
   onRequestDeletePaymentAccount,
   onRequestDeactivatePaymentAccount,
   onRequestStatusChange,
@@ -7902,7 +7858,6 @@ function AdminSettlement({
   onEditPenaltyRule: (rule: PenaltyRule) => void;
   onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
-  onOpenNotificationLogs: (requestId: string) => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
@@ -7955,7 +7910,6 @@ function AdminSettlement({
           onBlockedPaid={onBlockedPaid}
           onOpenChargeReminderConfirm={onOpenChargeReminderConfirm}
           onOpenMemberCharges={onOpenMemberCharges}
-          onOpenNotificationLogs={onOpenNotificationLogs}
           onRequestStatusChange={onRequestStatusChange}
           onResetFilters={onResetFilters}
           onRetryDetail={onRetryDetail}
@@ -8009,7 +7963,6 @@ function AdminChargeSettlement({
   onBlockedPaid,
   onOpenChargeReminderConfirm,
   onOpenMemberCharges,
-  onOpenNotificationLogs,
   onRequestStatusChange,
   onResetFilters,
   onRetryDetail,
@@ -8026,7 +7979,6 @@ function AdminChargeSettlement({
   onBlockedPaid: (charge: ChargeItem) => void;
   onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
-  onOpenNotificationLogs: (requestId: string) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
   onResetFilters: () => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
@@ -8118,7 +8070,7 @@ function AdminChargeSettlement({
         </View>
       </View>
       {isChargeReminderNotificationState(notificationState)
-        ? renderNotificationResult(notificationState, onOpenNotificationLogs)
+        ? renderNotificationResult(notificationState)
         : null}
       {renderSettlementSummary({
         onOpenMemberCharges,
@@ -9878,6 +9830,53 @@ function NotificationConfirmSheet({
               취소
             </Button>
           </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function NotificationSentSheet({
+  onClose,
+  state,
+}: {
+  onClose: () => void;
+  state: NotificationSendState;
+}) {
+  const visible = state.status === 'sent';
+  const targetCount = state.status === 'sent' ? state.targetCount : 0;
+  const queuedCount = state.status === 'sent' ? state.result.queuedCount : 0;
+  const skippedCount = state.status === 'sent' ? state.result.skippedCount : 0;
+  const sourceLabel = state.status === 'sent' ? state.draft.sourceLabel : '알림';
+
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <View style={styles.notificationSentSheet}>
+          <View style={styles.notificationSentIcon}>
+            <IconexIcon color={adminFigmaTokens.primary} name="bell" size={24} strokeWidth={1.8} />
+          </View>
+          <Eyebrow>알림 발송</Eyebrow>
+          <Title>알림을 보냈어요</Title>
+          <Body>
+            {sourceLabel} 대상 {targetCount}명 중 {queuedCount}명에게 발송 요청을 완료했습니다.
+          </Body>
+          {skippedCount > 0 ? (
+            <AdminInlineError
+              error={{
+                kind: 'conflict',
+                message: `${skippedCount}명은 알림 수신 정보가 없어 제외되었습니다.`,
+              }}
+            />
+          ) : null}
+          <View style={styles.metricGrid}>
+            <Metric label="대상" value={`${targetCount}명`} />
+            <Metric label="요청" value={`${queuedCount}명`} />
+            <Metric label="제외" value={`${skippedCount}명`} />
+          </View>
+          <Button accessibilityLabel="알림 발송 완료 모달 닫기" onPress={onClose}>
+            확인
+          </Button>
         </View>
       </View>
     </Modal>
@@ -14177,6 +14176,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.textMuted,
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  notificationSentIcon: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 18,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  notificationSentSheet: {
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    gap: 14,
+    marginHorizontal: 24,
+    maxWidth: 360,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    width: '100%',
   },
   sectionTitle: {
     color: adminFigmaTokens.textPrimary,

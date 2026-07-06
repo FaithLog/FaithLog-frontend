@@ -36,6 +36,8 @@ import type {
   CoffeeBrand,
   CoffeeMenu,
   CurrentUser,
+  DeleteAccountRequest,
+  DeleteAccountResponse,
   DevotionDailyCheckRequest,
   DevotionDailyCheckSaveResponse,
   DutyAssignment,
@@ -1242,6 +1244,15 @@ export function logoutUser(accessToken: string, body: LogoutRequest) {
   return apiRequest<null>('/api/v1/auth/logout', {
     accessToken,
     method: 'POST',
+    body,
+  });
+}
+
+export function deleteMyAccount(accessToken: string, body: DeleteAccountRequest) {
+  return apiRequest<DeleteAccountResponse>('/api/v1/users/me', {
+    accessToken,
+    exposeServerErrorMessage: true,
+    method: 'DELETE',
     body,
   });
 }

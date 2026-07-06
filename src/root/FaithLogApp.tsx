@@ -19,6 +19,7 @@ import {
 
 import {
   createCampus,
+  deleteMyAccount,
   FaithLogApiError,
   fetchCampusDetail,
   fetchChargeSummary,
@@ -127,6 +128,7 @@ const initialState: AuthGateState = {
   status: 'loading',
   message: '저장된 세션을 확인하고 있어요.',
 };
+const ACCOUNT_DELETE_CONFIRM_TEXT = '회원탈퇴';
 
 type EntryTarget =
   | 'login'
@@ -337,7 +339,8 @@ export function FaithLogApp() {
       />
       <RootContainer style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior="padding"
+          enabled={Platform.OS === 'ios'}
           keyboardVerticalOffset={0}
           style={styles.keyboardRoot}>
           {publicAuthMode ? (
@@ -1562,7 +1565,9 @@ function AuthenticatedShell({
   setRoute: (route: ShellRoute) => void;
 }) {
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
-  const [profileView, setProfileView] = useState<'coffee' | 'main' | 'notifications'>('main');
+  const [profileView, setProfileView] = useState<
+    'accountDeletion' | 'coffee' | 'main' | 'notifications'
+  >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
@@ -2075,6 +2080,7 @@ function AuthenticatedShell({
             onLogoutPress={() => setLogoutConfirmVisible(true)}
             onInviteCodePress={() => openEntryTarget('inviteCode')}
             onOpenAdminMode={openAdminMode}
+            onOpenAccountDeletion={() => setProfileView('accountDeletion')}
             onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenNotifications={() => setProfileView('notifications')}
             profileView={profileView}
@@ -3329,6 +3335,7 @@ function ProfileScreen({
   onInviteCodePress,
   onCampusSwitchPress,
   onLogoutPress,
+  onOpenAccountDeletion,
   onOpenAdminMode,
   onOpenCoffeeDuty,
   onOpenNotifications,
@@ -3342,13 +3349,24 @@ function ProfileScreen({
   onInviteCodePress: () => void;
   onCampusSwitchPress: () => void;
   onLogoutPress: () => void;
+  onOpenAccountDeletion: () => void;
   onOpenAdminMode: () => void;
   onOpenCoffeeDuty: () => void;
   onOpenNotifications: () => void;
-  profileView: 'coffee' | 'main' | 'notifications';
+  profileView: 'accountDeletion' | 'coffee' | 'main' | 'notifications';
   setAuthState: (state: AuthGateState) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
+  if (profileView === 'accountDeletion') {
+    return (
+      <AccountDeletionScreen
+        onBack={onBackToProfile}
+        setAuthState={setAuthState}
+        state={state}
+      />
+    );
+  }
+
   if (profileView === 'notifications') {
     return (
       <View style={styles.userFrame}>
@@ -3484,9 +3502,238 @@ function ProfileScreen({
           subtitle="현재 기기에서 세션 종료"
           title="로그아웃"
         />
+        <ProfileActionRow
+          actionLabel="탈퇴"
+          actionTone="danger"
+          icon="user"
+          onPress={onOpenAccountDeletion}
+          subtitle="계정 삭제와 개인정보 익명화 요청"
+          title="회원 탈퇴"
+        />
       </View>
     </View>
   );
+}
+
+function AccountDeletionScreen({
+  onBack,
+  setAuthState,
+  state,
+}: {
+  onBack: () => void;
+  setAuthState: (state: AuthGateState) => void;
+  state: Extract<AuthGateState, {status: 'authenticated'}>;
+}) {
+  const [password, setPassword] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const canDelete = password.length > 0 && confirmText === ACCOUNT_DELETE_CONFIRM_TEXT && !busy;
+
+  const openConfirm = () => {
+    if (!canDelete) {
+      setError(
+        confirmText === ACCOUNT_DELETE_CONFIRM_TEXT
+          ? '현재 비밀번호를 입력해 주세요.'
+          : '확인 문구가 일치하지 않습니다.',
+      );
+      return;
+    }
+
+    Keyboard.dismiss();
+    setError(null);
+    setConfirmVisible(true);
+  };
+
+  const submitDelete = async () => {
+    if (busy || !canDelete) {
+      return;
+    }
+
+    let shouldResetBusy = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const {accessToken} = await getStoredTokens();
+
+      if (!accessToken) {
+        await clearTokens();
+        shouldResetBusy = false;
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
+        return;
+      }
+
+      await deleteMyAccount(accessToken, {
+        password,
+        confirmText,
+      });
+      await clearTokens();
+      setConfirmVisible(false);
+      shouldResetBusy = false;
+      setAuthState({status: 'signedOut'});
+    } catch (deleteError) {
+      const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
+
+      if (apiError.kind === 'sessionExpired') {
+        await clearTokens();
+        setConfirmVisible(false);
+        shouldResetBusy = false;
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+        return;
+      }
+
+      setError(getAccountDeletionErrorMessage(apiError));
+      setConfirmVisible(false);
+    } finally {
+      if (shouldResetBusy) {
+        setBusy(false);
+      }
+    }
+  };
+
+  return (
+    <View style={styles.userFrame}>
+      <View style={styles.figmaHeader}>
+        <FaithLogHeaderTopRow
+          campusLabel={state.selectedCampus.campusName}
+          contextLabel={`${state.user.name}님`}>
+          <FaithLogHeaderPillButton
+            accessibilityLabel="내정보 화면으로 돌아가기"
+            label="뒤로"
+            onPress={onBack}
+          />
+        </FaithLogHeaderTopRow>
+        <Text style={styles.figmaTitle}>회원 탈퇴</Text>
+      </View>
+
+      <View style={styles.accountDeletionCard}>
+        <View style={styles.accountDeletionHeader}>
+          <View style={styles.accountDeletionIcon}>
+            <IconexIcon color={colors.danger} name="user" size={22} strokeWidth={1.7} />
+          </View>
+          <View style={styles.accountDeletionHeaderText}>
+            <Text style={styles.accountDeletionTitle}>계정을 삭제하기 전에 확인해 주세요</Text>
+            <Text style={styles.accountDeletionBody}>
+              탈퇴가 완료되면 이 계정으로 다시 로그인할 수 없습니다.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.accountDeletionList}>
+          <AccountDeletionNotice text="캠퍼스 소속 정보는 비활성화됩니다." />
+          <AccountDeletionNotice text="작성 기록은 서비스 운영상 보존될 수 있습니다." />
+          <AccountDeletionNotice text="보존되는 기록의 개인정보는 탈퇴한 사용자로 익명화됩니다." />
+        </View>
+      </View>
+
+      <View style={styles.accountDeletionForm}>
+        <TextField
+          accessibilityLabel="회원 탈퇴 현재 비밀번호 입력"
+          label="현재 비밀번호"
+          onChangeText={(value) => {
+            setPassword(value);
+            setError(null);
+          }}
+          onSubmitEditing={openConfirm}
+          placeholder="현재 비밀번호"
+          returnKeyType="next"
+          secureTextEntry
+          textContentType="password"
+          value={password}
+        />
+        <TextField
+          accessibilityLabel="회원 탈퇴 확인 문구 입력"
+          autoCapitalize="none"
+          error={
+            confirmText.length > 0 && confirmText !== ACCOUNT_DELETE_CONFIRM_TEXT
+              ? '확인 문구가 일치하지 않습니다.'
+              : undefined
+          }
+          helper={`계속하려면 ${ACCOUNT_DELETE_CONFIRM_TEXT}를 정확히 입력해 주세요.`}
+          label="확인 문구"
+          onChangeText={(value) => {
+            setConfirmText(value);
+            setError(null);
+          }}
+          onSubmitEditing={openConfirm}
+          placeholder={ACCOUNT_DELETE_CONFIRM_TEXT}
+          returnKeyType="done"
+          textContentType="none"
+          value={confirmText}
+        />
+        {error ? <InlineError message={error} /> : null}
+        <View style={styles.accountDeletionActions}>
+          <Button
+            accessibilityLabel="회원 탈퇴 취소 후 내정보로 돌아가기"
+            disabled={busy}
+            onPress={onBack}
+            variant="secondary">
+            취소
+          </Button>
+          <Button
+            accessibilityLabel="회원 탈퇴 확인 단계 열기"
+            disabled={!canDelete}
+            onPress={openConfirm}
+            variant="danger">
+            회원 탈퇴
+          </Button>
+        </View>
+      </View>
+
+      <DangerConfirmSheet
+        accessibilityLabel="회원 탈퇴 최종 확인"
+        cancelAccessibilityLabel="회원 탈퇴 취소"
+        confirmAccessibilityLabel="회원 탈퇴 실행"
+        confirmLabel="탈퇴하기"
+        dangerSummary="탈퇴 후에는 이 계정으로 로그인할 수 없으며, 기기의 로그인 정보도 삭제됩니다."
+        failureMessage={error}
+        loading={busy}
+        loadingLabel="탈퇴 처리 중..."
+        message="계정 삭제 요청을 완료하면 캠퍼스 소속이 비활성화되고 개인정보가 익명화됩니다."
+        onCancel={() => {
+          if (!busy) {
+            setConfirmVisible(false);
+          }
+        }}
+        onConfirm={submitDelete}
+        title="정말 회원 탈퇴할까요?"
+        visible={confirmVisible}
+      />
+    </View>
+  );
+}
+
+function AccountDeletionNotice({text}: {text: string}) {
+  return (
+    <View style={styles.accountDeletionNotice}>
+      <View style={styles.accountDeletionBullet} />
+      <Text style={styles.accountDeletionNoticeText}>{text}</Text>
+    </View>
+  );
+}
+
+function getAccountDeletionErrorMessage(error: ApiError) {
+  if (error.code === 'USER_DELETE_PASSWORD_MISMATCH') {
+    return '비밀번호가 일치하지 않습니다.';
+  }
+
+  if (error.code === 'USER_DELETE_CONFIRM_TEXT_INVALID') {
+    return '확인 문구가 일치하지 않습니다.';
+  }
+
+  if (error.code === 'USER_ALREADY_DELETED') {
+    return '이미 탈퇴한 계정입니다.';
+  }
+
+  return getApiErrorPresentation(error, {
+    conflictMessage: '이미 처리된 계정 상태입니다. 다시 로그인해 확인해 주세요.',
+    defaultMessage: '회원 탈퇴를 완료하지 못했습니다.',
+    permissionMessage: '회원 탈퇴 권한을 확인하지 못했습니다. 다시 로그인해 주세요.',
+  }).message;
 }
 
 function CoffeeDutyProfileRow({
@@ -4739,6 +4986,78 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 32,
     textAlign: 'center',
+  },
+  accountDeletionActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  accountDeletionBody: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    fontWeight: '400',
+    lineHeight: 22,
+  },
+  accountDeletionBullet: {
+    backgroundColor: colors.danger,
+    borderRadius: 999,
+    flexShrink: 0,
+    height: 6,
+    marginTop: 8,
+    width: 6,
+  },
+  accountDeletionCard: {
+    backgroundColor: authColors.input,
+    borderRadius: 24,
+    gap: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+  },
+  accountDeletionForm: {
+    backgroundColor: authColors.input,
+    borderRadius: 24,
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+  },
+  accountDeletionHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 14,
+  },
+  accountDeletionHeaderText: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  accountDeletionIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.dangerSoft,
+    borderRadius: 14,
+    flexShrink: 0,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  accountDeletionList: {
+    gap: 10,
+  },
+  accountDeletionNotice: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  accountDeletionNoticeText: {
+    color: colors.textSecondary,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 22,
+  },
+  accountDeletionTitle: {
+    color: authColors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 24,
   },
   profileActionButton: {
     alignItems: 'center',

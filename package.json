@@ -25,6 +25,7 @@
     }
   },
   "dependencies": {
+    "@expo/metro-runtime": "^56.0.16",
     "@react-native-firebase/app": "^25.1.0",
     "@react-native-firebase/messaging": "^25.1.0",
     "expo": "~56.0.14",

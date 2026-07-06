@@ -128,6 +128,9 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
   if (route.method === 'POST' && path === '/auth/refresh') return auth.tokenPair;
   if (route.method === 'POST' && path === '/auth/logout') return null;
   if (route.method === 'GET' && path === '/users/me') return auth.currentUser;
+  if (route.method === 'DELETE' && path === '/users/me') {
+    return {deletedAt: '2026-07-06T12:00:00'};
+  }
   if (route.method === 'POST' && path === '/users/me/fcm-tokens') {
     return notification.fcmRegistration;
   }

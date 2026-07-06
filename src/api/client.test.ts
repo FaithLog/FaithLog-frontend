@@ -11,6 +11,7 @@ import {
   buildApiUrl,
   createAdminPaymentAccount,
   createCoffeeDutyPaymentAccount,
+  deleteMyAccount,
   FaithLogApiError,
   fetchAdminCampusCharges,
   fetchAdminCampusChargesForMyAccounts,
@@ -97,6 +98,35 @@ describe('FaithLog API client', () => {
         method: 'GET',
       }),
     );
+  });
+
+  it('deletes the current account with password and confirmation text', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, envelope({deletedAt: '2026-07-06T12:00:00'})),
+    );
+
+    const data = await deleteMyAccount('access-token', {
+      password: 'FaithLog!100047',
+      confirmText: '회원탈퇴',
+    });
+
+    expect(data).toEqual({deletedAt: '2026-07-06T12:00:00'});
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.faithlog.test/root/api/v1/users/me',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json',
+        }),
+        method: 'DELETE',
+      }),
+    );
+    const [, requestInit] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse(String((requestInit as RequestInit).body))).toEqual({
+      password: 'FaithLog!100047',
+      confirmText: '회원탈퇴',
+    });
   });
 
   it('requests poll list with a large page size and unwraps paged content', async () => {

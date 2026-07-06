@@ -57,6 +57,15 @@ export type LogoutRequest = {
   fcmToken?: string;
 };
 
+export type DeleteAccountRequest = {
+  password: string;
+  confirmText: string;
+};
+
+export type DeleteAccountResponse = {
+  deletedAt: string;
+};
+
 export type FcmDeviceType = 'ANDROID' | 'IOS' | 'WEB';
 
 export type FcmTokenRegisterRequest = {
