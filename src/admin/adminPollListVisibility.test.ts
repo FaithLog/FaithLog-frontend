@@ -65,9 +65,11 @@ describe('admin poll list visibility', () => {
     );
 
     const result = getAdminPollsForStatusTab(polls, 'ongoing', now, 12);
+    const firstPoll = result[0];
 
     expect(result).toHaveLength(10);
-    expect(result[0].id).toBe(12);
+    expect(firstPoll).toBeDefined();
+    expect(firstPoll?.id).toBe(12);
     expect(result.some((item) => item.id === 11)).toBe(false);
   });
 });

@@ -1654,11 +1654,12 @@ function normalizePollDetail(value: unknown): PollDetail {
   const source = getNestedRecord(value, 'poll') ?? getRecordPayload(value);
   const summary = normalizePollSummary(source);
   const optionsSource = source.options ?? getRecordPayload(value).options;
+  const allowUserOptionAdd = toOptionalBoolean(source.allowUserOptionAdd);
 
   return {
     ...source,
     ...summary,
-    allowUserOptionAdd: toOptionalBoolean(source.allowUserOptionAdd),
+    ...(allowUserOptionAdd === undefined ? {} : {allowUserOptionAdd}),
     chargeGenerationType: toOptionalString(source.chargeGenerationType) ?? 'NONE',
     paymentAccountId: toOptionalNumber(source.paymentAccountId),
     paymentCategory: toOptionalString(source.paymentCategory),
@@ -1764,13 +1765,14 @@ export function fetchPollComments(accessToken: string, campusId: unknown, pollId
 
 function normalizePollSummary(value: unknown): PollSummary {
   const source = getRecordPayload(value);
+  const allowUserOptionAdd = toOptionalBoolean(source.allowUserOptionAdd);
 
   return {
     ...(source as PollSummary),
     campusId: toRequiredNumber(source.campusId, 'campusId'),
     id: toRequiredNumber(source.id ?? source.pollId, 'pollId'),
     isAnonymous: Boolean(source.isAnonymous ?? source.anonymous),
-    allowUserOptionAdd: toOptionalBoolean(source.allowUserOptionAdd),
+    ...(allowUserOptionAdd === undefined ? {} : {allowUserOptionAdd}),
     endsAt: toRequiredDateString(
       source.endsAt ??
         source.endAt ??
@@ -1804,6 +1806,7 @@ function normalizePollOptions(value: unknown): PollOption[] {
 
 function normalizePollOption(value: unknown, index: number): PollOption {
   const source = getRecordPayload(value);
+  const userAdded = toOptionalBoolean(source.userAdded);
 
   return {
     ...(source as PollOption),
@@ -1816,7 +1819,7 @@ function normalizePollOption(value: unknown, index: number): PollOption {
       `선택지 ${index + 1}`,
     priceAmount: toOptionalNumber(source.priceAmount ?? source.price ?? source.amount) ?? 0,
     sortOrder: toOptionalNumber(source.sortOrder ?? source.order) ?? index + 1,
-    userAdded: toOptionalBoolean(source.userAdded),
+    ...(userAdded === undefined ? {} : {userAdded}),
   };
 }
 

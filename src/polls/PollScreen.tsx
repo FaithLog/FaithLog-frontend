@@ -302,7 +302,7 @@ export function PollScreen({
         accessToken,
         campusId,
         content: trimmed,
-        menuId: optionMenuId,
+        ...(optionMenuId === undefined ? {} : {menuId: optionMenuId}),
         pollId: activeDetail.id,
       });
       setOptionAddContent('');
