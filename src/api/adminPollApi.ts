@@ -14,7 +14,6 @@ import type {
   PollComment,
   PollOption,
   PollResults,
-  PollSummary,
 } from './types';
 
 export type AdminPollType = 'CUSTOM' | 'COFFEE' | 'WEDNESDAY' | 'SATURDAY';
