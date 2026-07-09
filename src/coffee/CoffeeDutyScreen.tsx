@@ -1,6 +1,8 @@
 import {useEffect, useMemo, useState} from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -397,7 +399,10 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   };
 
   return (
-    <View style={styles.frame}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={16}
+      style={styles.frame}>
       <View style={styles.header}>
         <FaithLogHeaderTopRow
           campusLabel={state.selectedCampus.campusName}
@@ -486,7 +491,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
           ) : null}
         </ScrollView>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
