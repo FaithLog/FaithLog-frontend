@@ -94,7 +94,6 @@ import {
 import {
   getAndroidBottomNavInset,
   getAndroidShellContentBottomPadding,
-  getAndroidShellKeyboardBottomPadding,
   getAndroidTopSafeInset,
 } from '../navigation/shellLayout';
 import {DevotionScreen} from '../devotion/DevotionScreen';
@@ -340,7 +339,7 @@ export function FaithLogApp() {
       <RootContainer style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          enabled
+          enabled={Platform.OS === 'ios'}
           keyboardVerticalOffset={0}
           style={styles.keyboardRoot}>
           {publicAuthMode ? (
@@ -4052,7 +4051,6 @@ const authColors = {
 const androidTopSafeInset = getAndroidTopSafeInset();
 const androidBottomNavInset = getAndroidBottomNavInset();
 const androidShellContentBottomPadding = getAndroidShellContentBottomPadding();
-const androidShellKeyboardBottomPadding = getAndroidShellKeyboardBottomPadding();
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -4500,8 +4498,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'android' ? androidShellContentBottomPadding : 0,
   },
   shellContentKeyboardOpen: {
-    paddingBottom:
-      Platform.OS === 'android' ? androidShellKeyboardBottomPadding : spacing.bottomSafe + 96,
+    paddingBottom: Platform.OS === 'ios' ? spacing.bottomSafe + 96 : androidShellContentBottomPadding,
   },
   bottomNavFrame: {
     flexShrink: 0,
