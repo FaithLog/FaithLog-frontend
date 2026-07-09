@@ -18,7 +18,7 @@ import {
   createCoffeeDutyPaymentAccount,
   deactivateCoffeeDutyPaymentAccount,
   FaithLogApiError,
-  fetchAdminCampusCharges,
+  fetchAdminCampusChargesForMyAccounts,
   fetchAdminPaymentAccounts,
   fetchCoffeeBrands,
   fetchCoffeeMenus,
@@ -437,7 +437,9 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <CoffeeDutyPageNav page={page} onSelectPage={setPage} />
-          {page === 'summary' ? <CoffeeSettlementSummary state={loadState} /> : null}
+          {page === 'summary' ? (
+            <CoffeeSettlementSummary onRefresh={() => void load()} state={loadState} />
+          ) : null}
           {page === 'accounts' ? (
             <CoffeeAccountManagement
               deleteState={accountDeleteState}
@@ -477,6 +479,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
             <CoffeePollManagement
               campusId={campusId}
               focusPollId={createdPollId}
+              onRefreshSettlement={() => load()}
               refreshKey={pollRefreshKey}
               setAuthState={setAuthState}
             />
@@ -487,7 +490,13 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   );
 }
 
-function CoffeeSettlementSummary({state}: {state: Extract<CoffeeDutyLoadState, {status: 'ready'}>}) {
+function CoffeeSettlementSummary({
+  onRefresh,
+  state,
+}: {
+  onRefresh: () => void;
+  state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
+}) {
   const charges = state.charges;
   const unpaidAmount = charges?.summary.unpaidAmount ?? 0;
   const memberCount = charges?.members.filter((member) => member.unpaidAmount > 0).length ?? 0;
@@ -499,8 +508,17 @@ function CoffeeSettlementSummary({state}: {state: Extract<CoffeeDutyLoadState, {
           <Text style={styles.kicker}>커피 정산</Text>
           <Text style={styles.summaryTitle}>{formatWon(unpaidAmount)}</Text>
         </View>
-        <View style={styles.summaryIcon}>
-          <IconexIcon color={colors.primary} name="coins" size={24} strokeWidth={1.8} />
+        <View style={styles.summaryActions}>
+          <Pressable
+            accessibilityLabel="커피 정산 새로고침"
+            accessibilityRole="button"
+            onPress={onRefresh}
+            style={({pressed}) => [styles.softButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.softButtonText}>새로고침</Text>
+          </Pressable>
+          <View style={styles.summaryIcon}>
+            <IconexIcon color={colors.primary} name="coins" size={24} strokeWidth={1.8} />
+          </View>
         </View>
       </View>
       <Text style={styles.summaryBody}>
@@ -1300,11 +1318,13 @@ function TimeStepper({
 function CoffeePollManagement({
   campusId,
   focusPollId,
+  onRefreshSettlement,
   refreshKey,
   setAuthState,
 }: {
   campusId: number;
   focusPollId: number | null;
+  onRefreshSettlement: () => Promise<void>;
   refreshKey: number;
   setAuthState: (state: AuthGateState) => void;
 }) {
@@ -1387,6 +1407,7 @@ function CoffeePollManagement({
         ...target,
         status: closed.status,
       });
+      await onRefreshSettlement();
     } catch (error) {
       if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
         setAuthState({status: 'sessionExpired', message: error.detail.message});
@@ -1682,28 +1703,16 @@ async function fetchCoffeeChargeSummary(
   campusId: number,
   paymentAccountId: number | null,
 ) {
-  try {
-    return await fetchAdminCampusCharges(accessToken, campusId, {
-      paymentCategory: 'COFFEE',
-      ...(paymentAccountId === null ? {} : {paymentAccountId}),
-      size: 10,
-      status: 'ALL',
-    });
-  } catch {
-    if (paymentAccountId === null) {
-      return null;
-    }
-
-    try {
-      return await fetchAdminCampusCharges(accessToken, campusId, {
-        paymentCategory: 'COFFEE',
-        size: 10,
-        status: 'ALL',
-      });
-    } catch {
-      return null;
-    }
+  if (paymentAccountId === null) {
+    return null;
   }
+
+  return fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
+    paymentAccountId,
+    paymentCategory: 'COFFEE',
+    size: 10,
+    status: 'ALL',
+  });
 }
 
 function getOwnedCoffeePaymentAccounts(
@@ -2672,7 +2681,13 @@ const styles = StyleSheet.create({
   summaryHeader: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: space.md,
     justifyContent: 'space-between',
+  },
+  summaryActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: space.sm,
   },
   summaryIcon: {
     alignItems: 'center',
