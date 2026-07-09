@@ -400,7 +400,8 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior="padding"
+      enabled={Platform.OS === 'ios'}
       keyboardVerticalOffset={16}
       style={styles.frame}>
       <View style={styles.header}>

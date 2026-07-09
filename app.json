@@ -20,11 +20,13 @@
     },
     "android": {
       "package": "com.faithlog.app",
+      "icon": "./assets/icon-android.png",
+      "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/icon-android.png",
         "backgroundColor": "#FFFFFF"
       }
     },

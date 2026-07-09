@@ -340,8 +340,8 @@ export function FaithLogApp() {
           publicAuthMode ? styles.authSafeArea : null,
         ]}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          enabled
+          behavior="padding"
+          enabled={Platform.OS === 'ios'}
           keyboardVerticalOffset={0}
           style={styles.keyboardRoot}>
           {publicAuthMode ? (

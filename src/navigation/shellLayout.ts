@@ -1,5 +1,5 @@
-import {useEffect, useState} from 'react';
-import {AppState, Dimensions, Platform, StatusBar} from 'react-native';
+import {useEffect, useRef, useState} from 'react';
+import {AppState, Dimensions, Keyboard, Platform, StatusBar} from 'react-native';
 
 import {getAndroidNavigationMode} from './androidNavigationMode';
 
@@ -27,14 +27,28 @@ export function getAndroidShellLayoutInsets(): AndroidShellLayoutInsets {
 
 export function useAndroidShellLayoutInsets() {
   const [insets, setInsets] = useState(getAndroidShellLayoutInsets);
+  const keyboardVisibleRef = useRef(false);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
       return undefined;
     }
 
+    const refreshTimers = new Set<ReturnType<typeof setTimeout>>();
     const refreshInsets = () => {
+      if (keyboardVisibleRef.current) {
+        return;
+      }
+
       setInsets(getAndroidShellLayoutInsets());
+    };
+    const scheduleRefresh = (delayMs: number) => {
+      const timer = setTimeout(() => {
+        refreshTimers.delete(timer);
+        refreshInsets();
+      }, delayMs);
+
+      refreshTimers.add(timer);
     };
     const appStateSubscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
@@ -42,12 +56,24 @@ export function useAndroidShellLayoutInsets() {
       }
     });
     const dimensionSubscription = Dimensions.addEventListener('change', refreshInsets);
+    const keyboardShowSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      keyboardVisibleRef.current = true;
+    });
+    const keyboardHideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardVisibleRef.current = false;
+      refreshInsets();
+      scheduleRefresh(80);
+      scheduleRefresh(240);
+    });
 
     refreshInsets();
 
     return () => {
+      refreshTimers.forEach((timer) => clearTimeout(timer));
       appStateSubscription.remove();
       dimensionSubscription.remove();
+      keyboardShowSubscription.remove();
+      keyboardHideSubscription.remove();
     };
   }, []);
 

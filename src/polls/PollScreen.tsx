@@ -434,7 +434,8 @@ export function PollScreen({
 
     return (
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
+        enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={16}
         style={styles.keyboardRoot}>
         <ScrollView
@@ -533,7 +534,8 @@ export function PollScreen({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior="padding"
+      enabled={Platform.OS === 'ios'}
       keyboardVerticalOffset={16}
       style={styles.keyboardRoot}>
       <ScrollView
