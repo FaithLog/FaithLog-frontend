@@ -2635,7 +2635,7 @@ function AdminHome({
           <Metric label="미제출" value={`${summary.devotion.missingCount}명`} />
           <Metric label="제출률" value={`${summary.devotion.submitRate}%`} />
           <Metric label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
-          <Metric label="미납" value={formatCompactWon(summary.charges.unpaidAmount)} />
+          <Metric label="벌금 미납" value={formatCompactWon(getPenaltyUnpaidAmount(summary))} />
         </View>
       </Card>
       <Card>
@@ -2660,6 +2660,13 @@ function AdminHome({
         ) : null}
       </Card>
     </>
+  );
+}
+
+function getPenaltyUnpaidAmount(summary: AdminDashboardSummary) {
+  return (
+    summary.charges.byCategory.find((category) => category.paymentCategory === 'PENALTY')
+      ?.unpaidAmount ?? 0
   );
 }
 
