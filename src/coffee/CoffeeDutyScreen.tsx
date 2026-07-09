@@ -2014,7 +2014,7 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
   content: {
-    gap: space.lg,
+    gap: space.md,
     paddingBottom: 130,
   },
   closeButton: {
@@ -2038,10 +2038,8 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: space.md,
-    marginBottom: space.lg,
+    gap: space.sm,
+    marginBottom: space.sm,
   },
   headerText: {
     flex: 1,
