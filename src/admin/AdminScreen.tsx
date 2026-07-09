@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Animated,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -128,7 +129,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
-import {getAndroidBottomNavInset} from '../navigation/shellLayout';
+import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {formatCompactWon, formatWon} from '../utils/money';
@@ -570,6 +571,7 @@ export function AdminScreen({
   setNotice,
   state,
 }: AdminScreenProps) {
+  const androidShellInsets = useAndroidShellLayoutInsets();
   const campusId = state.selectedCampus.campusId;
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
@@ -2194,7 +2196,12 @@ export function AdminScreen({
     return (
       <View style={styles.adminModeFrame}>
         <ScrollView
-          contentContainerStyle={styles.adminModeContent}
+          contentContainerStyle={[
+            styles.adminModeContent,
+            Platform.OS === 'android'
+              ? {paddingBottom: androidShellInsets.shellContentBottomPadding}
+              : null,
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           style={styles.adminModeScroll}>
@@ -2217,7 +2224,11 @@ export function AdminScreen({
             onActionPress={loadAdmin}
           />
         </ScrollView>
-        <AdminBottomNav activeTab={tab} onSelectTab={selectAdminTab} />
+        <AdminBottomNav
+          activeTab={tab}
+          bottomInset={androidShellInsets.bottomNavInset}
+          onSelectTab={selectAdminTab}
+        />
       </View>
     );
   }
@@ -2230,7 +2241,12 @@ export function AdminScreen({
   return (
     <View style={styles.adminModeFrame}>
       <ScrollView
-        contentContainerStyle={styles.adminModeContent}
+        contentContainerStyle={[
+          styles.adminModeContent,
+          Platform.OS === 'android'
+            ? {paddingBottom: androidShellInsets.shellContentBottomPadding}
+            : null,
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         style={styles.adminModeScroll}>
@@ -2457,7 +2473,11 @@ export function AdminScreen({
         />
       )}
       </ScrollView>
-      <AdminBottomNav activeTab={tab} onSelectTab={selectAdminTab} />
+      <AdminBottomNav
+        activeTab={tab}
+        bottomInset={androidShellInsets.bottomNavInset}
+        onSelectTab={selectAdminTab}
+      />
       <DeleteMemberSheet
         error={actionError}
         loading={
@@ -2552,13 +2572,19 @@ function AdminShellHeader({
 
 function AdminBottomNav({
   activeTab,
+  bottomInset,
   onSelectTab,
 }: {
   activeTab: AdminTab;
+  bottomInset: number;
   onSelectTab: (tab: AdminTab) => void;
 }) {
   return (
-    <View style={styles.adminBottomNavFrame}>
+    <View
+      style={[
+        styles.adminBottomNavFrame,
+        Platform.OS === 'android' ? {paddingBottom: bottomInset} : null,
+      ]}>
       <View style={styles.adminBottomNavContent}>
         {adminBottomTabs.map((item) => {
           const selected = item.id === activeTab;
@@ -12140,8 +12166,6 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled admin value: ${String(value)}`);
 }
 
-const adminAndroidBottomNavInset = getAndroidBottomNavInset();
-
 const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
@@ -12272,7 +12296,6 @@ const styles = StyleSheet.create({
   },
   adminBottomNavFrame: {
     flexShrink: 0,
-    paddingBottom: adminAndroidBottomNavInset,
   },
   adminBottomNavItem: {
     alignItems: 'center',

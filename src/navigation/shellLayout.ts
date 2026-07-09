@@ -1,4 +1,5 @@
-import {Dimensions, Platform, StatusBar} from 'react-native';
+import {useEffect, useState} from 'react';
+import {AppState, Dimensions, Platform, StatusBar} from 'react-native';
 
 import {getAndroidNavigationMode} from './androidNavigationMode';
 
@@ -9,6 +10,49 @@ function clamp(value: number, min: number, max: number) {
 const ANDROID_MIN_BUTTON_NAV_HEIGHT = 36;
 const ANDROID_MAX_STABLE_NAV_HEIGHT = 120;
 const ANDROID_BUTTON_NAV_DEFAULT_INSET = 56;
+
+export type AndroidShellLayoutInsets = {
+  bottomNavInset: number;
+  shellContentBottomPadding: number;
+  topSafeInset: number;
+};
+
+export function getAndroidShellLayoutInsets(): AndroidShellLayoutInsets {
+  return {
+    bottomNavInset: getAndroidBottomNavInset(),
+    shellContentBottomPadding: getAndroidShellContentBottomPadding(),
+    topSafeInset: getAndroidTopSafeInset(),
+  };
+}
+
+export function useAndroidShellLayoutInsets() {
+  const [insets, setInsets] = useState(getAndroidShellLayoutInsets);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    const refreshInsets = () => {
+      setInsets(getAndroidShellLayoutInsets());
+    };
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshInsets();
+      }
+    });
+    const dimensionSubscription = Dimensions.addEventListener('change', refreshInsets);
+
+    refreshInsets();
+
+    return () => {
+      appStateSubscription.remove();
+      dimensionSubscription.remove();
+    };
+  }, []);
+
+  return insets;
+}
 
 export function getAndroidTopSafeInset() {
   if (Platform.OS !== 'android') {

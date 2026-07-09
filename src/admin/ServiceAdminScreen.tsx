@@ -38,10 +38,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
-import {
-  getAndroidBottomNavInset,
-  getAndroidShellContentBottomPadding,
-} from '../navigation/shellLayout';
+import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
 import {ServiceAdminCampusSection} from './ServiceAdminCampusSection';
 
@@ -116,6 +113,7 @@ export function ServiceAdminScreen({
   setNotice,
   state,
 }: ServiceAdminScreenProps) {
+  const androidShellInsets = useAndroidShellLayoutInsets();
   const [activeSection, setActiveSection] = useState<ServiceAdminSection>('home');
   const [homeState, setHomeState] = useState<ServiceAdminHomeState>({status: 'loading'});
   const [userView, setUserView] = useState<UserScreenView>('list');
@@ -364,7 +362,12 @@ export function ServiceAdminScreen({
           onBackToUserMode={onBackToUserMode}
         />
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            Platform.OS === 'android'
+              ? {paddingBottom: androidShellInsets.shellContentBottomPadding}
+              : null,
+          ]}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -465,7 +468,11 @@ export function ServiceAdminScreen({
             />
           )}
         </ScrollView>
-        <ServiceAdminBottomNav activeSection={activeSection} onSelectSection={setActiveSection} />
+        <ServiceAdminBottomNav
+          activeSection={activeSection}
+          bottomInset={androidShellInsets.bottomNavInset}
+          onSelectSection={setActiveSection}
+        />
       </View>
     </View>
   );
@@ -1267,13 +1274,19 @@ function ServiceAdminHeader({
 
 function ServiceAdminBottomNav({
   activeSection,
+  bottomInset,
   onSelectSection,
 }: {
   activeSection: ServiceAdminSection;
+  bottomInset: number;
   onSelectSection: (section: ServiceAdminSection) => void;
 }) {
   return (
-    <View style={styles.serviceAdminBottomNavFrame}>
+    <View
+      style={[
+        styles.serviceAdminBottomNavFrame,
+        Platform.OS === 'android' ? {paddingBottom: bottomInset} : null,
+      ]}>
       <View style={styles.serviceAdminBottomNavContent}>
         {SERVICE_ADMIN_SECTIONS.map((item) => {
           const selected = item.id === activeSection;
@@ -1506,10 +1519,6 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled ServiceAdminScreen state: ${String(value)}`);
 }
 
-const serviceAdminAndroidBottomNavInset = getAndroidBottomNavInset();
-const serviceAdminContentBottomPadding =
-  Platform.OS === 'android' ? getAndroidShellContentBottomPadding() : spacing.bottomSafe + 112;
-
 const styles = StyleSheet.create({
   serviceAdminRoot: {
     backgroundColor: colors.background,
@@ -1520,7 +1529,7 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: spacing.gap,
-    paddingBottom: serviceAdminContentBottomPadding,
+    paddingBottom: Platform.OS === 'android' ? 0 : spacing.bottomSafe + 112,
     paddingTop: 4,
   },
   serviceAdminFrame: {
@@ -1622,7 +1631,6 @@ const styles = StyleSheet.create({
   },
   serviceAdminBottomNavFrame: {
     flexShrink: 0,
-    paddingBottom: serviceAdminAndroidBottomNavInset,
   },
   serviceAdminBottomNavContent: {
     alignSelf: 'center',

@@ -91,11 +91,7 @@ import {
   type ShellRoute,
   USER_BOTTOM_NAV_ROUTES,
 } from '../navigation/shellRoutes';
-import {
-  getAndroidBottomNavInset,
-  getAndroidShellContentBottomPadding,
-  getAndroidTopSafeInset,
-} from '../navigation/shellLayout';
+import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
@@ -164,6 +160,7 @@ type NotificationUiState =
 const HOME_TODAY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 export function FaithLogApp() {
+  const androidShellInsets = useAndroidShellLayoutInsets();
   const [authState, setAuthState] = useState<AuthGateState>(initialState);
   const [entryTarget, setEntryTarget] = useState<EntryTarget | null>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
@@ -336,7 +333,12 @@ export function FaithLogApp() {
         barStyle="dark-content"
         translucent={false}
       />
-      <RootContainer style={[styles.safeArea, publicAuthMode ? styles.authSafeArea : null]}>
+      <RootContainer
+        style={[
+          styles.safeArea,
+          Platform.OS === 'android' ? {paddingTop: androidShellInsets.topSafeInset} : null,
+          publicAuthMode ? styles.authSafeArea : null,
+        ]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           enabled={Platform.OS === 'ios'}
@@ -1563,6 +1565,7 @@ function AuthenticatedShell({
   route: ShellRoute;
   setRoute: (route: ShellRoute) => void;
 }) {
+  const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<
     'accountDeletion' | 'coffee' | 'main' | 'notifications'
@@ -1935,7 +1938,10 @@ function AuthenticatedShell({
         <ScrollView
           contentContainerStyle={[
             styles.shellContent,
-            keyboardVisible ? styles.shellContentKeyboardOpen : null,
+            Platform.OS === 'android'
+              ? {paddingBottom: androidShellInsets.shellContentBottomPadding}
+              : null,
+            keyboardVisible && Platform.OS === 'ios' ? styles.shellContentKeyboardOpen : null,
           ]}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
@@ -2129,7 +2135,11 @@ function AuthenticatedShell({
       )}
 
       {shouldShowUserBottomNav ? (
-        <View style={styles.bottomNavFrame}>
+        <View
+          style={[
+            styles.bottomNavFrame,
+            Platform.OS === 'android' ? {paddingBottom: androidShellInsets.bottomNavInset} : null,
+          ]}>
           <BottomNav activeId={userBottomNavActiveId} items={navItems} onSelect={selectRoute} />
         </View>
       ) : null}
@@ -4048,16 +4058,11 @@ const authColors = {
   textMuted: colors.textSecondary,
 };
 
-const androidTopSafeInset = getAndroidTopSafeInset();
-const androidBottomNavInset = getAndroidBottomNavInset();
-const androidShellContentBottomPadding = getAndroidShellContentBottomPadding();
-
 const styles = StyleSheet.create({
   safeArea: {
     alignSelf: 'stretch',
     flex: 1,
     backgroundColor: colors.background,
-    paddingTop: androidTopSafeInset,
     width: '100%',
   },
   authSafeArea: {
@@ -4495,14 +4500,13 @@ const styles = StyleSheet.create({
   shellContent: {
     flexGrow: 1,
     gap: 12,
-    paddingBottom: Platform.OS === 'android' ? androidShellContentBottomPadding : 0,
+    paddingBottom: 0,
   },
   shellContentKeyboardOpen: {
-    paddingBottom: Platform.OS === 'ios' ? spacing.bottomSafe + 96 : androidShellContentBottomPadding,
+    paddingBottom: spacing.bottomSafe + 96,
   },
   bottomNavFrame: {
     flexShrink: 0,
-    paddingBottom: androidBottomNavInset,
   },
   userFrame: {
     backgroundColor: colors.background,
