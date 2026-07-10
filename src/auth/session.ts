@@ -12,6 +12,7 @@ import {
   getStoredSelectedCampusId,
   getStoredAuthSession,
   isAuthSessionGenerationCurrent,
+  rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
   type AuthSessionGeneration,
@@ -45,7 +46,10 @@ export type PreparedLogout = {
   completeRemoteLogout: () => Promise<LogoutResult>;
 };
 
+let remoteLogoutInFlight: Promise<LogoutResult> | null = null;
+
 export async function loginAndEstablishSession(credentials: LoginRequest): Promise<SessionResolution> {
+  await waitForPendingRemoteLogout();
   const generation = await beginAuthSession();
 
   try {
@@ -95,13 +99,9 @@ export async function prepareCurrentSessionLogout(
   userId?: number,
 ): Promise<PreparedLogout> {
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
-  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>;
 
   try {
-    [authSession, fcmPayload] = await Promise.all([
-      getStoredAuthSession(),
-      getLogoutFcmDeactivationPayload(userId),
-    ]);
+    authSession = await getStoredAuthSession();
   } catch {
     await clearTokens();
     return {
@@ -112,6 +112,16 @@ export async function prepareCurrentSessionLogout(
     };
   }
 
+  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>> = {};
+  let preparationWarning: string | null = null;
+
+  try {
+    fcmPayload = await getLogoutFcmDeactivationPayload(userId);
+  } catch {
+    preparationWarning =
+      '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.';
+  }
+
   const fcmRegistrationBarrier = capturePendingFcmRegistrationBarrier();
   const cleared = await clearTokens(authSession.generation);
 
@@ -119,9 +129,31 @@ export async function prepareCurrentSessionLogout(
     throw new Error('The authentication session changed before logout completed.');
   }
 
+  if (fcmPayload.clientInstanceId) {
+    try {
+      const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);
+
+      if (!rotated) {
+        throw new Error('The client instance changed before it could be retired.');
+      }
+    } catch {
+      fcmPayload = {};
+      preparationWarning =
+        '서버 로그아웃은 요청했지만 기기 알림 식별자를 안전하게 교체하지 못해 알림 연결 해제는 생략했습니다.';
+    }
+  }
+
+  const remoteLogout = trackRemoteLogout(
+    completeRemoteLogout(
+      authSession,
+      fcmPayload,
+      fcmRegistrationBarrier,
+      preparationWarning,
+    ),
+  );
+
   return {
-    completeRemoteLogout: () =>
-      completeRemoteLogout(authSession, fcmPayload, fcmRegistrationBarrier),
+    completeRemoteLogout: () => remoteLogout,
   };
 }
 
@@ -129,10 +161,11 @@ async function completeRemoteLogout(
   authSession: Awaited<ReturnType<typeof getStoredAuthSession>>,
   fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>,
   fcmRegistrationBarrier: Promise<void>,
+  preparationWarning: string | null,
 ): Promise<LogoutResult> {
   await fcmRegistrationBarrier;
   const {accessToken, refreshToken} = authSession;
-  let remoteWarning: string | null = null;
+  let remoteWarning = preparationWarning;
 
   if (accessToken) {
     try {
@@ -150,6 +183,30 @@ async function completeRemoteLogout(
   }
 
   return {status: 'signedOut'};
+}
+
+function trackRemoteLogout(operation: Promise<LogoutResult>) {
+  const tracked = operation.finally(() => {
+    if (remoteLogoutInFlight === tracked) {
+      remoteLogoutInFlight = null;
+    }
+  });
+  remoteLogoutInFlight = tracked;
+  return tracked;
+}
+
+async function waitForPendingRemoteLogout() {
+  const pending = remoteLogoutInFlight;
+
+  if (!pending) {
+    return;
+  }
+
+  try {
+    await pending;
+  } catch {
+    // A failed best-effort remote logout must not permanently block a new login.
+  }
 }
 
 async function establishSession(

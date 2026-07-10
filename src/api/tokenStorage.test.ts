@@ -102,7 +102,12 @@ describe('native auth token storage', () => {
 
     await expect(
       tokenStorage.saveFcmRegistration(
-        {token: 'device-token', tokenId: 71, userId: 42},
+        {
+          token: 'device-token',
+          tokenId: 71,
+          userId: 42,
+          clientInstanceId: 'client-instance-1',
+        },
         generation,
       ),
     ).resolves.toBe(true);
@@ -110,6 +115,7 @@ describe('native auth token storage', () => {
       token: 'device-token',
       tokenId: 71,
       userId: 42,
+      clientInstanceId: 'client-instance-1',
     });
 
     await tokenStorage.clearTokens(generation);
@@ -117,7 +123,56 @@ describe('native auth token storage', () => {
       token: null,
       tokenId: null,
       userId: null,
+      clientInstanceId: null,
     });
+  });
+
+  it('treats a legacy FCM record as unbound to the current client instance', async () => {
+    testState.storage.set(
+      'faithlog.fcmRegistration.v2',
+      JSON.stringify({
+        version: 1,
+        token: 'legacy-device-token',
+        tokenId: 70,
+        userId: 42,
+      }),
+    );
+    const tokenStorage = await import('./tokenStorage');
+
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: 'legacy-device-token',
+      tokenId: 70,
+      userId: 42,
+      clientInstanceId: null,
+    });
+  });
+
+  it('durably rotates a retired client instance before it can be reused', async () => {
+    testState.storage.set('faithlog.clientInstanceId', 'retired-client-instance');
+    const tokenStorage = await import('./tokenStorage');
+
+    await expect(
+      tokenStorage.rotateClientInstanceId('retired-client-instance'),
+    ).resolves.toBe(true);
+
+    const replacement = testState.storage.get('faithlog.clientInstanceId');
+    expect(replacement).toBeTruthy();
+    expect(replacement).not.toBe('retired-client-instance');
+    await expect(tokenStorage.getOrCreateClientInstanceId()).resolves.toBe(
+      replacement,
+    );
+  });
+
+  it('does not overwrite a client instance that has already changed', async () => {
+    testState.storage.set('faithlog.clientInstanceId', 'current-client-instance');
+    const tokenStorage = await import('./tokenStorage');
+
+    await expect(
+      tokenStorage.rotateClientInstanceId('stale-client-instance'),
+    ).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.clientInstanceId')).toBe(
+      'current-client-instance',
+    );
   });
 
   it('fails closed when a stored token record is malformed', async () => {

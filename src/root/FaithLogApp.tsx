@@ -1787,39 +1787,28 @@ function AuthenticatedShell({
     setLoggingOut(true);
     setLogoutError(null);
 
-    const transitionToSignedOut = () => {
+    const transitionToSignedOut = (warning?: string) => {
       setLogoutConfirmVisible(false);
       setRoute('userHome');
-      setAuthState({status: 'signedOut'});
+      setAuthState({status: 'signedOut', ...(warning ? {warning} : {})});
     };
 
     try {
       const prepared = await prepareCurrentSessionLogout(userId);
-      transitionToSignedOut();
-      void prepared
-        .completeRemoteLogout()
-        .then((result) => {
-          if (result.status !== 'signedOutWithRemoteWarning') {
-            return;
-          }
+      let warning: string | undefined;
 
-          setAuthState((current) =>
-            current.status === 'signedOut'
-              ? {status: 'signedOut', warning: result.message}
-              : current,
-          );
-        })
-        .catch(() => {
-          setAuthState((current) =>
-            current.status === 'signedOut'
-              ? {
-                  status: 'signedOut',
-                  warning:
-                    '이 기기에서는 로그아웃했지만 서버 로그아웃 확인은 완료하지 못했습니다.',
-                }
-              : current,
-          );
-        });
+      try {
+        const result = await prepared.completeRemoteLogout();
+
+        if (result.status === 'signedOutWithRemoteWarning') {
+          warning = result.message;
+        }
+      } catch {
+        warning =
+          '이 기기에서는 로그아웃했지만 서버 로그아웃 확인은 완료하지 못했습니다.';
+      }
+
+      transitionToSignedOut(warning);
     } catch {
       setLoggingOut(false);
       setLogoutError(

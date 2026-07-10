@@ -34,6 +34,7 @@ export type StoredFcmRegistration = {
   token: string | null;
   tokenId: number | null;
   userId: number | null;
+  clientInstanceId: string | null;
 };
 
 export type StoredPrayerSeason = {
@@ -49,6 +50,14 @@ type StoredTokenRecord = {
 };
 
 type StoredFcmRegistrationRecord = {
+  version: 2;
+  token: string;
+  tokenId: number;
+  userId: number;
+  clientInstanceId: string;
+};
+
+type LegacyStoredFcmRegistrationRecord = {
   version: 1;
   token: string;
   tokenId: number;
@@ -289,7 +298,7 @@ export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration>
     );
 
     if (record) {
-      return {token: record.token, tokenId: record.tokenId, userId: record.userId};
+      return record;
     }
 
     const [token, tokenIdValue] = await Promise.all([
@@ -302,12 +311,17 @@ export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration>
         ? parsedTokenId
         : null;
 
-    return {token, tokenId, userId: null};
+    return {token, tokenId, userId: null, clientInstanceId: null};
   });
 }
 
 export async function saveFcmRegistration(
-  registration: {token: string; tokenId: number; userId: number},
+  registration: {
+    token: string;
+    tokenId: number;
+    userId: number;
+    clientInstanceId: string;
+  },
   generation: AuthSessionGeneration,
 ) {
   return withSecureStorageLock(async () => {
@@ -317,16 +331,18 @@ export async function saveFcmRegistration(
       !Number.isInteger(registration.tokenId) ||
       registration.tokenId <= 0 ||
       !Number.isInteger(registration.userId) ||
-      registration.userId <= 0
+      registration.userId <= 0 ||
+      !registration.clientInstanceId.trim()
     ) {
       return false;
     }
 
     const record: StoredFcmRegistrationRecord = {
-      version: 1,
+      version: 2,
       token: registration.token.trim(),
       tokenId: registration.tokenId,
       userId: registration.userId,
+      clientInstanceId: registration.clientInstanceId.trim(),
     };
     await setStorageItem(FCM_REGISTRATION_KEY, JSON.stringify(record));
     await Promise.allSettled([
@@ -377,6 +393,35 @@ export async function getOrCreateClientInstanceId() {
     await setStorageItem(CLIENT_INSTANCE_ID_KEY, clientInstanceId);
 
     return clientInstanceId;
+  });
+}
+
+export async function getStoredClientInstanceId() {
+  return withSecureStorageLock(() => getStorageItem(CLIENT_INSTANCE_ID_KEY));
+}
+
+export async function rotateClientInstanceId(expectedClientInstanceId: string) {
+  const expected = expectedClientInstanceId.trim();
+
+  if (!expected) {
+    return false;
+  }
+
+  return withSecureStorageLock(async () => {
+    const stored = await getStorageItem(CLIENT_INSTANCE_ID_KEY);
+
+    if (stored !== expected) {
+      return false;
+    }
+
+    let replacement = createClientInstanceId();
+
+    while (replacement === expected) {
+      replacement = createClientInstanceId();
+    }
+
+    await setStorageItem(CLIENT_INSTANCE_ID_KEY, replacement);
+    return true;
   });
 }
 
@@ -437,11 +482,11 @@ function parseStoredTokenRecord(value: string | null): StoredTokenRecord | null 
 
 function parseStoredFcmRegistrationRecord(
   value: string | null,
-): StoredFcmRegistrationRecord | null {
+): StoredFcmRegistration | null {
   const parsed = parseJsonRecord(value);
 
   if (
-    parsed?.version !== 1 ||
+    (parsed?.version !== 1 && parsed?.version !== 2) ||
     typeof parsed.token !== 'string' ||
     !parsed.token.trim() ||
     typeof parsed.tokenId !== 'number' ||
@@ -454,11 +499,24 @@ function parseStoredFcmRegistrationRecord(
     return null;
   }
 
+  if (
+    parsed.version === 2 &&
+    (typeof parsed.clientInstanceId !== 'string' ||
+      !parsed.clientInstanceId.trim())
+  ) {
+    return null;
+  }
+
+  const legacy = parsed as LegacyStoredFcmRegistrationRecord;
+
   return {
-    version: 1,
-    token: parsed.token,
-    tokenId: parsed.tokenId,
-    userId: parsed.userId,
+    token: legacy.token,
+    tokenId: legacy.tokenId,
+    userId: legacy.userId,
+    clientInstanceId:
+      parsed.version === 2
+        ? (parsed.clientInstanceId as string).trim()
+        : null,
   };
 }
 

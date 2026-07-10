@@ -29,6 +29,7 @@ import {
 } from './notificationAdapter';
 
 const pendingFcmRegistrations = new Set<Promise<unknown>>();
+let fcmRegistrationQueue: Promise<void> = Promise.resolve();
 
 export type FcmRegistrationStatus =
   | {
@@ -92,7 +93,12 @@ export async function inspectFcmRegistrationStatus(
   }
 
   if (stored.tokenId && stored.userId === userId) {
-    return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+    const clientInstanceId = await getOrCreateClientInstanceId();
+    assertFcmAuthSessionCurrent(generation);
+
+    if (stored.clientInstanceId === clientInstanceId) {
+      return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+    }
   }
 
   if (stored.tokenId || stored.token) {
@@ -146,7 +152,12 @@ export async function registerCurrentFcmToken(
     stored.tokenId &&
     stored.token === deviceTokenResult.token
   ) {
-    return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+    const clientInstanceId = await getOrCreateClientInstanceId();
+    assertFcmAuthSessionCurrent(generation);
+
+    if (stored.clientInstanceId === clientInstanceId) {
+      return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+    }
   }
 
   const registration = await registerFcmTokenValue(
@@ -182,11 +193,13 @@ export function registerFcmTokenValue(
   token: string,
   generation: AuthSessionGeneration = getAuthSessionGeneration(),
 ): Promise<FcmTokenRegisterResponse | null> {
-  const operation = registerFcmTokenValueInternal(
-    accessToken,
-    userId,
-    token,
-    generation,
+  const operation = fcmRegistrationQueue.then(
+    () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
+    () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
+  );
+  fcmRegistrationQueue = operation.then(
+    () => undefined,
+    () => undefined,
   );
   pendingFcmRegistrations.add(operation);
   void operation.then(
@@ -242,7 +255,12 @@ async function registerFcmTokenValueInternal(
   }
 
   const saved = await saveFcmRegistration(
-    {token: normalizedToken, tokenId: registration.tokenId, userId},
+    {
+      token: normalizedToken,
+      tokenId: registration.tokenId,
+      userId,
+      clientInstanceId,
+    },
     generation,
   );
 

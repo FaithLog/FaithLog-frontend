@@ -1,30 +1,17 @@
 import type {LogoutRequest} from '../api/types';
-import {getOrCreateClientInstanceId, getStoredFcmRegistration} from '../api/tokenStorage';
+import {getStoredClientInstanceId} from '../api/tokenStorage';
 import {isFcmRuntimeEnabled} from '../notifications/fcmEnvironment';
 
 export type LogoutFcmDeactivationProvider = (expectedUserId?: number) => Promise<
   Pick<LogoutRequest, 'clientInstanceId' | 'fcmToken'>
 >;
 
-export const getLogoutFcmDeactivationPayload: LogoutFcmDeactivationProvider = async (
-  expectedUserId,
-) => {
+export const getLogoutFcmDeactivationPayload: LogoutFcmDeactivationProvider = async () => {
   if (!isFcmRuntimeEnabled()) {
     return {};
   }
 
-  const {token, userId} = await getStoredFcmRegistration();
-  const clientInstanceId = await getOrCreateClientInstanceId();
+  const clientInstanceId = await getStoredClientInstanceId();
 
-  if (
-    !token ||
-    (expectedUserId !== undefined && userId !== null && userId !== expectedUserId)
-  ) {
-    return {clientInstanceId};
-  }
-
-  return {
-    clientInstanceId,
-    fcmToken: token,
-  };
+  return clientInstanceId ? {clientInstanceId} : {};
 };

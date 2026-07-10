@@ -22,6 +22,7 @@ vi.mock('../api/tokenStorage', () => ({
   getStoredAuthSession: vi.fn(),
   getStoredSelectedCampusId: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
+  rotateClientInstanceId: vi.fn(),
   saveSelectedCampusId: vi.fn(),
   saveTokens: vi.fn(),
 }));
@@ -46,6 +47,7 @@ import {
   getStoredAuthSession,
   getStoredSelectedCampusId,
   isAuthSessionGenerationCurrent,
+  rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
   type AuthSessionGeneration,
@@ -87,6 +89,7 @@ describe('auth session lifecycle', () => {
     vi.mocked(saveSelectedCampusId).mockResolvedValue(undefined);
     vi.mocked(saveTokens).mockResolvedValue(true);
     vi.mocked(clearTokens).mockResolvedValue(true);
+    vi.mocked(rotateClientInstanceId).mockResolvedValue(true);
     vi.mocked(loginUser).mockResolvedValue(LOGIN_RESPONSE);
     vi.mocked(fetchCurrentUser).mockResolvedValue(CURRENT_USER);
     vi.mocked(fetchMyCampuses).mockResolvedValue([]);
@@ -146,7 +149,6 @@ describe('auth session lifecycle', () => {
     );
     vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValue({
       clientInstanceId: 'faithlog-client-1',
-      fcmToken: 'device-token',
     });
 
     const pending = logoutCurrentSession();
@@ -154,15 +156,22 @@ describe('auth session lifecycle', () => {
       expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION),
     );
     expect(logoutUser).not.toHaveBeenCalled();
+    expect(rotateClientInstanceId).not.toHaveBeenCalled();
     finishLocalLogout(true);
     await vi.waitFor(() => expect(logoutUser).toHaveBeenCalledOnce());
 
     await expect(pending).resolves.toEqual({status: 'signedOut'});
+    expect(rotateClientInstanceId).toHaveBeenCalledWith('faithlog-client-1');
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token',
       clientInstanceId: 'faithlog-client-1',
-      fcmToken: 'device-token',
     });
+    expect(vi.mocked(clearTokens).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(rotateClientInstanceId).mock.invocationCallOrder[0]!,
+    );
+    expect(
+      vi.mocked(rotateClientInstanceId).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(logoutUser).mock.invocationCallOrder[0]!);
   });
 
   it('does not claim logout when local invalidation was superseded', async () => {
@@ -191,6 +200,65 @@ describe('auth session lifecycle', () => {
 
     await expect(pending).resolves.toEqual({status: 'signedOut'});
     expect(logoutUser).toHaveBeenCalledOnce();
+  });
+
+  it('does not allow a new login to overtake the previous remote logout', async () => {
+    let finishRegistration!: () => void;
+    vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishRegistration = resolve;
+      }),
+    );
+
+    const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+    const remoteLogout = prepared.completeRemoteLogout();
+    const nextLogin = loginAndEstablishSession({
+      email: 'user@example.test',
+      password: 'test-password',
+    });
+
+    await Promise.resolve();
+    expect(loginUser).not.toHaveBeenCalled();
+
+    finishRegistration();
+    await expect(remoteLogout).resolves.toEqual({status: 'signedOut'});
+    await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+    expect(vi.mocked(logoutUser).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(loginUser).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('still revokes the remote auth session when FCM logout metadata is unavailable', async () => {
+    vi.mocked(getLogoutFcmDeactivationPayload).mockRejectedValue(
+      new Error('secure storage unavailable'),
+    );
+
+    await expect(logoutCurrentSession(CURRENT_USER.id)).resolves.toEqual({
+      status: 'signedOutWithRemoteWarning',
+      message:
+        '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.',
+    });
+    expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
+      refreshToken: 'login-refresh-token',
+    });
+  });
+
+  it('omits stale FCM identity but still revokes auth when client rotation fails', async () => {
+    vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValue({
+      clientInstanceId: 'faithlog-client-1',
+    });
+    vi.mocked(rotateClientInstanceId).mockRejectedValue(
+      new Error('secure storage unavailable'),
+    );
+
+    await expect(logoutCurrentSession(CURRENT_USER.id)).resolves.toEqual({
+      status: 'signedOutWithRemoteWarning',
+      message:
+        '서버 로그아웃은 요청했지만 기기 알림 식별자를 안전하게 교체하지 못해 알림 연결 해제는 생략했습니다.',
+    });
+    expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
+      refreshToken: 'login-refresh-token',
+    });
   });
 
   it('returns a visible warning result when remote logout cannot be confirmed', async () => {
