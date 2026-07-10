@@ -7,7 +7,6 @@
     "start": "expo start --host lan",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"App.tsx\" \"src/**/*.{ts,tsx}\"",
     "test": "vitest run",
@@ -25,7 +24,6 @@
     }
   },
   "dependencies": {
-    "@expo/metro-runtime": "^56.0.16",
     "@react-native-firebase/app": "^25.1.0",
     "@react-native-firebase/messaging": "^25.1.0",
     "expo": "~56.0.15",
@@ -33,10 +31,8 @@
     "expo-clipboard": "~56.0.4",
     "expo-secure-store": "~56.0.4",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
     "react-native": "0.85.3",
-    "react-native-svg": "15.15.4",
-    "react-native-web": "^0.21.2"
+    "react-native-svg": "15.15.4"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",

@@ -2,7 +2,11 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('./tokenStorage', () => ({
   clearTokens: vi.fn(),
+  getAuthSessionGeneration: vi.fn(() => 0),
+  getStoredAuthSession: vi.fn(),
   getStoredTokens: vi.fn(),
+  isAccessTokenOwnedByAuthSession: vi.fn(async () => true),
+  isAuthSessionGenerationCurrent: vi.fn(() => true),
   saveTokens: vi.fn(),
 }));
 

@@ -7,11 +7,14 @@ import {
   refreshAuthToken,
 } from '../api/client';
 import {
+  beginAuthSession,
   clearTokens,
   getStoredSelectedCampusId,
-  getStoredTokens,
+  getStoredAuthSession,
+  isAuthSessionGenerationCurrent,
   saveSelectedCampusId,
   saveTokens,
+  type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {
   ApiError,
@@ -20,6 +23,7 @@ import type {
   LoginRequest,
   LoginResponse,
 } from '../api/types';
+import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 
 export type AuthenticatedSession = {
@@ -37,27 +41,101 @@ export type LogoutResult =
   | {status: 'signedOut'}
   | {status: 'signedOutWithRemoteWarning'; message: string};
 
+export type PreparedLogout = {
+  completeRemoteLogout: () => Promise<LogoutResult>;
+};
+
 export async function loginAndEstablishSession(credentials: LoginRequest): Promise<SessionResolution> {
-  const loginResponse = await loginUser(credentials);
-  await saveTokens(loginResponse);
+  const generation = await beginAuthSession();
 
-  return establishSession(loginResponse);
+  try {
+    const loginResponse = await loginUser(credentials);
+    const session = await establishSession(loginResponse, generation);
+    const saved = await saveTokens(loginResponse, generation);
+
+    if (!saved) {
+      throw createAuthSessionChangedError(generation);
+    }
+
+    return session;
+  } catch (error) {
+    await clearTokens(generation);
+    throw error;
+  }
 }
 
-export async function refreshAndEstablishSession(refreshToken: string): Promise<SessionResolution> {
-  const tokens = await refreshAuthToken(refreshToken);
-  await saveTokens(tokens);
+export async function refreshAndEstablishSession(
+  refreshToken: string,
+  generation: AuthSessionGeneration,
+): Promise<SessionResolution> {
+  try {
+    const tokens = await refreshAuthToken(refreshToken, generation);
+    const saved = await saveTokens(tokens, generation);
 
-  return establishSession(tokens);
+    if (!saved) {
+      throw createAuthSessionChangedError(generation);
+    }
+
+    return establishSession(tokens, generation);
+  } catch (error) {
+    if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+      await clearTokens(generation);
+    }
+
+    throw error;
+  }
 }
 
-export async function logoutCurrentSession(): Promise<LogoutResult> {
-  const {accessToken, refreshToken} = await getStoredTokens();
+export async function logoutCurrentSession(userId?: number): Promise<LogoutResult> {
+  const prepared = await prepareCurrentSessionLogout(userId);
+  return prepared.completeRemoteLogout();
+}
+
+export async function prepareCurrentSessionLogout(
+  userId?: number,
+): Promise<PreparedLogout> {
+  let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
+  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>;
+
+  try {
+    [authSession, fcmPayload] = await Promise.all([
+      getStoredAuthSession(),
+      getLogoutFcmDeactivationPayload(userId),
+    ]);
+  } catch {
+    await clearTokens();
+    return {
+      completeRemoteLogout: async () => ({
+        status: 'signedOutWithRemoteWarning',
+        message: '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.',
+      }),
+    };
+  }
+
+  const fcmRegistrationBarrier = capturePendingFcmRegistrationBarrier();
+  const cleared = await clearTokens(authSession.generation);
+
+  if (!cleared) {
+    throw new Error('The authentication session changed before logout completed.');
+  }
+
+  return {
+    completeRemoteLogout: () =>
+      completeRemoteLogout(authSession, fcmPayload, fcmRegistrationBarrier),
+  };
+}
+
+async function completeRemoteLogout(
+  authSession: Awaited<ReturnType<typeof getStoredAuthSession>>,
+  fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>,
+  fcmRegistrationBarrier: Promise<void>,
+): Promise<LogoutResult> {
+  await fcmRegistrationBarrier;
+  const {accessToken, refreshToken} = authSession;
   let remoteWarning: string | null = null;
 
   if (accessToken) {
     try {
-      const fcmPayload = await getLogoutFcmDeactivationPayload();
       await logoutUser(accessToken, {
         ...(refreshToken ? {refreshToken} : {}),
         ...fcmPayload,
@@ -67,8 +145,6 @@ export async function logoutCurrentSession(): Promise<LogoutResult> {
     }
   }
 
-  await clearTokens();
-
   if (remoteWarning) {
     return {status: 'signedOutWithRemoteWarning', message: remoteWarning};
   }
@@ -76,11 +152,16 @@ export async function logoutCurrentSession(): Promise<LogoutResult> {
   return {status: 'signedOut'};
 }
 
-async function establishSession(tokens: Pick<LoginResponse, 'accessToken'>): Promise<SessionResolution> {
+async function establishSession(
+  tokens: Pick<LoginResponse, 'accessToken'>,
+  generation: AuthSessionGeneration,
+): Promise<SessionResolution> {
+  assertAuthSessionCurrent(generation);
   const [user, campuses] = await Promise.all([
-    fetchCurrentUser(tokens.accessToken),
-    fetchMyCampuses(tokens.accessToken),
+    fetchCurrentUser(tokens.accessToken, generation),
+    fetchMyCampuses(tokens.accessToken, generation),
   ]);
+  assertAuthSessionCurrent(generation);
   const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
 
   if (activeCampuses.length === 0) {
@@ -92,6 +173,7 @@ async function establishSession(tokens: Pick<LoginResponse, 'accessToken'>): Pro
     activeCampuses.find((campus) => campus.campusId === storedCampusId) ??
     activeCampuses[0]!;
   await saveSelectedCampusId(selectedCampus.campusId);
+  assertAuthSessionCurrent(generation);
 
   return {
     status: 'authenticated',
@@ -99,6 +181,21 @@ async function establishSession(tokens: Pick<LoginResponse, 'accessToken'>): Pro
     activeCampuses,
     selectedCampus,
   };
+}
+
+function assertAuthSessionCurrent(generation: AuthSessionGeneration) {
+  if (!isAuthSessionGenerationCurrent(generation)) {
+    throw createAuthSessionChangedError(generation);
+  }
+}
+
+function createAuthSessionChangedError(generation: AuthSessionGeneration) {
+  return new FaithLogApiError({
+    kind: 'error',
+    code: 'AUTH_SESSION_CHANGED',
+    message: '로그인 계정이 변경되어 이전 인증 작업을 취소했습니다.',
+    authSessionGeneration: generation,
+  });
 }
 
 function toRemoteLogoutWarning(error: unknown) {

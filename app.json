@@ -3,6 +3,10 @@
     "name": "FaithLog",
     "slug": "faithlog-frontend",
     "scheme": "faithlog",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,17 +25,20 @@
     "android": {
       "package": "com.faithlog.app",
       "icon": "./assets/icon-android.png",
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon-android.png",
         "backgroundColor": "#FFFFFF"
       }
-    },
-    "web": {
-      "bundler": "metro"
     }
   }
 }

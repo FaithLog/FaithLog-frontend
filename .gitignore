@@ -32,6 +32,9 @@ GoogleService-Info.plist
 *.mobileprovision
 
 # Native build output
+*.aab
+*.apk
+*.ipa
 android/.gradle/
 android/app/build/
 android/build/

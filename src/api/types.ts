@@ -18,6 +18,7 @@ export type ApiError = {
   status?: number;
   code?: string;
   message: string;
+  authSessionGeneration?: number;
 };
 
 export type TokenPair = {
@@ -104,6 +105,13 @@ export type CampusMembershipSummary = {
   status: CampusStatus;
 };
 
+export type CurrentUserCampusMembershipSummary = Omit<
+  CampusMembershipSummary,
+  'membershipId'
+> & {
+  membershipId?: number;
+};
+
 export type CampusCreateRequest = {
   name: string;
   region: string;
@@ -144,7 +152,7 @@ export type CurrentUser = {
   role: UserRole;
   isActive: boolean;
   lastLoginAt: string | null;
-  campusMemberships: CampusMembershipSummary[];
+  campusMemberships: CurrentUserCampusMembershipSummary[];
 };
 
 export type ServiceAdminUserCampusSummary = {

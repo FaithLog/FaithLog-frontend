@@ -3,23 +3,37 @@ import {Platform} from 'react-native';
 
 import type {TokenPair} from './types';
 
-const ACCESS_TOKEN_KEY = 'faithlog.accessToken';
-const REFRESH_TOKEN_KEY = 'faithlog.refreshToken';
-const FCM_TOKEN_KEY = 'faithlog.fcmToken';
-const FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
+const AUTH_TOKENS_KEY = 'faithlog.authTokens.v2';
+const AUTH_INVALIDATED_KEY = 'faithlog.authInvalidated';
+const LEGACY_ACCESS_TOKEN_KEY = 'faithlog.accessToken';
+const LEGACY_REFRESH_TOKEN_KEY = 'faithlog.refreshToken';
+const FCM_REGISTRATION_KEY = 'faithlog.fcmRegistration.v2';
+const LEGACY_FCM_TOKEN_KEY = 'faithlog.fcmToken';
+const LEGACY_FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
 const CLIENT_INSTANCE_ID_KEY = 'faithlog.clientInstanceId';
 const LAST_SELECTED_CAMPUS_ID_KEY = 'faithlog.lastSelectedCampusId';
 const PRAYER_SEASON_KEY_PREFIX = 'faithlog.prayerSeason.';
-const webStorageFallback = new Map<string, string>();
+const INVALIDATED_VALUE = '1';
+
+declare const authSessionGenerationBrand: unique symbol;
+
+export type AuthSessionGeneration = number & {
+  readonly [authSessionGenerationBrand]: true;
+};
 
 export type StoredTokens = {
   accessToken: string | null;
   refreshToken: string | null;
 };
 
+export type StoredAuthSession = StoredTokens & {
+  generation: AuthSessionGeneration;
+};
+
 export type StoredFcmRegistration = {
   token: string | null;
   tokenId: number | null;
+  userId: number | null;
 };
 
 export type StoredPrayerSeason = {
@@ -28,30 +42,183 @@ export type StoredPrayerSeason = {
   startDate: string;
 };
 
-export async function getStoredTokens(): Promise<StoredTokens> {
-  const [accessToken, refreshToken] = await Promise.all([
-    getStorageItem(ACCESS_TOKEN_KEY),
-    getStorageItem(REFRESH_TOKEN_KEY),
-  ]);
+type StoredTokenRecord = {
+  version: 1;
+  accessToken: string;
+  refreshToken: string;
+};
 
+type StoredFcmRegistrationRecord = {
+  version: 1;
+  token: string;
+  tokenId: number;
+  userId: number;
+};
+
+let authSessionGeneration = 0 as AuthSessionGeneration;
+let cachedAccessToken: string | null | undefined;
+let secureStorageQueue: Promise<void> = Promise.resolve();
+
+export function getAuthSessionGeneration() {
+  return authSessionGeneration;
+}
+
+export function isAuthSessionGenerationCurrent(
+  generation: AuthSessionGeneration | number,
+) {
+  return generation === authSessionGeneration;
+}
+
+export async function beginAuthSession() {
+  const generation = advanceAuthSessionGeneration();
+  await withSecureStorageLock(invalidateStoredAuthData);
+  return generation;
+}
+
+export async function getStoredAuthSession(): Promise<StoredAuthSession> {
+  return withSecureStorageLock(async () => {
+    const generation = authSessionGeneration;
+    const invalidated = await getStorageItem(AUTH_INVALIDATED_KEY);
+
+    if (invalidated === INVALIDATED_VALUE) {
+      cachedAccessToken = null;
+      return {generation, accessToken: null, refreshToken: null};
+    }
+
+    const serialized = await getStorageItem(AUTH_TOKENS_KEY);
+    const stored = parseStoredTokenRecord(serialized);
+
+    if (serialized && !stored) {
+      cachedAccessToken = null;
+      await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
+      await deleteStorageItem(AUTH_TOKENS_KEY).catch(() => undefined);
+      return {generation, accessToken: null, refreshToken: null};
+    }
+
+    if (stored) {
+      if (isAuthSessionGenerationCurrent(generation)) {
+        cachedAccessToken = stored.accessToken;
+        return {
+          generation,
+          accessToken: stored.accessToken,
+          refreshToken: stored.refreshToken,
+        };
+      }
+
+      return {generation: authSessionGeneration, accessToken: null, refreshToken: null};
+    }
+
+    const [legacyAccessToken, legacyRefreshToken] = await Promise.all([
+      getStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+      getStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+    ]);
+
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      return {generation: authSessionGeneration, accessToken: null, refreshToken: null};
+    }
+
+    if (!legacyAccessToken || !legacyRefreshToken) {
+      cachedAccessToken = null;
+      return {generation, accessToken: null, refreshToken: null};
+    }
+
+    const migrated: StoredTokenRecord = {
+      version: 1,
+      accessToken: legacyAccessToken,
+      refreshToken: legacyRefreshToken,
+    };
+    await setStorageItem(AUTH_TOKENS_KEY, JSON.stringify(migrated));
+    await Promise.allSettled([
+      deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+      deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+    ]);
+
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      return {
+        generation: authSessionGeneration,
+        accessToken: null,
+        refreshToken: null,
+      };
+    }
+
+    cachedAccessToken = legacyAccessToken;
+
+    return {generation, accessToken: legacyAccessToken, refreshToken: legacyRefreshToken};
+  });
+}
+
+export async function isAccessTokenOwnedByAuthSession(
+  accessToken: string,
+  generation: AuthSessionGeneration,
+) {
+  if (!isAuthSessionGenerationCurrent(generation)) {
+    return false;
+  }
+
+  if (cachedAccessToken !== undefined) {
+    return cachedAccessToken === accessToken;
+  }
+
+  const stored = await getStoredAuthSession();
+  return (
+    stored.generation === generation &&
+    isAuthSessionGenerationCurrent(generation) &&
+    stored.accessToken === accessToken
+  );
+}
+
+export async function getStoredTokens(): Promise<StoredTokens> {
+  const {accessToken, refreshToken} = await getStoredAuthSession();
   return {accessToken, refreshToken};
 }
 
-export async function saveTokens(tokens: Pick<TokenPair, 'accessToken' | 'refreshToken'>) {
-  await Promise.all([
-    setStorageItem(ACCESS_TOKEN_KEY, tokens.accessToken),
-    setStorageItem(REFRESH_TOKEN_KEY, tokens.refreshToken),
-  ]);
+export async function saveTokens(
+  tokens: Pick<TokenPair, 'accessToken' | 'refreshToken'>,
+  generation: AuthSessionGeneration = authSessionGeneration,
+) {
+  return withSecureStorageLock(async () => {
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      return false;
+    }
+
+    const record: StoredTokenRecord = {
+      version: 1,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+    await setStorageItem(AUTH_TOKENS_KEY, JSON.stringify(record));
+
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      return false;
+    }
+
+    await Promise.allSettled([
+      deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+      deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+    ]);
+    await deleteStorageItem(AUTH_INVALIDATED_KEY);
+
+    if (isAuthSessionGenerationCurrent(generation)) {
+      cachedAccessToken = record.accessToken;
+    }
+
+    return isAuthSessionGenerationCurrent(generation);
+  });
 }
 
-export async function clearTokens() {
-  await Promise.all([
-    deleteStorageItem(ACCESS_TOKEN_KEY),
-    deleteStorageItem(REFRESH_TOKEN_KEY),
-    deleteStorageItem(FCM_TOKEN_KEY),
-    deleteStorageItem(FCM_TOKEN_ID_KEY),
-    deleteStorageItem(LAST_SELECTED_CAMPUS_ID_KEY),
-  ]);
+export async function clearTokens(
+  expectedGeneration?: AuthSessionGeneration | number,
+) {
+  if (
+    expectedGeneration !== undefined &&
+    !isAuthSessionGenerationCurrent(expectedGeneration)
+  ) {
+    return false;
+  }
+
+  const invalidatedGeneration = advanceAuthSessionGeneration();
+  await withSecureStorageLock(invalidateStoredAuthData);
+  return isAuthSessionGenerationCurrent(invalidatedGeneration);
 }
 
 export async function getStoredSelectedCampusId(): Promise<number | null> {
@@ -116,94 +283,233 @@ export async function clearStoredPrayerSeason(campusId: number) {
 }
 
 export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration> {
-  const [token, tokenIdValue] = await Promise.all([
-    getStorageItem(FCM_TOKEN_KEY),
-    getStorageItem(FCM_TOKEN_ID_KEY),
-  ]);
-  const parsedTokenId = tokenIdValue ? Number(tokenIdValue) : null;
-  const tokenId =
-    parsedTokenId && Number.isInteger(parsedTokenId) && parsedTokenId > 0
-      ? parsedTokenId
-      : null;
+  return withSecureStorageLock(async () => {
+    const record = parseStoredFcmRegistrationRecord(
+      await getStorageItem(FCM_REGISTRATION_KEY),
+    );
 
-  return {token, tokenId};
+    if (record) {
+      return {token: record.token, tokenId: record.tokenId, userId: record.userId};
+    }
+
+    const [token, tokenIdValue] = await Promise.all([
+      getStorageItem(LEGACY_FCM_TOKEN_KEY),
+      getStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
+    ]);
+    const parsedTokenId = tokenIdValue ? Number(tokenIdValue) : null;
+    const tokenId =
+      parsedTokenId && Number.isInteger(parsedTokenId) && parsedTokenId > 0
+        ? parsedTokenId
+        : null;
+
+    return {token, tokenId, userId: null};
+  });
 }
 
-export async function saveFcmToken(token: string) {
-  await setStorageItem(FCM_TOKEN_KEY, token);
+export async function saveFcmRegistration(
+  registration: {token: string; tokenId: number; userId: number},
+  generation: AuthSessionGeneration,
+) {
+  return withSecureStorageLock(async () => {
+    if (
+      !isAuthSessionGenerationCurrent(generation) ||
+      !registration.token.trim() ||
+      !Number.isInteger(registration.tokenId) ||
+      registration.tokenId <= 0 ||
+      !Number.isInteger(registration.userId) ||
+      registration.userId <= 0
+    ) {
+      return false;
+    }
+
+    const record: StoredFcmRegistrationRecord = {
+      version: 1,
+      token: registration.token.trim(),
+      tokenId: registration.tokenId,
+      userId: registration.userId,
+    };
+    await setStorageItem(FCM_REGISTRATION_KEY, JSON.stringify(record));
+    await Promise.allSettled([
+      deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
+      deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
+    ]);
+
+    return isAuthSessionGenerationCurrent(generation);
+  });
 }
 
-export async function saveFcmTokenId(tokenId: number) {
-  await setStorageItem(FCM_TOKEN_ID_KEY, String(tokenId));
-}
+export async function clearFcmRegistration(
+  expectedGeneration?: AuthSessionGeneration | number,
+) {
+  if (
+    expectedGeneration !== undefined &&
+    !isAuthSessionGenerationCurrent(expectedGeneration)
+  ) {
+    return false;
+  }
 
-export async function clearFcmRegistration() {
-  await Promise.all([
-    deleteStorageItem(FCM_TOKEN_KEY),
-    deleteStorageItem(FCM_TOKEN_ID_KEY),
-  ]);
+  return withSecureStorageLock(async () => {
+    if (
+      expectedGeneration !== undefined &&
+      !isAuthSessionGenerationCurrent(expectedGeneration)
+    ) {
+      return false;
+    }
+
+    await Promise.allSettled([
+      deleteStorageItem(FCM_REGISTRATION_KEY),
+      deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
+      deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
+    ]);
+    return true;
+  });
 }
 
 export async function getOrCreateClientInstanceId() {
-  const stored = await getStorageItem(CLIENT_INSTANCE_ID_KEY);
+  return withSecureStorageLock(async () => {
+    const stored = await getStorageItem(CLIENT_INSTANCE_ID_KEY);
 
-  if (stored) {
-    return stored;
-  }
+    if (stored) {
+      return stored;
+    }
 
-  const clientInstanceId = createClientInstanceId();
-  await setStorageItem(CLIENT_INSTANCE_ID_KEY, clientInstanceId);
+    const clientInstanceId = createClientInstanceId();
+    await setStorageItem(CLIENT_INSTANCE_ID_KEY, clientInstanceId);
 
-  return clientInstanceId;
+    return clientInstanceId;
+  });
 }
 
-async function getStorageItem(key: string) {
-  if (Platform.OS !== 'web') {
-    return SecureStore.getItemAsync(key);
+function advanceAuthSessionGeneration() {
+  authSessionGeneration = (authSessionGeneration + 1) as AuthSessionGeneration;
+  cachedAccessToken = null;
+  return authSessionGeneration;
+}
+
+async function invalidateStoredAuthData() {
+  const [
+    tombstoneResult,
+    tokenResult,
+    legacyAccessResult,
+    legacyRefreshResult,
+  ] = await Promise.allSettled([
+    setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE),
+    deleteStorageItem(AUTH_TOKENS_KEY),
+    deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+    deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+    deleteStorageItem(FCM_REGISTRATION_KEY),
+    deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
+    deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
+    deleteStorageItem(LAST_SELECTED_CAMPUS_ID_KEY),
+  ]);
+
+  const tombstoneWritten = tombstoneResult.status === 'fulfilled';
+  const everyAuthRecordDeleted = [
+    tokenResult,
+    legacyAccessResult,
+    legacyRefreshResult,
+  ].every((result) => result.status === 'fulfilled');
+
+  if (!tombstoneWritten && !everyAuthRecordDeleted) {
+    throw new Error('Unable to invalidate stored authentication data.');
+  }
+}
+
+function parseStoredTokenRecord(value: string | null): StoredTokenRecord | null {
+  const parsed = parseJsonRecord(value);
+
+  if (
+    parsed?.version !== 1 ||
+    typeof parsed.accessToken !== 'string' ||
+    !parsed.accessToken.trim() ||
+    typeof parsed.refreshToken !== 'string' ||
+    !parsed.refreshToken.trim()
+  ) {
+    return null;
   }
 
-  return getBrowserStorage()?.getItem(key) ?? webStorageFallback.get(key) ?? null;
+  return {
+    version: 1,
+    accessToken: parsed.accessToken,
+    refreshToken: parsed.refreshToken,
+  };
+}
+
+function parseStoredFcmRegistrationRecord(
+  value: string | null,
+): StoredFcmRegistrationRecord | null {
+  const parsed = parseJsonRecord(value);
+
+  if (
+    parsed?.version !== 1 ||
+    typeof parsed.token !== 'string' ||
+    !parsed.token.trim() ||
+    typeof parsed.tokenId !== 'number' ||
+    !Number.isInteger(parsed.tokenId) ||
+    parsed.tokenId <= 0 ||
+    typeof parsed.userId !== 'number' ||
+    !Number.isInteger(parsed.userId) ||
+    parsed.userId <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    token: parsed.token,
+    tokenId: parsed.tokenId,
+    userId: parsed.userId,
+  };
+}
+
+function parseJsonRecord(value: string | null): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function getPrayerSeasonStorageKey(campusId: number) {
   return `${PRAYER_SEASON_KEY_PREFIX}${campusId}`;
 }
 
+function withSecureStorageLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = secureStorageQueue.then(operation, operation);
+  secureStorageQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function getStorageItem(key: string) {
+  assertNativeStoragePlatform();
+  return SecureStore.getItemAsync(key);
+}
+
 async function setStorageItem(key: string, value: string) {
-  if (Platform.OS !== 'web') {
-    await SecureStore.setItemAsync(key, value);
-    return;
-  }
-
-  const storage = getBrowserStorage();
-
-  if (storage) {
-    storage.setItem(key, value);
-    return;
-  }
-
-  webStorageFallback.set(key, value);
+  assertNativeStoragePlatform();
+  await SecureStore.setItemAsync(key, value, {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
 }
 
 async function deleteStorageItem(key: string) {
-  if (Platform.OS !== 'web') {
-    await SecureStore.deleteItemAsync(key);
-    return;
-  }
-
-  getBrowserStorage()?.removeItem(key);
-  webStorageFallback.delete(key);
+  assertNativeStoragePlatform();
+  await SecureStore.deleteItemAsync(key);
 }
 
-function getBrowserStorage(): Storage | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
+function assertNativeStoragePlatform() {
+  if (Platform.OS === 'web') {
+    throw new Error('FaithLog web builds are not supported.');
   }
 }
 
