@@ -23,7 +23,9 @@ import {
   fetchPollResults,
   fetchPolls,
   getApiBaseUrl,
+  isMockModeEnabled,
   loginUser,
+  validateRuntimeConfig,
 } from './client';
 import {
   clearTokens,
@@ -57,6 +59,44 @@ function jsonResponse(status: number, body: unknown) {
       'Content-Type': 'application/json',
     },
   });
+}
+
+function requireTestRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Invalid test response.');
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function parseIdentityResponse(value: unknown) {
+  const record = requireTestRecord(value);
+  if (typeof record.id !== 'number' || typeof record.email !== 'string') {
+    throw new Error('Invalid test response.');
+  }
+
+  return {id: record.id, email: record.email};
+}
+
+function parseOkResponse(value: unknown) {
+  const record = requireTestRecord(value);
+  if (typeof record.ok !== 'boolean') {
+    throw new Error('Invalid test response.');
+  }
+
+  return {ok: record.ok};
+}
+
+function parseRetriedResponse(value: unknown) {
+  const record = requireTestRecord(value);
+  if (
+    typeof record.ok !== 'boolean' ||
+    typeof record.retriedCalls !== 'number'
+  ) {
+    throw new Error('Invalid test response.');
+  }
+
+  return {ok: record.ok, retriedCalls: record.retriedCalls};
 }
 
 function expectApiError(error: unknown, expected: Partial<FaithLogApiError['detail']>) {
@@ -122,6 +162,28 @@ describe('FaithLog API client', () => {
     );
   });
 
+  it.each(['preview', 'production'])(
+    'rejects mock mode in the %s environment',
+    (appEnvironment) => {
+      process.env.EXPO_PUBLIC_APP_ENV = appEnvironment;
+      process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+      expect(() => validateRuntimeConfig()).toThrowError(FaithLogApiError);
+      expect(() => isMockModeEnabled()).toThrowError(FaithLogApiError);
+    },
+  );
+
+  it.each(['local', 'development'])(
+    'allows mock mode only in the %s environment',
+    (appEnvironment) => {
+      process.env.EXPO_PUBLIC_APP_ENV = appEnvironment;
+      process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+      expect(() => validateRuntimeConfig()).not.toThrow();
+      expect(isMockModeEnabled()).toBe(true);
+    },
+  );
+
   it('rejects malformed role and identity data in a login response', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(
@@ -162,6 +224,7 @@ describe('FaithLog API client', () => {
 
     const data = await apiRequest<{id: number; email: string}>('/users/me', {
       accessToken: 'access-token',
+      responseParser: parseIdentityResponse,
     });
 
     expect(data).toEqual({id: 7, email: 'user@example.test'});
@@ -264,6 +327,25 @@ describe('FaithLog API client', () => {
     });
     expect(polls[1]).toMatchObject({id: 12, isAnonymous: true, responded: true});
   });
+
+  it.each([
+    ['invalid ID', {content: [{pollId: 0}]}],
+    ['invalid collection', {content: {secret: 'raw-server-payload'}}],
+  ] as const)(
+    'maps a malformed poll-list %s to a sanitized invalid-response error',
+    async (_label, data) => {
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(data)));
+
+      await expect(fetchPolls('access-token', 2)).rejects.toSatisfy((error) => {
+        expectApiError(error, {
+          kind: 'error',
+          code: 'INVALID_SERVER_RESPONSE',
+        });
+        expect((error as Error).message).not.toContain('raw-server-payload');
+        return true;
+      });
+    },
+  );
 
   it('unwraps poll detail options and result options from paged payloads', async () => {
     const fetchMock = vi.mocked(fetch);
@@ -711,6 +793,22 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('rejects a valid success envelope when no response parser is provided', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({raw: 'unvalidated'})),
+    );
+
+    await expect(apiRequest('/raw-success')).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        status: 200,
+        code: 'INVALID_SERVER_RESPONSE',
+      });
+      expect((error as Error).message).not.toContain('unvalidated');
+      return true;
+    });
+  });
+
   it('does not retry an old request with the next signed-in user token', async () => {
     let resolveRequest!: (response: Response) => void;
     const response = new Promise<Response>((resolve) => {
@@ -770,6 +868,48 @@ describe('FaithLog API client', () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(getStoredAuthSession).not.toHaveBeenCalled();
     expect(saveTokens).not.toHaveBeenCalled();
+  });
+
+  it('retries a same-session stale token with an already rotated stored token', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access-token',
+      refreshToken: 'rotated-refresh-token',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (_input, init) => {
+      const authorization = (init?.headers as Record<string, string> | undefined)
+        ?.Authorization;
+
+      if (authorization === 'Bearer rotated-access-token') {
+        return jsonResponse(200, envelope({ok: true}));
+      }
+
+      return jsonResponse(
+        401,
+        envelope(null, {
+          success: false,
+          code: 'AUTH_UNAUTHORIZED',
+          message: 'expired',
+        }),
+      );
+    });
+
+    await expect(
+      apiRequest<{ok: boolean}>('/protected', {
+        accessToken: 'same-session-previous-access-token',
+        responseParser: parseOkResponse,
+      }),
+    ).resolves.toEqual({ok: true});
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getStoredAuthSession).toHaveBeenCalledOnce();
+    expect(saveTokens).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith('/api/v1/auth/refresh'),
+      ),
+    ).toBe(false);
   });
 
   it('does not persist a delayed refresh after logout or account replacement', async () => {
@@ -911,9 +1051,11 @@ describe('FaithLog API client', () => {
     const [first, second] = await Promise.all([
       apiRequest<{ok: boolean; retriedCalls: number}>('/protected', {
         accessToken: 'expired-access-token',
+        responseParser: parseRetriedResponse,
       }),
       apiRequest<{ok: boolean; retriedCalls: number}>('/protected', {
         accessToken: 'expired-access-token',
+        responseParser: parseRetriedResponse,
       }),
     ]);
 

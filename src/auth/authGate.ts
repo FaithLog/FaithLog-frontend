@@ -77,7 +77,14 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
   } catch (error) {
     if (error instanceof FaithLogApiError) {
       if (error.detail.kind === 'sessionExpired') {
-        await clearTokens(generation);
+        try {
+          await clearTokens(generation);
+        } catch {
+          return {
+            status: 'error',
+            message: '만료된 로그인 정보를 안전하게 삭제하지 못했습니다.',
+          };
+        }
       }
 
       return mapErrorToGateState(error.detail);

@@ -96,6 +96,64 @@ describe('native auth token storage', () => {
     ).resolves.toBe(false);
   });
 
+  it('keeps every rotated access token owned by the same auth session', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+
+    await tokenStorage.saveTokens(
+      {accessToken: 'first-access', refreshToken: 'first-refresh'},
+      generation,
+    );
+    await tokenStorage.saveTokens(
+      {accessToken: 'rotated-access', refreshToken: 'rotated-refresh'},
+      generation,
+    );
+
+    await expect(
+      tokenStorage.isAccessTokenOwnedByAuthSession('first-access', generation),
+    ).resolves.toBe(true);
+    await expect(
+      tokenStorage.isAccessTokenOwnedByAuthSession('rotated-access', generation),
+    ).resolves.toBe(true);
+    await expect(
+      tokenStorage.isAccessTokenOwnedByAuthSession('unknown-access', generation),
+    ).resolves.toBe(false);
+  });
+
+  it('forgets the previous account token lineage before a new session starts', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const previousGeneration = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens(
+      {accessToken: 'previous-access', refreshToken: 'previous-refresh'},
+      previousGeneration,
+    );
+
+    const currentGeneration = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens(
+      {accessToken: 'current-access', refreshToken: 'current-refresh'},
+      currentGeneration,
+    );
+
+    await expect(
+      tokenStorage.isAccessTokenOwnedByAuthSession(
+        'previous-access',
+        previousGeneration,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      tokenStorage.isAccessTokenOwnedByAuthSession(
+        'previous-access',
+        currentGeneration,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      tokenStorage.isAccessTokenOwnedByAuthSession(
+        'current-access',
+        currentGeneration,
+      ),
+    ).resolves.toBe(true);
+  });
+
   it('stores FCM registration atomically with its owning user and session', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();
@@ -124,6 +182,71 @@ describe('native auth token storage', () => {
       tokenId: null,
       userId: null,
       clientInstanceId: null,
+    });
+  });
+
+  it('uses an FCM tombstone when the current registration cannot be deleted', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+
+    await tokenStorage.saveFcmRegistration(
+      {
+        token: 'device-token',
+        tokenId: 71,
+        userId: 42,
+        clientInstanceId: 'client-instance-1',
+      },
+      generation,
+    );
+    secureStoreMocks.deleteItemAsync.mockImplementationOnce(async (key: string) => {
+      if (key === 'faithlog.fcmRegistration.v2') {
+        throw new Error('FCM registration deletion unavailable');
+      }
+
+      testState.storage.delete(key);
+    });
+
+    await expect(
+      tokenStorage.clearFcmRegistration(generation),
+    ).resolves.toBe(true);
+    expect(testState.storage.has('faithlog.fcmRegistration.v2')).toBe(true);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: null,
+      tokenId: null,
+      userId: null,
+      clientInstanceId: null,
+    });
+  });
+
+  it('reports failure when neither the FCM tombstone nor deletion is durable', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+
+    await tokenStorage.saveFcmRegistration(
+      {
+        token: 'device-token',
+        tokenId: 71,
+        userId: 42,
+        clientInstanceId: 'client-instance-1',
+      },
+      generation,
+    );
+    secureStoreMocks.setItemAsync.mockRejectedValueOnce(
+      new Error('FCM tombstone unavailable'),
+    );
+    secureStoreMocks.deleteItemAsync.mockRejectedValueOnce(
+      new Error('FCM registration deletion unavailable'),
+    );
+
+    await expect(
+      tokenStorage.clearFcmRegistration(generation),
+    ).rejects.toThrow('Unable to invalidate stored FCM registration.');
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: 'device-token',
+      tokenId: 71,
+      userId: 42,
+      clientInstanceId: 'client-instance-1',
     });
   });
 
@@ -226,6 +349,46 @@ describe('native auth token storage', () => {
       'Unable to invalidate stored authentication data.',
     );
     expect(testState.storage.has('faithlog.authTokens.v2')).toBe(true);
+  });
+
+  it('reports logout storage failure when FCM invalidation is not durable', async () => {
+    testState.storage.set(
+      'faithlog.fcmRegistration.v2',
+      JSON.stringify({
+        version: 2,
+        token: 'device-token',
+        tokenId: 71,
+        userId: 42,
+        clientInstanceId: 'client-instance-1',
+      }),
+    );
+    secureStoreMocks.setItemAsync.mockImplementation(
+      async (key: string, value: string) => {
+        if (key === 'faithlog.fcmRegistrationInvalidated') {
+          throw new Error('FCM tombstone unavailable');
+        }
+
+        testState.storage.set(key, value);
+      },
+    );
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.fcmRegistration.v2') {
+        throw new Error('FCM registration deletion unavailable');
+      }
+
+      testState.storage.delete(key);
+    });
+    const tokenStorage = await import('./tokenStorage');
+
+    await expect(tokenStorage.clearTokens()).rejects.toThrow(
+      'Unable to invalidate stored authentication data.',
+    );
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: 'device-token',
+      tokenId: 71,
+      userId: 42,
+      clientInstanceId: 'client-instance-1',
+    });
   });
 
   it('does not provide a browser storage fallback', async () => {

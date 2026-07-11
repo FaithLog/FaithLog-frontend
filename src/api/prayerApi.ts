@@ -21,6 +21,14 @@ import type {
   PrayerSubmissionSaveRequest,
   PrayerWeekSummary,
 } from './types';
+import {
+  parseAdminPrayerAssignableMembers,
+  parseAdminPrayerGroup,
+  parseAdminPrayerGroups,
+  parseAdminPrayerSeason,
+  parseNullableAdminPrayerSeason,
+  parsePrayerWeekSummary,
+} from './runtimeValidation';
 
 function toRequiredString(value: unknown, label: string) {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -107,7 +115,7 @@ export const prayerApi = {
   getCurrentSeason(accessToken: string, campusId: unknown) {
     return apiRequest<AdminPrayerSeason | null>(
       buildAdminCampusPath(campusId, 'prayer-seasons', 'current'),
-      {accessToken},
+      {accessToken, responseParser: parseNullableAdminPrayerSeason},
     );
   },
 
@@ -121,6 +129,7 @@ export const prayerApi = {
       {
         accessToken,
         body: toAdminPrayerSeasonCreateRequest(body),
+        responseParser: parseAdminPrayerSeason,
         method: 'POST',
       },
     );
@@ -141,6 +150,7 @@ export const prayerApi = {
       {
         accessToken,
         body: toAdminPrayerSeasonCloseRequest(body),
+        responseParser: parseAdminPrayerSeason,
         method: 'PATCH',
       },
     );
@@ -154,7 +164,7 @@ export const prayerApi = {
         toPositiveIntegerPathSegment(seasonId, 'seasonId'),
         'groups',
       ),
-      {accessToken},
+      {accessToken, responseParser: parseAdminPrayerGroups},
     );
   },
 
@@ -173,6 +183,7 @@ export const prayerApi = {
       {
         accessToken,
         body: toAdminPrayerGroupCreateRequest(body),
+        responseParser: parseAdminPrayerGroup,
         method: 'POST',
       },
     );
@@ -192,6 +203,7 @@ export const prayerApi = {
       {
         accessToken,
         body: toAdminPrayerGroupUpdateRequest(body),
+        responseParser: parseAdminPrayerGroup,
         method: 'PATCH',
       },
     );
@@ -206,7 +218,7 @@ export const prayerApi = {
         'members',
         'assignable',
       ),
-      {accessToken},
+      {accessToken, responseParser: parseAdminPrayerAssignableMembers},
     );
   },
 
@@ -225,6 +237,7 @@ export const prayerApi = {
       {
         accessToken,
         body: toAdminPrayerGroupMembersReplaceRequest(body),
+        responseParser: parseAdminPrayerGroup,
         method: 'PUT',
       },
     );
@@ -238,7 +251,7 @@ export const prayerApi = {
         'weeks',
         toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
       ),
-      {accessToken},
+      {accessToken, responseParser: parsePrayerWeekSummary},
     );
   },
 
@@ -259,6 +272,7 @@ export const prayerApi = {
       {
         accessToken,
         body,
+        responseParser: parsePrayerWeekSummary,
         method: 'PUT',
       },
     );
@@ -281,6 +295,7 @@ export const prayerApi = {
       {
         accessToken,
         body: toPrayerSelfSaveRequest(body),
+        responseParser: parsePrayerWeekSummary,
         method: 'PUT',
       },
     );

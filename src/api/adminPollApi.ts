@@ -5,7 +5,6 @@ import {
   buildPollListPath,
   toPositiveIntegerPathSegment,
   FaithLogApiError,
-  normalizePollSummaryList,
 } from './client';
 import type {
   AdminNotificationRequest,
@@ -15,6 +14,16 @@ import type {
   PollOption,
   PollResults,
 } from './types';
+import {
+  parseAdminNotificationResponse,
+  parseAdminPoll,
+  parseAdminPollMissingMembers,
+  parseAdminPollTemplate,
+  parseAdminPollTemplates,
+  parsePollComments,
+  parsePollResults,
+  parsePollSummaryList,
+} from './runtimeValidation';
 
 export type AdminPollType = 'CUSTOM' | 'COFFEE' | 'WEDNESDAY' | 'SATURDAY';
 type AdminPollCreatePayloadPollType = 'CUSTOM' | 'COFFEE';
@@ -117,15 +126,16 @@ const chargeGenerationTypes: AdminPollChargeGenerationType[] = ['NONE', 'OPTION_
 const paymentCategories: PaymentCategory[] = ['PENALTY', 'COFFEE'];
 
 export function fetchAdminPolls(accessToken: string, campusId: unknown) {
-  return apiRequest<unknown>(buildPollListPath(campusId), {accessToken}).then(
-    normalizePollSummaryList,
-  );
+  return apiRequest(buildPollListPath(campusId), {
+    accessToken,
+    responseParser: parsePollSummaryList,
+  });
 }
 
 export function fetchAdminPollTemplates(accessToken: string, campusId: unknown) {
   return apiRequest<AdminPollTemplate[]>(
     buildAdminCampusPath(campusId, 'poll-templates'),
-    {accessToken},
+    {accessToken, responseParser: parseAdminPollTemplates},
   );
 }
 
@@ -140,7 +150,7 @@ export function fetchAdminPollTemplate(
       'poll-templates',
       toPositiveIntegerPathSegment(templateId, 'templateId'),
     ),
-    {accessToken},
+    {accessToken, responseParser: parseAdminPollTemplate},
   );
 }
 
@@ -153,6 +163,7 @@ export function createAdminPollTemplate(
     accessToken,
     body: toPollTemplateRequest(body),
     exposeServerErrorMessage: true,
+    responseParser: parseAdminPollTemplate,
     method: 'POST',
   });
 }
@@ -173,6 +184,7 @@ export function updateAdminPollTemplate(
       accessToken,
       body: toPollTemplateRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPollTemplate,
       method: 'PATCH',
     },
   );
@@ -191,6 +203,7 @@ export function deleteAdminPollTemplate(
     ),
     {
       accessToken,
+      responseParser: parseAdminPollTemplate,
       method: 'DELETE',
     },
   );
@@ -205,6 +218,7 @@ export function createAdminPoll(
     accessToken,
     body: toAdminPollCreateRequest(body),
     exposeServerErrorMessage: true,
+    responseParser: parseAdminPoll,
     method: 'POST',
   });
 }
@@ -224,6 +238,7 @@ export function closeAdminPoll(
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPoll,
       method: 'PATCH',
     },
   );
@@ -236,7 +251,7 @@ export function fetchAdminPollResults(
 ) {
   return apiRequest<PollResults>(
     buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId'), 'results'),
-    {accessToken},
+    {accessToken, responseParser: parsePollResults},
   );
 }
 
@@ -247,7 +262,7 @@ export function fetchAdminPollComments(
 ) {
   return apiRequest<PollComment[]>(
     buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId'), 'comments'),
-    {accessToken},
+    {accessToken, responseParser: parsePollComments},
   );
 }
 
@@ -263,7 +278,7 @@ export function fetchAdminPollMissingMembers(
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'missing-members',
     ),
-    {accessToken},
+    {accessToken, responseParser: parseAdminPollMissingMembers},
   );
 }
 
@@ -277,6 +292,7 @@ export function sendAdminPollMissingNotification(
     {
       accessToken,
       body: toAdminPollNotificationRequest(body),
+      responseParser: parseAdminNotificationResponse,
       method: 'POST',
     },
   );

@@ -8,6 +8,7 @@ const AUTH_INVALIDATED_KEY = 'faithlog.authInvalidated';
 const LEGACY_ACCESS_TOKEN_KEY = 'faithlog.accessToken';
 const LEGACY_REFRESH_TOKEN_KEY = 'faithlog.refreshToken';
 const FCM_REGISTRATION_KEY = 'faithlog.fcmRegistration.v2';
+const FCM_INVALIDATED_KEY = 'faithlog.fcmRegistrationInvalidated';
 const LEGACY_FCM_TOKEN_KEY = 'faithlog.fcmToken';
 const LEGACY_FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
 const CLIENT_INSTANCE_ID_KEY = 'faithlog.clientInstanceId';
@@ -66,6 +67,7 @@ type LegacyStoredFcmRegistrationRecord = {
 
 let authSessionGeneration = 0 as AuthSessionGeneration;
 let cachedAccessToken: string | null | undefined;
+const currentSessionAccessTokens = new Set<string>();
 let secureStorageQueue: Promise<void> = Promise.resolve();
 
 export function getAuthSessionGeneration() {
@@ -91,6 +93,7 @@ export async function getStoredAuthSession(): Promise<StoredAuthSession> {
 
     if (invalidated === INVALIDATED_VALUE) {
       cachedAccessToken = null;
+      currentSessionAccessTokens.clear();
       return {generation, accessToken: null, refreshToken: null};
     }
 
@@ -99,6 +102,7 @@ export async function getStoredAuthSession(): Promise<StoredAuthSession> {
 
     if (serialized && !stored) {
       cachedAccessToken = null;
+      currentSessionAccessTokens.clear();
       await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
       await deleteStorageItem(AUTH_TOKENS_KEY).catch(() => undefined);
       return {generation, accessToken: null, refreshToken: null};
@@ -107,6 +111,7 @@ export async function getStoredAuthSession(): Promise<StoredAuthSession> {
     if (stored) {
       if (isAuthSessionGenerationCurrent(generation)) {
         cachedAccessToken = stored.accessToken;
+        currentSessionAccessTokens.add(stored.accessToken);
         return {
           generation,
           accessToken: stored.accessToken,
@@ -128,6 +133,7 @@ export async function getStoredAuthSession(): Promise<StoredAuthSession> {
 
     if (!legacyAccessToken || !legacyRefreshToken) {
       cachedAccessToken = null;
+      currentSessionAccessTokens.clear();
       return {generation, accessToken: null, refreshToken: null};
     }
 
@@ -151,6 +157,7 @@ export async function getStoredAuthSession(): Promise<StoredAuthSession> {
     }
 
     cachedAccessToken = legacyAccessToken;
+    currentSessionAccessTokens.add(legacyAccessToken);
 
     return {generation, accessToken: legacyAccessToken, refreshToken: legacyRefreshToken};
   });
@@ -165,14 +172,14 @@ export async function isAccessTokenOwnedByAuthSession(
   }
 
   if (cachedAccessToken !== undefined) {
-    return cachedAccessToken === accessToken;
+    return currentSessionAccessTokens.has(accessToken);
   }
 
   const stored = await getStoredAuthSession();
   return (
     stored.generation === generation &&
     isAuthSessionGenerationCurrent(generation) &&
-    stored.accessToken === accessToken
+    currentSessionAccessTokens.has(accessToken)
   );
 }
 
@@ -209,6 +216,7 @@ export async function saveTokens(
 
     if (isAuthSessionGenerationCurrent(generation)) {
       cachedAccessToken = record.accessToken;
+      currentSessionAccessTokens.add(record.accessToken);
     }
 
     return isAuthSessionGenerationCurrent(generation);
@@ -293,6 +301,12 @@ export async function clearStoredPrayerSeason(campusId: number) {
 
 export async function getStoredFcmRegistration(): Promise<StoredFcmRegistration> {
   return withSecureStorageLock(async () => {
+    const invalidated = await getStorageItem(FCM_INVALIDATED_KEY);
+
+    if (invalidated === INVALIDATED_VALUE) {
+      return {token: null, tokenId: null, userId: null, clientInstanceId: null};
+    }
+
     const record = parseStoredFcmRegistrationRecord(
       await getStorageItem(FCM_REGISTRATION_KEY),
     );
@@ -345,6 +359,12 @@ export async function saveFcmRegistration(
       clientInstanceId: registration.clientInstanceId.trim(),
     };
     await setStorageItem(FCM_REGISTRATION_KEY, JSON.stringify(record));
+
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      return false;
+    }
+
+    await deleteStorageItem(FCM_INVALIDATED_KEY);
     await Promise.allSettled([
       deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
       deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
@@ -372,11 +392,20 @@ export async function clearFcmRegistration(
       return false;
     }
 
-    await Promise.allSettled([
+    const [tombstoneResult, ...deleteResults] = await Promise.allSettled([
+      setStorageItem(FCM_INVALIDATED_KEY, INVALIDATED_VALUE),
       deleteStorageItem(FCM_REGISTRATION_KEY),
       deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
       deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
     ]);
+
+    if (
+      tombstoneResult.status !== 'fulfilled' &&
+      !deleteResults.every((result) => result.status === 'fulfilled')
+    ) {
+      throw new Error('Unable to invalidate stored FCM registration.');
+    }
+
     return true;
   });
 }
@@ -428,34 +457,49 @@ export async function rotateClientInstanceId(expectedClientInstanceId: string) {
 function advanceAuthSessionGeneration() {
   authSessionGeneration = (authSessionGeneration + 1) as AuthSessionGeneration;
   cachedAccessToken = null;
+  currentSessionAccessTokens.clear();
   return authSessionGeneration;
 }
 
 async function invalidateStoredAuthData() {
   const [
-    tombstoneResult,
+    authTombstoneResult,
     tokenResult,
     legacyAccessResult,
     legacyRefreshResult,
+    fcmTombstoneResult,
+    fcmRegistrationResult,
+    legacyFcmTokenResult,
+    legacyFcmTokenIdResult,
   ] = await Promise.allSettled([
     setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE),
     deleteStorageItem(AUTH_TOKENS_KEY),
     deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
     deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+    setStorageItem(FCM_INVALIDATED_KEY, INVALIDATED_VALUE),
     deleteStorageItem(FCM_REGISTRATION_KEY),
     deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
     deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
     deleteStorageItem(LAST_SELECTED_CAMPUS_ID_KEY),
   ]);
 
-  const tombstoneWritten = tombstoneResult.status === 'fulfilled';
+  const authTombstoneWritten = authTombstoneResult.status === 'fulfilled';
   const everyAuthRecordDeleted = [
     tokenResult,
     legacyAccessResult,
     legacyRefreshResult,
   ].every((result) => result.status === 'fulfilled');
+  const fcmTombstoneWritten = fcmTombstoneResult.status === 'fulfilled';
+  const everyFcmRecordDeleted = [
+    fcmRegistrationResult,
+    legacyFcmTokenResult,
+    legacyFcmTokenIdResult,
+  ].every((result) => result.status === 'fulfilled');
 
-  if (!tombstoneWritten && !everyAuthRecordDeleted) {
+  if (
+    (!authTombstoneWritten && !everyAuthRecordDeleted) ||
+    (!fcmTombstoneWritten && !everyFcmRecordDeleted)
+  ) {
     throw new Error('Unable to invalidate stored authentication data.');
   }
 }

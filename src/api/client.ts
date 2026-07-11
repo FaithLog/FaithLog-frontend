@@ -86,13 +86,55 @@ import type {
 import {getSafeApiErrorMessage} from './errorPolicy';
 import {executeMockRequest} from './mockAdapter';
 import {
+  parseAdminCampusChargeSummary,
+  parseAdminCampusMember,
+  parseAdminCampusMembers,
+  parseAdminChargeStatusChangeResponse,
+  parseAdminDashboardSummary,
+  parseAdminMemberChargeList,
+  parseAdminMissingDevotionMembers,
+  parseAdminNotificationLogList,
+  parseAdminNotificationResponse,
+  parseAdminPaymentAccount,
+  parseAdminPrayerGroup,
+  parseAdminPrayerSeason,
   parseCampusMembershipSummaries,
   parseCampusMembershipSummary,
+  parseCampusCreateResponse,
+  parseCampusDetail,
+  parseChargeList,
+  parseChargeSummary,
+  parseCoffeeBrands,
+  parseCoffeeMenus,
   parseCurrentUser,
+  parseDeleteAccountResponse,
+  parseDevotionDailyCheckSaveResponse,
+  parseDevotionMonthlySummary,
+  parseDutyAssignment,
+  parseDutyAssignments,
   parseFcmTokenRegisterResponse,
   parseLoginResponse,
+  parseMarkChargePaidResponse,
+  parseMyDutyAssignment,
+  parseNullResponse,
+  parsePaymentAccounts,
+  parsePenaltyRule,
+  parsePenaltyRules,
+  parsePollComment,
+  parsePollComments,
+  parsePollDetail,
+  parsePollOption,
+  parsePollResponse,
+  parsePollResults,
+  parsePollSummaryList,
+  parsePrayerWeekSummary,
+  parseServiceAdminCampusList,
+  parseServiceAdminCampusMemberAddResponse,
+  parseServiceAdminUserDetail,
+  parseServiceAdminUserList,
   parseSignupResponse,
   parseTokenPair,
+  parseWeeklyDevotionSummary,
 } from './runtimeValidation';
 import {
   clearTokens,
@@ -118,6 +160,14 @@ type RequestOptions = {
   body?: unknown;
 };
 
+type ParsedRequestOptions<T> = Omit<RequestOptions, 'responseParser'> & {
+  responseParser: (value: unknown) => T;
+};
+
+type UnparsedRequestOptions = Omit<RequestOptions, 'responseParser'> & {
+  responseParser?: never;
+};
+
 export class FaithLogApiError extends Error {
   readonly detail: ApiError;
 
@@ -136,13 +186,32 @@ type AuthRefreshFlight = {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const LOGOUT_REQUEST_TIMEOUT_MS = 5_000;
 const SUPPORTED_APP_ENVIRONMENTS = new Set(['local', 'development', 'preview', 'production']);
+const MOCK_ALLOWED_APP_ENVIRONMENTS = new Set(['local', 'development']);
 const TRUSTED_DEPLOYMENT_API_ORIGINS = new Set([
   'https://faithlog-549871256004.asia-northeast3.run.app',
 ]);
 let authRefreshInFlight: AuthRefreshFlight | null = null;
 
 export function isMockModeEnabled() {
-  return process.env.EXPO_PUBLIC_MOCK_MODE?.trim().toLowerCase() === 'true';
+  const requested =
+    process.env.EXPO_PUBLIC_MOCK_MODE?.trim().toLowerCase() === 'true';
+
+  if (!requested) {
+    return false;
+  }
+
+  const appEnvironment =
+    process.env.EXPO_PUBLIC_APP_ENV?.trim().toLowerCase() || 'local';
+
+  if (!MOCK_ALLOWED_APP_ENVIRONMENTS.has(appEnvironment)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      code: 'CONFIGURATION',
+      message: '현재 앱 환경에서는 mock API를 사용할 수 없습니다.',
+    });
+  }
+
+  return true;
 }
 
 export function validateRuntimeConfig() {
@@ -1180,7 +1249,12 @@ async function executeApiRequest<T>(
   );
 
   if (!options.responseParser) {
-    return envelope.data as T;
+    throw new FaithLogApiError({
+      kind: 'error',
+      status: response.status,
+      code: 'INVALID_SERVER_RESPONSE',
+      message: '서버 응답 형식이 올바르지 않습니다.',
+    });
   }
 
   try {
@@ -1220,6 +1294,14 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
+export function apiRequest<T>(
+  path: string,
+  options: ParsedRequestOptions<T>,
+): Promise<T>;
+export function apiRequest(
+  path: string,
+  options?: UnparsedRequestOptions,
+): Promise<never>;
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
@@ -1493,6 +1575,7 @@ export function logoutUser(accessToken: string, body: LogoutRequest) {
   return apiRequest<null>('/api/v1/auth/logout', {
     accessToken,
     allowAuthSessionChange: true,
+    responseParser: parseNullResponse,
     skipAuthRefresh: true,
     timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
     method: 'POST',
@@ -1504,6 +1587,7 @@ export function deleteMyAccount(accessToken: string, body: DeleteAccountRequest)
   return apiRequest<DeleteAccountResponse>('/api/v1/users/me', {
     accessToken,
     exposeServerErrorMessage: true,
+    responseParser: parseDeleteAccountResponse,
     method: 'DELETE',
     body,
   });
@@ -1533,6 +1617,7 @@ export function deactivateMyFcmToken(
     {
       accessToken,
       ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );
@@ -1567,6 +1652,7 @@ export function fetchMyCampuses(
 export function createCampus(accessToken: string, body: CampusCreateRequest) {
   return apiRequest<CampusCreateResponse>('/api/v1/campuses', {
     accessToken,
+    responseParser: parseCampusCreateResponse,
     method: 'POST',
     body,
   });
@@ -1582,7 +1668,10 @@ export function joinCampus(accessToken: string, body: CampusJoinRequest) {
 }
 
 export function fetchCampusDetail(accessToken: string, campusId: unknown) {
-  return apiRequest<CampusDetail>(buildCampusPath(campusId), {accessToken});
+  return apiRequest<CampusDetail>(buildCampusPath(campusId), {
+    accessToken,
+    responseParser: parseCampusDetail,
+  });
 }
 
 export function fetchWeeklyDevotionSummary(
@@ -1598,7 +1687,7 @@ export function fetchWeeklyDevotionSummary(
       'weeks',
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
-    {accessToken},
+    {accessToken, responseParser: parseWeeklyDevotionSummary},
   );
 }
 
@@ -1618,6 +1707,7 @@ export function saveDevotionDailyCheck(
     ),
     {
       accessToken,
+      responseParser: parseDevotionDailyCheckSaveResponse,
       method: 'PUT',
       body,
     },
@@ -1640,6 +1730,7 @@ export function saveWeeklyDevotion(
     ),
     {
       accessToken,
+      responseParser: parseWeeklyDevotionSummary,
       method: 'PUT',
       body,
     },
@@ -1655,7 +1746,7 @@ export function fetchDevotionMonthlySummary(
 
   return apiRequest<DevotionMonthlySummary>(
     `${buildCampusPath(campusId, 'devotions', 'me', 'monthly-summary')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseDevotionMonthlySummary},
   );
 }
 
@@ -1668,7 +1759,7 @@ export function fetchChargeSummary(
 
   return apiRequest<ChargeSummary>(
     `${buildCampusPath(campusId, 'charges', 'me', 'summary')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseChargeSummary},
   );
 }
 
@@ -1687,7 +1778,7 @@ export function fetchMyCharges(
 
   return apiRequest<ChargeList>(
     `${buildCampusPath(campusId, 'charges', 'me')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseChargeList},
   );
 }
 
@@ -1701,6 +1792,7 @@ export function fetchPaymentAccounts(
 
   return apiRequest<PaymentAccount[]>(query ? `${path}?${query}` : path, {
     accessToken,
+    responseParser: parsePaymentAccounts,
   });
 }
 
@@ -1714,13 +1806,14 @@ export function fetchAdminPaymentAccounts(
 
   return apiRequest<PaymentAccount[]>(query ? `${path}?${query}` : path, {
     accessToken,
+    responseParser: parsePaymentAccounts,
   });
 }
 
 export function fetchMyDutyAssignment(accessToken: string, campusId: unknown) {
   return apiRequest<MyDutyAssignment>(
     buildCampusPath(campusId, 'duty-assignments', 'me'),
-    {accessToken},
+    {accessToken, responseParser: parseMyDutyAssignment},
   );
 }
 
@@ -1735,6 +1828,7 @@ export function createAdminPaymentAccount(
       accessToken,
       body: toPaymentAccountCreateRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'POST',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1752,6 +1846,7 @@ export function createCoffeeDutyPaymentAccount(
       accessToken,
       body: toPaymentAccountCreateRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'POST',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1769,6 +1864,7 @@ export function deactivateAdminPaymentAccount(accessToken: string, accountId: un
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'PATCH',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1790,6 +1886,7 @@ export function activateAdminPaymentAccount(
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'PATCH',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1801,7 +1898,7 @@ export function deleteAdminPaymentAccount(
   campusId: unknown,
   accountId: unknown,
 ) {
-  return apiRequest<void>(
+  return apiRequest<null>(
     buildAdminCampusPath(
       campusId,
       'payment-accounts',
@@ -1810,6 +1907,7 @@ export function deleteAdminPaymentAccount(
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseNullResponse,
       method: 'DELETE',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1827,6 +1925,7 @@ export function deactivateCoffeeDutyPaymentAccount(accessToken: string, accountI
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'PATCH',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1836,6 +1935,7 @@ export function deactivateCoffeeDutyPaymentAccount(accessToken: string, accountI
 export function fetchPenaltyRules(accessToken: string, campusId: unknown) {
   return apiRequest<PenaltyRule[]>(buildCampusPath(campusId, 'penalty-rules'), {
     accessToken,
+    responseParser: parsePenaltyRules,
   });
 }
 
@@ -1849,6 +1949,7 @@ export function createAdminPenaltyRule(
     {
       accessToken,
       body: toPenaltyRuleCreateRequest(body),
+      responseParser: parsePenaltyRule,
       method: 'POST',
     },
   );
@@ -1868,6 +1969,7 @@ export function updateAdminPenaltyRule(
     {
       accessToken,
       body: toPenaltyRuleUpdateRequest(body),
+      responseParser: parsePenaltyRule,
       method: 'PATCH',
     },
   );
@@ -1896,69 +1998,38 @@ export function markMyChargePaid(
     {
       accessToken,
       body: requestBody,
+      responseParser: parseMarkChargePaidResponse,
       method: 'PATCH',
     },
   );
 }
 
 export function fetchCoffeeBrands(accessToken: string) {
-  return apiRequest<CoffeeBrand[]>(buildApiPath('coffee-brands'), {accessToken});
+  return apiRequest<CoffeeBrand[]>(buildApiPath('coffee-brands'), {
+    accessToken,
+    responseParser: parseCoffeeBrands,
+  });
 }
 
 export function fetchCoffeeMenus(accessToken: string, brandId: unknown) {
   return apiRequest<CoffeeMenu[]>(
     buildApiPath('coffee-brands', toPositiveIntegerPathSegment(brandId, 'brandId'), 'menus'),
-    {accessToken},
+    {accessToken, responseParser: parseCoffeeMenus},
   );
-}
-
-export function normalizePollSummaryList(value: unknown): PollSummary[] {
-  return getArrayPayload(value, ['content', 'items', 'polls']).map(normalizePollSummary);
-}
-
-function normalizePollDetail(value: unknown): PollDetail {
-  const source = getNestedRecord(value, 'poll') ?? getRecordPayload(value);
-  const summary = normalizePollSummary(source);
-  const optionsSource = source.options ?? getRecordPayload(value).options;
-  const allowUserOptionAdd = toOptionalBoolean(source.allowUserOptionAdd);
-
-  return {
-    ...source,
-    ...summary,
-    ...(allowUserOptionAdd === undefined ? {} : {allowUserOptionAdd}),
-    chargeGenerationType: toOptionalString(source.chargeGenerationType) ?? 'NONE',
-    paymentAccountId: toOptionalNumber(source.paymentAccountId),
-    paymentCategory: toOptionalString(source.paymentCategory),
-    templateId: toOptionalNumber(source.templateId),
-    options: normalizePollOptions(optionsSource),
-    myResponse: normalizePollResponse(source.myResponse ?? source.response),
-  };
-}
-
-function normalizePollResults(value: unknown): PollResults {
-  const source = getRecordPayload(value);
-  const optionResults = normalizePollOptionResults(
-    source.optionResults ?? source.options ?? source.content ?? source.items,
-  );
-
-  return {
-    ...(source as PollResults),
-    anonymous: Boolean(source.anonymous ?? source.isAnonymous),
-    optionResults,
-  };
 }
 
 export function fetchPolls(accessToken: string, campusId: unknown) {
-  return apiRequest<unknown>(buildPollListPath(campusId), {accessToken}).then(
-    normalizePollSummaryList,
-  );
+  return apiRequest<PollSummary[]>(buildPollListPath(campusId), {
+    accessToken,
+    responseParser: parsePollSummaryList,
+  });
 }
 
 export function fetchPollDetail(accessToken: string, campusId: unknown, pollId: unknown) {
-  return apiRequest<unknown>(
+  return apiRequest<PollDetail>(
     buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId')),
-    {accessToken},
-  ).then(normalizePollDetail);
+    {accessToken, responseParser: parsePollDetail},
+  );
 }
 
 export function savePollResponse(
@@ -1977,6 +2048,7 @@ export function savePollResponse(
     ),
     {
       accessToken,
+      responseParser: parsePollResponse,
       method: 'PUT',
       body,
     },
@@ -2000,21 +2072,22 @@ export function addUserPollOption(
       accessToken,
       body: toPollOptionAddRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parsePollOption,
       method: 'POST',
     },
   );
 }
 
 export function fetchPollResults(accessToken: string, campusId: unknown, pollId: unknown) {
-  return apiRequest<unknown>(
+  return apiRequest<PollResults>(
     buildCampusPath(
       campusId,
       'polls',
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'results',
     ),
-    {accessToken},
-  ).then(normalizePollResults);
+    {accessToken, responseParser: parsePollResults},
+  );
 }
 
 export function fetchPollComments(accessToken: string, campusId: unknown, pollId: unknown) {
@@ -2025,209 +2098,8 @@ export function fetchPollComments(accessToken: string, campusId: unknown, pollId
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'comments',
     ),
-    {accessToken},
+    {accessToken, responseParser: parsePollComments},
   );
-}
-
-function normalizePollSummary(value: unknown): PollSummary {
-  const source = getRecordPayload(value);
-  const allowUserOptionAdd = toOptionalBoolean(source.allowUserOptionAdd);
-
-  return {
-    ...(source as PollSummary),
-    campusId: toRequiredNumber(source.campusId, 'campusId'),
-    id: toRequiredNumber(source.id ?? source.pollId, 'pollId'),
-    isAnonymous: Boolean(source.isAnonymous ?? source.anonymous),
-    ...(allowUserOptionAdd === undefined ? {} : {allowUserOptionAdd}),
-    endsAt: toRequiredDateString(
-      source.endsAt ??
-        source.endAt ??
-        source.endDateTime ??
-        source.deadlineAt ??
-        source.deadline ??
-        source.endDate,
-      'endsAt',
-    ),
-    pollType: toOptionalString(source.pollType) ?? 'CUSTOM',
-    responded: Boolean(source.responded ?? source.hasResponded ?? source.myResponse),
-    selectionType: toOptionalString(source.selectionType) ?? 'SINGLE',
-    startsAt: toRequiredDateString(
-      source.startsAt ??
-        source.startAt ??
-        source.startDateTime ??
-        source.startDate ??
-        source.createdAt,
-      'startsAt',
-    ),
-    status: toOptionalString(source.status) ?? 'OPEN',
-    title: toOptionalString(source.title) ?? '투표',
-  };
-}
-
-function normalizePollOptions(value: unknown): PollOption[] {
-  return getArrayPayload(value, ['content', 'items', 'options']).map((option, index) =>
-    normalizePollOption(option, index),
-  );
-}
-
-function normalizePollOption(value: unknown, index: number): PollOption {
-  const source = getRecordPayload(value);
-  const userAdded = toOptionalBoolean(source.userAdded);
-
-  return {
-    ...(source as PollOption),
-    id: toRequiredNumber(source.id ?? source.optionId ?? source.pollOptionId, 'optionId'),
-    composeMenuCode: toOptionalString(source.composeMenuCode ?? source.menuCode),
-    content:
-      toOptionalString(
-        source.content ?? source.optionContent ?? source.name ?? source.menuName ?? source.title,
-      ) ??
-      `선택지 ${index + 1}`,
-    priceAmount: toOptionalNumber(source.priceAmount ?? source.price ?? source.amount) ?? 0,
-    sortOrder: toOptionalNumber(source.sortOrder ?? source.order) ?? index + 1,
-    ...(userAdded === undefined ? {} : {userAdded}),
-  };
-}
-
-function normalizePollOptionResults(value: unknown): PollResults['optionResults'] {
-  return getArrayPayload(value, ['content', 'items', 'optionResults', 'options']).map(
-    (option, index) => {
-      const source = getRecordPayload(option);
-      const normalizedOption = normalizePollOption(source, index);
-
-      return {
-        ...(source as PollResults['optionResults'][number]),
-        id: normalizedOption.id,
-        content: normalizedOption.content,
-        sortOrder: normalizedOption.sortOrder,
-        responseCount:
-          toOptionalNumber(source.responseCount ?? source.voteCount ?? source.count) ?? 0,
-        respondents: normalizePollRespondents(source.respondents),
-      };
-    },
-  );
-}
-
-function normalizePollRespondents(
-  value: unknown,
-): PollResults['optionResults'][number]['respondents'] {
-  return getArrayPayload(value, ['content', 'items', 'respondents']).map((respondent) => {
-    const source = getRecordPayload(respondent);
-
-    return {
-      userId: toRequiredNumber(source.userId ?? source.id, 'userId'),
-      name: toOptionalString(source.name) ?? '이름 없음',
-      email: toOptionalString(source.email) ?? '',
-    };
-  });
-}
-
-function normalizePollResponse(value: unknown): PollResponse | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const source = getRecordPayload(value);
-
-  return {
-    ...(source as PollResponse),
-    optionIds: getArrayPayload(source.optionIds ?? source.options, ['content', 'items'])
-      .map((optionId) =>
-        typeof optionId === 'number'
-          ? optionId
-          : toOptionalNumber(getRecordPayload(optionId).id ?? getRecordPayload(optionId).optionId),
-      )
-      .filter((optionId): optionId is number => typeof optionId === 'number'),
-    pollId: toOptionalNumber(source.pollId) ?? 0,
-    respondedAt: toOptionalString(source.respondedAt) ?? '',
-    responseId: toOptionalNumber(source.responseId ?? source.id) ?? 0,
-  };
-}
-
-function getArrayPayload(value: unknown, keys: string[]): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (isRecord(value)) {
-    for (const key of keys) {
-      const nested = value[key];
-
-      if (Array.isArray(nested)) {
-        return nested;
-      }
-
-      if (isRecord(nested)) {
-        const nestedArray = getArrayPayload(nested, keys);
-
-        if (nestedArray.length > 0) {
-          return nestedArray;
-        }
-      }
-    }
-  }
-
-  return [];
-}
-
-function getRecordPayload(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function getNestedRecord(value: unknown, key: string) {
-  const source = getRecordPayload(value);
-  const nested = source[key];
-
-  return isRecord(nested) ? nested : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function toRequiredNumber(value: unknown, label: string) {
-  const parsed = toOptionalNumber(value);
-
-  if (parsed === null) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      message: `${label} 응답 값이 올바르지 않습니다.`,
-    });
-  }
-
-  return parsed;
-}
-
-function toOptionalNumber(value: unknown) {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string' && value.trim() !== ''
-        ? Number(value)
-        : null;
-
-  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
-}
-
-function toOptionalString(value: unknown) {
-  return typeof value === 'string' ? value : null;
-}
-
-function toOptionalBoolean(value: unknown) {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function toRequiredDateString(value: unknown, label: string) {
-  const text = toOptionalString(value);
-
-  if (text) {
-    return text;
-  }
-
-  throw new FaithLogApiError({
-    kind: 'error',
-    message: `${label} 응답 값이 올바르지 않습니다.`,
-  });
 }
 
 export function createPollComment(
@@ -2245,6 +2117,7 @@ export function createPollComment(
     ),
     {
       accessToken,
+      responseParser: parsePollComment,
       method: 'POST',
       body,
     },
@@ -2268,6 +2141,7 @@ export function updatePollComment(
     ),
     {
       accessToken,
+      responseParser: parsePollComment,
       method: 'PATCH',
       body,
     },
@@ -2290,6 +2164,7 @@ export function deletePollComment(
     ),
     {
       accessToken,
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );
@@ -2307,7 +2182,7 @@ export function fetchPrayerWeek(
       'weeks',
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
-    {accessToken},
+    {accessToken, responseParser: parsePrayerWeekSummary},
   );
 }
 
@@ -2327,6 +2202,7 @@ export function savePrayerSubmissions(
     ),
     {
       accessToken,
+      responseParser: parsePrayerWeekSummary,
       method: 'PUT',
       body,
     },
@@ -2343,6 +2219,7 @@ export function createAdminPrayerSeason(
     {
       accessToken,
       body: toAdminPrayerSeasonCreateRequest(body),
+      responseParser: parseAdminPrayerSeason,
       method: 'POST',
     },
   );
@@ -2363,6 +2240,7 @@ export function closeAdminPrayerSeason(
     {
       accessToken,
       body: toAdminPrayerSeasonCloseRequest(body),
+      responseParser: parseAdminPrayerSeason,
       method: 'PATCH',
     },
   );
@@ -2383,6 +2261,7 @@ export function createAdminPrayerGroup(
     {
       accessToken,
       body: toAdminPrayerGroupCreateRequest(body),
+      responseParser: parseAdminPrayerGroup,
       method: 'POST',
     },
   );
@@ -2402,6 +2281,7 @@ export function updateAdminPrayerGroup(
     {
       accessToken,
       body: toAdminPrayerGroupUpdateRequest(body),
+      responseParser: parseAdminPrayerGroup,
       method: 'PATCH',
     },
   );
@@ -2422,6 +2302,7 @@ export function replaceAdminPrayerGroupMembers(
     {
       accessToken,
       body: toAdminPrayerGroupMembersReplaceRequest(body),
+      responseParser: parseAdminPrayerGroup,
       method: 'PUT',
     },
   );
@@ -2435,12 +2316,16 @@ export function fetchAdminDashboardSummary(
   const query = toAdminDashboardSummaryQuery(params);
   const path = buildAdminCampusPath(campusId, 'dashboard', 'summary');
 
-  return apiRequest<AdminDashboardSummary>(query ? `${path}?${query}` : path, {accessToken});
+  return apiRequest<AdminDashboardSummary>(query ? `${path}?${query}` : path, {
+    accessToken,
+    responseParser: parseAdminDashboardSummary,
+  });
 }
 
 export function fetchAdminCampusMembers(accessToken: string, campusId: unknown) {
   return apiRequest<AdminCampusMember[]>(buildAdminCampusPath(campusId, 'members'), {
     accessToken,
+    responseParser: parseAdminCampusMembers,
   });
 }
 
@@ -2453,7 +2338,7 @@ export function fetchAdminCampusCharges(
 
   return apiRequest<AdminCampusChargeSummary>(
     `${buildAdminCampusPath(campusId, 'charges')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminCampusChargeSummary},
   );
 }
 
@@ -2466,7 +2351,7 @@ export function fetchAdminCampusChargesForMyAccounts(
 
   return apiRequest<AdminCampusChargeSummary>(
     `${buildAdminCampusPath(campusId, 'charges', 'my-accounts')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminCampusChargeSummary},
   );
 }
 
@@ -2491,7 +2376,7 @@ export function fetchAdminMemberCharges(
       toPositiveIntegerPathSegment(userId, 'userId'),
       'charges',
     )}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminMemberChargeList},
   );
 }
 
@@ -2510,6 +2395,7 @@ export function changeAdminChargeStatus(
     {
       accessToken,
       body: {status: toAdminWritableChargeStatus(status)},
+      responseParser: parseAdminChargeStatusChangeResponse,
       method: 'PATCH',
     },
   );
@@ -2524,7 +2410,7 @@ export function fetchAdminMissingDevotionMembers(
 
   return apiRequest<AdminMissingDevotionMember[]>(
     `${buildAdminCampusPath(campusId, 'devotions', 'missing')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminMissingDevotionMembers},
   );
 }
 
@@ -2548,7 +2434,7 @@ export function fetchAdminNotificationLogs(
 
   return apiRequest<AdminNotificationLogList>(
     `${buildAdminCampusPath(campusId, 'notification-logs')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminNotificationLogList},
   );
 }
 
@@ -2562,6 +2448,7 @@ export function sendAdminNotification(
     {
       accessToken,
       body: toAdminNotificationRequest(body),
+      responseParser: parseAdminNotificationResponse,
       method: 'POST',
     },
   );
@@ -2583,6 +2470,7 @@ export function changeAdminCampusMemberRole(
     {
       accessToken,
       body,
+      responseParser: parseAdminCampusMember,
       method: 'PATCH',
     },
   );
@@ -2604,6 +2492,7 @@ export function getServiceAdminUsers(
 
   return apiRequest<ServiceAdminUserList>(`${buildApiPath('admin', 'users')}?${query}`, {
     accessToken,
+    responseParser: parseServiceAdminUserList,
   });
 }
 
@@ -2613,7 +2502,7 @@ export function getServiceAdminUser(
 ): Promise<ServiceAdminUserDetail> {
   return apiRequest<ServiceAdminUserDetail>(
     buildApiPath('admin', 'users', toPositiveIntegerPathSegment(userId, 'userId')),
-    {accessToken},
+    {accessToken, responseParser: parseServiceAdminUserDetail},
   );
 }
 
@@ -2632,6 +2521,7 @@ export function updateServiceAdminUserRole(
     {
       accessToken,
       body: toServiceAdminUserRoleChangeRequest(body),
+      responseParser: parseServiceAdminUserDetail,
       method: 'PATCH',
     },
   );
@@ -2652,6 +2542,7 @@ export function getServiceAdminCampuses(
 
   return apiRequest<ServiceAdminCampusList>(`${buildApiPath('admin', 'campuses')}?${query}`, {
     accessToken,
+    responseParser: parseServiceAdminCampusList,
   });
 }
 
@@ -2663,6 +2554,7 @@ export function updateCampus(
   return apiRequest<CampusDetail>(buildCampusPath(campusId), {
     accessToken,
     body: toCampusUpdateRequest(body),
+    responseParser: parseCampusDetail,
     method: 'PATCH',
   });
 }
@@ -2677,6 +2569,7 @@ export function addServiceAdminCampusMember(
     {
       accessToken,
       body: toServiceAdminCampusMemberAddRequest(body),
+      responseParser: parseServiceAdminCampusMemberAddResponse,
       method: 'POST',
     },
   );
@@ -2685,7 +2578,7 @@ export function addServiceAdminCampusMember(
 export function fetchDutyAssignments(accessToken: string, campusId: unknown) {
   return apiRequest<DutyAssignment[]>(
     buildAdminCampusPath(campusId, 'duty-assignments'),
-    {accessToken},
+    {accessToken, responseParser: parseDutyAssignments},
   );
 }
 
@@ -2699,6 +2592,7 @@ export function assignCoffeeDuty(
     {
       accessToken,
       body,
+      responseParser: parseDutyAssignment,
       method: 'PUT',
     },
   );
@@ -2718,6 +2612,7 @@ export function revokeCoffeeDuty(
     ),
     {
       accessToken,
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );
@@ -2736,6 +2631,7 @@ export function deleteCampusMember(
     ),
     {
       accessToken,
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );

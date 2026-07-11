@@ -71,6 +71,7 @@ import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
   prepareCurrentSessionLogout,
+  type PreparedLogout,
 } from '../auth/session';
 import {
   type CampusCreateFormValues,
@@ -157,6 +158,43 @@ type AppMessage = {
 } | null;
 
 type SetAuthState = Dispatch<SetStateAction<AuthGateState>>;
+
+type SignedOutAuthState = Extract<AuthGateState, {status: 'signedOut'}>;
+type PrepareLogout = (userId?: number) => Promise<PreparedLogout>;
+type LogoutAuthTransition = {
+  initialState: SignedOutAuthState;
+  remoteState: Promise<SignedOutAuthState | null> | null;
+};
+
+const LOCAL_LOGOUT_FAILURE_WARNING =
+  '보호된 화면은 닫았지만 기기의 로그인 정보를 완전히 삭제하지 못했습니다. 앱을 다시 열면 로그인 상태가 복원될 수 있으니 이 기기 사용을 중단하고 고객지원에 문의해 주세요.';
+
+export async function beginLogoutAuthTransition(
+  userId: number,
+  prepareLogout: PrepareLogout = prepareCurrentSessionLogout,
+): Promise<LogoutAuthTransition> {
+  try {
+    const prepared = await prepareLogout(userId);
+    const remoteState = Promise.resolve()
+      .then(() => prepared.completeRemoteLogout())
+      .then<SignedOutAuthState | null>((result) =>
+        result.status === 'signedOutWithRemoteWarning'
+          ? {status: 'signedOut', warning: result.message}
+          : null,
+      )
+      .catch<SignedOutAuthState>(() => ({
+        status: 'signedOut',
+        warning: '이 기기에서는 로그아웃했지만 서버 로그아웃 확인은 완료하지 못했습니다.',
+      }));
+
+    return {initialState: {status: 'signedOut'}, remoteState};
+  } catch {
+    return {
+      initialState: {status: 'signedOut', warning: LOCAL_LOGOUT_FAILURE_WARNING},
+      remoteState: null,
+    };
+  }
+}
 
 type CardState<T> =
   | {status: 'idle'}
@@ -477,7 +515,7 @@ function renderAuthState({
       return state.warning ? (
         <>
           <Card>
-            <Eyebrow>서버 로그아웃 확인 필요</Eyebrow>
+            <Eyebrow>로그아웃 확인 필요</Eyebrow>
             <Body>{state.warning}</Body>
           </Card>
           {publicAuthEntry}
@@ -1630,7 +1668,6 @@ function AuthenticatedShell({
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
   const [campusSwitchLoading, setCampusSwitchLoading] = useState(false);
   const [campusSwitchError, setCampusSwitchError] = useState<ApiError | null>(null);
@@ -1785,7 +1822,6 @@ function AuthenticatedShell({
 
     const userId = state.user.id;
     setLoggingOut(true);
-    setLogoutError(null);
 
     const transitionToSignedOut = (warning?: string) => {
       setLogoutConfirmVisible(false);
@@ -1793,32 +1829,23 @@ function AuthenticatedShell({
       setAuthState({status: 'signedOut', ...(warning ? {warning} : {})});
     };
 
-    try {
-      const prepared = await prepareCurrentSessionLogout(userId);
-      let warning: string | undefined;
+    const transition = await beginLogoutAuthTransition(userId);
+    transitionToSignedOut(transition.initialState.warning);
 
-      try {
-        const result = await prepared.completeRemoteLogout();
-
-        if (result.status === 'signedOutWithRemoteWarning') {
-          warning = result.message;
+    if (transition.remoteState) {
+      void transition.remoteState.then((remoteState) => {
+        if (!remoteState) {
+          return;
         }
-      } catch {
-        warning =
-          '이 기기에서는 로그아웃했지만 서버 로그아웃 확인은 완료하지 못했습니다.';
-      }
 
-      transitionToSignedOut(warning);
-    } catch {
-      setLoggingOut(false);
-      setLogoutError(
-        '기기의 로그인 정보를 안전하게 삭제하지 못했습니다. 로그인 상태를 유지했으니 잠시 후 다시 시도해 주세요.',
-      );
+        setAuthState((currentState) =>
+          currentState.status === 'signedOut' ? remoteState : currentState,
+        );
+      });
     }
   };
 
   const openLogoutConfirm = () => {
-    setLogoutError(null);
     setLogoutConfirmVisible(true);
   };
 
@@ -2233,7 +2260,6 @@ function AuthenticatedShell({
       ) : null}
 
       <LogoutConfirmSheet
-        failureMessage={logoutError}
         loading={loggingOut}
         onCancel={() => setLogoutConfirmVisible(false)}
         onConfirm={completeLogout}
@@ -4048,13 +4074,11 @@ function CampusSwitchSheet({
 }
 
 function LogoutConfirmSheet({
-  failureMessage,
   loading,
   onCancel,
   onConfirm,
   visible,
 }: {
-  failureMessage: string | null;
   loading: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -4067,7 +4091,6 @@ function LogoutConfirmSheet({
       confirmAccessibilityLabel="로그아웃 확정"
       confirmLabel="로그아웃"
       dangerSummary="서버 로그아웃 확인과 기기 로그인 정보 정리를 함께 진행합니다."
-      failureMessage={failureMessage}
       loading={loading}
       loadingLabel="로그아웃 중..."
       message="로그아웃을 시도한 뒤 이 기기의 로그인 정보를 안전하게 정리합니다."

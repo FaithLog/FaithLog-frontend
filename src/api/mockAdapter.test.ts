@@ -17,6 +17,11 @@ import {
   loginUser,
   validateRuntimeConfig,
 } from './client';
+import {
+  createAdminPollTemplate,
+  updateAdminPollTemplate,
+  type AdminPollTemplateRequest,
+} from './adminPollApi';
 import {mockApiErrorFixtures, mockDomainFixtures} from './mockFixtures';
 
 function expectApiError(error: unknown, expected: Partial<FaithLogApiError['detail']>) {
@@ -66,6 +71,40 @@ describe('FaithLog mock API adapter', () => {
     expect(mockDomainFixtures).toHaveProperty('poll');
     expect(mockDomainFixtures).toHaveProperty('prayer');
     expect(mockDomainFixtures).toHaveProperty('notification');
+  });
+
+  it('returns parser-compatible options when mock poll templates are created and updated', async () => {
+    const request: AdminPollTemplateRequest = {
+      title: '반복 투표',
+      pollType: 'COFFEE',
+      selectionType: 'SINGLE',
+      chargeGenerationType: 'OPTION_PRICE',
+      paymentCategory: 'COFFEE',
+      paymentAccountId: 1,
+      autoCreateEnabled: true,
+      startDayOfWeek: 1,
+      startTime: '09:00:00',
+      endDayOfWeek: 2,
+      endTime: '18:00:00',
+      options: [
+        {content: null, menuId: 11, priceAmount: 4_500, sortOrder: 1},
+        {content: '참석 안 함', menuId: null, priceAmount: null, sortOrder: 2},
+      ],
+    };
+
+    const created = await createAdminPollTemplate('mock-access-token', 1, request);
+    const updated = await updateAdminPollTemplate(
+      'mock-access-token',
+      1,
+      created.id,
+      {...request, title: '수정된 반복 투표'},
+    );
+
+    expect(created.options).toHaveLength(2);
+    expect(created.options.every((option) => option.id > 0)).toBe(true);
+    expect(updated).toMatchObject({id: created.id, title: '수정된 반복 투표'});
+    expect(updated.options.every((option) => option.id > 0)).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([

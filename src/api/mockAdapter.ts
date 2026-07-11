@@ -231,13 +231,21 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     /^\/admin\/campuses\/\d+\/poll-templates(\/\d+)?$/.test(path)
   ) {
     const request = parseMockJsonBody(body);
+    const requestRecord =
+      typeof request === 'object' && request !== null
+        ? (request as Record<string, unknown>)
+        : null;
+    const templateId =
+      route.method === 'POST'
+        ? 900 + mockCreatedPollTemplates.length
+        : (getLastPathNumber(path) ?? 801);
     const template = {
       ...createMockAdminPollTemplate(),
-      ...(typeof request === 'object' && request !== null ? request : {}),
-      id:
-        route.method === 'POST'
-          ? 900 + mockCreatedPollTemplates.length
-          : (getLastPathNumber(path) ?? 801),
+      ...(requestRecord ?? {}),
+      id: templateId,
+      ...(Array.isArray(requestRecord?.options)
+        ? {options: createMockPollTemplateOptions(requestRecord.options, templateId)}
+        : {}),
       isActive: route.method !== 'DELETE',
       isDefault: false,
     };
@@ -459,6 +467,29 @@ function createMockAdminPollTemplates() {
       options: mockDomainFixtures.poll.details.find((detail) => detail.id === 704)?.options ?? [],
     },
   ];
+}
+
+function createMockPollTemplateOptions(options: unknown[], templateId: number) {
+  return options.map((value, index) => {
+    const option =
+      typeof value === 'object' && value !== null
+        ? (value as Record<string, unknown>)
+        : {};
+    const menuId = typeof option.menuId === 'number' ? option.menuId : null;
+
+    return {
+      id: templateId * 100 + index + 1,
+      content:
+        typeof option.content === 'string'
+          ? option.content
+          : menuId === null
+            ? `선택지 ${index + 1}`
+            : `메뉴 ${menuId}`,
+      composeMenuCode: menuId === null ? null : `MENU-${menuId}`,
+      priceAmount: typeof option.priceAmount === 'number' ? option.priceAmount : 0,
+      sortOrder: typeof option.sortOrder === 'number' ? option.sortOrder : index + 1,
+    };
+  });
 }
 
 function getLastPathNumber(path: string) {

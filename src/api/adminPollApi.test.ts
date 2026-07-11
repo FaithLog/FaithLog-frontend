@@ -352,4 +352,39 @@ describe('admin poll API', () => {
       return true;
     });
   });
+
+  it.each([
+    ['negative ID', {...pollResponse, id: -1}],
+    ['negative price', {
+      ...pollResponse,
+      options: [
+        {
+          id: 9,
+          content: '잘못된 선택지',
+          composeMenuCode: null,
+          priceAmount: -1,
+          sortOrder: 1,
+        },
+      ],
+    }],
+    ['malformed date', {...pollResponse, startsAt: 'not-a-date'}],
+  ] as const)(
+    'rejects a malformed admin poll response with %s',
+    async (_label, responseData) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, envelope(responseData)),
+      );
+
+      await expect(createAdminPoll('access-token', 1, baseRequest)).rejects.toSatisfy(
+        (error) => {
+          expect(error).toBeInstanceOf(FaithLogApiError);
+          expect((error as FaithLogApiError).detail).toMatchObject({
+            kind: 'error',
+            code: 'INVALID_SERVER_RESPONSE',
+          });
+          return true;
+        },
+      );
+    },
+  );
 });
