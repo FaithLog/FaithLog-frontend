@@ -26,10 +26,10 @@
   "dependencies": {
     "@react-native-firebase/app": "^25.1.0",
     "@react-native-firebase/messaging": "^25.1.0",
-    "expo": "~56.0.15",
-    "expo-build-properties": "~56.0.22",
-    "expo-clipboard": "~56.0.4",
-    "expo-secure-store": "~56.0.4",
+    "expo": "~57.0.4",
+    "expo-build-properties": "~57.0.3",
+    "expo-clipboard": "~57.0.0",
+    "expo-secure-store": "~57.0.0",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-svg": "15.15.4"
