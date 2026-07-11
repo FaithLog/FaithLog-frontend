@@ -1,11 +1,11 @@
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens, getStoredAuthSession} from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
 import {refreshAndEstablishSession} from './session';
 
 export type AuthGateState =
   | {status: 'loading'; message: string}
-  | {status: 'signedOut'}
+  | {status: 'signedOut'; warning?: string}
   | {status: 'sessionExpired'; message: string}
   | {status: 'noCampus'; user: CurrentUser}
   | {
@@ -55,18 +55,36 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
     };
   }
 
-  const {refreshToken} = await getStoredTokens();
+  let storedSession;
+
+  try {
+    storedSession = await getStoredAuthSession();
+  } catch {
+    return {
+      status: 'error',
+      message: '저장된 로그인 정보를 안전하게 확인하지 못했습니다.',
+    };
+  }
+
+  const {generation, refreshToken} = storedSession;
 
   if (!refreshToken) {
     return {status: 'signedOut'};
   }
 
   try {
-    return await refreshAndEstablishSession(refreshToken);
+    return await refreshAndEstablishSession(refreshToken, generation);
   } catch (error) {
     if (error instanceof FaithLogApiError) {
       if (error.detail.kind === 'sessionExpired') {
-        await clearTokens();
+        try {
+          await clearTokens(generation);
+        } catch {
+          return {
+            status: 'error',
+            message: '만료된 로그인 정보를 안전하게 삭제하지 못했습니다.',
+          };
+        }
       }
 
       return mapErrorToGateState(error.detail);

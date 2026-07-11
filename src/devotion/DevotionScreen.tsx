@@ -959,7 +959,7 @@ async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) 
 
 function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) => void) {
   if (error.kind === 'sessionExpired') {
-    void clearTokens();
+    void clearTokens(error.authSessionGeneration);
     setAuthState({status: 'sessionExpired', message: error.message});
   }
 }

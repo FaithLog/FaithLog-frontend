@@ -931,7 +931,7 @@ async function handleAuthError(
   setAuthState: (state: AuthGateState) => void,
 ) {
   if (error.kind === 'sessionExpired') {
-    await clearTokens();
+    await clearTokens(error.authSessionGeneration);
     setAuthState({status: 'sessionExpired', message: error.message});
   }
 }

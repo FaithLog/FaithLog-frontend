@@ -1,6 +1,6 @@
 # FaithLog Frontend
 
-FaithLog의 React Native frontend 프로젝트입니다. Expo, TypeScript, Docker 기반 개발 환경을 기본으로 둡니다.
+FaithLog의 iOS/Android 전용 React Native frontend 프로젝트입니다. Expo, TypeScript, Docker 기반 개발 환경을 기본으로 두며 Web 빌드는 지원하지 않습니다.
 
 ## 기준 자료
 
@@ -36,7 +36,7 @@ EXPO_PUBLIC_APP_ENV=local
 EXPO_PUBLIC_MOCK_MODE=false
 ```
 
-EAS build profile은 `eas.json`의 `EXPO_PUBLIC_API_BASE_URL`을 사용합니다. Preview/production 기본 API origin은 현재 MVP Cloud Run URL인 `https://faithlog-549871256004.asia-northeast3.run.app`입니다. GitHub Actions의 `EAS Build` workflow는 `PREVIEW_API_BASE_URL` 또는 `PRODUCTION_API_BASE_URL`이 설정되어 있으면 해당 값을 검증한 뒤 임시 `eas.json`에 주입하고 EAS build를 시작합니다. Expo token과 Firebase native config 값은 repository, PR 본문, QA 보고에 남기지 않습니다.
+EAS preview/production은 앱의 런타임 allowlist, `eas.json`, GitHub Actions workflow에 함께 명시된 승인 API origin만 사용합니다. 현재 승인 origin은 MVP Cloud Run URL인 `https://faithlog-549871256004.asia-northeast3.run.app`입니다. Origin을 변경할 때는 세 위치를 같은 PR에서 함께 수정하고 검증해야 합니다. Expo token과 Firebase native config 값은 repository, PR 본문, QA 보고에 남기지 않습니다.
 
 `EXPO_PUBLIC_MOCK_MODE=true`로 설정하면 API client 내부 mock adapter가 live backend 대신 도메인 fixture를 반환합니다. 화면 코드와 feature service는 live/mock 분기를 직접 알지 않아야 합니다. 기본 MVP QA는 live backend mode(`false`)를 기준으로 하고, mock QA는 fixture adapter 사용 여부와 scenario를 함께 기록합니다.
 
@@ -68,7 +68,7 @@ Mock QA는 `EXPO_PUBLIC_MOCK_MODE=true`로 실행합니다. 기본 fixture는 `s
 | `preview` | `preview` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` |
 | `production` | `production` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` |
 
-Preview/production의 실제 API URL, Firebase native config, service files, token, private key는 repository에 커밋하지 않습니다. EAS/CI secret injection으로 제공하고, PR 본문과 QA 보고에는 placeholder 또는 “주입됨/미확인” 상태만 기록합니다.
+Preview/production API origin은 public runtime config이므로 승인값을 코드와 함께 검토합니다. Firebase native config, service files, token, private key는 repository에 커밋하지 않고 EAS/CI secret injection으로 제공하며, PR 본문과 QA 보고에는 placeholder 또는 “주입됨/미확인” 상태만 기록합니다.
 
 ## EAS 배포
 
@@ -77,8 +77,8 @@ Preview/production 배포는 GitHub Actions의 `EAS Build` workflow에서 수동
 필수 GitHub 설정:
 
 - `EXPO_TOKEN`: EAS build 실행용 secret
-- `PREVIEW_API_BASE_URL`: preview API origin environment variable 또는 secret. 기본값은 `eas.json`의 Cloud Run URL입니다.
-- `PRODUCTION_API_BASE_URL`: production API origin environment variable 또는 secret. 기본값은 `eas.json`의 Cloud Run URL입니다.
+
+Preview/production API origin은 임의 GitHub variable/secret으로 덮어쓰지 않습니다. 변경은 앱 allowlist와 workflow를 함께 검토하는 코드 변경으로 진행합니다.
 
 필수 EAS secret:
 
@@ -100,7 +100,6 @@ curl -sS -o /tmp/faithlog-users-me-health.json -w "%{http_code}\n" \
 - `npm run start`: Expo 개발 서버 실행
 - `npm run android`: Android 대상으로 실행
 - `npm run ios`: iOS 대상으로 실행
-- `npm run web`: Web 대상으로 실행
 - `npm run typecheck`: TypeScript 타입 검사
 - `npm run lint`: ESLint 기반 TypeScript/TSX 정적 검사
 - `npm run test`: Vitest 기반 API client 단위 테스트
@@ -115,7 +114,8 @@ npm ci
 npm run typecheck
 npm run lint
 npm run test
-npx expo export --platform web --output-dir /private/tmp/faithlog-web-export
+npx expo config --type public
+npx expo export --platform android --output-dir /private/tmp/faithlog-android-export
 docker compose build
 npm audit --audit-level=moderate
 ```
@@ -126,9 +126,10 @@ npm audit --audit-level=moderate
 - `npm run typecheck`: `tsc --noEmit` 성공.
 - `npm run lint`: ESLint 검사 성공.
 - `npm run test`: API client 단위 테스트 성공.
-- `npx expo export --platform web`: web bundle export 성공.
+- `npx expo config --type public`: 지원 플랫폼이 iOS/Android로만 해석되고 native 설정이 유효함.
+- `npx expo export --platform android`: Android bundle export 성공.
 - `docker compose build`: frontend image build 성공.
-- `npm audit --audit-level=moderate`: 현재 known risk로 10 moderate vulnerabilities가 보고됩니다. `npm audit fix --force`가 Expo breaking downgrade를 제안하면 PR 범위 밖 위험으로 분리 기록합니다.
+- `npm audit --audit-level=moderate`: 현재 보고 건수와 전이 의존성 경로를 실행 시점에 기록합니다. `npm audit fix --force`가 Expo breaking downgrade를 제안하면 자동 적용하지 않고 별도 호환성 검토 대상으로 기록합니다.
 
 ## QA 절차
 

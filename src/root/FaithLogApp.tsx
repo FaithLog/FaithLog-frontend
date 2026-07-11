@@ -1,4 +1,12 @@
-import {type PropsWithChildren, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  type Dispatch,
+  type PropsWithChildren,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -32,7 +40,13 @@ import {
   signupUser,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens, saveSelectedCampusId} from '../api/tokenStorage';
+import {
+  clearTokens,
+  getAuthSessionGeneration,
+  getStoredAuthSession,
+  getStoredTokens,
+  saveSelectedCampusId,
+} from '../api/tokenStorage';
 import type {
   ApiError,
   CampusDetail,
@@ -54,7 +68,11 @@ import {
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
 import {bootstrapAuthGate} from '../auth/authGate';
-import {loginAndEstablishSession, logoutCurrentSession} from '../auth/session';
+import {
+  loginAndEstablishSession,
+  prepareCurrentSessionLogout,
+  type PreparedLogout,
+} from '../auth/session';
 import {
   type CampusCreateFormValues,
   type InviteCodeFormValues,
@@ -139,6 +157,45 @@ type AppMessage = {
   message: string;
 } | null;
 
+type SetAuthState = Dispatch<SetStateAction<AuthGateState>>;
+
+type SignedOutAuthState = Extract<AuthGateState, {status: 'signedOut'}>;
+type PrepareLogout = (userId?: number) => Promise<PreparedLogout>;
+type LogoutAuthTransition = {
+  initialState: SignedOutAuthState;
+  remoteState: Promise<SignedOutAuthState | null> | null;
+};
+
+const LOCAL_LOGOUT_FAILURE_WARNING =
+  '보호된 화면은 닫았지만 기기의 로그인 정보를 완전히 삭제하지 못했습니다. 앱을 다시 열면 로그인 상태가 복원될 수 있으니 이 기기 사용을 중단하고 고객지원에 문의해 주세요.';
+
+export async function beginLogoutAuthTransition(
+  userId: number,
+  prepareLogout: PrepareLogout = prepareCurrentSessionLogout,
+): Promise<LogoutAuthTransition> {
+  try {
+    const prepared = await prepareLogout(userId);
+    const remoteState = Promise.resolve()
+      .then(() => prepared.completeRemoteLogout())
+      .then<SignedOutAuthState | null>((result) =>
+        result.status === 'signedOutWithRemoteWarning'
+          ? {status: 'signedOut', warning: result.message}
+          : null,
+      )
+      .catch<SignedOutAuthState>(() => ({
+        status: 'signedOut',
+        warning: '이 기기에서는 로그아웃했지만 서버 로그아웃 확인은 완료하지 못했습니다.',
+      }));
+
+    return {initialState: {status: 'signedOut'}, remoteState};
+  } catch {
+    return {
+      initialState: {status: 'signedOut', warning: LOCAL_LOGOUT_FAILURE_WARNING},
+      remoteState: null,
+    };
+  }
+}
+
 type CardState<T> =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -193,6 +250,8 @@ export function FaithLogApp() {
       return undefined;
     }
 
+    const generation = getAuthSessionGeneration();
+    const userId = authState.user.id;
     let active = true;
     let unsubscribe = () => {};
 
@@ -202,13 +261,22 @@ export function FaithLogApp() {
       }
 
       unsubscribe = subscribeDeviceFcmTokenRefresh((token) => {
-        void getStoredTokens()
-          .then(({accessToken}) => {
-            if (!active || !accessToken) {
+        void getStoredAuthSession()
+          .then((session) => {
+            if (
+              !active ||
+              !session.accessToken ||
+              session.generation !== generation
+            ) {
               return null;
             }
 
-            return registerFcmTokenValue(accessToken, token);
+            return registerFcmTokenValue(
+              session.accessToken,
+              userId,
+              token,
+              generation,
+            );
           })
           .catch(() => null);
       });
@@ -232,21 +300,34 @@ export function FaithLogApp() {
     }
 
     autoFcmRegistrationAttemptRef.current = registrationKey;
+    const generation = getAuthSessionGeneration();
+    const userId = authState.user.id;
     let active = true;
 
     void initializeNativeFirebaseMessaging()
-      .then(() => getStoredTokens())
-      .then(({accessToken}) => {
-        if (!active || !accessToken) {
+      .then(() => getStoredAuthSession())
+      .then((session) => {
+        if (
+          !active ||
+          !session.accessToken ||
+          session.generation !== generation
+        ) {
           return null;
         }
 
-        return inspectFcmRegistrationStatus().then((status) => {
-          if (!active || status.status === 'registered') {
+        return inspectFcmRegistrationStatus(userId, generation).then((status) => {
+          if (
+            !active ||
+            status.status === 'registered'
+          ) {
             return status;
           }
 
-          return registerCurrentFcmToken(accessToken);
+          return registerCurrentFcmToken(
+            session.accessToken!,
+            userId,
+            generation,
+          );
         });
       })
       .catch((error) => {
@@ -415,7 +496,7 @@ function renderAuthState({
   openEntryTarget: (target: EntryTarget | null) => void;
   retry: () => void;
   route: ShellRoute;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
   setRoute: (route: ShellRoute) => void;
   state: AuthGateState;
@@ -423,13 +504,26 @@ function renderAuthState({
   switch (state.status) {
     case 'loading':
       return <LaunchAuthCheckScreen message={state.message} />;
-    case 'signedOut':
-      return renderPublicAuthEntry({
+    case 'signedOut': {
+      const publicAuthEntry = renderPublicAuthEntry({
         clearNotice,
         entryTarget: entryTarget === 'signup' ? 'signup' : 'login',
         openEntryTarget,
         setAuthState,
       });
+
+      return state.warning ? (
+        <>
+          <Card>
+            <Eyebrow>로그아웃 확인 필요</Eyebrow>
+            <Body>{state.warning}</Body>
+          </Card>
+          {publicAuthEntry}
+        </>
+      ) : (
+        publicAuthEntry
+      );
+    }
     case 'sessionExpired':
       if (entryTarget === 'login' || entryTarget === 'signup') {
         return renderPublicAuthEntry({
@@ -535,7 +629,7 @@ function renderPublicAuthEntry({
   clearNotice: () => void;
   entryTarget: 'login' | 'signup';
   openEntryTarget: (target: EntryTarget | null) => void;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
 }) {
   if (entryTarget === 'signup') {
     return (
@@ -576,7 +670,7 @@ function NoCampusOnboarding({
   clearNotice: () => void;
   entryTarget: EntryTarget | null;
   openEntryTarget: (target: EntryTarget | null) => void;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   user: Extract<AuthGateState, {status: 'noCampus'}>['user'];
 }) {
   const canCreateCampus = canCreateCampusWithRole(user.role);
@@ -1429,7 +1523,7 @@ async function applyCampusFormError(
 ) {
   if (error instanceof FaithLogApiError) {
     if (error.detail.kind === 'sessionExpired') {
-      await clearTokens();
+      await clearTokens(error.detail.authSessionGeneration);
       options.setFormError(null);
       options.onSessionExpired(error.detail.message);
       return;
@@ -1559,7 +1653,7 @@ function AuthenticatedShell({
 }: {
   entryTarget: EntryTarget | null;
   openEntryTarget: (target: EntryTarget | null) => void;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   route: ShellRoute;
@@ -1726,12 +1820,33 @@ function AuthenticatedShell({
       return;
     }
 
+    const userId = state.user.id;
     setLoggingOut(true);
-    await logoutCurrentSession();
-    setLoggingOut(false);
-    setLogoutConfirmVisible(false);
-    setRoute('userHome');
-    setAuthState({status: 'signedOut'});
+
+    const transitionToSignedOut = (warning?: string) => {
+      setLogoutConfirmVisible(false);
+      setRoute('userHome');
+      setAuthState({status: 'signedOut', ...(warning ? {warning} : {})});
+    };
+
+    const transition = await beginLogoutAuthTransition(userId);
+    transitionToSignedOut(transition.initialState.warning);
+
+    if (transition.remoteState) {
+      void transition.remoteState.then((remoteState) => {
+        if (!remoteState) {
+          return;
+        }
+
+        setAuthState((currentState) =>
+          currentState.status === 'signedOut' ? remoteState : currentState,
+        );
+      });
+    }
+  };
+
+  const openLogoutConfirm = () => {
+    setLogoutConfirmVisible(true);
   };
 
   const selectRoute = (nextRoute: ShellRoute) => {
@@ -1928,7 +2043,7 @@ function AuthenticatedShell({
         ) : (
           <ServiceAdminScreen
             onBackToUserMode={returnToUserMode}
-            onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onLogoutPress={openLogoutConfirm}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
@@ -2082,7 +2197,7 @@ function AuthenticatedShell({
             onCampusSwitchPress={openCampusSwitch}
             canSwitchCampus={canManageCampuses}
             onBackToProfile={() => setProfileView('main')}
-            onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onLogoutPress={openLogoutConfirm}
             onInviteCodePress={() => openEntryTarget('inviteCode')}
             onOpenAdminMode={openAdminMode}
             onOpenAccountDeletion={() => setProfileView('accountDeletion')}
@@ -2102,7 +2217,7 @@ function AuthenticatedShell({
         ) : route === 'serviceAdmin' ? (
           <ServiceAdminScreen
             onBackToUserMode={returnToUserMode}
-            onLogoutPress={() => setLogoutConfirmVisible(true)}
+            onLogoutPress={openLogoutConfirm}
             setAuthState={setAuthState}
             setNotice={setNotice}
             state={state}
@@ -2408,7 +2523,7 @@ function UserHomeDashboard({
   onOpenNotifications: () => void;
   onOpenPayments: () => void;
   onOpenPrayers: (entryMode: PrayerEntryMode) => void;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
   const [today, setToday] = useState(() => new Date());
@@ -3088,13 +3203,20 @@ function getHomeCardFallbackMessage(key: HomeCardKey) {
   }
 }
 
-function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthGateState) => void}) {
+function NotificationSettingsDetail({
+  setAuthState,
+  userId,
+}: {
+  setAuthState: SetAuthState;
+  userId: number;
+}) {
   const [state, setState] = useState<NotificationUiState>({status: 'checking'});
 
   const inspect = async () => {
     setState({status: 'checking'});
     try {
-      setState(await inspectFcmRegistrationStatus());
+      const generation = getAuthSessionGeneration();
+      setState(await inspectFcmRegistrationStatus(userId, generation));
     } catch {
       setState({
         status: 'error',
@@ -3110,9 +3232,9 @@ function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthG
 
     setState({status: 'registering'});
     try {
-      const {accessToken} = await getStoredTokens();
+      const session = await getStoredAuthSession();
 
-      if (!accessToken) {
+      if (!session.accessToken) {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
@@ -3120,7 +3242,11 @@ function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthG
         return;
       }
 
-      const result = await registerCurrentFcmToken(accessToken);
+      const result = await registerCurrentFcmToken(
+        session.accessToken,
+        userId,
+        session.generation,
+      );
       setState(result);
     } catch (error) {
       const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
@@ -3139,9 +3265,9 @@ function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthG
 
     setState({status: 'deactivating'});
     try {
-      const {accessToken} = await getStoredTokens();
+      const session = await getStoredAuthSession();
 
-      if (!accessToken) {
+      if (!session.accessToken) {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
@@ -3149,7 +3275,11 @@ function NotificationSettingsDetail({setAuthState}: {setAuthState: (state: AuthG
         return;
       }
 
-      await deactivateCurrentFcmToken(accessToken);
+      await deactivateCurrentFcmToken(
+        session.accessToken,
+        userId,
+        session.generation,
+      );
       await inspect();
     } catch (error) {
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
@@ -3363,7 +3493,7 @@ function ProfileScreen({
   onOpenCoffeeDuty: () => void;
   onOpenNotifications: () => void;
   profileView: 'accountDeletion' | 'coffee' | 'main' | 'notifications';
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
   if (profileView === 'accountDeletion') {
@@ -3391,7 +3521,10 @@ function ProfileScreen({
           </FaithLogHeaderTopRow>
           <Text style={styles.figmaTitle}>알림 설정</Text>
         </View>
-        <NotificationSettingsDetail setAuthState={setAuthState} />
+        <NotificationSettingsDetail
+          setAuthState={setAuthState}
+          userId={state.user.id}
+        />
       </View>
     );
   }
@@ -3530,7 +3663,7 @@ function AccountDeletionScreen({
   state,
 }: {
   onBack: () => void;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
   const [password, setPassword] = useState('');
@@ -3588,7 +3721,7 @@ function AccountDeletionScreen({
       const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
 
       if (apiError.kind === 'sessionExpired') {
-        await clearTokens();
+        await clearTokens(apiError.authSessionGeneration);
         setConfirmVisible(false);
         shouldResetBusy = false;
         setAuthState({status: 'sessionExpired', message: apiError.message});
@@ -3751,7 +3884,7 @@ function CoffeeDutyProfileRow({
   state,
 }: {
   onOpen: () => void;
-  setAuthState: (state: AuthGateState) => void;
+  setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
   const [canManageCoffee, setCanManageCoffee] = useState(false);

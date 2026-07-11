@@ -2,7 +2,10 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('./tokenStorage', () => ({
   clearTokens: vi.fn(),
-  getStoredTokens: vi.fn(),
+  getAuthSessionGeneration: vi.fn(),
+  getStoredAuthSession: vi.fn(),
+  isAccessTokenOwnedByAuthSession: vi.fn(),
+  isAuthSessionGenerationCurrent: vi.fn(),
   saveTokens: vi.fn(),
 }));
 
@@ -19,10 +22,24 @@ import {
   fetchPollDetail,
   fetchPollResults,
   fetchPolls,
+  getApiBaseUrl,
+  isMockModeEnabled,
+  loginUser,
+  validateRuntimeConfig,
 } from './client';
-import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
+import {
+  clearTokens,
+  getAuthSessionGeneration,
+  getStoredAuthSession,
+  isAccessTokenOwnedByAuthSession,
+  isAuthSessionGenerationCurrent,
+  saveTokens,
+  type AuthSessionGeneration,
+} from './tokenStorage';
 
 const API_BASE_URL = 'https://api.faithlog.test/root/';
+const FIRST_AUTH_GENERATION = 1 as AuthSessionGeneration;
+let currentAuthGeneration = FIRST_AUTH_GENERATION;
 
 function envelope<T>(data: T, patch: Partial<ResponseEnvelope<T>> = {}): ResponseEnvelope<T> {
   return {
@@ -44,6 +61,44 @@ function jsonResponse(status: number, body: unknown) {
   });
 }
 
+function requireTestRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Invalid test response.');
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function parseIdentityResponse(value: unknown) {
+  const record = requireTestRecord(value);
+  if (typeof record.id !== 'number' || typeof record.email !== 'string') {
+    throw new Error('Invalid test response.');
+  }
+
+  return {id: record.id, email: record.email};
+}
+
+function parseOkResponse(value: unknown) {
+  const record = requireTestRecord(value);
+  if (typeof record.ok !== 'boolean') {
+    throw new Error('Invalid test response.');
+  }
+
+  return {ok: record.ok};
+}
+
+function parseRetriedResponse(value: unknown) {
+  const record = requireTestRecord(value);
+  if (
+    typeof record.ok !== 'boolean' ||
+    typeof record.retriedCalls !== 'number'
+  ) {
+    throw new Error('Invalid test response.');
+  }
+
+  return {ok: record.ok, retriedCalls: record.retriedCalls};
+}
+
 function expectApiError(error: unknown, expected: Partial<FaithLogApiError['detail']>) {
   expect(error).toBeInstanceOf(FaithLogApiError);
   expect((error as FaithLogApiError).detail).toMatchObject(expected);
@@ -59,8 +114,23 @@ type ResponseEnvelope<T> = {
 
 describe('FaithLog API client', () => {
   beforeEach(() => {
+    currentAuthGeneration = FIRST_AUTH_GENERATION;
     process.env.EXPO_PUBLIC_API_BASE_URL = API_BASE_URL;
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+    vi.mocked(getAuthSessionGeneration).mockImplementation(
+      () => currentAuthGeneration,
+    );
+    vi.mocked(isAuthSessionGenerationCurrent).mockImplementation(
+      (generation) => generation === currentAuthGeneration,
+    );
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockResolvedValue(true);
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: currentAuthGeneration,
+      accessToken: null,
+      refreshToken: null,
+    });
+    vi.mocked(saveTokens).mockResolvedValue(true);
+    vi.mocked(clearTokens).mockResolvedValue(true);
     vi.stubGlobal('fetch', vi.fn());
   });
 
@@ -68,6 +138,7 @@ describe('FaithLog API client', () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    delete process.env.EXPO_PUBLIC_APP_ENV;
     delete process.env.EXPO_PUBLIC_MOCK_MODE;
   });
 
@@ -78,12 +149,82 @@ describe('FaithLog API client', () => {
     );
   });
 
+  it('requires the approved HTTPS origin for preview and production builds', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'preview';
+    process.env.EXPO_PUBLIC_API_BASE_URL = 'https://unapproved.example.test';
+
+    expect(() => getApiBaseUrl()).toThrowError(FaithLogApiError);
+
+    process.env.EXPO_PUBLIC_API_BASE_URL =
+      'https://faithlog-549871256004.asia-northeast3.run.app';
+    expect(getApiBaseUrl()).toBe(
+      'https://faithlog-549871256004.asia-northeast3.run.app',
+    );
+  });
+
+  it.each(['preview', 'production'])(
+    'rejects mock mode in the %s environment',
+    (appEnvironment) => {
+      process.env.EXPO_PUBLIC_APP_ENV = appEnvironment;
+      process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+      expect(() => validateRuntimeConfig()).toThrowError(FaithLogApiError);
+      expect(() => isMockModeEnabled()).toThrowError(FaithLogApiError);
+    },
+  );
+
+  it.each(['local', 'development'])(
+    'allows mock mode only in the %s environment',
+    (appEnvironment) => {
+      process.env.EXPO_PUBLIC_APP_ENV = appEnvironment;
+      process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+      expect(() => validateRuntimeConfig()).not.toThrow();
+      expect(isMockModeEnabled()).toBe(true);
+    },
+  );
+
+  it('rejects malformed role and identity data in a login response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        envelope({
+          accessToken: 'access-token',
+          refreshToken: 'refresh-token',
+          accessTokenExpiresIn: 3600,
+          refreshTokenExpiresIn: 7200,
+          tokenType: 'Bearer',
+          user: {
+            id: 7,
+            name: '사용자',
+            email: 'user@example.test',
+            role: 'ROOT',
+            isActive: true,
+            lastLoginAt: null,
+            campusMemberships: [],
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      loginUser({email: 'user@example.test', password: 'not-a-real-password'}),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        code: 'INVALID_SERVER_RESPONSE',
+      });
+      return true;
+    });
+  });
+
   it('sends bearer token and parses ApiResponse envelope data', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(jsonResponse(200, envelope({id: 7, email: 'user@example.test'})));
 
     const data = await apiRequest<{id: number; email: string}>('/users/me', {
       accessToken: 'access-token',
+      responseParser: parseIdentityResponse,
     });
 
     expect(data).toEqual({id: 7, email: 'user@example.test'});
@@ -186,6 +327,25 @@ describe('FaithLog API client', () => {
     });
     expect(polls[1]).toMatchObject({id: 12, isAnonymous: true, responded: true});
   });
+
+  it.each([
+    ['invalid ID', {content: [{pollId: 0}]}],
+    ['invalid collection', {content: {secret: 'raw-server-payload'}}],
+  ] as const)(
+    'maps a malformed poll-list %s to a sanitized invalid-response error',
+    async (_label, data) => {
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(data)));
+
+      await expect(fetchPolls('access-token', 2)).rejects.toSatisfy((error) => {
+        expectApiError(error, {
+          kind: 'error',
+          code: 'INVALID_SERVER_RESPONSE',
+        });
+        expect((error as Error).message).not.toContain('raw-server-payload');
+        return true;
+      });
+    },
+  );
 
   it('unwraps poll detail options and result options from paged payloads', async () => {
     const fetchMock = vi.mocked(fetch);
@@ -343,7 +503,8 @@ describe('FaithLog API client', () => {
   });
 
   it('refreshes once for coffee duty payment account create before keeping endpoint 401 inline', async () => {
-    vi.mocked(getStoredTokens).mockResolvedValue({
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
       accessToken: 'expired-access-token',
       refreshToken: 'refresh-token',
     });
@@ -403,18 +564,22 @@ describe('FaithLog API client', () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       'https://api.faithlog.test/root/api/v1/auth/refresh',
     );
-    expect(saveTokens).toHaveBeenCalledWith({
-      accessToken: 'fresh-access-token',
-      refreshToken: 'fresh-refresh-token',
-      accessTokenExpiresIn: 3600,
-      refreshTokenExpiresIn: 7200,
-      tokenType: 'Bearer',
-    });
+    expect(saveTokens).toHaveBeenCalledWith(
+      {
+        accessToken: 'fresh-access-token',
+        refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      },
+      FIRST_AUTH_GENERATION,
+    );
     expect(clearTokens).not.toHaveBeenCalled();
   });
 
   it('refreshes once for admin payment account create before keeping endpoint 401 inline', async () => {
-    vi.mocked(getStoredTokens).mockResolvedValue({
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
       accessToken: 'expired-access-token',
       refreshToken: 'refresh-token',
     });
@@ -475,13 +640,16 @@ describe('FaithLog API client', () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       'https://api.faithlog.test/root/api/v1/auth/refresh',
     );
-    expect(saveTokens).toHaveBeenCalledWith({
-      accessToken: 'fresh-access-token',
-      refreshToken: 'fresh-refresh-token',
-      accessTokenExpiresIn: 3600,
-      refreshTokenExpiresIn: 7200,
-      tokenType: 'Bearer',
-    });
+    expect(saveTokens).toHaveBeenCalledWith(
+      {
+        accessToken: 'fresh-access-token',
+        refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      },
+      FIRST_AUTH_GENERATION,
+    );
     expect(clearTokens).not.toHaveBeenCalled();
   });
 
@@ -625,8 +793,219 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('rejects a valid success envelope when no response parser is provided', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({raw: 'unvalidated'})),
+    );
+
+    await expect(apiRequest('/raw-success')).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        status: 200,
+        code: 'INVALID_SERVER_RESPONSE',
+      });
+      expect((error as Error).message).not.toContain('unvalidated');
+      return true;
+    });
+  });
+
+  it('does not retry an old request with the next signed-in user token', async () => {
+    let resolveRequest!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockReturnValue(response);
+
+    const pending = apiRequest('/protected', {
+      accessToken: 'first-user-access-token',
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    resolveRequest(
+      jsonResponse(
+        401,
+        envelope(null, {
+          success: false,
+          code: 'AUTH_UNAUTHORIZED',
+          message: 'expired',
+        }),
+      ),
+    );
+
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        code: 'AUTH_SESSION_CHANGED',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+      });
+      return true;
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(getStoredAuthSession).not.toHaveBeenCalled();
+    expect(saveTokens).not.toHaveBeenCalled();
+  });
+
+  it('rejects an old access token before sending it in the current user session', async () => {
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockResolvedValue(false);
+
+    await expect(
+      apiRequest('/protected-mutation', {
+        accessToken: 'first-user-stale-access-token',
+        method: 'POST',
+        body: {enabled: true},
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        code: 'AUTH_SESSION_CHANGED',
+        authSessionGeneration: currentAuthGeneration,
+      });
+      return true;
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getStoredAuthSession).not.toHaveBeenCalled();
+    expect(saveTokens).not.toHaveBeenCalled();
+  });
+
+  it('retries a same-session stale token with an already rotated stored token', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access-token',
+      refreshToken: 'rotated-refresh-token',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (_input, init) => {
+      const authorization = (init?.headers as Record<string, string> | undefined)
+        ?.Authorization;
+
+      if (authorization === 'Bearer rotated-access-token') {
+        return jsonResponse(200, envelope({ok: true}));
+      }
+
+      return jsonResponse(
+        401,
+        envelope(null, {
+          success: false,
+          code: 'AUTH_UNAUTHORIZED',
+          message: 'expired',
+        }),
+      );
+    });
+
+    await expect(
+      apiRequest<{ok: boolean}>('/protected', {
+        accessToken: 'same-session-previous-access-token',
+        responseParser: parseOkResponse,
+      }),
+    ).resolves.toEqual({ok: true});
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getStoredAuthSession).toHaveBeenCalledOnce();
+    expect(saveTokens).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith('/api/v1/auth/refresh'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not persist a delayed refresh after logout or account replacement', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'first-user-access-token',
+      refreshToken: 'first-user-refresh-token',
+    });
+    let resolveRefresh!: (response: Response) => void;
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const fetchMock = vi.mocked(fetch);
+
+    fetchMock.mockImplementation((input) => {
+      if (String(input).endsWith('/api/v1/auth/refresh')) {
+        return refreshResponse;
+      }
+
+      return Promise.resolve(
+        jsonResponse(
+          401,
+          envelope(null, {
+            success: false,
+            code: 'AUTH_UNAUTHORIZED',
+            message: 'expired',
+          }),
+        ),
+      );
+    });
+
+    const pending = apiRequest('/protected', {
+      accessToken: 'first-user-access-token',
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    resolveRefresh(
+      jsonResponse(
+        200,
+        envelope({
+          accessToken: 'stale-fresh-access-token',
+          refreshToken: 'stale-fresh-refresh-token',
+          accessTokenExpiresIn: 3600,
+          refreshTokenExpiresIn: 7200,
+          tokenType: 'Bearer',
+        }),
+      ),
+    );
+
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        code: 'AUTH_SESSION_CHANGED',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+      });
+      return true;
+    });
+    expect(saveTokens).not.toHaveBeenCalled();
+    expect(clearTokens).not.toHaveBeenCalled();
+  });
+
+  it('preserves stored tokens when refresh fails because the device is offline', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(
+          401,
+          envelope(null, {
+            success: false,
+            code: 'AUTH_UNAUTHORIZED',
+            message: 'expired',
+          }),
+        ),
+      )
+      .mockRejectedValueOnce(new TypeError('Network request failed'));
+
+    await expect(
+      apiRequest('/protected', {accessToken: 'expired-access-token'}),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'offline',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+      });
+      return true;
+    });
+    expect(clearTokens).not.toHaveBeenCalled();
+    expect(saveTokens).not.toHaveBeenCalled();
+  });
+
   it('refreshes once for concurrent 401 responses and retries original requests', async () => {
-    vi.mocked(getStoredTokens).mockResolvedValue({
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
       accessToken: 'expired-access-token',
       refreshToken: 'refresh-token',
     });
@@ -672,9 +1051,11 @@ describe('FaithLog API client', () => {
     const [first, second] = await Promise.all([
       apiRequest<{ok: boolean; retriedCalls: number}>('/protected', {
         accessToken: 'expired-access-token',
+        responseParser: parseRetriedResponse,
       }),
       apiRequest<{ok: boolean; retriedCalls: number}>('/protected', {
         accessToken: 'expired-access-token',
+        responseParser: parseRetriedResponse,
       }),
     ]);
 
@@ -683,12 +1064,15 @@ describe('FaithLog API client', () => {
     expect(refreshCalls).toBe(1);
     expect(retriedCalls).toBe(2);
     expect(saveTokens).toHaveBeenCalledTimes(1);
-    expect(saveTokens).toHaveBeenCalledWith({
-      accessToken: 'fresh-access-token',
-      refreshToken: 'fresh-refresh-token',
-      accessTokenExpiresIn: 3600,
-      refreshTokenExpiresIn: 7200,
-      tokenType: 'Bearer',
-    });
+    expect(saveTokens).toHaveBeenCalledWith(
+      {
+        accessToken: 'fresh-access-token',
+        refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      },
+      FIRST_AUTH_GENERATION,
+    );
   });
 });

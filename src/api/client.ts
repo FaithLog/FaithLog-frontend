@@ -85,15 +85,87 @@ import type {
 } from './types';
 import {getSafeApiErrorMessage} from './errorPolicy';
 import {executeMockRequest} from './mockAdapter';
-import {clearTokens, getStoredTokens, saveTokens} from './tokenStorage';
+import {
+  parseAdminCampusChargeSummary,
+  parseAdminCampusMember,
+  parseAdminCampusMembers,
+  parseAdminChargeStatusChangeResponse,
+  parseAdminDashboardSummary,
+  parseAdminMemberChargeList,
+  parseAdminMissingDevotionMembers,
+  parseAdminNotificationLogList,
+  parseAdminNotificationResponse,
+  parseAdminPaymentAccount,
+  parseAdminPrayerGroup,
+  parseAdminPrayerSeason,
+  parseCampusMembershipSummaries,
+  parseCampusMembershipSummary,
+  parseCampusCreateResponse,
+  parseCampusDetail,
+  parseChargeList,
+  parseChargeSummary,
+  parseCoffeeBrands,
+  parseCoffeeMenus,
+  parseCurrentUser,
+  parseDeleteAccountResponse,
+  parseDevotionDailyCheckSaveResponse,
+  parseDevotionMonthlySummary,
+  parseDutyAssignment,
+  parseDutyAssignments,
+  parseFcmTokenRegisterResponse,
+  parseLoginResponse,
+  parseMarkChargePaidResponse,
+  parseMyDutyAssignment,
+  parseNullResponse,
+  parsePaymentAccounts,
+  parsePenaltyRule,
+  parsePenaltyRules,
+  parsePollComment,
+  parsePollComments,
+  parsePollDetail,
+  parsePollOption,
+  parsePollResponse,
+  parsePollResults,
+  parsePollSummaryList,
+  parsePrayerWeekSummary,
+  parseServiceAdminCampusList,
+  parseServiceAdminCampusMemberAddResponse,
+  parseServiceAdminUserDetail,
+  parseServiceAdminUserList,
+  parseSignupResponse,
+  parseTokenPair,
+  parseWeeklyDevotionSummary,
+} from './runtimeValidation';
+import {
+  clearTokens,
+  getAuthSessionGeneration,
+  getStoredAuthSession,
+  isAccessTokenOwnedByAuthSession,
+  isAuthSessionGenerationCurrent,
+  saveTokens,
+  type AuthSessionGeneration,
+} from './tokenStorage';
 
 type RequestOptions = {
   accessToken?: string;
+  allowAuthSessionChange?: boolean;
+  allowUnstoredAccessToken?: boolean;
+  authSessionGeneration?: AuthSessionGeneration;
   exposeServerErrorMessage?: boolean;
   treatUnauthorizedAsPermissionDenied?: boolean;
   skipAuthRefresh?: boolean;
+  timeoutMs?: number;
+  responseParser?: (value: unknown) => unknown;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
+};
+
+type ParsedRequestOptions<T> = Omit<RequestOptions, 'responseParser'> & {
+  responseParser: (value: unknown) => T;
+};
+
+type UnparsedRequestOptions = Omit<RequestOptions, 'responseParser'> & {
+  responseParser?: never;
 };
 
 export class FaithLogApiError extends Error {
@@ -105,10 +177,41 @@ export class FaithLogApiError extends Error {
   }
 }
 
-let authRefreshInFlight: Promise<TokenPair> | null = null;
+type AuthRefreshFlight = {
+  generation: AuthSessionGeneration;
+  promise: Promise<TokenPair>;
+  refreshToken: string;
+};
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const LOGOUT_REQUEST_TIMEOUT_MS = 5_000;
+const SUPPORTED_APP_ENVIRONMENTS = new Set(['local', 'development', 'preview', 'production']);
+const MOCK_ALLOWED_APP_ENVIRONMENTS = new Set(['local', 'development']);
+const TRUSTED_DEPLOYMENT_API_ORIGINS = new Set([
+  'https://faithlog-549871256004.asia-northeast3.run.app',
+]);
+let authRefreshInFlight: AuthRefreshFlight | null = null;
 
 export function isMockModeEnabled() {
-  return process.env.EXPO_PUBLIC_MOCK_MODE?.trim().toLowerCase() === 'true';
+  const requested =
+    process.env.EXPO_PUBLIC_MOCK_MODE?.trim().toLowerCase() === 'true';
+
+  if (!requested) {
+    return false;
+  }
+
+  const appEnvironment =
+    process.env.EXPO_PUBLIC_APP_ENV?.trim().toLowerCase() || 'local';
+
+  if (!MOCK_ALLOWED_APP_ENVIRONMENTS.has(appEnvironment)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      code: 'CONFIGURATION',
+      message: '현재 앱 환경에서는 mock API를 사용할 수 없습니다.',
+    });
+  }
+
+  return true;
 }
 
 export function validateRuntimeConfig() {
@@ -121,8 +224,10 @@ export function validateRuntimeConfig() {
 
 export function getApiBaseUrl() {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  const appEnvironment =
+    process.env.EXPO_PUBLIC_APP_ENV?.trim().toLowerCase() || 'local';
 
-  if (!configured) {
+  if (!configured || !SUPPORTED_APP_ENVIRONMENTS.has(appEnvironment)) {
     throw new FaithLogApiError({
       kind: 'error',
       code: 'CONFIGURATION',
@@ -132,8 +237,20 @@ export function getApiBaseUrl() {
 
   try {
     const url = new URL(configured);
+    const deployedEnvironment =
+      appEnvironment === 'preview' || appEnvironment === 'production';
 
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+      (deployedEnvironment &&
+        (url.protocol !== 'https:' ||
+          !TRUSTED_DEPLOYMENT_API_ORIGINS.has(url.origin) ||
+          url.pathname !== '/'))
+    ) {
       throw new Error('Unsupported protocol');
     }
 
@@ -1114,7 +1231,11 @@ async function executeApiRequest<T>(
   };
   const response = isMockModeEnabled()
     ? await executeMockRequest(path, init)
-    : await fetch(buildApiUrl(path), init);
+    : await fetchWithTimeout(
+        buildApiUrl(path),
+        init,
+        options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      );
   const envelope = await parseEnvelope<T>(
     response,
     {
@@ -1127,20 +1248,87 @@ async function executeApiRequest<T>(
     },
   );
 
-  return envelope.data as T;
+  if (!options.responseParser) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      status: response.status,
+      code: 'INVALID_SERVER_RESPONSE',
+      message: '서버 응답 형식이 올바르지 않습니다.',
+    });
+  }
+
+  try {
+    return options.responseParser(envelope.data) as T;
+  } catch {
+    throw new FaithLogApiError({
+      kind: 'error',
+      status: response.status,
+      code: 'INVALID_SERVER_RESPONSE',
+      message: '서버 응답 형식이 올바르지 않습니다.',
+    });
+  }
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, Math.max(1, timeoutMs));
+
+  try {
+    return await fetch(url, {...init, signal: controller.signal});
+  } catch (error) {
+    if (timedOut) {
+      throw new FaithLogApiError({
+        kind: 'offline',
+        code: 'REQUEST_TIMEOUT',
+        message: '요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.',
+      });
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function apiRequest<T>(
+  path: string,
+  options: ParsedRequestOptions<T>,
+): Promise<T>;
+export function apiRequest(
+  path: string,
+  options?: UnparsedRequestOptions,
+): Promise<never>;
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  try {
-    return await executeApiRequest<T>(path, options);
-  } catch (error) {
-    const normalizedError = normalizeNetworkError(error);
+  const guardAuthSession =
+    options.allowAuthSessionChange !== true &&
+    (Boolean(options.accessToken) || options.authSessionGeneration !== undefined);
+  const requestOptions: RequestOptions = {
+    ...options,
+    authSessionGeneration:
+      options.authSessionGeneration ?? getAuthSessionGeneration(),
+  };
 
-    if (shouldRetryWithRefreshedAccessToken(normalizedError, options)) {
-      return retryWithRefreshedAccessToken(path, options);
+  try {
+    await assertRequestAccessTokenIsOwned(requestOptions);
+    const data = await executeApiRequest<T>(path, requestOptions);
+    assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
+    return data;
+  } catch (error) {
+    assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
+    const normalizedError = withAuthSessionGeneration(
+      normalizeNetworkError(error),
+      requestOptions.authSessionGeneration,
+    );
+
+    if (shouldRetryWithRefreshedAccessToken(normalizedError, requestOptions)) {
+      return retryWithRefreshedAccessToken(path, requestOptions);
     }
 
     throw new FaithLogApiError(normalizedError);
@@ -1156,38 +1344,56 @@ function shouldRetryWithRefreshedAccessToken(error: ApiError, options: RequestOp
   return (
     (error.kind === 'sessionExpired' || retryablePermissionDenied401) &&
     Boolean(options.accessToken) &&
-    options.skipAuthRefresh !== true
+    options.skipAuthRefresh !== true &&
+    options.authSessionGeneration !== undefined &&
+    isAuthSessionGenerationCurrent(options.authSessionGeneration)
   );
 }
 
 async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOptions) {
   const previousAccessToken = options.accessToken;
+  const generation = options.authSessionGeneration;
 
-  if (!previousAccessToken) {
-    throw new FaithLogApiError(createSessionExpiredError());
+  if (!previousAccessToken || generation === undefined) {
+    throw new FaithLogApiError(createSessionExpiredError(generation));
   }
 
-  const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken);
+  assertAuthSessionGenerationIsCurrent(generation);
+  const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken, generation);
 
   try {
-    return await executeApiRequest<T>(path, {
+    const data = await executeApiRequest<T>(path, {
       ...options,
       accessToken: tokens.accessToken,
       skipAuthRefresh: true,
     });
+    assertAuthSessionGenerationIsCurrent(generation);
+    return data;
   } catch (retryError) {
-    const normalizedRetryError = normalizeNetworkError(retryError);
+    assertAuthSessionGenerationIsCurrent(generation);
+    const normalizedRetryError = withAuthSessionGeneration(
+      normalizeNetworkError(retryError),
+      generation,
+    );
 
     if (normalizedRetryError.kind === 'sessionExpired') {
-      await clearTokens();
+      await clearTokens(generation);
     }
 
     throw new FaithLogApiError(normalizedRetryError);
   }
 }
 
-async function getTokensAfterSingleFlightRefresh(previousAccessToken: string) {
-  const storedTokens = await getStoredTokens();
+async function getTokensAfterSingleFlightRefresh(
+  previousAccessToken: string,
+  generation: AuthSessionGeneration,
+) {
+  assertAuthSessionGenerationIsCurrent(generation);
+  const storedTokens = await getStoredAuthSession();
+
+  if (storedTokens.generation !== generation) {
+    throw new FaithLogApiError(createAuthSessionChangedError(generation));
+  }
 
   if (
     storedTokens.accessToken &&
@@ -1201,42 +1407,149 @@ async function getTokensAfterSingleFlightRefresh(previousAccessToken: string) {
   }
 
   if (!storedTokens.refreshToken) {
-    await clearTokens();
-    throw new FaithLogApiError(createSessionExpiredError());
+    await clearTokens(generation);
+    throw new FaithLogApiError(createSessionExpiredError(generation));
   }
 
-  if (!authRefreshInFlight) {
-    authRefreshInFlight = refreshAndPersistTokens(storedTokens.refreshToken).finally(() => {
-      authRefreshInFlight = null;
+  if (
+    !authRefreshInFlight ||
+    authRefreshInFlight.generation !== generation ||
+    authRefreshInFlight.refreshToken !== storedTokens.refreshToken
+  ) {
+    const refreshToken = storedTokens.refreshToken;
+    const promise = refreshAndPersistTokens(refreshToken, generation).finally(() => {
+      if (authRefreshInFlight?.promise === promise) {
+        authRefreshInFlight = null;
+      }
     });
+    authRefreshInFlight = {generation, promise, refreshToken};
   }
 
-  return authRefreshInFlight;
+  const activeRefresh = authRefreshInFlight;
+
+  if (!activeRefresh) {
+    throw new FaithLogApiError(createAuthSessionChangedError(generation));
+  }
+
+  return activeRefresh.promise;
 }
 
-async function refreshAndPersistTokens(refreshToken: string) {
+async function refreshAndPersistTokens(
+  refreshToken: string,
+  generation: AuthSessionGeneration,
+) {
   try {
-    const tokens = await refreshAuthToken(refreshToken);
-    await saveTokens(tokens);
+    const tokens = await refreshAuthToken(refreshToken, generation);
+    const saved = await saveTokens(tokens, generation);
+
+    if (!saved) {
+      throw new FaithLogApiError(createAuthSessionChangedError(generation));
+    }
 
     return tokens;
-  } catch {
-    await clearTokens();
-    throw new FaithLogApiError(createSessionExpiredError());
+  } catch (error) {
+    if (
+      isAuthSessionChangedError(error) ||
+      !isAuthSessionGenerationCurrent(generation)
+    ) {
+      throw new FaithLogApiError(createAuthSessionChangedError(generation));
+    }
+
+    const normalizedError = withAuthSessionGeneration(
+      normalizeNetworkError(error),
+      generation,
+    );
+
+    if (normalizedError.kind === 'sessionExpired') {
+      await clearTokens(generation);
+    }
+
+    throw new FaithLogApiError(normalizedError);
   }
 }
 
-function createSessionExpiredError(): ApiError {
+function createSessionExpiredError(generation?: AuthSessionGeneration): ApiError {
   return {
     kind: 'sessionExpired',
     status: 401,
     message: '다시 로그인한 뒤 이용해 주세요.',
+    ...(generation === undefined ? {} : {authSessionGeneration: generation}),
   };
 }
 
-export function refreshAuthToken(refreshToken: string) {
+function createAuthSessionChangedError(generation: AuthSessionGeneration): ApiError {
+  return {
+    kind: 'error',
+    code: 'AUTH_SESSION_CHANGED',
+    message: '로그인 계정이 변경되어 이전 요청을 취소했습니다.',
+    authSessionGeneration: generation,
+  };
+}
+
+function isAuthSessionChangedError(error: unknown) {
+  return (
+    error instanceof FaithLogApiError &&
+    error.detail.code === 'AUTH_SESSION_CHANGED'
+  );
+}
+
+function assertRequestAuthSessionIsCurrent(
+  options: RequestOptions,
+  guardAuthSession: boolean,
+) {
+  if (!guardAuthSession || options.authSessionGeneration === undefined) {
+    return;
+  }
+
+  assertAuthSessionGenerationIsCurrent(options.authSessionGeneration);
+}
+
+async function assertRequestAccessTokenIsOwned(options: RequestOptions) {
+  if (
+    !options.accessToken ||
+    options.allowAuthSessionChange === true ||
+    options.allowUnstoredAccessToken === true
+  ) {
+    return;
+  }
+
+  const generation = options.authSessionGeneration;
+
+  if (
+    generation === undefined ||
+    !(await isAccessTokenOwnedByAuthSession(options.accessToken, generation))
+  ) {
+    throw new FaithLogApiError(
+      createAuthSessionChangedError(
+        generation ?? getAuthSessionGeneration(),
+      ),
+    );
+  }
+}
+
+function assertAuthSessionGenerationIsCurrent(generation: AuthSessionGeneration) {
+  if (!isAuthSessionGenerationCurrent(generation)) {
+    throw new FaithLogApiError(createAuthSessionChangedError(generation));
+  }
+}
+
+function withAuthSessionGeneration(
+  error: ApiError,
+  generation: AuthSessionGeneration | undefined,
+): ApiError {
+  return generation === undefined
+    ? error
+    : {...error, authSessionGeneration: generation};
+}
+
+export function refreshAuthToken(
+  refreshToken: string,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
   return apiRequest<TokenPair>('/api/v1/auth/refresh', {
+    ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
     skipAuthRefresh: true,
+    responseParser: parseTokenPair,
     method: 'POST',
     body: {refreshToken},
   });
@@ -1244,6 +1557,7 @@ export function refreshAuthToken(refreshToken: string) {
 
 export function signupUser(body: SignupRequest) {
   return apiRequest<SignupResponse>('/api/v1/auth/signup', {
+    responseParser: parseSignupResponse,
     method: 'POST',
     body,
   });
@@ -1251,6 +1565,7 @@ export function signupUser(body: SignupRequest) {
 
 export function loginUser(body: LoginRequest) {
   return apiRequest<LoginResponse>('/api/v1/auth/login', {
+    responseParser: parseLoginResponse,
     method: 'POST',
     body,
   });
@@ -1259,6 +1574,10 @@ export function loginUser(body: LoginRequest) {
 export function logoutUser(accessToken: string, body: LogoutRequest) {
   return apiRequest<null>('/api/v1/auth/logout', {
     accessToken,
+    allowAuthSessionChange: true,
+    responseParser: parseNullResponse,
+    skipAuthRefresh: true,
+    timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body,
   });
@@ -1268,40 +1587,72 @@ export function deleteMyAccount(accessToken: string, body: DeleteAccountRequest)
   return apiRequest<DeleteAccountResponse>('/api/v1/users/me', {
     accessToken,
     exposeServerErrorMessage: true,
+    responseParser: parseDeleteAccountResponse,
     method: 'DELETE',
     body,
   });
 }
 
-export function registerMyFcmToken(accessToken: string, body: FcmTokenRegisterRequest) {
+export function registerMyFcmToken(
+  accessToken: string,
+  body: FcmTokenRegisterRequest,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
   return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
     accessToken,
+    ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+    responseParser: parseFcmTokenRegisterResponse,
     method: 'POST',
     body,
   });
 }
 
-export function deactivateMyFcmToken(accessToken: string, tokenId: unknown) {
+export function deactivateMyFcmToken(
+  accessToken: string,
+  tokenId: unknown,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
   return apiRequest<null>(
     buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
     {
       accessToken,
+      ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );
 }
 
-export function fetchCurrentUser(accessToken: string) {
-  return apiRequest<CurrentUser>('/api/v1/users/me', {accessToken});
+export function fetchCurrentUser(
+  accessToken: string,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
+  return apiRequest<CurrentUser>('/api/v1/users/me', {
+    accessToken,
+    ...(authSessionGeneration === undefined
+      ? {}
+      : {authSessionGeneration, allowUnstoredAccessToken: true}),
+    responseParser: parseCurrentUser,
+  });
 }
 
-export function fetchMyCampuses(accessToken: string) {
-  return apiRequest<CampusMembershipSummary[]>('/api/v1/campuses/me', {accessToken});
+export function fetchMyCampuses(
+  accessToken: string,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
+  return apiRequest<CampusMembershipSummary[]>('/api/v1/campuses/me', {
+    accessToken,
+    ...(authSessionGeneration === undefined
+      ? {}
+      : {authSessionGeneration, allowUnstoredAccessToken: true}),
+    responseParser: parseCampusMembershipSummaries,
+  });
 }
 
 export function createCampus(accessToken: string, body: CampusCreateRequest) {
   return apiRequest<CampusCreateResponse>('/api/v1/campuses', {
     accessToken,
+    responseParser: parseCampusCreateResponse,
     method: 'POST',
     body,
   });
@@ -1310,13 +1661,17 @@ export function createCampus(accessToken: string, body: CampusCreateRequest) {
 export function joinCampus(accessToken: string, body: CampusJoinRequest) {
   return apiRequest<CampusJoinResponse>('/api/v1/campuses/join', {
     accessToken,
+    responseParser: parseCampusMembershipSummary,
     method: 'POST',
     body,
   });
 }
 
 export function fetchCampusDetail(accessToken: string, campusId: unknown) {
-  return apiRequest<CampusDetail>(buildCampusPath(campusId), {accessToken});
+  return apiRequest<CampusDetail>(buildCampusPath(campusId), {
+    accessToken,
+    responseParser: parseCampusDetail,
+  });
 }
 
 export function fetchWeeklyDevotionSummary(
@@ -1332,7 +1687,7 @@ export function fetchWeeklyDevotionSummary(
       'weeks',
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
-    {accessToken},
+    {accessToken, responseParser: parseWeeklyDevotionSummary},
   );
 }
 
@@ -1352,6 +1707,7 @@ export function saveDevotionDailyCheck(
     ),
     {
       accessToken,
+      responseParser: parseDevotionDailyCheckSaveResponse,
       method: 'PUT',
       body,
     },
@@ -1374,6 +1730,7 @@ export function saveWeeklyDevotion(
     ),
     {
       accessToken,
+      responseParser: parseWeeklyDevotionSummary,
       method: 'PUT',
       body,
     },
@@ -1389,7 +1746,7 @@ export function fetchDevotionMonthlySummary(
 
   return apiRequest<DevotionMonthlySummary>(
     `${buildCampusPath(campusId, 'devotions', 'me', 'monthly-summary')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseDevotionMonthlySummary},
   );
 }
 
@@ -1402,7 +1759,7 @@ export function fetchChargeSummary(
 
   return apiRequest<ChargeSummary>(
     `${buildCampusPath(campusId, 'charges', 'me', 'summary')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseChargeSummary},
   );
 }
 
@@ -1421,7 +1778,7 @@ export function fetchMyCharges(
 
   return apiRequest<ChargeList>(
     `${buildCampusPath(campusId, 'charges', 'me')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseChargeList},
   );
 }
 
@@ -1435,6 +1792,7 @@ export function fetchPaymentAccounts(
 
   return apiRequest<PaymentAccount[]>(query ? `${path}?${query}` : path, {
     accessToken,
+    responseParser: parsePaymentAccounts,
   });
 }
 
@@ -1448,13 +1806,14 @@ export function fetchAdminPaymentAccounts(
 
   return apiRequest<PaymentAccount[]>(query ? `${path}?${query}` : path, {
     accessToken,
+    responseParser: parsePaymentAccounts,
   });
 }
 
 export function fetchMyDutyAssignment(accessToken: string, campusId: unknown) {
   return apiRequest<MyDutyAssignment>(
     buildCampusPath(campusId, 'duty-assignments', 'me'),
-    {accessToken},
+    {accessToken, responseParser: parseMyDutyAssignment},
   );
 }
 
@@ -1469,6 +1828,7 @@ export function createAdminPaymentAccount(
       accessToken,
       body: toPaymentAccountCreateRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'POST',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1486,6 +1846,7 @@ export function createCoffeeDutyPaymentAccount(
       accessToken,
       body: toPaymentAccountCreateRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'POST',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1503,6 +1864,7 @@ export function deactivateAdminPaymentAccount(accessToken: string, accountId: un
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'PATCH',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1524,6 +1886,7 @@ export function activateAdminPaymentAccount(
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'PATCH',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1535,7 +1898,7 @@ export function deleteAdminPaymentAccount(
   campusId: unknown,
   accountId: unknown,
 ) {
-  return apiRequest<void>(
+  return apiRequest<null>(
     buildAdminCampusPath(
       campusId,
       'payment-accounts',
@@ -1544,6 +1907,7 @@ export function deleteAdminPaymentAccount(
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseNullResponse,
       method: 'DELETE',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1561,6 +1925,7 @@ export function deactivateCoffeeDutyPaymentAccount(accessToken: string, accountI
     {
       accessToken,
       exposeServerErrorMessage: true,
+      responseParser: parseAdminPaymentAccount,
       method: 'PATCH',
       treatUnauthorizedAsPermissionDenied: true,
     },
@@ -1570,6 +1935,7 @@ export function deactivateCoffeeDutyPaymentAccount(accessToken: string, accountI
 export function fetchPenaltyRules(accessToken: string, campusId: unknown) {
   return apiRequest<PenaltyRule[]>(buildCampusPath(campusId, 'penalty-rules'), {
     accessToken,
+    responseParser: parsePenaltyRules,
   });
 }
 
@@ -1583,6 +1949,7 @@ export function createAdminPenaltyRule(
     {
       accessToken,
       body: toPenaltyRuleCreateRequest(body),
+      responseParser: parsePenaltyRule,
       method: 'POST',
     },
   );
@@ -1602,6 +1969,7 @@ export function updateAdminPenaltyRule(
     {
       accessToken,
       body: toPenaltyRuleUpdateRequest(body),
+      responseParser: parsePenaltyRule,
       method: 'PATCH',
     },
   );
@@ -1630,69 +1998,38 @@ export function markMyChargePaid(
     {
       accessToken,
       body: requestBody,
+      responseParser: parseMarkChargePaidResponse,
       method: 'PATCH',
     },
   );
 }
 
 export function fetchCoffeeBrands(accessToken: string) {
-  return apiRequest<CoffeeBrand[]>(buildApiPath('coffee-brands'), {accessToken});
+  return apiRequest<CoffeeBrand[]>(buildApiPath('coffee-brands'), {
+    accessToken,
+    responseParser: parseCoffeeBrands,
+  });
 }
 
 export function fetchCoffeeMenus(accessToken: string, brandId: unknown) {
   return apiRequest<CoffeeMenu[]>(
     buildApiPath('coffee-brands', toPositiveIntegerPathSegment(brandId, 'brandId'), 'menus'),
-    {accessToken},
+    {accessToken, responseParser: parseCoffeeMenus},
   );
-}
-
-export function normalizePollSummaryList(value: unknown): PollSummary[] {
-  return getArrayPayload(value, ['content', 'items', 'polls']).map(normalizePollSummary);
-}
-
-function normalizePollDetail(value: unknown): PollDetail {
-  const source = getNestedRecord(value, 'poll') ?? getRecordPayload(value);
-  const summary = normalizePollSummary(source);
-  const optionsSource = source.options ?? getRecordPayload(value).options;
-  const allowUserOptionAdd = toOptionalBoolean(source.allowUserOptionAdd);
-
-  return {
-    ...source,
-    ...summary,
-    ...(allowUserOptionAdd === undefined ? {} : {allowUserOptionAdd}),
-    chargeGenerationType: toOptionalString(source.chargeGenerationType) ?? 'NONE',
-    paymentAccountId: toOptionalNumber(source.paymentAccountId),
-    paymentCategory: toOptionalString(source.paymentCategory),
-    templateId: toOptionalNumber(source.templateId),
-    options: normalizePollOptions(optionsSource),
-    myResponse: normalizePollResponse(source.myResponse ?? source.response),
-  };
-}
-
-function normalizePollResults(value: unknown): PollResults {
-  const source = getRecordPayload(value);
-  const optionResults = normalizePollOptionResults(
-    source.optionResults ?? source.options ?? source.content ?? source.items,
-  );
-
-  return {
-    ...(source as PollResults),
-    anonymous: Boolean(source.anonymous ?? source.isAnonymous),
-    optionResults,
-  };
 }
 
 export function fetchPolls(accessToken: string, campusId: unknown) {
-  return apiRequest<unknown>(buildPollListPath(campusId), {accessToken}).then(
-    normalizePollSummaryList,
-  );
+  return apiRequest<PollSummary[]>(buildPollListPath(campusId), {
+    accessToken,
+    responseParser: parsePollSummaryList,
+  });
 }
 
 export function fetchPollDetail(accessToken: string, campusId: unknown, pollId: unknown) {
-  return apiRequest<unknown>(
+  return apiRequest<PollDetail>(
     buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId')),
-    {accessToken},
-  ).then(normalizePollDetail);
+    {accessToken, responseParser: parsePollDetail},
+  );
 }
 
 export function savePollResponse(
@@ -1711,6 +2048,7 @@ export function savePollResponse(
     ),
     {
       accessToken,
+      responseParser: parsePollResponse,
       method: 'PUT',
       body,
     },
@@ -1734,21 +2072,22 @@ export function addUserPollOption(
       accessToken,
       body: toPollOptionAddRequest(body),
       exposeServerErrorMessage: true,
+      responseParser: parsePollOption,
       method: 'POST',
     },
   );
 }
 
 export function fetchPollResults(accessToken: string, campusId: unknown, pollId: unknown) {
-  return apiRequest<unknown>(
+  return apiRequest<PollResults>(
     buildCampusPath(
       campusId,
       'polls',
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'results',
     ),
-    {accessToken},
-  ).then(normalizePollResults);
+    {accessToken, responseParser: parsePollResults},
+  );
 }
 
 export function fetchPollComments(accessToken: string, campusId: unknown, pollId: unknown) {
@@ -1759,209 +2098,8 @@ export function fetchPollComments(accessToken: string, campusId: unknown, pollId
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'comments',
     ),
-    {accessToken},
+    {accessToken, responseParser: parsePollComments},
   );
-}
-
-function normalizePollSummary(value: unknown): PollSummary {
-  const source = getRecordPayload(value);
-  const allowUserOptionAdd = toOptionalBoolean(source.allowUserOptionAdd);
-
-  return {
-    ...(source as PollSummary),
-    campusId: toRequiredNumber(source.campusId, 'campusId'),
-    id: toRequiredNumber(source.id ?? source.pollId, 'pollId'),
-    isAnonymous: Boolean(source.isAnonymous ?? source.anonymous),
-    ...(allowUserOptionAdd === undefined ? {} : {allowUserOptionAdd}),
-    endsAt: toRequiredDateString(
-      source.endsAt ??
-        source.endAt ??
-        source.endDateTime ??
-        source.deadlineAt ??
-        source.deadline ??
-        source.endDate,
-      'endsAt',
-    ),
-    pollType: toOptionalString(source.pollType) ?? 'CUSTOM',
-    responded: Boolean(source.responded ?? source.hasResponded ?? source.myResponse),
-    selectionType: toOptionalString(source.selectionType) ?? 'SINGLE',
-    startsAt: toRequiredDateString(
-      source.startsAt ??
-        source.startAt ??
-        source.startDateTime ??
-        source.startDate ??
-        source.createdAt,
-      'startsAt',
-    ),
-    status: toOptionalString(source.status) ?? 'OPEN',
-    title: toOptionalString(source.title) ?? '투표',
-  };
-}
-
-function normalizePollOptions(value: unknown): PollOption[] {
-  return getArrayPayload(value, ['content', 'items', 'options']).map((option, index) =>
-    normalizePollOption(option, index),
-  );
-}
-
-function normalizePollOption(value: unknown, index: number): PollOption {
-  const source = getRecordPayload(value);
-  const userAdded = toOptionalBoolean(source.userAdded);
-
-  return {
-    ...(source as PollOption),
-    id: toRequiredNumber(source.id ?? source.optionId ?? source.pollOptionId, 'optionId'),
-    composeMenuCode: toOptionalString(source.composeMenuCode ?? source.menuCode),
-    content:
-      toOptionalString(
-        source.content ?? source.optionContent ?? source.name ?? source.menuName ?? source.title,
-      ) ??
-      `선택지 ${index + 1}`,
-    priceAmount: toOptionalNumber(source.priceAmount ?? source.price ?? source.amount) ?? 0,
-    sortOrder: toOptionalNumber(source.sortOrder ?? source.order) ?? index + 1,
-    ...(userAdded === undefined ? {} : {userAdded}),
-  };
-}
-
-function normalizePollOptionResults(value: unknown): PollResults['optionResults'] {
-  return getArrayPayload(value, ['content', 'items', 'optionResults', 'options']).map(
-    (option, index) => {
-      const source = getRecordPayload(option);
-      const normalizedOption = normalizePollOption(source, index);
-
-      return {
-        ...(source as PollResults['optionResults'][number]),
-        id: normalizedOption.id,
-        content: normalizedOption.content,
-        sortOrder: normalizedOption.sortOrder,
-        responseCount:
-          toOptionalNumber(source.responseCount ?? source.voteCount ?? source.count) ?? 0,
-        respondents: normalizePollRespondents(source.respondents),
-      };
-    },
-  );
-}
-
-function normalizePollRespondents(
-  value: unknown,
-): PollResults['optionResults'][number]['respondents'] {
-  return getArrayPayload(value, ['content', 'items', 'respondents']).map((respondent) => {
-    const source = getRecordPayload(respondent);
-
-    return {
-      userId: toRequiredNumber(source.userId ?? source.id, 'userId'),
-      name: toOptionalString(source.name) ?? '이름 없음',
-      email: toOptionalString(source.email) ?? '',
-    };
-  });
-}
-
-function normalizePollResponse(value: unknown): PollResponse | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const source = getRecordPayload(value);
-
-  return {
-    ...(source as PollResponse),
-    optionIds: getArrayPayload(source.optionIds ?? source.options, ['content', 'items'])
-      .map((optionId) =>
-        typeof optionId === 'number'
-          ? optionId
-          : toOptionalNumber(getRecordPayload(optionId).id ?? getRecordPayload(optionId).optionId),
-      )
-      .filter((optionId): optionId is number => typeof optionId === 'number'),
-    pollId: toOptionalNumber(source.pollId) ?? 0,
-    respondedAt: toOptionalString(source.respondedAt) ?? '',
-    responseId: toOptionalNumber(source.responseId ?? source.id) ?? 0,
-  };
-}
-
-function getArrayPayload(value: unknown, keys: string[]): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (isRecord(value)) {
-    for (const key of keys) {
-      const nested = value[key];
-
-      if (Array.isArray(nested)) {
-        return nested;
-      }
-
-      if (isRecord(nested)) {
-        const nestedArray = getArrayPayload(nested, keys);
-
-        if (nestedArray.length > 0) {
-          return nestedArray;
-        }
-      }
-    }
-  }
-
-  return [];
-}
-
-function getRecordPayload(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function getNestedRecord(value: unknown, key: string) {
-  const source = getRecordPayload(value);
-  const nested = source[key];
-
-  return isRecord(nested) ? nested : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function toRequiredNumber(value: unknown, label: string) {
-  const parsed = toOptionalNumber(value);
-
-  if (parsed === null) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      message: `${label} 응답 값이 올바르지 않습니다.`,
-    });
-  }
-
-  return parsed;
-}
-
-function toOptionalNumber(value: unknown) {
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string' && value.trim() !== ''
-        ? Number(value)
-        : null;
-
-  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
-}
-
-function toOptionalString(value: unknown) {
-  return typeof value === 'string' ? value : null;
-}
-
-function toOptionalBoolean(value: unknown) {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function toRequiredDateString(value: unknown, label: string) {
-  const text = toOptionalString(value);
-
-  if (text) {
-    return text;
-  }
-
-  throw new FaithLogApiError({
-    kind: 'error',
-    message: `${label} 응답 값이 올바르지 않습니다.`,
-  });
 }
 
 export function createPollComment(
@@ -1979,6 +2117,7 @@ export function createPollComment(
     ),
     {
       accessToken,
+      responseParser: parsePollComment,
       method: 'POST',
       body,
     },
@@ -2002,6 +2141,7 @@ export function updatePollComment(
     ),
     {
       accessToken,
+      responseParser: parsePollComment,
       method: 'PATCH',
       body,
     },
@@ -2024,6 +2164,7 @@ export function deletePollComment(
     ),
     {
       accessToken,
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );
@@ -2041,7 +2182,7 @@ export function fetchPrayerWeek(
       'weeks',
       toMondayDatePathSegment(weekStartDate, 'weekStartDate'),
     ),
-    {accessToken},
+    {accessToken, responseParser: parsePrayerWeekSummary},
   );
 }
 
@@ -2061,6 +2202,7 @@ export function savePrayerSubmissions(
     ),
     {
       accessToken,
+      responseParser: parsePrayerWeekSummary,
       method: 'PUT',
       body,
     },
@@ -2077,6 +2219,7 @@ export function createAdminPrayerSeason(
     {
       accessToken,
       body: toAdminPrayerSeasonCreateRequest(body),
+      responseParser: parseAdminPrayerSeason,
       method: 'POST',
     },
   );
@@ -2097,6 +2240,7 @@ export function closeAdminPrayerSeason(
     {
       accessToken,
       body: toAdminPrayerSeasonCloseRequest(body),
+      responseParser: parseAdminPrayerSeason,
       method: 'PATCH',
     },
   );
@@ -2117,6 +2261,7 @@ export function createAdminPrayerGroup(
     {
       accessToken,
       body: toAdminPrayerGroupCreateRequest(body),
+      responseParser: parseAdminPrayerGroup,
       method: 'POST',
     },
   );
@@ -2136,6 +2281,7 @@ export function updateAdminPrayerGroup(
     {
       accessToken,
       body: toAdminPrayerGroupUpdateRequest(body),
+      responseParser: parseAdminPrayerGroup,
       method: 'PATCH',
     },
   );
@@ -2156,6 +2302,7 @@ export function replaceAdminPrayerGroupMembers(
     {
       accessToken,
       body: toAdminPrayerGroupMembersReplaceRequest(body),
+      responseParser: parseAdminPrayerGroup,
       method: 'PUT',
     },
   );
@@ -2169,12 +2316,16 @@ export function fetchAdminDashboardSummary(
   const query = toAdminDashboardSummaryQuery(params);
   const path = buildAdminCampusPath(campusId, 'dashboard', 'summary');
 
-  return apiRequest<AdminDashboardSummary>(query ? `${path}?${query}` : path, {accessToken});
+  return apiRequest<AdminDashboardSummary>(query ? `${path}?${query}` : path, {
+    accessToken,
+    responseParser: parseAdminDashboardSummary,
+  });
 }
 
 export function fetchAdminCampusMembers(accessToken: string, campusId: unknown) {
   return apiRequest<AdminCampusMember[]>(buildAdminCampusPath(campusId, 'members'), {
     accessToken,
+    responseParser: parseAdminCampusMembers,
   });
 }
 
@@ -2187,7 +2338,7 @@ export function fetchAdminCampusCharges(
 
   return apiRequest<AdminCampusChargeSummary>(
     `${buildAdminCampusPath(campusId, 'charges')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminCampusChargeSummary},
   );
 }
 
@@ -2200,7 +2351,7 @@ export function fetchAdminCampusChargesForMyAccounts(
 
   return apiRequest<AdminCampusChargeSummary>(
     `${buildAdminCampusPath(campusId, 'charges', 'my-accounts')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminCampusChargeSummary},
   );
 }
 
@@ -2225,7 +2376,7 @@ export function fetchAdminMemberCharges(
       toPositiveIntegerPathSegment(userId, 'userId'),
       'charges',
     )}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminMemberChargeList},
   );
 }
 
@@ -2244,6 +2395,7 @@ export function changeAdminChargeStatus(
     {
       accessToken,
       body: {status: toAdminWritableChargeStatus(status)},
+      responseParser: parseAdminChargeStatusChangeResponse,
       method: 'PATCH',
     },
   );
@@ -2258,7 +2410,7 @@ export function fetchAdminMissingDevotionMembers(
 
   return apiRequest<AdminMissingDevotionMember[]>(
     `${buildAdminCampusPath(campusId, 'devotions', 'missing')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminMissingDevotionMembers},
   );
 }
 
@@ -2282,7 +2434,7 @@ export function fetchAdminNotificationLogs(
 
   return apiRequest<AdminNotificationLogList>(
     `${buildAdminCampusPath(campusId, 'notification-logs')}?${query}`,
-    {accessToken},
+    {accessToken, responseParser: parseAdminNotificationLogList},
   );
 }
 
@@ -2296,6 +2448,7 @@ export function sendAdminNotification(
     {
       accessToken,
       body: toAdminNotificationRequest(body),
+      responseParser: parseAdminNotificationResponse,
       method: 'POST',
     },
   );
@@ -2317,6 +2470,7 @@ export function changeAdminCampusMemberRole(
     {
       accessToken,
       body,
+      responseParser: parseAdminCampusMember,
       method: 'PATCH',
     },
   );
@@ -2338,6 +2492,7 @@ export function getServiceAdminUsers(
 
   return apiRequest<ServiceAdminUserList>(`${buildApiPath('admin', 'users')}?${query}`, {
     accessToken,
+    responseParser: parseServiceAdminUserList,
   });
 }
 
@@ -2347,7 +2502,7 @@ export function getServiceAdminUser(
 ): Promise<ServiceAdminUserDetail> {
   return apiRequest<ServiceAdminUserDetail>(
     buildApiPath('admin', 'users', toPositiveIntegerPathSegment(userId, 'userId')),
-    {accessToken},
+    {accessToken, responseParser: parseServiceAdminUserDetail},
   );
 }
 
@@ -2366,6 +2521,7 @@ export function updateServiceAdminUserRole(
     {
       accessToken,
       body: toServiceAdminUserRoleChangeRequest(body),
+      responseParser: parseServiceAdminUserDetail,
       method: 'PATCH',
     },
   );
@@ -2386,6 +2542,7 @@ export function getServiceAdminCampuses(
 
   return apiRequest<ServiceAdminCampusList>(`${buildApiPath('admin', 'campuses')}?${query}`, {
     accessToken,
+    responseParser: parseServiceAdminCampusList,
   });
 }
 
@@ -2397,6 +2554,7 @@ export function updateCampus(
   return apiRequest<CampusDetail>(buildCampusPath(campusId), {
     accessToken,
     body: toCampusUpdateRequest(body),
+    responseParser: parseCampusDetail,
     method: 'PATCH',
   });
 }
@@ -2411,6 +2569,7 @@ export function addServiceAdminCampusMember(
     {
       accessToken,
       body: toServiceAdminCampusMemberAddRequest(body),
+      responseParser: parseServiceAdminCampusMemberAddResponse,
       method: 'POST',
     },
   );
@@ -2419,7 +2578,7 @@ export function addServiceAdminCampusMember(
 export function fetchDutyAssignments(accessToken: string, campusId: unknown) {
   return apiRequest<DutyAssignment[]>(
     buildAdminCampusPath(campusId, 'duty-assignments'),
-    {accessToken},
+    {accessToken, responseParser: parseDutyAssignments},
   );
 }
 
@@ -2433,6 +2592,7 @@ export function assignCoffeeDuty(
     {
       accessToken,
       body,
+      responseParser: parseDutyAssignment,
       method: 'PUT',
     },
   );
@@ -2452,6 +2612,7 @@ export function revokeCoffeeDuty(
     ),
     {
       accessToken,
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );
@@ -2470,6 +2631,7 @@ export function deleteCampusMember(
     ),
     {
       accessToken,
+      responseParser: parseNullResponse,
       method: 'DELETE',
     },
   );

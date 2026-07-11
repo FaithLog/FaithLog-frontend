@@ -5,10 +5,12 @@ import {
 } from '../api/client';
 import {
   clearFcmRegistration,
+  getAuthSessionGeneration,
   getOrCreateClientInstanceId,
   getStoredFcmRegistration,
-  saveFcmToken,
-  saveFcmTokenId,
+  isAuthSessionGenerationCurrent,
+  saveFcmRegistration,
+  type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {FcmTokenRegisterResponse} from '../api/types';
 import {APP_VERSION} from './appInfo';
@@ -25,6 +27,9 @@ import {
   type DeviceFcmTokenResult,
   type NotificationPermissionStatus,
 } from './notificationAdapter';
+
+const pendingFcmRegistrations = new Set<Promise<unknown>>();
+let fcmRegistrationQueue: Promise<void> = Promise.resolve();
 
 export type FcmRegistrationStatus =
   | {
@@ -56,11 +61,20 @@ export type FcmRegistrationStatus =
       message: string;
     };
 
-export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationStatus> {
+export async function inspectFcmRegistrationStatus(
+  userId: number,
+  generation: AuthSessionGeneration = getAuthSessionGeneration(),
+): Promise<FcmRegistrationStatus> {
+  assertFcmAuthSessionCurrent(generation);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new Error('A valid user is required to inspect FCM registration.');
+  }
+
   const availability = getFcmRuntimeAvailability();
 
   if (!availability.enabled) {
-    await clearFcmRegistration();
+    await clearFcmRegistration(generation);
     return {
       status: 'disabled',
       reason: availability.reason,
@@ -72,13 +86,23 @@ export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationSta
     checkNotificationPermission(),
     getStoredFcmRegistration(),
   ]);
+  assertFcmAuthSessionCurrent(generation);
 
   if (permission !== 'authorized') {
     return {status: 'permissionPrompt', permission};
   }
 
-  if (stored.tokenId) {
-    return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+  if (stored.tokenId && stored.userId === userId) {
+    const clientInstanceId = await getOrCreateClientInstanceId();
+    assertFcmAuthSessionCurrent(generation);
+
+    if (stored.clientInstanceId === clientInstanceId) {
+      return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+    }
+  }
+
+  if (stored.tokenId || stored.token) {
+    await clearFcmRegistration(generation);
   }
 
   return {
@@ -90,11 +114,14 @@ export async function inspectFcmRegistrationStatus(): Promise<FcmRegistrationSta
 
 export async function registerCurrentFcmToken(
   accessToken: string,
+  userId: number,
+  generation: AuthSessionGeneration = getAuthSessionGeneration(),
 ): Promise<FcmRegistrationStatus> {
+  assertFcmAuthSessionCurrent(generation);
   const availability = getFcmRuntimeAvailability();
 
   if (!availability.enabled) {
-    await clearFcmRegistration();
+    await clearFcmRegistration(generation);
     return {
       status: 'disabled',
       reason: availability.reason,
@@ -109,7 +136,8 @@ export async function registerCurrentFcmToken(
   }
 
   const stored = await getStoredFcmRegistration();
-  const deviceTokenResult = await loadAndPersistDeviceFcmToken(permission);
+  const deviceTokenResult = await loadDeviceFcmToken(permission);
+  assertFcmAuthSessionCurrent(generation);
 
   if (deviceTokenResult.status !== 'available') {
     return {
@@ -119,11 +147,25 @@ export async function registerCurrentFcmToken(
     };
   }
 
-  if (stored.tokenId && stored.token === deviceTokenResult.token) {
-    return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+  if (
+    stored.userId === userId &&
+    stored.tokenId &&
+    stored.token === deviceTokenResult.token
+  ) {
+    const clientInstanceId = await getOrCreateClientInstanceId();
+    assertFcmAuthSessionCurrent(generation);
+
+    if (stored.clientInstanceId === clientInstanceId) {
+      return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
+    }
   }
 
-  const registration = await registerFcmTokenValue(accessToken, deviceTokenResult.token);
+  const registration = await registerFcmTokenValue(
+    accessToken,
+    userId,
+    deviceTokenResult.token,
+    generation,
+  );
 
   if (!registration) {
     return {
@@ -133,16 +175,59 @@ export async function registerCurrentFcmToken(
     };
   }
 
-  await deactivateStaleFcmToken(accessToken, stored.tokenId, registration.tokenId);
+  if (stored.userId === userId) {
+    await deactivateStaleFcmToken(
+      accessToken,
+      stored.tokenId,
+      registration.tokenId,
+      generation,
+    );
+  }
 
   return {status: 'registered', permission, registration};
 }
 
-export async function registerFcmTokenValue(
+export function registerFcmTokenValue(
   accessToken: string,
+  userId: number,
   token: string,
+  generation: AuthSessionGeneration = getAuthSessionGeneration(),
 ): Promise<FcmTokenRegisterResponse | null> {
-  if (!isFcmRuntimeEnabled()) {
+  const operation = fcmRegistrationQueue.then(
+    () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
+    () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
+  );
+  fcmRegistrationQueue = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  pendingFcmRegistrations.add(operation);
+  void operation.then(
+    () => pendingFcmRegistrations.delete(operation),
+    () => pendingFcmRegistrations.delete(operation),
+  );
+  return operation;
+}
+
+export function capturePendingFcmRegistrationBarrier(): Promise<void> {
+  const pendingAtCapture = [...pendingFcmRegistrations];
+  return pendingAtCapture.length === 0
+    ? Promise.resolve()
+    : Promise.allSettled(pendingAtCapture).then(() => undefined);
+}
+
+async function registerFcmTokenValueInternal(
+  accessToken: string,
+  userId: number,
+  token: string,
+  generation: AuthSessionGeneration,
+): Promise<FcmTokenRegisterResponse | null> {
+  if (
+    !isFcmRuntimeEnabled() ||
+    !isAuthSessionGenerationCurrent(generation) ||
+    !Number.isInteger(userId) ||
+    userId <= 0
+  ) {
     return null;
   }
 
@@ -152,73 +237,100 @@ export async function registerFcmTokenValue(
     return null;
   }
 
-  await saveFcmToken(normalizedToken);
+  const clientInstanceId = await getOrCreateClientInstanceId();
+  assertFcmAuthSessionCurrent(generation);
+  const registration = await registerMyFcmToken(
+    accessToken,
+    {
+      appVersion: APP_VERSION,
+      clientInstanceId,
+      deviceType: getDeviceType(),
+      token: normalizedToken,
+    },
+    generation,
+  );
 
-  const registration = await registerMyFcmToken(accessToken, {
-    appVersion: APP_VERSION,
-    clientInstanceId: await getOrCreateClientInstanceId(),
-    deviceType: getDeviceType(),
-    token: normalizedToken,
-  });
-
-  await saveFcmTokenId(registration.tokenId);
-
-  return registration;
-}
-
-async function loadAndPersistDeviceFcmToken(
-  permission: NotificationPermissionStatus,
-): Promise<DeviceFcmTokenResult> {
-  const result = await getDeviceFcmToken(permission);
-
-  if (result.status !== 'available') {
-    return result;
+  if (!isAuthSessionGenerationCurrent(generation)) {
+    return null;
   }
 
-  await saveFcmToken(result.token);
+  const saved = await saveFcmRegistration(
+    {
+      token: normalizedToken,
+      tokenId: registration.tokenId,
+      userId,
+      clientInstanceId,
+    },
+    generation,
+  );
 
-  return result;
+  return saved ? registration : null;
+}
+
+async function loadDeviceFcmToken(
+  permission: NotificationPermissionStatus,
+): Promise<DeviceFcmTokenResult> {
+  return getDeviceFcmToken(permission);
 }
 
 async function deactivateStaleFcmToken(
   accessToken: string,
   previousTokenId: number | null,
   currentTokenId: number,
+  generation: AuthSessionGeneration,
 ) {
   if (!previousTokenId || previousTokenId === currentTokenId) {
     return;
   }
 
   try {
-    await deactivateMyFcmToken(accessToken, previousTokenId);
+    await deactivateMyFcmToken(accessToken, previousTokenId, generation);
   } catch {
     // A stale push token should not block the fresh registration from being used.
   }
 }
 
-export async function deactivateCurrentFcmToken(accessToken: string) {
+export async function deactivateCurrentFcmToken(
+  accessToken: string,
+  userId: number,
+  generation: AuthSessionGeneration = getAuthSessionGeneration(),
+) {
+  assertFcmAuthSessionCurrent(generation);
+
   if (!isFcmRuntimeEnabled()) {
-    await clearFcmRegistration();
+    await clearFcmRegistration(generation);
     return {status: 'skipped' as const};
   }
 
-  const {tokenId} = await getStoredFcmRegistration();
+  const {tokenId, userId: storedUserId} = await getStoredFcmRegistration();
+  assertFcmAuthSessionCurrent(generation);
 
-  if (!tokenId) {
-    await clearFcmRegistration();
+  if (!tokenId || storedUserId !== userId) {
+    await clearFcmRegistration(generation);
     return {status: 'skipped' as const};
   }
 
   try {
-    await deactivateMyFcmToken(accessToken, tokenId);
-    await clearFcmRegistration();
+    await deactivateMyFcmToken(accessToken, tokenId, generation);
+    await clearFcmRegistration(generation);
 
     return {status: 'deactivated' as const};
   } catch (error) {
     if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
-      await clearFcmRegistration();
+      await clearFcmRegistration(generation);
     }
 
     throw error;
+  }
+}
+
+function assertFcmAuthSessionCurrent(generation: AuthSessionGeneration) {
+  if (!isAuthSessionGenerationCurrent(generation)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      code: 'AUTH_SESSION_CHANGED',
+      message: '로그인 계정이 변경되어 이전 알림 작업을 취소했습니다.',
+      authSessionGeneration: generation,
+    });
   }
 }

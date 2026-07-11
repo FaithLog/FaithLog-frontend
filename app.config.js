@@ -49,7 +49,8 @@ function writeFirebaseConfigFromBase64(fileName, base64Value) {
   fs.mkdirSync(generatedFirebaseConfigDir, {recursive: true});
 
   const outputPath = path.join(generatedFirebaseConfigDir, fileName);
-  fs.writeFileSync(outputPath, Buffer.from(base64Value, 'base64'));
+  fs.writeFileSync(outputPath, Buffer.from(base64Value, 'base64'), {mode: 0o600});
+  fs.chmodSync(outputPath, 0o600);
 
   return `./${path.relative(__dirname, outputPath).replace(/\\/g, '/')}`;
 }

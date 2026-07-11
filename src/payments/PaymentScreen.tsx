@@ -1065,7 +1065,7 @@ function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) =
     return;
   }
 
-  void clearTokens();
+  void clearTokens(error.authSessionGeneration);
   setAuthState({status: 'sessionExpired', message: error.message});
 }
 

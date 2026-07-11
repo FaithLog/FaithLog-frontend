@@ -26,6 +26,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
 jobs:
   eas-build:
     name: ${{ inputs.profile }} / ${{ inputs.platform }}
@@ -35,28 +38,24 @@ jobs:
       BUILD_PROFILE: ${{ inputs.profile }}
       BUILD_PLATFORM: ${{ inputs.platform }}
       WAIT_FOR_BUILD: ${{ inputs.wait_for_build }}
-      PREVIEW_API_BASE_URL: ${{ vars.PREVIEW_API_BASE_URL || secrets.PREVIEW_API_BASE_URL || 'https://faithlog-549871256004.asia-northeast3.run.app' }}
-      PRODUCTION_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL || secrets.PRODUCTION_API_BASE_URL || 'https://faithlog-549871256004.asia-northeast3.run.app' }}
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      DEPLOYMENT_API_BASE_URL: https://faithlog-549871256004.asia-northeast3.run.app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.13.1
           cache: npm
 
-      - name: Setup Expo and EAS
-        uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Install dependencies
         run: npm ci
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@c7b66a9c327a43a8fa7c0158e7f30d6040d2481e # v8.2.1
+        with:
+          eas-version: 20.5.1
 
       - name: Select deployment environment
         shell: bash
@@ -65,11 +64,11 @@ jobs:
 
           case "$BUILD_PROFILE" in
             preview)
-              API_BASE_URL="$PREVIEW_API_BASE_URL"
+              API_BASE_URL="$DEPLOYMENT_API_BASE_URL"
               APP_ENV="preview"
               ;;
             production)
-              API_BASE_URL="$PRODUCTION_API_BASE_URL"
+              API_BASE_URL="$DEPLOYMENT_API_BASE_URL"
               APP_ENV="production"
               ;;
             *)
@@ -138,6 +137,8 @@ jobs:
 
       - name: Start EAS build
         shell: bash
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           set -euo pipefail
 
