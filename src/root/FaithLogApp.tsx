@@ -290,8 +290,8 @@ export function applyCompletedAccountDeletionTeardown(
   // SecureStore cleanup, which may remain pending at the OS boundary.
   if (cleanupWarning) onWarning(cleanupWarning);
   return teardown.then((localWarning) => {
-    const warning = localWarning ?? cleanupWarning;
-    if (localWarning) onWarning(localWarning);
+    const warning = cleanupWarning ?? localWarning;
+    if (!cleanupWarning && localWarning) onWarning(localWarning);
     return warning;
   });
 }

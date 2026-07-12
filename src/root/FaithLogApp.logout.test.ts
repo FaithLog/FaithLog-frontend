@@ -118,6 +118,19 @@ describe('logout UI transition', () => {
     expect(events).toEqual(['signedOut', 'warning:restart required']);
   });
 
+  it('preserves a known restart warning when local cleanup fails later', async () => {
+    const warning = vi.fn();
+    await expect(applyCompletedAccountDeletionTeardown(
+      'restart required',
+      vi.fn(),
+      async () => { throw new Error('local clear failed'); },
+      vi.fn(),
+      warning,
+    )).resolves.toBe('restart required');
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith('restart required');
+  });
+
   it('registers account-deletion cleanup with the production restart barrier', async () => {
     vi.useFakeTimers();
     try {

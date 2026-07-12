@@ -1126,7 +1126,7 @@ async function persistFcmObligationBeforeSend(
   obligation: FcmRemoteCleanupObligation,
 ) {
   if (context.capturedForCleanup) {
-    await markFcmRemoteCleanupPending([obligation]);
+    await markFcmRemoteCleanupPending([withoutLiveFcmState(obligation)]);
   }
 }
 
@@ -1142,8 +1142,13 @@ async function updateFcmOperationCredentials(
     obligation.refreshToken = tokens.refreshToken;
   });
   if (context.capturedForCleanup && pending.length > 0) {
-    await markFcmRemoteCleanupPending(pending);
+    await markFcmRemoteCleanupPending(pending.map(withoutLiveFcmState));
   }
+}
+
+function withoutLiveFcmState(obligation: FcmRemoteCleanupObligation) {
+  const {state: _state, ...durable} = obligation;
+  return durable;
 }
 
 function contextClientInstanceId(context: PendingFcmOperation) {
@@ -1301,6 +1306,7 @@ async function compensateFcmObligation(
       retirement.state = 'cleaned';
       observer.onObligationReplaced?.(retirement, null);
     } else {
+      await clearFcmCleanupReceiptsWithRetry([obligation]);
       obligation.state = 'cleaned';
       observer.onObligationReplaced?.(obligation, null);
     }

@@ -687,12 +687,11 @@ export async function markFcmRemoteCleanupPending(
       claimedCleanup.set(getFcmRemoteCleanupIdentity(entry), entry);
     }
     for (const entry of obligations) {
+      const liveState = (entry as StoredFcmRemoteCleanupObligation & {state?: string}).state;
+      if (liveState === 'prepared' || liveState === 'cleaned') continue;
       const identity = getFcmRemoteCleanupIdentity(entry);
       if (claimed.has(identity)) {
-        const liveState = (entry as StoredFcmRemoteCleanupObligation & {state?: string}).state;
-        if (liveState !== 'prepared' && liveState !== 'cleaned') {
-          claimedCleanup.set(identity, entry);
-        }
+        claimedCleanup.set(identity, entry);
       } else {
         byIdentity.set(identity, entry);
       }

@@ -731,6 +731,63 @@ describe('active remote cleanup ownership', () => {
     expect(api.logout).toHaveBeenCalledOnce();
   });
 
+  it('skips a timeout snapshot that becomes cleaned while waiting on the storage queue', async () => {
+    const storage = await import('../api/tokenStorage');
+    const blocker = {
+      accessToken: 'blocker-access', userId: 42, clientInstanceId: 'blocker-client',
+      kind: 'deactivation' as const, token: null, tokenId: 11,
+    };
+    const late = {
+      accessToken: 'revoked-access', refreshToken: 'revoked-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+      state: 'mayHaveSent' as 'mayHaveSent' | 'cleaned',
+    };
+    let releaseQueue!: () => void;
+    state.blockSetOnce.set(
+      'faithlog.fcmRemoteCleanupPending.v1',
+      new Promise<void>((resolve) => { releaseQueue = resolve; }),
+    );
+    const occupyingWrite = storage.markFcmRemoteCleanupPending([blocker]);
+    await vi.waitFor(() => {
+      expect(state.blockSetOnce.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+    });
+    const timeoutPersist = storage.markFcmRemoteCleanupPending([late]);
+    late.state = 'cleaned';
+    releaseQueue();
+    await Promise.all([occupyingWrite, timeoutPersist]);
+    await expect(storage.getFcmRemoteCleanupObligations()).resolves.toEqual([blocker]);
+  });
+
+  it('clears a no-client compensation logout before caller bulk cleanup or restart', async () => {
+    const storage = await import('../api/tokenStorage');
+    const logoutReceipt = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+    };
+    await storage.markFcmRemoteCleanupPending([logoutReceipt]);
+    const fcm = await import('../notifications/fcmRegistration');
+    await expect(fcm.compensateCapturedFcmOperations([{
+      ...logoutReceipt, state: 'mayHaveSent',
+    }])).resolves.toEqual([
+      expect.objectContaining({kind: 'clientLogout', state: 'cleaned'}),
+    ]);
+    expect(api.logout).toHaveBeenCalledOnce();
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+  });
+
   it('removes terminal-only identities after mixed account-claim compensation', async () => {
     state.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
       version: 2,

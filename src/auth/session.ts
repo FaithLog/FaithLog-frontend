@@ -443,6 +443,10 @@ async function completeRemoteLogout(
     !effectiveFcmPayload.clientInstanceId
   ) {
     await clearFcmCleanupReceiptsWithRetry(sessionLogoutObligations);
+    for (const sessionLogout of sessionLogoutObligations) {
+      sessionLogout.state = 'cleaned';
+      replaceObligation(sessionLogout, null);
+    }
   }
 
   if (

@@ -80,6 +80,7 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  clearAuthTeardownPending,
   clearFcmRemoteCleanupObligations,
   clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
@@ -1030,6 +1031,37 @@ describe('auth session lifecycle', () => {
       const persisted = vi.mocked(requireFcmRemoteCleanupRestart).mock.calls.at(-1)?.[0] ?? [];
       expect(persisted).not.toEqual(expect.arrayContaining([
         expect.objectContaining({kind: 'clientLogout', accessToken: 'rotated-access'}),
+      ]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('removes a no-client logout from the flight before a later storage hang times out', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getStoredClientInstanceId).mockResolvedValue(null);
+      vi.mocked(logoutUser).mockImplementationOnce(async (_access, _body, onDispatch) => {
+        onDispatch?.();
+        return null;
+      });
+      vi.mocked(clearAuthTeardownPending).mockImplementationOnce(
+        () => new Promise<void>(() => {}),
+      );
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      void prepared.completeRemoteLogout();
+      await vi.waitFor(() => expect(clearFcmRemoteCleanupObligations).toHaveBeenCalled());
+
+      const nextLogin = loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      });
+      const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(21_000);
+      await rejected;
+      expect(loginUser).not.toHaveBeenCalled();
+      const persisted = vi.mocked(requireFcmRemoteCleanupRestart).mock.calls.at(-1)?.[0] ?? [];
+      expect(persisted).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({kind: 'clientLogout'}),
       ]));
     } finally {
       vi.useRealTimers();
