@@ -84,6 +84,7 @@ import type {
   WeeklyDevotionSummary,
 } from './types';
 import {getSafeApiErrorMessage} from './errorPolicy';
+import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
 import {
   parseAdminCampusChargeSummary,
@@ -137,7 +138,6 @@ import {
   parseWeeklyDevotionSummary,
 } from './runtimeValidation';
 import {
-  clearTokens,
   getAuthSessionGeneration,
   getStoredAuthSession,
   isAccessTokenOwnedByAuthSession,
@@ -1377,7 +1377,7 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
     );
 
     if (normalizedRetryError.kind === 'sessionExpired') {
-      await clearTokens(generation);
+      await expireAuthSession(generation);
     }
 
     throw new FaithLogApiError(normalizedRetryError);
@@ -1389,7 +1389,7 @@ async function getTokensAfterSingleFlightRefresh(
   generation: AuthSessionGeneration,
 ) {
   assertAuthSessionGenerationIsCurrent(generation);
-  const storedTokens = await getStoredAuthSession();
+  const storedTokens = await getStoredAuthSession(generation);
 
   if (storedTokens.generation !== generation) {
     throw new FaithLogApiError(createAuthSessionChangedError(generation));
@@ -1407,7 +1407,7 @@ async function getTokensAfterSingleFlightRefresh(
   }
 
   if (!storedTokens.refreshToken) {
-    await clearTokens(generation);
+    await expireAuthSession(generation);
     throw new FaithLogApiError(createSessionExpiredError(generation));
   }
 
@@ -1461,7 +1461,7 @@ async function refreshAndPersistTokens(
     );
 
     if (normalizedError.kind === 'sessionExpired') {
-      await clearTokens(generation);
+      await expireAuthSession(generation);
     }
 
     throw new FaithLogApiError(normalizedError);

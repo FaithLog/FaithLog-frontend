@@ -69,6 +69,7 @@ import {
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
+import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
@@ -208,6 +209,20 @@ export function purgePaymentContextForAuthState(
   if (status !== 'authenticated') invalidate();
 }
 
+export async function finalizeAccountDeletionTeardown(
+  clear: () => Promise<unknown> = () => clearTokens(),
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  try {
+    await clear();
+    return null;
+  } catch {
+    return '계정은 삭제됐지만 이 기기의 로그인 정보 정리를 완료하지 못했습니다.';
+  } finally {
+    invalidate();
+  }
+}
+
 type CardState<T> =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -249,6 +264,17 @@ export function FaithLogApp() {
     setAuthState({status: 'loading', message: '세션을 다시 확인하고 있어요.'});
     void bootstrapAuthGate().then(setAuthState);
   };
+
+  useEffect(() => subscribeSessionExpiration(createSessionExpirationHandler(
+    getAuthSessionGeneration,
+    () => {
+      invalidatePaymentContextCache();
+      setAuthState({
+        status: 'sessionExpired',
+        message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+      });
+    },
+  )), []);
 
   useEffect(() => {
     void initializeNativeFirebaseMessaging();
@@ -3771,8 +3797,7 @@ function AccountDeletionScreen({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        await clearTokens();
-        invalidatePaymentContextCache();
+        await finalizeAccountDeletionTeardown();
         shouldResetBusy = false;
         setAuthState({
           status: 'sessionExpired',
@@ -3785,17 +3810,17 @@ function AccountDeletionScreen({
         password,
         confirmText,
       });
-      await clearTokens();
-      invalidatePaymentContextCache();
+      const cleanupWarning = await finalizeAccountDeletionTeardown();
       setConfirmVisible(false);
       shouldResetBusy = false;
-      setAuthState({status: 'signedOut'});
+      setAuthState({status: 'signedOut', ...(cleanupWarning ? {warning: cleanupWarning} : {})});
     } catch (deleteError) {
       const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
 
       if (apiError.kind === 'sessionExpired') {
-        await clearTokens(apiError.authSessionGeneration);
-        invalidatePaymentContextCache();
+        await finalizeAccountDeletionTeardown(
+          () => clearTokens(apiError.authSessionGeneration),
+        );
         setConfirmVisible(false);
         shouldResetBusy = false;
         setAuthState({status: 'sessionExpired', message: apiError.message});

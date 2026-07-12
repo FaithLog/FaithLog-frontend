@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked} from './paymentViewSafety';
+import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked, shouldChangePaymentFilter} from './paymentViewSafety';
 
 describe('payment mutation navigation', () => {
   it('blocks back and page changes while markPaid is deferred', async () => {
@@ -31,5 +31,12 @@ describe('payment mutation navigation', () => {
     finishA();
     await task;
     expect(applied).toBe(false);
+  });
+
+  it('keeps page N and its data when the selected chip is pressed again', () => {
+    const page = 3;
+    const data = ['page-3'];
+    expect(shouldChangePaymentFilter('UNPAID', 'UNPAID')).toBe(false);
+    expect({page, data}).toEqual({page: 3, data: ['page-3']});
   });
 });

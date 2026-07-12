@@ -96,6 +96,23 @@ describe('native auth token storage', () => {
     ).resolves.toBe(false);
   });
 
+  it('does not assign a queued token read to a generation created by logout', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseWrite!: () => void;
+    const blockedWrite = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    secureStoreMocks.setItemAsync.mockImplementationOnce(async () => blockedWrite);
+    const write = tokenStorage.saveTokens(
+      {accessToken: 'old-access', refreshToken: 'old-refresh'}, generation,
+    );
+    const queuedRead = tokenStorage.getStoredTokens(generation);
+    const logout = tokenStorage.clearTokens(generation);
+    releaseWrite();
+    await expect(write).resolves.toBe(false);
+    await expect(queuedRead).resolves.toEqual({accessToken: null, refreshToken: null});
+    await expect(logout).resolves.toBe(true);
+  });
+
   it('keeps every rotated access token owned by the same auth session', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

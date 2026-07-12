@@ -47,8 +47,8 @@ import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {getPaymentContext, invalidatePaymentContextCache} from './paymentContextCache';
-import {fetchFreshFallbackPage} from './paymentPagination';
-import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked} from './paymentViewSafety';
+import {findFreshFallbackPage} from './paymentPagination';
+import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked, shouldChangePaymentFilter} from './paymentViewSafety';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -207,14 +207,15 @@ export function PaymentScreen({
       if (!isCurrentListRequest()) return;
 
       if (nextPage > 0 && charges.items.length === 0) {
-        const fallback = await fetchFreshFallbackPage(nextPage, (fallbackPage) =>
+        const fallback = await findFreshFallbackPage(nextPage, (fallbackPage) =>
           fetchMyCharges(accessToken, campusId, {
             page: fallbackPage,
             paymentCategory: category,
             size: PAGE_SIZE,
             sort: toChargeSort(sort),
             status,
-          }));
+          }), (data) => data.items.length === 0, isCurrentListRequest);
+        if (!fallback) return;
         const fallbackPage = fallback.page;
         if (!isCurrentListRequest()) return;
         setLastKnownLastPage(fallbackPage);
@@ -295,6 +296,8 @@ export function PaymentScreen({
       if (!accessToken) {
         return;
       }
+
+      if (getAuthSessionGeneration() !== mutationGeneration) return;
 
       const paid = await markMyChargePaid(accessToken, campusId, charge.id);
       if (getAuthSessionGeneration() !== mutationGeneration) return;
@@ -502,6 +505,7 @@ export function PaymentScreen({
           label="유형"
           disabled={actionState.status === 'markingPaid'}
           onSelect={(value) => {
+            if (!shouldChangePaymentFilter(category, value)) return;
             invalidatePendingListRequests();
             setCategory(value);
             setLastKnownLastPage(null);
@@ -517,6 +521,7 @@ export function PaymentScreen({
           label="상태"
           disabled={actionState.status === 'markingPaid'}
           onSelect={(value) => {
+            if (!shouldChangePaymentFilter(status, value)) return;
             invalidatePendingListRequests();
             setStatus(value);
             setLastKnownLastPage(null);
@@ -532,6 +537,7 @@ export function PaymentScreen({
           label="정렬"
           disabled={actionState.status === 'markingPaid'}
           onSelect={(value) => {
+            if (!shouldChangePaymentFilter(sort, value)) return;
             invalidatePendingListRequests();
             setSort(value);
             setLastKnownLastPage(null);

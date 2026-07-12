@@ -2,6 +2,10 @@ export function isPaymentNavigationLocked(status: string) {
   return status === 'markingPaid';
 }
 
+export function shouldChangePaymentFilter(current: string, next: string) {
+  return current !== next;
+}
+
 export function invalidatePaymentListRequest(
   sequence: {current: number},
   key: {current: string},

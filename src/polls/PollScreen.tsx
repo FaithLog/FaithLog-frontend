@@ -290,6 +290,8 @@ export function PollScreen({
         return;
       }
 
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
       await savePollResponse(accessToken, campusId, mutationPollId, {
         optionIds: selectedOptionIds,
       });
@@ -350,6 +352,8 @@ export function PollScreen({
         return;
       }
 
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
       const added = await addUserPollOptionWithMenuContractFallback({
         accessToken,
         campusId,
@@ -404,6 +408,8 @@ export function PollScreen({
         return;
       }
 
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
       const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setCommentContent('');
@@ -445,6 +451,8 @@ export function PollScreen({
         return;
       }
 
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
       const updated = await updatePollComment(accessToken, campusId, mutationPollId, editingComment.commentId, {
         content,
       });
@@ -482,6 +490,8 @@ export function PollScreen({
       if (!accessToken) {
         return;
       }
+
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
 
       await deletePollComment(accessToken, campusId, mutationPollId, comment.commentId);
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;

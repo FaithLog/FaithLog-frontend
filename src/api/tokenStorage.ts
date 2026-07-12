@@ -86,9 +86,14 @@ export async function beginAuthSession() {
   return generation;
 }
 
-export async function getStoredAuthSession(): Promise<StoredAuthSession> {
+export async function getStoredAuthSession(
+  expectedGeneration: AuthSessionGeneration = authSessionGeneration,
+): Promise<StoredAuthSession> {
   return withSecureStorageLock(async () => {
-    const generation = authSessionGeneration;
+    const generation = expectedGeneration;
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      return {generation: authSessionGeneration, accessToken: null, refreshToken: null};
+    }
     const invalidated = await getStorageItem(AUTH_INVALIDATED_KEY);
 
     if (invalidated === INVALIDATED_VALUE) {
@@ -183,8 +188,10 @@ export async function isAccessTokenOwnedByAuthSession(
   );
 }
 
-export async function getStoredTokens(): Promise<StoredTokens> {
-  const {accessToken, refreshToken} = await getStoredAuthSession();
+export async function getStoredTokens(
+  expectedGeneration: AuthSessionGeneration = authSessionGeneration,
+): Promise<StoredTokens> {
+  const {accessToken, refreshToken} = await getStoredAuthSession(expectedGeneration);
   return {accessToken, refreshToken};
 }
 

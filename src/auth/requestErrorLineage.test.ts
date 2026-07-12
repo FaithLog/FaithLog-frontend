@@ -31,4 +31,19 @@ describe('request error lineage', () => {
       authSessionGeneration: 4,
     }, 4, 5)).toBe(false);
   });
+
+  it('drops expired errors from generations older than the exact clear transition', () => {
+    const error = {
+      kind: 'sessionExpired' as const, message: 'old', authSessionGeneration: 4,
+    };
+    expect(shouldHandleRequestError(error, 4, 6)).toBe(false);
+    expect(shouldHandleRequestError(error, 4, 7)).toBe(false);
+  });
+
+  it('always drops AUTH_SESSION_CHANGED even at the same generation', () => {
+    expect(shouldHandleRequestError({
+      kind: 'error', code: 'AUTH_SESSION_CHANGED', message: 'changed',
+      authSessionGeneration: 4,
+    }, 4, 4)).toBe(false);
+  });
 });

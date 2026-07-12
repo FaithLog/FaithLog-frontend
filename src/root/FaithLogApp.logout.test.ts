@@ -38,7 +38,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {beginLogoutAuthTransition, purgePaymentContextForAuthState} from './FaithLogApp';
+import {beginLogoutAuthTransition, finalizeAccountDeletionTeardown, purgePaymentContextForAuthState} from './FaithLogApp';
 
 describe('logout UI transition', () => {
   it('clears payment context immediately on logout teardown', async () => {
@@ -56,6 +56,14 @@ describe('logout UI transition', () => {
       expect(invalidate).toHaveBeenCalledOnce();
     },
   );
+
+  it('purges sensitive cache and returns a warning when post-deletion clear fails', async () => {
+    const invalidate = vi.fn();
+    await expect(finalizeAccountDeletionTeardown(
+      async () => { throw new Error('secure storage unavailable'); }, invalidate,
+    )).resolves.toContain('계정은 삭제됐지만');
+    expect(invalidate).toHaveBeenCalledOnce();
+  });
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {
       throw new Error('secure storage unavailable');

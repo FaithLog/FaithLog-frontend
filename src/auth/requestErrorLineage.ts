@@ -5,8 +5,9 @@ export function shouldHandleRequestError(
   requestGeneration: number,
   currentGeneration: number,
 ) {
+  if (error.code === 'AUTH_SESSION_CHANGED') return false;
   if (currentGeneration === requestGeneration) return true;
   return error.kind === 'sessionExpired' &&
-    error.code !== 'AUTH_SESSION_CHANGED' &&
-    error.authSessionGeneration === requestGeneration;
+    error.authSessionGeneration === requestGeneration &&
+    currentGeneration === requestGeneration + 1;
 }
