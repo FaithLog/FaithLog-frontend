@@ -140,17 +140,24 @@ export function PollScreen({
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const currentPollId = useRef<number | null>(selectedPollId);
   const detailEpoch = useRef(0);
+  const screenMounted = useRef(true);
   currentPollId.current = selectedPollId;
 
   const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
-    isCurrentDetailEpoch(
+    screenMounted.current && isCurrentDetailEpoch(
       pollId, currentPollId.current, epoch, detailEpoch.current,
       generation, getAuthSessionGeneration(),
     );
   const shouldHandleDetailError = (
     error: ApiError, pollId: number, epoch: number, generation: number,
-  ) => currentPollId.current === pollId && detailEpoch.current === epoch &&
+  ) => screenMounted.current && currentPollId.current === pollId && detailEpoch.current === epoch &&
     shouldHandleRequestError(error, generation, getAuthSessionGeneration());
+
+  useEffect(() => () => {
+    screenMounted.current = false;
+    detailEpoch.current += 1;
+    currentPollId.current = null;
+  }, []);
 
   const loadPolls = async () => {
     setListState({status: 'loading'});

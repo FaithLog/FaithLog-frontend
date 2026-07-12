@@ -146,6 +146,22 @@ describe('native auth token storage', () => {
     await rotation;
   });
 
+  it('turns a rejected old storage read into typed stale cancellation', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = tokenStorage.getAuthSessionGeneration();
+    let rejectRead!: (error: Error) => void;
+    secureStoreMocks.getItemAsync.mockReturnValueOnce(new Promise((_, reject) => {
+      rejectRead = reject;
+    }));
+    const oldRead = tokenStorage.getStoredAuthSession(generation);
+    await vi.waitFor(() => expect(secureStoreMocks.getItemAsync).toHaveBeenCalled());
+    const nextSession = tokenStorage.beginAuthSession();
+    rejectRead(new Error('keychain unavailable'));
+    await expect(oldRead).rejects.toMatchObject({expectedGeneration: generation});
+    await nextSession;
+    expect(tokenStorage.getAuthSessionGeneration()).toBe(generation + 1);
+  });
+
   it('keeps every rotated access token owned by the same auth session', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

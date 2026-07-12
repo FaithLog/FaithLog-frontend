@@ -40,7 +40,8 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, finalizeAccountDeletionTeardown, purgePaymentContextForAuthState} from './FaithLogApp';
+import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, purgePaymentContextForAuthState} from './FaithLogApp';
+import {StaleAuthSessionReadError} from '../api/tokenStorage';
 
 describe('logout UI transition', () => {
   it('clears payment context immediately on logout teardown', async () => {
@@ -86,6 +87,16 @@ describe('logout UI transition', () => {
     const authenticated = {status: 'authenticated'} as never;
     expect(attachAccountDeletionCleanupWarning(authenticated, 'late warning')).toBe(authenticated);
   });
+
+  it('closes protected UI before a never-resolving logout preparation', () => {
+    const invalidate = vi.fn();
+    const signedOut = vi.fn();
+    const never = new Promise<never>(() => {});
+    beginProtectedLogoutUiTeardown(signedOut, invalidate);
+    void never;
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(signedOut).toHaveBeenCalledOnce();
+  });
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {
       throw new Error('secure storage unavailable');
@@ -102,6 +113,14 @@ describe('logout UI transition', () => {
       },
       remoteState: null,
     });
+  });
+
+  it('cancels an old logout instead of signing out a newer session', async () => {
+    const transition = await beginLogoutAuthTransition(42, async () => {
+      throw new StaleAuthSessionReadError(1 as never);
+    });
+    expect(transition.cancelled).toBe(true);
+    expect(transition.remoteState).toBeNull();
   });
 
   it('closes protected UI before the remote logout result arrives', async () => {

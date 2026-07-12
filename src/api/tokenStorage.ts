@@ -32,8 +32,9 @@ export type StoredAuthSession = StoredTokens & {
 };
 
 export class StaleAuthSessionReadError extends Error {
-  constructor(readonly expectedGeneration: AuthSessionGeneration) {
+  constructor(readonly expectedGeneration: AuthSessionGeneration, options?: {cause?: unknown}) {
     super('Authentication session changed while reading secure storage.');
+    this.cause = options?.cause;
   }
 }
 
@@ -95,7 +96,8 @@ export async function beginAuthSession() {
 export async function getStoredAuthSession(
   expectedGeneration: AuthSessionGeneration = authSessionGeneration,
 ): Promise<StoredAuthSession> {
-  return withSecureStorageLock(async () => {
+  try {
+    return await withSecureStorageLock(async () => {
     const generation = expectedGeneration;
     assertExpectedGeneration(generation);
     const invalidated = await getStorageItem(AUTH_INVALIDATED_KEY);
@@ -154,13 +156,18 @@ export async function getStoredAuthSession(
       accessToken: legacyAccessToken,
       refreshToken: legacyRefreshToken,
     };
+    await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
+    assertExpectedGeneration(generation);
     await setStorageItem(AUTH_TOKENS_KEY, JSON.stringify(migrated));
     await Promise.allSettled([
       deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
       deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
     ]);
 
+    assertExpectedGeneration(generation);
+    await deleteStorageItem(AUTH_INVALIDATED_KEY);
     if (!isAuthSessionGenerationCurrent(generation)) {
+      await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
       throw new StaleAuthSessionReadError(generation);
     }
 
@@ -168,7 +175,13 @@ export async function getStoredAuthSession(
     currentSessionAccessTokens.add(legacyAccessToken);
 
     return {generation, accessToken: legacyAccessToken, refreshToken: legacyRefreshToken};
-  });
+    });
+  } catch (error) {
+    if (!isAuthSessionGenerationCurrent(expectedGeneration)) {
+      throw new StaleAuthSessionReadError(expectedGeneration, {cause: error});
+    }
+    throw error;
+  }
 }
 
 export async function isAccessTokenOwnedByAuthSession(
@@ -226,6 +239,11 @@ export async function saveTokens(
     ]);
     if (!isAuthSessionGenerationCurrent(generation)) return false;
     await deleteStorageItem(AUTH_INVALIDATED_KEY);
+
+    if (!isAuthSessionGenerationCurrent(generation)) {
+      await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
+      return false;
+    }
 
     if (isAuthSessionGenerationCurrent(generation)) {
       cachedAccessToken = record.accessToken;

@@ -256,6 +256,14 @@ export function attachAccountDeletionCleanupWarning(
   return current.status === 'signedOut' ? {...current, warning} : current;
 }
 
+export function beginProtectedLogoutUiTeardown(
+  transitionToSignedOut: () => void,
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  invalidate();
+  transitionToSignedOut();
+}
+
 type CardState<T> =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -1897,38 +1905,29 @@ function AuthenticatedShell({
     }
   };
 
-  const completeLogout = async () => {
+  const completeLogout = () => {
     if (loggingOut) {
       return;
     }
 
     const userId = state.user.id;
+    const logoutGeneration = getAuthSessionGeneration();
     setLoggingOut(true);
+    setLogoutConfirmVisible(false);
+    setRoute('userHome');
+    beginProtectedLogoutUiTeardown(() => setAuthState({status: 'signedOut'}));
 
-    const transitionToSignedOut = (warning?: string) => {
-      setLogoutConfirmVisible(false);
-      setRoute('userHome');
-      setAuthState({status: 'signedOut', ...(warning ? {warning} : {})});
-    };
-
-    const transition = await beginLogoutAuthTransition(userId);
-    if (transition.cancelled) {
-      setLoggingOut(false);
-      return;
-    }
-    transitionToSignedOut(transition.initialState.warning);
-
-    if (transition.remoteState) {
-      void transition.remoteState.then((remoteState) => {
-        if (!remoteState) {
-          return;
-        }
-
-        setAuthState((currentState) =>
-          currentState.status === 'signedOut' ? remoteState : currentState,
-        );
-      });
-    }
+    void beginLogoutAuthTransition(userId).then((transition) => {
+      if (transition.cancelled) return;
+      const applyWarning = (nextState: SignedOutAuthState | null) => {
+        if (!nextState || getAuthSessionGeneration() !== logoutGeneration + 1) return;
+        setAuthState((currentState) => currentState.status === 'signedOut'
+          ? nextState
+          : currentState);
+      };
+      if (transition.initialState.warning) applyWarning(transition.initialState);
+      if (transition.remoteState) void transition.remoteState.then(applyWarning);
+    });
   };
 
   const openLogoutConfirm = () => {

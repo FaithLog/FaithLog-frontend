@@ -9,6 +9,7 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  getAuthSessionGeneration,
   getStoredSelectedCampusId,
   getStoredAuthSession,
   isAuthSessionGenerationCurrent,
@@ -48,6 +49,8 @@ export type PreparedLogout = {
 };
 
 let remoteLogoutInFlight: Promise<LogoutResult> | null = null;
+let logoutPreparationInFlight: Promise<void> | null = null;
+const LOGOUT_PREPARATION_TIMEOUT_MS = 5_000;
 
 export async function loginAndEstablishSession(credentials: LoginRequest): Promise<SessionResolution> {
   await waitForPendingRemoteLogout();
@@ -96,16 +99,29 @@ export async function logoutCurrentSession(userId?: number): Promise<LogoutResul
   return prepared.completeRemoteLogout();
 }
 
-export async function prepareCurrentSessionLogout(
+export function prepareCurrentSessionLogout(
   userId?: number,
 ): Promise<PreparedLogout> {
+  const operation = prepareCurrentSessionLogoutInternal(userId);
+  const barrier = operation.then(() => undefined, () => undefined).finally(() => {
+    if (logoutPreparationInFlight === barrier) logoutPreparationInFlight = null;
+  });
+  logoutPreparationInFlight = barrier;
+  return operation;
+}
+
+async function prepareCurrentSessionLogoutInternal(
+  userId?: number,
+): Promise<PreparedLogout> {
+  const expectedGeneration = getAuthSessionGeneration();
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
 
   try {
-    authSession = await getStoredAuthSession();
+    authSession = await getStoredAuthSession(expectedGeneration);
   } catch (error) {
     if (error instanceof StaleAuthSessionReadError) throw error;
-    await clearTokens();
+    const cleared = await clearTokens(expectedGeneration);
+    if (!cleared) throw new StaleAuthSessionReadError(expectedGeneration);
     return {
       completeRemoteLogout: async () => ({
         status: 'signedOutWithRemoteWarning',
@@ -128,7 +144,7 @@ export async function prepareCurrentSessionLogout(
   const cleared = await clearTokens(authSession.generation);
 
   if (!cleared) {
-    throw new Error('The authentication session changed before logout completed.');
+    throw new StaleAuthSessionReadError(authSession.generation);
   }
 
   if (fcmPayload.clientInstanceId) {
@@ -198,6 +214,22 @@ function trackRemoteLogout(operation: Promise<LogoutResult>) {
 }
 
 async function waitForPendingRemoteLogout() {
+  const preparation = logoutPreparationInFlight;
+  if (preparation) {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new FaithLogApiError({
+        kind: 'conflict',
+        code: 'LOGOUT_CLEANUP_PENDING',
+        message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+      })), LOGOUT_PREPARATION_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([preparation, timeout]);
+    } finally {
+      clearTimeout(timeoutId!);
+    }
+  }
   const pending = remoteLogoutInFlight;
 
   if (!pending) {

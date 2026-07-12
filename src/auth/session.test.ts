@@ -19,12 +19,16 @@ vi.mock('../api/client', () => ({
 vi.mock('../api/tokenStorage', () => ({
   beginAuthSession: vi.fn(),
   clearTokens: vi.fn(),
+  getAuthSessionGeneration: vi.fn(),
   getStoredAuthSession: vi.fn(),
   getStoredSelectedCampusId: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   rotateClientInstanceId: vi.fn(),
   saveSelectedCampusId: vi.fn(),
   saveTokens: vi.fn(),
+  StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {
+    constructor(readonly expectedGeneration: number) { super('stale'); }
+  },
 }));
 
 vi.mock('./fcmLogout', () => ({
@@ -44,12 +48,14 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  getAuthSessionGeneration,
   getStoredAuthSession,
   getStoredSelectedCampusId,
   isAuthSessionGenerationCurrent,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
+  StaleAuthSessionReadError,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {CurrentUser, LoginResponse} from '../api/types';
@@ -84,6 +90,7 @@ describe('auth session lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(beginAuthSession).mockResolvedValue(AUTH_GENERATION);
+    vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
     vi.mocked(isAuthSessionGenerationCurrent).mockReturnValue(true);
     vi.mocked(getStoredSelectedCampusId).mockResolvedValue(null);
     vi.mocked(saveSelectedCampusId).mockResolvedValue(undefined);
@@ -116,6 +123,18 @@ describe('auth session lifecycle', () => {
     ).rejects.toThrow('profile unavailable');
 
     expect(saveTokens).not.toHaveBeenCalled();
+    expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
+  });
+
+  it('returns typed cancellation when logout loses lineage during FCM preparation', async () => {
+    let finishFcm!: (value: {}) => void;
+    vi.mocked(getLogoutFcmDeactivationPayload).mockReturnValueOnce(
+      new Promise((resolve) => { finishFcm = resolve; }),
+    );
+    vi.mocked(clearTokens).mockResolvedValueOnce(false);
+    const pending = prepareCurrentSessionLogout(42);
+    finishFcm({});
+    await expect(pending).rejects.toBeInstanceOf(StaleAuthSessionReadError);
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
   });
 
@@ -177,8 +196,8 @@ describe('auth session lifecycle', () => {
   it('does not claim logout when local invalidation was superseded', async () => {
     vi.mocked(clearTokens).mockResolvedValue(false);
 
-    await expect(prepareCurrentSessionLogout(CURRENT_USER.id)).rejects.toThrow(
-      'authentication session changed',
+    await expect(prepareCurrentSessionLogout(CURRENT_USER.id)).rejects.toBeInstanceOf(
+      StaleAuthSessionReadError,
     );
     expect(logoutUser).not.toHaveBeenCalled();
   });
