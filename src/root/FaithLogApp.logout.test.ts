@@ -38,7 +38,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {beginLogoutAuthTransition} from './FaithLogApp';
+import {beginLogoutAuthTransition, purgePaymentContextForAuthState} from './FaithLogApp';
 
 describe('logout UI transition', () => {
   it('clears payment context immediately on logout teardown', async () => {
@@ -47,6 +47,15 @@ describe('logout UI transition', () => {
     }));
     expect(invalidatePaymentContextCache).toHaveBeenCalledWith();
   });
+
+  it.each(['signedOut', 'sessionExpired'] as const)(
+    'clears payment context for %s teardown',
+    (status) => {
+      const invalidate = vi.fn();
+      purgePaymentContextForAuthState(status, invalidate);
+      expect(invalidate).toHaveBeenCalledOnce();
+    },
+  );
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {
       throw new Error('secure storage unavailable');

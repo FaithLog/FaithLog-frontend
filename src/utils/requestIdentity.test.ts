@@ -49,7 +49,7 @@ describe('request identity', () => {
     expect(applied).toEqual([]);
   });
 
-  it('blocks a home result after generation changes without a rerender', () => {
+  it('blocks a successful home result after generation changes without a rerender', () => {
     expect(isMountedGenerationCurrent(true, 4, 5)).toBe(false);
     expect(isMountedGenerationCurrent(false, 5, 5)).toBe(false);
   });

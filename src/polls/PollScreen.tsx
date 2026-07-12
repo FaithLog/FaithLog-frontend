@@ -37,6 +37,7 @@ import type {
   PollSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {
   Body,
   Button,
@@ -57,7 +58,7 @@ import {
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
-import {toDeletedCommentRefreshError} from './pollMutationSafety';
+import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
 import {
   getUserPollListGroups,
   getUserVisiblePollCount,
@@ -145,6 +146,10 @@ export function PollScreen({
       pollId, currentPollId.current, epoch, detailEpoch.current,
       generation, getAuthSessionGeneration(),
     );
+  const shouldHandleDetailError = (
+    error: ApiError, pollId: number, epoch: number, generation: number,
+  ) => currentPollId.current === pollId && detailEpoch.current === epoch &&
+    shouldHandleRequestError(error, generation, getAuthSessionGeneration());
 
   const loadPolls = async () => {
     setListState({status: 'loading'});
@@ -202,8 +207,12 @@ export function PollScreen({
       setSelectedOptionIds(detail.myResponse?.optionIds ?? []);
       setDetailTab(tab);
     } catch (error) {
-      if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
       const apiError = toApiError(error, '투표 상세를 불러오지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, pollId, epoch, generation)) return;
+      if (apiError.kind === 'sessionExpired') {
+        handleAuthError(apiError, setAuthState);
+        return;
+      }
       setDetailState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
     }
@@ -292,8 +301,8 @@ export function PollScreen({
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       await loadPolls();
     } catch (error) {
-      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '투표 응답을 저장하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
@@ -362,8 +371,8 @@ export function PollScreen({
           : Array.from(new Set([...current, added.id])),
       );
     } catch (error) {
-      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '투표 항목을 추가하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
@@ -403,8 +412,8 @@ export function PollScreen({
         ? {...current, comments: [...current.comments, created]}
         : current);
     } catch (error) {
-      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
@@ -448,8 +457,8 @@ export function PollScreen({
           item.commentId === updated.commentId ? updated : item)}
         : current);
     } catch (error) {
-      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
@@ -482,15 +491,17 @@ export function PollScreen({
         setDetailState((current) => current.status === 'success' && current.detail.id === mutationPollId
           ? {...current, comments} : current);
       } catch (refreshError) {
-        if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
         const refreshApiError = toApiError(refreshError, '댓글 목록을 새로고치지 못했습니다.');
+        if (!shouldHandleDetailError(
+          refreshApiError, mutationPollId, mutationEpoch, mutationGeneration,
+        )) return;
         const contextualError = toDeletedCommentRefreshError(refreshApiError);
         setActionError(contextualError);
         handleAuthError(contextualError, setAuthState);
       }
     } catch (error) {
-      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '댓글을 삭제하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
@@ -1497,9 +1508,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
 }
 
 function ActionErrorCard({error}: {error: ApiError}) {
-  const presentation = getApiErrorPresentation(error, {
-    conflictMessage: '투표 상태가 변경되었습니다. 다시 불러온 뒤 응답해 주세요.',
-  });
+  const presentation = getPollActionErrorPresentation(error);
   const title = RESPONSE_ERROR_CODES.has(error.code ?? '')
     ? '선택을 다시 확인해 주세요'
     : presentation.title;

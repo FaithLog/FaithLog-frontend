@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {toDeletedCommentRefreshError} from './pollMutationSafety';
+import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
 
 describe('poll comment delete refresh context', () => {
   it.each([
@@ -10,5 +10,8 @@ describe('poll comment delete refresh context', () => {
     expect(contextual.kind).toBe(error.kind);
     expect('status' in error ? contextual.status : undefined).toBe('status' in error ? error.status : undefined);
     expect(contextual.message).toContain('댓글은 삭제됐지만');
+    expect(getPollActionErrorPresentation(contextual).message).toBe(
+      '댓글은 삭제됐지만 목록을 새로고치지 못했습니다. 목록을 다시 열어 확인해 주세요.',
+    );
   });
 });

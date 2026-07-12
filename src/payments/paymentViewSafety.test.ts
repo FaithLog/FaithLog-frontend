@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {isPaymentNavigationLocked} from './paymentViewSafety';
+import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked} from './paymentViewSafety';
 
 describe('payment mutation navigation', () => {
   it('blocks back and page changes while markPaid is deferred', async () => {
@@ -14,5 +14,22 @@ describe('payment mutation navigation', () => {
     expect(page).toBe(2);
     finish();
     await mutation;
+  });
+
+  it('invalidates filter A synchronously before filter B effect starts', async () => {
+    let finishA!: () => void;
+    const a = new Promise<void>((resolve) => { finishA = resolve; });
+    const sequence = {current: 1};
+    const key = {current: '1:campus:A:page0'};
+    let applied = false;
+    const task = a.then(() => {
+      applied = isPaymentListRequestCurrent(
+        1, sequence.current, '1:campus:A:page0', key.current, 1, 1,
+      );
+    });
+    invalidatePaymentListRequest(sequence, key);
+    finishA();
+    await task;
+    expect(applied).toBe(false);
   });
 });

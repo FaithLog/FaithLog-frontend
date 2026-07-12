@@ -68,6 +68,7 @@ import {
   validateSignupForm,
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
+import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
@@ -200,6 +201,13 @@ export async function beginLogoutAuthTransition(
   }
 }
 
+export function purgePaymentContextForAuthState(
+  status: AuthGateState['status'],
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  if (status !== 'authenticated') invalidate();
+}
+
 type CardState<T> =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -246,6 +254,10 @@ export function FaithLogApp() {
     void initializeNativeFirebaseMessaging();
     void bootstrapAuthGate().then(setAuthState);
   }, []);
+
+  useEffect(() => {
+    purgePaymentContextForAuthState(authState.status);
+  }, [authState.status]);
 
   useEffect(() => {
     if (authState.status !== 'authenticated' || !isFcmRuntimeEnabled()) {
@@ -2575,17 +2587,22 @@ function UserHomeDashboard({
         key: HomeCardKey,
         setter: (value: CardState<T>) => void,
       ) => {
-        if (!isMountedGenerationCurrent(homeMounted.current, requestGeneration, getAuthSessionGeneration()) ||
-            !isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
         if (result.status === 'fulfilled') {
+          if (!isMountedGenerationCurrent(homeMounted.current, requestGeneration, getAuthSessionGeneration()) ||
+              !isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
           setter({status: 'success', data: result.value});
           return;
         }
         const error = toApiError(result.reason, getHomeCardFallbackMessage(key));
-        setter({status: 'error', error});
+        if (!homeMounted.current || !shouldHandleRequestError(
+          error, requestGeneration, getAuthSessionGeneration(),
+        )) return;
         if (error.kind === 'sessionExpired') {
           setAuthState({status: 'sessionExpired', message: error.message});
+          return;
         }
+        if (!isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
+        setter({status: 'error', error});
       };
       const settle = <T,>(promise: Promise<T>, key: HomeCardKey, setter: (value: CardState<T>) => void) =>
         settleIndependently(promise, (result) => apply(result, requestKey, key, setter));
@@ -2595,9 +2612,15 @@ function UserHomeDashboard({
         settle(fetchPrayerWeek(accessToken, campusId, weekStartDate), 'prayers', setPrayerState),
       ]);
     } catch (error) {
-      if (!isMountedGenerationCurrent(homeMounted.current, requestGeneration, getAuthSessionGeneration()) ||
-          requestSequence !== homeRequestSequence.current) return;
       const apiError = toApiError(error, '홈 요약을 불러오지 못했습니다.');
+      if (!homeMounted.current || !shouldHandleRequestError(
+        apiError, requestGeneration, getAuthSessionGeneration(),
+      )) return;
+      if (apiError.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: apiError.message});
+        return;
+      }
+      if (requestSequence !== homeRequestSequence.current) return;
       setMonthlyDevotionState({status: 'error', error: apiError});
       setChargeState({status: 'error', error: apiError});
       setPrayerState({status: 'error', error: apiError});
@@ -3749,6 +3772,7 @@ function AccountDeletionScreen({
 
       if (!accessToken) {
         await clearTokens();
+        invalidatePaymentContextCache();
         shouldResetBusy = false;
         setAuthState({
           status: 'sessionExpired',
@@ -3762,6 +3786,7 @@ function AccountDeletionScreen({
         confirmText,
       });
       await clearTokens();
+      invalidatePaymentContextCache();
       setConfirmVisible(false);
       shouldResetBusy = false;
       setAuthState({status: 'signedOut'});
@@ -3770,6 +3795,7 @@ function AccountDeletionScreen({
 
       if (apiError.kind === 'sessionExpired') {
         await clearTokens(apiError.authSessionGeneration);
+        invalidatePaymentContextCache();
         setConfirmVisible(false);
         shouldResetBusy = false;
         setAuthState({status: 'sessionExpired', message: apiError.message});
