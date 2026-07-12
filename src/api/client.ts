@@ -146,7 +146,7 @@ import {
   saveTokens,
   type AuthSessionGeneration,
 } from './tokenStorage';
-import {discardRefreshTokensAfterCommit, hasRefreshLogoutHandoff, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
+import {hasRefreshLogoutHandoff, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
 
 type RequestOptions = {
   accessToken?: string;
@@ -1446,10 +1446,11 @@ async function refreshAndPersistTokens(
   generation: AuthSessionGeneration,
 ) {
   try {
-    const tokens = await trackRefreshForLogout(
+    const trackedRefresh = trackRefreshForLogout(
       generation,
       (onIssued) => refreshAuthToken(refreshToken, generation, onIssued),
     );
+    const tokens = await trackedRefresh;
     assertAuthSessionRequestIsAllowed(generation);
     const saved = await saveTokens(tokens, generation);
 
@@ -1458,7 +1459,7 @@ async function refreshAndPersistTokens(
     }
 
     assertAuthSessionRequestIsAllowed(generation);
-    discardRefreshTokensAfterCommit(generation);
+    trackedRefresh.discardAfterCommit();
 
     return tokens;
   } catch (error) {

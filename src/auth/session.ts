@@ -10,6 +10,7 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
   getStoredSelectedCampusId,
   getStoredAuthSession,
@@ -36,7 +37,6 @@ import {trackLocalSessionCleanup, waitForLocalSessionCleanup} from './localClean
 import {
   collectRefreshTokensForLogout,
   discardAllRefreshLogoutHandoffs,
-  discardRefreshTokensAfterCommit,
   hasIssuedRefreshTokens,
   settleRefreshHandoffsForAuthEntry,
   trackRefreshForLogout,
@@ -103,10 +103,11 @@ export async function refreshAndEstablishSession(
   generation: AuthSessionGeneration,
 ): Promise<SessionResolution> {
   try {
-    const tokens = await trackRefreshForLogout(
+    const trackedRefresh = trackRefreshForLogout(
       generation,
       (onIssued) => refreshAuthToken(refreshToken, generation, onIssued),
     );
+    const tokens = await trackedRefresh;
     const saved = await saveTokens(tokens, generation);
 
     if (!saved) {
@@ -116,7 +117,7 @@ export async function refreshAndEstablishSession(
     if (!isAuthSessionRequestAllowed(generation)) {
       throw createAuthSessionChangedError(generation);
     }
-    discardRefreshTokensAfterCommit(generation);
+    trackedRefresh.discardAfterCommit();
 
     return establishSession(tokens, generation);
   } catch (error) {
@@ -162,6 +163,8 @@ async function prepareCurrentSessionLogoutInternal(
   if (!markAuthSessionClosing(expectedGeneration)) {
     throw new StaleAuthSessionReadError(expectedGeneration);
   }
+  const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
+  const fcmOperations = capturePendingFcmOperations();
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
   let preparationWarning: string | null = null;
 
@@ -177,14 +180,12 @@ async function prepareCurrentSessionLogoutInternal(
     };
   }
 
-  const fcmOperations = capturePendingFcmOperations();
   const cleared = await clearTokens(expectedGeneration);
 
   if (!cleared) {
     throw new StaleAuthSessionReadError(expectedGeneration);
   }
 
-  const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
   const fcmPayloadPromise = getLogoutFcmDeactivationPayload(userId).then(
     (payload) => ({payload, failed: false as const}),
     () => ({payload: {}, failed: true as const}),
@@ -210,25 +211,12 @@ async function prepareCurrentSessionLogoutInternal(
       '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
   }
 
-  if (fcmPayload.clientInstanceId) {
-    try {
-      const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);
-
-      if (!rotated) {
-        throw new Error('The client instance changed before it could be retired.');
-      }
-    } catch {
-      fcmPayload = {};
-      preparationWarning =
-        '서버 로그아웃은 요청했지만 기기 알림 식별자를 안전하게 교체하지 못해 알림 연결 해제는 생략했습니다.';
-    }
-  }
-
   const remoteLogout = trackRemoteLogout((isCancelled, markSent) =>
     completeRemoteLogout(
       remoteAuthSession,
       fcmPayload,
       fcmOperations.barrier,
+      fcmOperations.settlement,
       fcmOperations.hasPendingOperations,
       preparationWarning,
       isCancelled,
@@ -245,6 +233,7 @@ async function completeRemoteLogout(
   authSession: Awaited<ReturnType<typeof getStoredAuthSession>>,
   fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>,
   fcmRegistrationBarrier: Promise<void>,
+  fcmOperationSettlement: Promise<{accessToken: string; clientInstanceId: string} | null>,
   fcmOperationsMayHaveReachedServer: boolean,
   preparationWarning: string | null,
   isCancelled: () => boolean,
@@ -252,14 +241,26 @@ async function completeRemoteLogout(
 ): Promise<LogoutResult> {
   if (fcmOperationsMayHaveReachedServer) markSent();
   await fcmRegistrationBarrier;
+  const fcmOperationCredential = await fcmOperationSettlement;
   if (isCancelled()) {
     return {
       status: 'signedOutWithRemoteWarning',
       message: '원격 로그아웃 정리가 지연되어 앱 재시작 후 다시 확인해야 합니다.',
     };
   }
-  const {accessToken, refreshToken} = authSession;
+  const accessToken = authSession.accessToken ?? fcmOperationCredential?.accessToken ?? null;
+  const {refreshToken} = authSession;
+  if (!fcmPayload.clientInstanceId && fcmOperationCredential?.clientInstanceId) {
+    fcmPayload = {...fcmPayload, clientInstanceId: fcmOperationCredential.clientInstanceId};
+  }
   let remoteWarning = preparationWarning;
+  let remoteLogoutConfirmed = false;
+
+  if (!accessToken && (fcmOperationsMayHaveReachedServer || fcmPayload.clientInstanceId)) {
+    remoteLogoutRestartRequired = true;
+    remoteWarning =
+      '이전 알림 등록의 원격 정리를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.';
+  }
 
   if (accessToken) {
     try {
@@ -268,9 +269,22 @@ async function completeRemoteLogout(
         ...(refreshToken ? {refreshToken} : {}),
         ...fcmPayload,
       });
+      remoteLogoutConfirmed = true;
     } catch (error) {
       if (isRemoteLogoutOutcomeUnknown(error)) remoteLogoutRestartRequired = true;
       remoteWarning = toRemoteLogoutWarning(error);
+    }
+  }
+
+  if (!remoteLogoutRestartRequired && remoteLogoutConfirmed && fcmPayload.clientInstanceId) {
+    try {
+      await clearFcmRegistrationAttemptsForClientInstance(fcmPayload.clientInstanceId);
+      const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);
+      if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
+    } catch {
+      remoteLogoutRestartRequired = true;
+      remoteWarning =
+        '알림 연결 정리를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.';
     }
   }
 
@@ -315,27 +329,25 @@ export async function waitForAuthEntryAvailability() {
   );
   if (handoffStatus !== 'clear') remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
-  const pending = [...remoteLogoutFlights];
-
-  if (pending.length === 0) {
-    return;
-  }
-
-  try {
-    await waitForLogoutBarrier(
-      Promise.all(pending.map((flight) => flight.promise)),
-      REMOTE_LOGOUT_BARRIER_TIMEOUT_MS,
-    );
-    if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
-  } catch {
-    const cancellationResults = pending.map((flight) => flight.cancelBeforeSend());
-    const allCancelledBeforeSend = cancellationResults.every(Boolean);
-    if (allCancelledBeforeSend) {
-      pending.forEach((flight) => remoteLogoutFlights.delete(flight));
-      return;
+  const deadline = Date.now() + REMOTE_LOGOUT_BARRIER_TIMEOUT_MS;
+  while (remoteLogoutFlights.size > 0) {
+    const pending = [...remoteLogoutFlights];
+    try {
+      await waitForLogoutBarrier(
+        Promise.all(pending.map((flight) => flight.promise)),
+        Math.max(1, deadline - Date.now()),
+      );
+      if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
+    } catch {
+      const cancellationResults = pending.map((flight) => flight.cancelBeforeSend());
+      const allCancelledBeforeSend = cancellationResults.every(Boolean);
+      if (allCancelledBeforeSend) {
+        pending.forEach((flight) => remoteLogoutFlights.delete(flight));
+        continue;
+      }
+      remoteLogoutRestartRequired = true;
+      throw createLogoutCleanupPendingError();
     }
-    remoteLogoutRestartRequired = true;
-    throw createLogoutCleanupPendingError();
   }
 }
 

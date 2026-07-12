@@ -2,13 +2,23 @@ import type {AuthSessionGeneration} from '../api/tokenStorage';
 import type {TokenPair} from '../api/types';
 
 type RefreshHandoffEntry = {
-  inFlight: number;
-  latestTokens: TokenPair | null;
+  operations: Set<RefreshHandoffOperation>;
   settlement: Promise<void>;
   resolveSettlement: () => void;
 };
 
+type RefreshHandoffOperation = {
+  inFlight: boolean;
+  issuedSequence: number;
+  tokens: TokenPair | null;
+};
+
+export type TrackedRefreshForLogout<T> = Promise<T> & {
+  discardAfterCommit: () => void;
+};
+
 const entries = new Map<AuthSessionGeneration, RefreshHandoffEntry>();
+let issuedSequence = 0;
 
 function renewSettlement(entry: RefreshHandoffEntry) {
   let resolveSettlement!: () => void;
@@ -20,8 +30,7 @@ function getOrCreateEntry(generation: AuthSessionGeneration) {
   const current = entries.get(generation);
   if (current) return current;
   const entry: RefreshHandoffEntry = {
-    inFlight: 0,
-    latestTokens: null,
+    operations: new Set(),
     settlement: Promise.resolve(),
     resolveSettlement: () => {},
   };
@@ -33,30 +42,41 @@ function getOrCreateEntry(generation: AuthSessionGeneration) {
 export function trackRefreshForLogout<T>(
   generation: AuthSessionGeneration,
   start: (onIssued: (tokens: TokenPair) => void) => Promise<T>,
-) {
+): TrackedRefreshForLogout<T> {
   const entry = getOrCreateEntry(generation);
-  if (entry.inFlight === 0) renewSettlement(entry);
-  entry.inFlight += 1;
-  const operation = start((tokens) => { entry.latestTokens = tokens; });
-  return operation.finally(() => {
-    entry.inFlight -= 1;
-    if (entry.inFlight === 0) {
-      entry.resolveSettlement();
-      if (!entry.latestTokens) entries.delete(generation);
-    }
+  if (![...entry.operations].some((operation) => operation.inFlight)) renewSettlement(entry);
+  const handoffOperation: RefreshHandoffOperation = {
+    inFlight: true,
+    issuedSequence: 0,
+    tokens: null,
+  };
+  entry.operations.add(handoffOperation);
+  const operation = start((tokens) => {
+    handoffOperation.tokens = tokens;
+    handoffOperation.issuedSequence = ++issuedSequence;
   });
+  const tracked = operation.finally(() => {
+    handoffOperation.inFlight = false;
+    if (![...entry.operations].some((candidate) => candidate.inFlight)) {
+      entry.resolveSettlement();
+      if (![...entry.operations].some((candidate) => candidate.tokens)) entries.delete(generation);
+    }
+  }) as TrackedRefreshForLogout<T>;
+  tracked.discardAfterCommit = () => {
+    entry.operations.delete(handoffOperation);
+    if (entry.operations.size === 0 && entries.get(generation) === entry) entries.delete(generation);
+  };
+  return tracked;
 }
 
 export async function collectRefreshTokensForLogout(generation: AuthSessionGeneration) {
   const entry = entries.get(generation);
   if (!entry) return null;
-  while (entry.inFlight > 0) await entry.settlement;
-  entries.delete(generation);
-  return entry.latestTokens;
-}
-
-export function discardRefreshTokensAfterCommit(generation: AuthSessionGeneration) {
-  entries.delete(generation);
+  while ([...entry.operations].some((operation) => operation.inFlight)) await entry.settlement;
+  if (entries.get(generation) === entry) entries.delete(generation);
+  return [...entry.operations]
+    .filter((operation): operation is RefreshHandoffOperation & {tokens: TokenPair} => operation.tokens !== null)
+    .sort((a, b) => b.issuedSequence - a.issuedSequence)[0]?.tokens ?? null;
 }
 
 export function discardRefreshTokensForGeneration(generation: AuthSessionGeneration) {
@@ -71,13 +91,15 @@ export function hasIssuedRefreshTokens(generation?: AuthSessionGeneration) {
   const candidates = generation === undefined
     ? [...entries.values()]
     : [entries.get(generation)].filter((entry): entry is RefreshHandoffEntry => Boolean(entry));
-  return candidates.some((entry) => entry.latestTokens !== null);
+  return candidates.some((entry) => [...entry.operations].some((operation) => operation.tokens !== null));
 }
 
 export async function settleRefreshHandoffsForAuthEntry(timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   while (entries.size > 0) {
-    const pending = [...entries.values()].filter((entry) => entry.inFlight > 0);
+    const pending = [...entries.values()].filter((entry) =>
+      [...entry.operations].some((operation) => operation.inFlight),
+    );
     if (pending.length === 0) {
       const issued = hasIssuedRefreshTokens();
       entries.clear();
@@ -109,4 +131,5 @@ export function discardAllRefreshLogoutHandoffs() {
 
 export function resetRefreshLogoutHandoffForTests() {
   entries.clear();
+  issuedSequence = 0;
 }

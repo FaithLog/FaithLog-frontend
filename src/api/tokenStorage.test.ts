@@ -224,6 +224,69 @@ describe('native auth token storage', () => {
     await expect(tokenStorage.isFcmOptedOut(42, clientInstanceId, generation)).resolves.toBe(true);
   });
 
+  it('round-trips an unresolved FCM registration attempt across module restart', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await expect(tokenStorage.saveFcmRegistrationAttempt({
+      userId: 42, clientInstanceId: 'client-42', token: 'pending-device-token',
+    }, generation)).resolves.toBe(true);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+
+    await expect(restartedStorage.getFcmRegistrationAttempt(
+      42, restartedStorage.getAuthSessionGeneration(),
+    )).resolves.toEqual({
+      userId: 42, clientInstanceId: 'client-42', token: 'pending-device-token',
+    });
+  });
+
+  it('clears only attempts compensated by the retired client instance', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveFcmRegistrationAttempt({
+      userId: 41, clientInstanceId: 'retired-client', token: 'token-41',
+    }, generation);
+    await tokenStorage.saveFcmRegistrationAttempt({
+      userId: 42, clientInstanceId: 'current-client', token: 'token-42',
+    }, generation);
+    await tokenStorage.clearFcmRegistrationAttemptsForClientInstance('retired-client');
+
+    await expect(tokenStorage.getFcmRegistrationAttempt(41, generation)).resolves.toBeNull();
+    await expect(tokenStorage.getFcmRegistrationAttempt(42, generation)).resolves.toMatchObject({
+      clientInstanceId: 'current-client', token: 'token-42',
+    });
+  });
+
+  it('never evicts pending opt-out cleanup obligations at the confirmed preference cap', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const clientInstanceId = await tokenStorage.getOrCreateClientInstanceId();
+    for (let userId = 1; userId <= 22; userId += 1) {
+      await tokenStorage.saveFcmOptOut(userId, clientInstanceId, generation, {
+        status: 'pending', tokenId: userId,
+      });
+    }
+    await expect(tokenStorage.getFcmOptOutState(1, generation)).resolves.toMatchObject({
+      status: 'pending', tokenId: 1,
+    });
+    await expect(tokenStorage.getFcmOptOutState(22, generation)).resolves.toMatchObject({
+      status: 'pending', tokenId: 22,
+    });
+  });
+
+  it('migrates an unconfirmed v1 opt-out as pending', async () => {
+    testState.storage.set('faithlog.fcmOptOut.v1', JSON.stringify({
+      version: 1, userId: 42, clientInstanceId: 'legacy-client',
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    const generation = tokenStorage.getAuthSessionGeneration();
+    await expect(tokenStorage.getFcmOptOutState(42, generation)).resolves.toEqual({
+      clientInstanceId: 'legacy-client', status: 'pending', tokenId: null,
+    });
+  });
+
   it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

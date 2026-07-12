@@ -5,14 +5,18 @@ import {
 } from '../api/client';
 import {
   clearFcmRegistration,
+  clearFcmRegistrationAttempt,
   clearFcmOptOut,
   getAuthSessionGeneration,
   getOrCreateClientInstanceId,
   getFcmOptOutState,
+  getFcmRegistrationAttempt,
   getStoredFcmRegistration,
   isFcmOptedOut,
   isAuthSessionGenerationCurrent,
+  isAuthSessionRequestAllowed,
   saveFcmRegistration,
+  saveFcmRegistrationAttempt,
   saveFcmOptOut,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
@@ -32,7 +36,14 @@ import {
   type NotificationPermissionStatus,
 } from './notificationAdapter';
 
-const pendingFcmRegistrations = new Set<Promise<unknown>>();
+type PendingFcmOperation = {
+  accessToken: string | null;
+  clientInstanceId: string | null;
+  mayReachServer: boolean;
+  promise: Promise<unknown>;
+};
+
+const pendingFcmRegistrations = new Set<PendingFcmOperation>();
 let fcmRegistrationQueue: Promise<void> = Promise.resolve();
 
 export type FcmRegistrationStatus =
@@ -158,7 +169,9 @@ export async function registerCurrentFcmToken(
         : {status: 'optedOutPending', message: '서버의 알림 연결 해제를 다시 확인해야 합니다.'};
     }
   } else {
-    await clearFcmOptOut(userId, clientInstanceId, generation);
+    await enqueueFcmOperation(
+      () => clearFcmOptOut(userId, clientInstanceId, generation),
+    );
   }
 
   const permission = await requestNotificationPermission();
@@ -260,21 +273,32 @@ export function registerFcmTokenValue(
   token: string,
   generation: AuthSessionGeneration = getAuthSessionGeneration(),
 ): Promise<FcmTokenRegisterResponse | null> {
+  const context: PendingFcmOperation = {
+    accessToken,
+    clientInstanceId: null,
+    mayReachServer: false,
+    promise: Promise.resolve(),
+  };
   return enqueueFcmOperation(
-    () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
+    () => registerFcmTokenValueInternal(accessToken, userId, token, generation, context),
+    context,
   );
 }
 
-function enqueueFcmOperation<T>(run: () => Promise<T>) {
+function enqueueFcmOperation<T>(run: () => Promise<T>, suppliedContext?: PendingFcmOperation) {
   const operation = fcmRegistrationQueue.then(run, run);
   fcmRegistrationQueue = operation.then(
     () => undefined,
     () => undefined,
   );
-  pendingFcmRegistrations.add(operation);
+  const context = suppliedContext ?? {
+    accessToken: null, clientInstanceId: null, mayReachServer: false, promise: operation,
+  };
+  context.promise = operation;
+  pendingFcmRegistrations.add(context);
   void operation.then(
-    () => pendingFcmRegistrations.delete(operation),
-    () => pendingFcmRegistrations.delete(operation),
+    () => pendingFcmRegistrations.delete(context),
+    () => pendingFcmRegistrations.delete(context),
   );
   return operation;
 }
@@ -287,8 +311,20 @@ export function capturePendingFcmOperations() {
   const pendingAtCapture = [...pendingFcmRegistrations];
   const barrier = pendingAtCapture.length === 0
     ? Promise.resolve()
-    : Promise.allSettled(pendingAtCapture).then(() => undefined);
-  return {barrier, hasPendingOperations: pendingAtCapture.length > 0};
+    : Promise.allSettled(pendingAtCapture.map((operation) => operation.promise)).then(() => undefined);
+  const settlement = barrier.then(() => {
+    const credential = [...pendingAtCapture].reverse().find(
+      (operation) => operation.mayReachServer && operation.accessToken && operation.clientInstanceId,
+    );
+    return credential?.accessToken && credential.clientInstanceId
+      ? {accessToken: credential.accessToken, clientInstanceId: credential.clientInstanceId}
+      : null;
+  });
+  return {
+    barrier,
+    settlement,
+    hasPendingOperations: pendingAtCapture.some((operation) => operation.mayReachServer),
+  };
 }
 
 async function registerFcmTokenValueInternal(
@@ -296,6 +332,7 @@ async function registerFcmTokenValueInternal(
   userId: number,
   token: string,
   generation: AuthSessionGeneration,
+  context?: PendingFcmOperation,
 ): Promise<FcmTokenRegisterResponse | null> {
   if (
     !isFcmRuntimeEnabled() ||
@@ -313,8 +350,16 @@ async function registerFcmTokenValueInternal(
   }
 
   const clientInstanceId = await getOrCreateClientInstanceId();
+  if (context) context.clientInstanceId = clientInstanceId;
   assertFcmAuthSessionCurrent(generation);
   if (await isFcmOptedOut(userId, clientInstanceId, generation)) return null;
+  const attemptSaved = await saveFcmRegistrationAttempt(
+    {userId, clientInstanceId, token: normalizedToken},
+    generation,
+  );
+  if (!attemptSaved) throw new Error('Unable to persist the FCM registration attempt.');
+  assertFcmAuthSessionCurrent(generation);
+  if (context) context.mayReachServer = true;
   const registration = await registerMyFcmToken(
     accessToken,
     {
@@ -326,9 +371,7 @@ async function registerFcmTokenValueInternal(
     generation,
   );
 
-  if (!isAuthSessionGenerationCurrent(generation)) {
-    return null;
-  }
+  assertFcmAuthSessionCurrent(generation);
 
   const saved = await saveFcmRegistration(
     {
@@ -339,6 +382,8 @@ async function registerFcmTokenValueInternal(
     },
     generation,
   );
+
+  if (saved) await clearFcmRegistrationAttempt(userId, generation);
 
   return saved ? registration : null;
 }
@@ -403,9 +448,24 @@ async function deactivateCurrentFcmTokenInternal(
   const {tokenId: storedTokenId, userId: storedUserId} = await getStoredFcmRegistration();
   assertFcmAuthSessionCurrent(generation);
   const optOut = await getFcmOptOutState(userId, generation);
-  const tokenId = storedUserId === userId ? storedTokenId : optOut?.tokenId ?? null;
+  const attempt = await getFcmRegistrationAttempt(userId, generation);
+  let tokenId = storedUserId === userId ? storedTokenId : optOut?.tokenId ?? null;
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
+
+  if (!tokenId && attempt) {
+    const recovered = await registerMyFcmToken(
+      accessToken,
+      {
+        appVersion: APP_VERSION,
+        clientInstanceId: attempt.clientInstanceId,
+        deviceType: getDeviceType(),
+        token: attempt.token,
+      },
+      generation,
+    );
+    tokenId = recovered.tokenId;
+  }
 
   if (!tokenId) {
     await clearFcmRegistration(generation);
@@ -420,12 +480,14 @@ async function deactivateCurrentFcmTokenInternal(
   try {
     await deactivateMyFcmToken(accessToken, tokenId, generation);
     await clearFcmRegistration(generation);
+    await clearFcmRegistrationAttempt(userId, generation);
     await saveFcmOptOut(userId, clientInstanceId, generation, {status: 'confirmed'});
 
     return {status: 'deactivated' as const};
   } catch (error) {
     if (error instanceof FaithLogApiError && error.detail.status === 404) {
       await clearFcmRegistration(generation);
+      await clearFcmRegistrationAttempt(userId, generation);
       await saveFcmOptOut(userId, clientInstanceId, generation, {status: 'confirmed'});
       return {status: 'deactivated' as const};
     }
@@ -438,7 +500,7 @@ async function deactivateCurrentFcmTokenInternal(
 }
 
 function assertFcmAuthSessionCurrent(generation: AuthSessionGeneration) {
-  if (!isAuthSessionGenerationCurrent(generation)) {
+  if (!isAuthSessionGenerationCurrent(generation) || !isAuthSessionRequestAllowed(generation)) {
     throw new FaithLogApiError({
       kind: 'error',
       code: 'AUTH_SESSION_CHANGED',

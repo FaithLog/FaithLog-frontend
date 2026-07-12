@@ -1,6 +1,8 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {AuthSessionGeneration} from '../api/tokenStorage';
+import type {TokenPair} from '../api/types';
 import {
+  collectRefreshTokensForLogout,
   hasRefreshLogoutHandoff,
   resetRefreshLogoutHandoffForTests,
   settleRefreshHandoffsForAuthEntry,
@@ -51,5 +53,37 @@ describe('refresh logout handoff auth-entry settlement', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not let one committed refresh discard a concurrent issued operation', async () => {
+    let finishFirst!: () => void;
+    let issueSecond!: (tokens: TokenPair) => void;
+    let rejectSecond!: (error: Error) => void;
+    const first = trackRefreshForLogout(GENERATION, async (onIssued) => {
+      onIssued({
+        accessToken: 'first-access', refreshToken: 'first-refresh',
+        accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+      });
+      await new Promise<void>((resolve) => { finishFirst = resolve; });
+      return 'first';
+    });
+    const second = trackRefreshForLogout(GENERATION, (onIssued) =>
+      new Promise<never>((_, reject) => {
+        issueSecond = onIssued;
+        rejectSecond = reject;
+      }));
+    void second.catch(() => undefined);
+    finishFirst();
+    await first;
+    first.discardAfterCommit();
+    issueSecond({
+      accessToken: 'second-access', refreshToken: 'second-refresh',
+      accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+    });
+    rejectSecond(new Error('second durable save failed'));
+
+    await expect(collectRefreshTokensForLogout(GENERATION)).resolves.toMatchObject({
+      accessToken: 'second-access', refreshToken: 'second-refresh',
+    });
   });
 });
