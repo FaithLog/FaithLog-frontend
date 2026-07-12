@@ -1,4 +1,5 @@
 import {getAuthSessionGeneration, startAuthSessionClear, type AuthSessionGeneration} from '../api/tokenStorage';
+import {trackLocalSessionCleanup} from './localCleanupBarrier';
 
 export type SessionExpirationEvent = {
   expiredGeneration: AuthSessionGeneration;
@@ -12,15 +13,15 @@ export function subscribeSessionExpiration(listener: (event: SessionExpirationEv
   return () => { listeners.delete(listener); };
 }
 
-export async function expireAuthSession(generation: AuthSessionGeneration) {
+export function expireAuthSession(generation: AuthSessionGeneration) {
   const transition = startAuthSessionClear(generation);
   const clearedGeneration = transition.currentGeneration;
   if (transition.cleared && clearedGeneration === generation + 1) {
     const event = {expiredGeneration: generation, clearedGeneration};
     listeners.forEach((listener) => listener(event));
   }
-  await transition.completion;
-  return transition.cleared && getAuthSessionGeneration() === clearedGeneration;
+  return trackLocalSessionCleanup(transition.completion.then(() =>
+    transition.cleared && getAuthSessionGeneration() === clearedGeneration));
 }
 
 export function isExpirationEventCurrent(

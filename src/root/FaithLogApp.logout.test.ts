@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const invalidatePaymentContextCache = vi.hoisted(() => vi.fn());
 
@@ -17,7 +17,6 @@ vi.mock('../admin/ServiceAdminScreen', () => ({}));
 vi.mock('../auth/authForms', () => ({}));
 vi.mock('../auth/authGate', () => ({}));
 vi.mock('../auth/session', () => ({
-  trackLocalSessionCleanup: <T>(operation: Promise<T>) => operation,
 }));
 vi.mock('../campus/campusForms', () => ({}));
 vi.mock('../components/ui', () => ({}));
@@ -44,8 +43,10 @@ vi.mock('../utils/money', () => ({}));
 
 import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
 import {StaleAuthSessionReadError} from '../api/tokenStorage';
+import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from '../auth/localCleanupBarrier';
 
 describe('logout UI transition', () => {
+  beforeEach(() => resetLocalCleanupBarrierForTests());
   it('clears payment context immediately on logout teardown', async () => {
     await beginLogoutAuthTransition(42, async () => ({
       completeRemoteLogout: async () => ({status: 'signedOut'}),
@@ -83,6 +84,23 @@ describe('logout UI transition', () => {
     void beginAccountDeletionTeardown(transition, () => never, invalidate);
     expect(invalidate).toHaveBeenCalledOnce();
     expect(transition).toHaveBeenCalledOnce();
+  });
+
+  it('registers account-deletion cleanup with the production restart barrier', async () => {
+    vi.useFakeTimers();
+    try {
+      void beginAccountDeletionTeardown(
+        vi.fn(),
+        () => new Promise<never>(() => {}),
+        vi.fn(),
+      );
+      const waiting = waitForLocalSessionCleanup(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(waiting).resolves.toBe(false);
+      await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not attach a late cleanup warning to a newly authenticated session', () => {

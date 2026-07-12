@@ -987,6 +987,57 @@ describe('FaithLog API client', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it('does not retry a 401 mutation after logout marks the generation closing', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+      success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+    })));
+    let finishStoredRead!: (value: Awaited<ReturnType<typeof getStoredAuthSession>>) => void;
+    vi.mocked(getStoredAuthSession).mockReturnValueOnce(new Promise((resolve) => {
+      finishStoredRead = resolve;
+    }));
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'old-access', method: 'PATCH', body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishStoredRead({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh',
+    });
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('does not apply a retry response that completes after logout closing', async () => {
+    const fetchMock = vi.mocked(fetch);
+    let finishRetry!: (response: Response) => void;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockReturnValueOnce(new Promise((resolve) => { finishRetry = resolve; }));
+    vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh',
+    });
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'old-access', method: 'POST', body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishRetry(jsonResponse(200, envelope({ok: true})));
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+  });
+
   it('does not persist a delayed refresh after logout or account replacement', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,

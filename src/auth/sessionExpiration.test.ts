@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const storage = vi.hoisted(() => ({
   generation: 5,
@@ -10,8 +10,13 @@ vi.mock('../api/tokenStorage', () => ({
   startAuthSessionClear: storage.startAuthSessionClear,
 }));
 import {createSessionExpirationHandler, expireAuthSession, isExpirationEventCurrent, subscribeSessionExpiration} from './sessionExpiration';
+import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
 
 describe('central session expiration lineage', () => {
+  beforeEach(() => {
+    resetLocalCleanupBarrierForTests();
+    storage.startAuthSessionClear.mockReset();
+  });
   const event = {expiredGeneration: 4 as never, clearedGeneration: 5 as never};
   it('accepts only the exact clear transition', () => {
     expect(isExpirationEventCurrent(event, 5)).toBe(true);
@@ -60,5 +65,25 @@ describe('central session expiration lineage', () => {
     await expireAuthSession(4 as never);
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
+  });
+
+  it('keeps every later login restart-gated when central expiration cleanup hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      storage.startAuthSessionClear.mockReturnValue({
+        cleared: true,
+        previousGeneration: 4,
+        currentGeneration: 5,
+        completion: new Promise<never>(() => {}),
+      });
+      void expireAuthSession(4 as never);
+
+      const first = waitForLocalSessionCleanup(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(first).resolves.toBe(false);
+      await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -210,7 +210,7 @@ export async function isAccessTokenOwnedByAuthSession(
     return currentSessionAccessTokens.has(accessToken);
   }
 
-  const stored = await getStoredAuthSession();
+  const stored = await getStoredAuthSession(generation);
   return (
     stored.generation === generation &&
     isAuthSessionGenerationCurrent(generation) &&

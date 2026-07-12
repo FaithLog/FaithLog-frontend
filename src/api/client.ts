@@ -1360,9 +1360,9 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
     throw new FaithLogApiError(createSessionExpiredError(generation));
   }
 
-  assertAuthSessionGenerationIsCurrent(generation);
+  assertAuthSessionRequestIsAllowed(generation);
   const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken, generation);
-  assertAuthSessionGenerationIsCurrent(generation);
+  assertAuthSessionRequestIsAllowed(generation);
 
   try {
     const data = await executeApiRequest<T>(path, {
@@ -1370,10 +1370,10 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
       accessToken: tokens.accessToken,
       skipAuthRefresh: true,
     });
-    assertAuthSessionGenerationIsCurrent(generation);
+    assertAuthSessionRequestIsAllowed(generation);
     return data;
   } catch (retryError) {
-    assertAuthSessionGenerationIsCurrent(generation);
+    assertAuthSessionRequestIsAllowed(generation);
     const normalizedRetryError = withAuthSessionGeneration(
       normalizeNetworkError(retryError),
       generation,
@@ -1391,7 +1391,7 @@ async function getTokensAfterSingleFlightRefresh(
   previousAccessToken: string,
   generation: AuthSessionGeneration,
 ) {
-  assertAuthSessionGenerationIsCurrent(generation);
+  assertAuthSessionRequestIsAllowed(generation);
   const storedTokens = await getStoredAuthSession(generation);
 
   if (storedTokens.generation !== generation) {
@@ -1443,12 +1443,14 @@ async function refreshAndPersistTokens(
 ) {
   try {
     const tokens = await refreshAuthToken(refreshToken, generation);
-    assertAuthSessionGenerationIsCurrent(generation);
+    assertAuthSessionRequestIsAllowed(generation);
     const saved = await saveTokens(tokens, generation);
 
     if (!saved) {
       throw new FaithLogApiError(createAuthSessionChangedError(generation));
     }
+
+    assertAuthSessionRequestIsAllowed(generation);
 
     return tokens;
   } catch (error) {
@@ -1533,8 +1535,8 @@ async function assertRequestAccessTokenIsOwned(options: RequestOptions) {
   }
 }
 
-function assertAuthSessionGenerationIsCurrent(generation: AuthSessionGeneration) {
-  if (!isAuthSessionGenerationCurrent(generation)) {
+function assertAuthSessionRequestIsAllowed(generation: AuthSessionGeneration) {
+  if (!isAuthSessionRequestAllowed(generation)) {
     throw new FaithLogApiError(createAuthSessionChangedError(generation));
   }
 }

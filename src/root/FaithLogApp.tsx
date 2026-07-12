@@ -46,6 +46,7 @@ import {
   getAuthSessionGeneration,
   getStoredAuthSession,
   getStoredTokens,
+  isAuthSessionRequestAllowed,
   markAuthSessionClosing,
   saveSelectedCampusId,
   StaleAuthSessionReadError,
@@ -70,16 +71,16 @@ import {
   validateSignupForm,
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
-import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {isAccessTokenResolutionCurrent, readCurrentAccessToken, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
   prepareCurrentSessionLogout,
-  trackLocalSessionCleanup,
   type PreparedLogout,
 } from '../auth/session';
+import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
 import {
   type CampusCreateFormValues,
   type InviteCodeFormValues,
@@ -143,7 +144,7 @@ import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
-import {isCurrentRequest, isMountedGenerationCurrent, settleIndependently} from '../utils/requestIdentity';
+import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
 
 const initialState: AuthGateState = {
@@ -226,7 +227,7 @@ export function applyAuthResultIfCurrent(
 }
 
 export async function finalizeAccountDeletionTeardown(
-  clear: () => Promise<unknown> = () => clearTokens(),
+  clear: () => Promise<unknown>,
   invalidate: () => void = invalidatePaymentContextCache,
 ) {
   try {
@@ -244,7 +245,7 @@ export async function finalizeAccountDeletionTeardown(
 
 export function beginAccountDeletionTeardown(
   transitionToPublic: () => void,
-  clear: () => Promise<unknown> = () => clearTokens(),
+  clear: () => Promise<unknown>,
   invalidate: () => void = invalidatePaymentContextCache,
 ) {
   invalidate();
@@ -354,10 +355,11 @@ export function FaithLogApp() {
       }
 
       unsubscribe = subscribeDeviceFcmTokenRefresh((token) => {
-        void getStoredAuthSession()
+        void getStoredAuthSession(generation)
           .then((session) => {
             if (
               !active ||
+              !isAuthSessionRequestAllowed(generation) ||
               !session.accessToken ||
               session.generation !== generation
             ) {
@@ -398,10 +400,11 @@ export function FaithLogApp() {
     let active = true;
 
     void initializeNativeFirebaseMessaging()
-      .then(() => getStoredAuthSession())
+      .then(() => getStoredAuthSession(generation))
       .then((session) => {
         if (
           !active ||
+          !isAuthSessionRequestAllowed(generation) ||
           !session.accessToken ||
           session.generation !== generation
         ) {
@@ -2626,12 +2629,10 @@ function UserHomeDashboard({
     setChargeState({status: 'loading'});
     setPrayerState({status: 'loading'});
     try {
-      const {accessToken} = await getStoredTokens();
+      const {accessToken} = await getStoredTokens(requestGeneration);
 
       if (!accessToken) {
-        if (!isMountedGenerationCurrent(
-          homeMounted.current, requestGeneration, getAuthSessionGeneration(),
-        )) return;
+        if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration)) return;
         const error: ApiError = {
           kind: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
@@ -2649,13 +2650,13 @@ function UserHomeDashboard({
         setter: (value: CardState<T>) => void,
       ) => {
         if (result.status === 'fulfilled') {
-          if (!isMountedGenerationCurrent(homeMounted.current, requestGeneration, getAuthSessionGeneration()) ||
+          if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration) ||
               !isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
           setter({status: 'success', data: result.value});
           return;
         }
         const error = toApiError(result.reason, getHomeCardFallbackMessage(key));
-        if (!homeMounted.current || !shouldHandleRequestError(
+        if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration) || !shouldHandleRequestError(
           error, requestGeneration, getAuthSessionGeneration(),
         )) return;
         if (error.kind === 'sessionExpired') {
@@ -2674,7 +2675,7 @@ function UserHomeDashboard({
       ]);
     } catch (error) {
       const apiError = toApiError(error, '홈 요약을 불러오지 못했습니다.');
-      if (!homeMounted.current || !shouldHandleRequestError(
+      if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration) || !shouldHandleRequestError(
         apiError, requestGeneration, getAuthSessionGeneration(),
       )) return;
       if (apiError.kind === 'sessionExpired') {
@@ -3362,9 +3363,11 @@ function NotificationSettingsDetail({
       return;
     }
 
+    const requestGeneration = getAuthSessionGeneration();
     setState({status: 'registering'});
     try {
-      const session = await getStoredAuthSession();
+      const session = await readCurrentAccessToken();
+      if (!isAccessTokenResolutionCurrent(session)) return;
 
       if (!session.accessToken) {
         setAuthState({
@@ -3381,6 +3384,7 @@ function NotificationSettingsDetail({
       );
       setState(result);
     } catch (error) {
+      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
       const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
@@ -3395,9 +3399,11 @@ function NotificationSettingsDetail({
       return;
     }
 
+    const requestGeneration = getAuthSessionGeneration();
     setState({status: 'deactivating'});
     try {
-      const session = await getStoredAuthSession();
+      const session = await readCurrentAccessToken();
+      if (!isAccessTokenResolutionCurrent(session)) return;
 
       if (!session.accessToken) {
         setAuthState({
@@ -3414,6 +3420,7 @@ function NotificationSettingsDetail({
       );
       await inspect();
     } catch (error) {
+      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
@@ -3825,18 +3832,20 @@ function AccountDeletionScreen({
       return;
     }
 
+    const deletionGeneration = getAuthSessionGeneration();
     let shouldResetBusy = true;
     setBusy(true);
     setError(null);
     try {
       const accessToken = await resolveCurrentAccessToken((generation) => {
-        invalidatePaymentContextCache();
         shouldResetBusy = false;
-        setAuthState({
-          status: 'sessionExpired',
-          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-        });
-        void finalizeAccountDeletionTeardown(() => clearTokens(generation), () => {});
+        void beginAccountDeletionTeardown(
+          () => setAuthState({
+            status: 'sessionExpired',
+            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          }),
+          () => clearTokens(generation),
+        );
       });
 
       if (!accessToken) {
@@ -3847,10 +3856,12 @@ function AccountDeletionScreen({
         password,
         confirmText,
       });
+      if (!isAuthSessionRequestAllowed(deletionGeneration)) return;
       setConfirmVisible(false);
       shouldResetBusy = false;
       void beginAccountDeletionTeardown(
         () => setAuthState({status: 'signedOut'}),
+        () => clearTokens(deletionGeneration),
       )
         .then((cleanupWarning) => {
           if (!cleanupWarning) return;
@@ -3862,12 +3873,15 @@ function AccountDeletionScreen({
       const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
 
       if (apiError.kind === 'sessionExpired') {
-        invalidatePaymentContextCache();
+        if (!shouldHandleRequestError(
+          apiError, deletionGeneration, getAuthSessionGeneration(),
+        )) return;
         setConfirmVisible(false);
         shouldResetBusy = false;
-        setAuthState({status: 'sessionExpired', message: apiError.message});
-        void finalizeAccountDeletionTeardown(
-          () => clearTokens(apiError.authSessionGeneration), () => {},
+        const generation = apiError.authSessionGeneration ?? getAuthSessionGeneration();
+        void beginAccountDeletionTeardown(
+          () => setAuthState({status: 'sessionExpired', message: apiError.message}),
+          () => clearTokens(generation),
         );
         return;
       }

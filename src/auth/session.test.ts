@@ -61,6 +61,7 @@ import {
 import type {CurrentUser, LoginResponse} from '../api/types';
 import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
+import {resetLocalCleanupBarrierForTests} from './localCleanupBarrier';
 import {
   loginAndEstablishSession,
   logoutCurrentSession,
@@ -89,6 +90,7 @@ const LOGIN_RESPONSE: LoginResponse = {
 
 describe('auth session lifecycle', () => {
   beforeEach(() => {
+    resetLocalCleanupBarrierForTests();
     vi.clearAllMocks();
     vi.mocked(beginAuthSession).mockResolvedValue(AUTH_GENERATION);
     vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
@@ -150,6 +152,40 @@ describe('auth session lifecycle', () => {
       await vi.advanceTimersByTimeAsync(5_000);
       await rejected;
       expect(loginUser).not.toHaveBeenCalled();
+
+      await expect(loginAndEstablishSession({
+        email: 'user@example.test', password: 'password',
+      })).rejects.toThrow('앱을 완전히 종료');
+      expect(loginUser).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a late remote logout before allowing the next login', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishRegistration!: () => void;
+      vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValue(
+        new Promise<void>((resolve) => { finishRegistration = resolve; }),
+      );
+
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      const remoteLogout = prepared.completeRemoteLogout();
+      const nextLogin = loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+      expect(logoutUser).not.toHaveBeenCalled();
+
+      finishRegistration();
+      await expect(remoteLogout).resolves.toEqual({
+        status: 'signedOutWithRemoteWarning',
+        message: '원격 로그아웃 정리가 지연되어 앱 재시작 후 다시 확인해야 합니다.',
+      });
+      expect(logoutUser).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

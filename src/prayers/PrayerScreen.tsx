@@ -24,6 +24,7 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
 import {
   Body,
   Button,
@@ -1045,9 +1046,9 @@ function normalizePrayerContent(content: string) {
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  return resolveCurrentAccessToken(async (generation) => {
-    await clearTokens(generation);
+  return resolveCurrentAccessToken((generation) => {
     setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
+    void trackLocalSessionCleanup(clearTokens(generation));
   });
 }
 

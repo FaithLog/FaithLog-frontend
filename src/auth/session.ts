@@ -28,6 +28,8 @@ import type {
 } from '../api/types';
 import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
+import {trackLocalSessionCleanup, waitForLocalSessionCleanup} from './localCleanupBarrier';
+export {trackLocalSessionCleanup} from './localCleanupBarrier';
 
 export type AuthenticatedSession = {
   status: 'authenticated';
@@ -48,8 +50,10 @@ export type PreparedLogout = {
   completeRemoteLogout: () => Promise<LogoutResult>;
 };
 
-let remoteLogoutInFlight: Promise<LogoutResult> | null = null;
-let logoutPreparationInFlight: Promise<void> | null = null;
+let remoteLogoutInFlight: {
+  cancel: () => void;
+  promise: Promise<LogoutResult>;
+} | null = null;
 const LOGOUT_PREPARATION_TIMEOUT_MS = 5_000;
 
 export async function loginAndEstablishSession(credentials: LoginRequest): Promise<SessionResolution> {
@@ -103,19 +107,7 @@ export function prepareCurrentSessionLogout(
   userId?: number,
 ): Promise<PreparedLogout> {
   const operation = prepareCurrentSessionLogoutInternal(userId);
-  const barrier = operation.then(() => undefined, () => undefined).finally(() => {
-    if (logoutPreparationInFlight === barrier) logoutPreparationInFlight = null;
-  });
-  logoutPreparationInFlight = barrier;
-  return operation;
-}
-
-export function trackLocalSessionCleanup<T>(operation: Promise<T>) {
-  const barrier = operation.then(() => undefined, () => undefined).finally(() => {
-    if (logoutPreparationInFlight === barrier) logoutPreparationInFlight = null;
-  });
-  logoutPreparationInFlight = barrier;
-  return operation;
+  return trackLocalSessionCleanup(operation);
 }
 
 async function prepareCurrentSessionLogoutInternal(
@@ -169,12 +161,13 @@ async function prepareCurrentSessionLogoutInternal(
     }
   }
 
-  const remoteLogout = trackRemoteLogout(
+  const remoteLogout = trackRemoteLogout((isCancelled) =>
     completeRemoteLogout(
       authSession,
       fcmPayload,
       fcmRegistrationBarrier,
       preparationWarning,
+      isCancelled,
     ),
   );
 
@@ -188,8 +181,15 @@ async function completeRemoteLogout(
   fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>,
   fcmRegistrationBarrier: Promise<void>,
   preparationWarning: string | null,
+  isCancelled: () => boolean,
 ): Promise<LogoutResult> {
   await fcmRegistrationBarrier;
+  if (isCancelled()) {
+    return {
+      status: 'signedOutWithRemoteWarning',
+      message: '원격 로그아웃 정리가 지연되어 앱 재시작 후 다시 확인해야 합니다.',
+    };
+  }
   const {accessToken, refreshToken} = authSession;
   let remoteWarning = preparationWarning;
 
@@ -211,25 +211,31 @@ async function completeRemoteLogout(
   return {status: 'signedOut'};
 }
 
-function trackRemoteLogout(operation: Promise<LogoutResult>) {
-  const tracked = operation.finally(() => {
-    if (remoteLogoutInFlight === tracked) {
+function trackRemoteLogout(
+  createOperation: (isCancelled: () => boolean) => Promise<LogoutResult>,
+) {
+  let cancelled = false;
+  const flight = {
+    cancel: () => { cancelled = true; },
+    promise: Promise.resolve({status: 'signedOut'} as LogoutResult),
+  };
+  const tracked = createOperation(() => cancelled).finally(() => {
+    if (remoteLogoutInFlight === flight) {
       remoteLogoutInFlight = null;
     }
   });
-  remoteLogoutInFlight = tracked;
+  flight.promise = tracked;
+  remoteLogoutInFlight = flight;
   return tracked;
 }
 
 async function waitForPendingRemoteLogout() {
-  const preparation = logoutPreparationInFlight;
-  if (preparation) {
-    try {
-      await waitForLogoutBarrier(preparation);
-    } catch (error) {
-      if (logoutPreparationInFlight === preparation) logoutPreparationInFlight = null;
-      throw error;
-    }
+  if (!(await waitForLocalSessionCleanup(LOGOUT_PREPARATION_TIMEOUT_MS))) {
+    throw new FaithLogApiError({
+      kind: 'conflict',
+      code: 'LOGOUT_CLEANUP_PENDING',
+      message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+    });
   }
   const pending = remoteLogoutInFlight;
 
@@ -238,8 +244,9 @@ async function waitForPendingRemoteLogout() {
   }
 
   try {
-    await waitForLogoutBarrier(pending);
+    await waitForLogoutBarrier(pending.promise);
   } catch {
+    pending.cancel();
     if (remoteLogoutInFlight === pending) remoteLogoutInFlight = null;
     // A failed best-effort remote logout must not permanently block a new login.
   }
