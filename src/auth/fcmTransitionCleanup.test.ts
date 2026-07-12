@@ -106,6 +106,20 @@ describe('shared FCM auth-transition cleanup', () => {
     expect(state.obligations).toBeNull();
   });
 
+  it('joins an obligation-free context without creating an empty durable gate', async () => {
+    capturePendingFcmOperations.mockReturnValueOnce({
+      barrier: Promise.resolve(),
+      obligations: [],
+      settlement: Promise.resolve([]),
+      hasPendingOperations: false,
+      hasPendingContexts: true,
+    });
+    await beginFcmTransitionCleanup(7);
+    expect(compensateCapturedFcmOperations).not.toHaveBeenCalled();
+    expect(state.obligations).toBeNull();
+    await expect(waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+  });
+
   it.each(['timeout', 'server-500'] as const)(
     'keeps a durable restart gate across module-memory reset after %s',
     async (failure) => {

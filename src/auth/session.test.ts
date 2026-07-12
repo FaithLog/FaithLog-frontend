@@ -20,17 +20,22 @@ vi.mock('../api/client', () => ({
 vi.mock('../api/tokenStorage', () => ({
   beginAuthSession: vi.fn(),
   clearTokens: vi.fn(),
+  clearAuthTeardownPending: vi.fn(async () => undefined),
   clearFcmRemoteCleanupObligations: vi.fn(async () => undefined),
   clearFcmRegistrationAttemptsForClientInstance: vi.fn(),
   getAuthSessionGeneration: vi.fn(),
+  hasAuthTeardownPending: vi.fn(async () => false),
+  hasFcmRemoteCleanupPending: vi.fn(async () => false),
   getStoredAuthSession: vi.fn(),
   getStoredClientInstanceId: vi.fn(),
   getStoredSelectedCampusId: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   isAuthSessionRequestAllowed: vi.fn(),
   markAuthSessionClosing: vi.fn(),
+  markAuthTeardownPending: vi.fn(async () => undefined),
   markFcmRemoteCleanupPending: vi.fn(async () => undefined),
   replaceFcmRemoteCleanupObligations: vi.fn(async () => undefined),
+  materializeStoredSessionLogoutObligation: vi.fn(async () => null),
   rotateClientInstanceId: vi.fn(),
   saveSelectedCampusId: vi.fn(),
   saveTokens: vi.fn(),
@@ -251,7 +256,7 @@ describe('auth session lifecycle', () => {
     const first = prepareCurrentSessionLogout(CURRENT_USER.id);
     const second = prepareCurrentSessionLogout(CURRENT_USER.id);
     expect(first).toBe(second);
-    expect(getStoredAuthSession).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(getStoredAuthSession).toHaveBeenCalledOnce());
     finishRead({
       generation: AUTH_GENERATION,
       accessToken: LOGIN_RESPONSE.accessToken,
@@ -452,6 +457,41 @@ describe('auth session lifecycle', () => {
       await expect(remoteLogout).resolves.toEqual({status: 'signedOut'});
       await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
       expect(logoutUser).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels an obligation-free pre-network context without a restart latch', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishBarrier!: () => void;
+      const barrier = new Promise<void>((resolve) => { finishBarrier = resolve; });
+      vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+        barrier,
+        settlement: barrier.then(() => []),
+        obligations: [],
+        hasPendingOperations: false,
+        hasPendingContexts: true,
+        hasServerObligations: () => false,
+      });
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      const remote = prepared.completeRemoteLogout();
+      const nextLogin = loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      });
+      const firstRejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(21_000);
+      await firstRejected;
+      expect(logoutUser).not.toHaveBeenCalled();
+
+      await expect(loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      })).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+
+      finishBarrier();
+      await expect(remote).resolves.toMatchObject({status: 'signedOutWithRemoteWarning'});
+      expect(logoutUser).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

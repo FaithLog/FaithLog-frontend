@@ -3900,13 +3900,7 @@ function AccountDeletionScreen({
       shouldResetBusy = false;
       void beginAccountDeletionTeardown(
         () => setAuthState({status: 'signedOut'}),
-        async () => {
-          const [cleared] = await Promise.all([
-            clearTokens(deletionGeneration),
-            deletion.cleanup,
-          ]);
-          return cleared;
-        },
+        () => clearTokens(deletionGeneration),
         invalidatePaymentContextCache,
         async () => undefined,
         deletionGeneration,

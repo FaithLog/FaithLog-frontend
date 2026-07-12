@@ -55,6 +55,7 @@ type PendingFcmOperation = {
   accessToken: string | undefined;
   refreshToken: string | null | undefined;
   capturedForCleanup: boolean;
+  serverBoundaryCrossed: boolean;
   privacyIntent?: Promise<void>;
   obligations: Set<FcmRemoteCleanupObligation>;
   promise: Promise<unknown>;
@@ -95,19 +96,27 @@ export function beginAccountDeletionFcmPreflight(generation: AuthSessionGenerati
   const persisted = initialObligations.length > 0
     ? markFcmRemoteCleanupPending(initialObligations)
     : Promise.resolve();
+  const claimedReceipts = (async () => {
+    await Promise.all([persisted, captured.barrier]);
+    const settled = await captured.settlement;
+    return [
+      ...initialObligations,
+      ...settled,
+    ];
+  })();
   return {
-    wait: () => Promise.all([persisted, captured.barrier]).then(() => undefined),
+    join: () => claimedReceipts.then(() => undefined),
+    clearForDelete: async () => {
+      await clearFcmRemoteCleanupObligations(await claimedReceipts);
+    },
+    restore: async () => {
+      const receipts = await claimedReceipts;
+      if (receipts.length > 0) await markFcmRemoteCleanupPending(receipts);
+    },
     release: () => {
       if (frozenFcmGenerations.get(generation) === epoch) {
         frozenFcmGenerations.delete(generation);
       }
-    },
-    completeAfterCascade: async () => {
-      const settled = await captured.settlement;
-      await clearFcmRemoteCleanupObligations([
-        ...(captured.obligations ?? []),
-        ...settled,
-      ]);
     },
   };
 }
@@ -116,42 +125,29 @@ export async function runAccountDeletionWithFcmPreflight<T>(
   generation: AuthSessionGeneration,
   resolveLatestAccessToken: () => Promise<string | null>,
   deleteAccount: (accessToken: string) => Promise<T>,
-): Promise<
-  {status: 'completed'; value: T; cleanup: Promise<void>} | {status: 'cancelled'}
-> {
+): Promise<{status: 'completed'; value: T} | {status: 'cancelled'}> {
   const preflight = beginAccountDeletionFcmPreflight(generation);
   let completed = false;
+  let receiptsCleared = false;
   try {
-    await preflight.wait();
+    await preflight.join();
     const accessToken = await resolveLatestAccessToken();
     if (!accessToken || !isAuthSessionRequestAllowed(generation)) {
       return {status: 'cancelled'};
     }
-    let value: T;
-    try {
-      value = await deleteAccount(accessToken);
-    } catch (error) {
-      if (!isAccountDeletionAuthTeardownError(error)) {
-        // The account either remains active or the DELETE outcome is unknown.
-        // In both cases the already-settled FCM operation is not teardown debt:
-        // it is desired state if the account remains, and backend cascade owns
-        // it if deletion actually committed.
-        await preflight.completeAfterCascade();
-      }
-      throw error;
+    await preflight.clearForDelete();
+    receiptsCleared = true;
+    if (!isAuthSessionRequestAllowed(generation)) {
+      await preflight.restore();
+      receiptsCleared = false;
+      return {status: 'cancelled'};
     }
+    const value = await deleteAccount(accessToken);
     completed = true;
-    const cleanup = preflight.completeAfterCascade();
-    return {status: 'completed', value, cleanup};
+    return {status: 'completed', value};
   } finally {
-    if (!completed) preflight.release();
+    if (!completed && receiptsCleared) preflight.release();
   }
-}
-
-function isAccountDeletionAuthTeardownError(error: unknown) {
-  return error instanceof FaithLogApiError && (
-    error.detail.kind === 'sessionExpired' || error.detail.code === 'AUTH_SESSION_CHANGED'
-  );
 }
 
 export type FcmRegistrationStatus =
@@ -251,9 +247,7 @@ export async function inspectFcmRegistrationStatus(
   }
   assertFcmAuthSessionCurrent(generation);
   if (stored.tokenId && stored.userId === userId) {
-    const hasUncertainDelete = stored.token && unresolvedAttempts.some((attempt) =>
-      attempt.clientInstanceId === clientInstanceId && attempt.token === stored.token);
-    if (stored.clientInstanceId === clientInstanceId && !hasUncertainDelete) {
+    if (stored.clientInstanceId === clientInstanceId && unresolvedAttempts.length === 0) {
       return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
     }
   }
@@ -336,6 +330,16 @@ async function registerCurrentFcmTokenInternal(
     assertFcmOperationCurrent(userId, generation, intent);
   }
 
+  const unresolvedAttempts = await getFcmRegistrationAttempts(userId, generation);
+  assertFcmOperationCurrent(userId, generation, intent);
+  if (unresolvedAttempts.length > 0) {
+    await loadCleanupRefreshToken(context);
+    await reconcileFcmRegistrationAttempts(
+      accessToken, userId, generation, context, unresolvedAttempts,
+    );
+    assertFcmOperationCurrent(userId, generation, intent);
+  }
+
   const permission = await requestNotificationPermission();
   assertFcmIntentCurrent(userId, intent);
 
@@ -343,7 +347,7 @@ async function registerCurrentFcmTokenInternal(
     return {status: 'permissionDenied', permission};
   }
 
-  const stored = await getStoredFcmRegistration();
+  let stored = await getStoredFcmRegistration();
   const deviceTokenResult = await loadDeviceFcmToken(permission);
   assertFcmAuthSessionCurrent(generation);
   assertFcmIntentCurrent(userId, intent);
@@ -356,6 +360,8 @@ async function registerCurrentFcmTokenInternal(
     };
   }
 
+  if (unresolvedAttempts.length > 0) stored = await getStoredFcmRegistration();
+
   if (
     stored.userId === userId &&
     stored.tokenId &&
@@ -363,14 +369,9 @@ async function registerCurrentFcmTokenInternal(
   ) {
     const clientInstanceId = await getOrCreateClientInstanceId();
     assertFcmAuthSessionCurrent(generation);
-    const unresolvedAttempts = await getFcmRegistrationAttempts(userId, generation);
-    assertFcmAuthSessionCurrent(generation);
-
     if (
       stored.clientInstanceId === clientInstanceId &&
-      !unresolvedAttempts.some((attempt) =>
-        attempt.clientInstanceId === clientInstanceId &&
-        attempt.token === deviceTokenResult.token)
+      unresolvedAttempts.length === 0
     ) {
       return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
     }
@@ -467,6 +468,7 @@ export function registerFcmTokenValue(
     accessToken,
     refreshToken: undefined,
     capturedForCleanup: false,
+    serverBoundaryCrossed: false,
     obligations: new Set(),
     promise: Promise.resolve(),
   };
@@ -500,6 +502,8 @@ export function capturePendingFcmOperations(expectedGeneration?: number): {
   settlement: Promise<FcmRemoteCleanupObligation[]>;
   obligations?: FcmRemoteCleanupObligation[];
   hasPendingOperations: boolean;
+  hasPendingContexts?: boolean;
+  hasServerObligations?: () => boolean;
 } {
   const pendingAtCapture = [...pendingFcmRegistrations].filter((operation) =>
     expectedGeneration === undefined || operation.generation === expectedGeneration);
@@ -518,7 +522,10 @@ export function capturePendingFcmOperations(expectedGeneration?: number): {
     barrier,
     settlement,
     obligations,
-    hasPendingOperations: pendingAtCapture.length > 0,
+    hasPendingOperations: obligations.length > 0,
+    hasPendingContexts: pendingAtCapture.length > 0,
+    hasServerObligations: () => pendingAtCapture.some((operation) =>
+      operation.serverBoundaryCrossed),
   };
 }
 
@@ -548,6 +555,19 @@ async function registerFcmTokenValueInternal(
   assertFcmAuthSessionCurrent(generation);
   if (await isFcmOptedOut(userId, clientInstanceId, generation)) return null;
   assertFcmAuthSessionCurrent(generation);
+  const unresolvedAttempts = await getFcmRegistrationAttempts(userId, generation);
+  assertFcmAuthSessionCurrent(generation);
+  if (unresolvedAttempts.length > 0) {
+    if (context) {
+      await loadCleanupRefreshToken(context);
+      await reconcileFcmRegistrationAttempts(
+        accessToken, userId, generation, context, unresolvedAttempts,
+      );
+    } else {
+      return null;
+    }
+    assertFcmAuthSessionCurrent(generation);
+  }
   const attempt = {userId, clientInstanceId, token: normalizedToken};
   const attemptSaved = await saveFcmRegistrationAttempt(
     attempt,
@@ -726,58 +746,10 @@ async function deactivateCurrentFcmTokenInternal(
   await loadCleanupRefreshToken(context);
   assertFcmOperationCurrent(userId, generation, intent);
 
-  for (const attempt of attempts) {
-    assertFcmOperationCurrent(userId, generation, intent);
-    const registrationObligation = addFcmObligation(context, {
-      accessToken: context.accessToken ?? accessToken,
-      userId,
-      clientInstanceId: attempt.clientInstanceId,
-      kind: 'registration',
-      token: attempt.token,
-      tokenId: null,
-    });
-    await persistFcmObligationBeforeSend(context, registrationObligation);
-    const recovered = await registerMyFcmToken(
-      context.accessToken ?? accessToken,
-      {
-        appVersion: APP_VERSION,
-        clientInstanceId: attempt.clientInstanceId,
-        deviceType: getDeviceType(),
-        token: attempt.token,
-      },
-      generation,
-      (tokens) => updateFcmOperationCredentials(context, tokens),
+  if (attempts.length > 0) {
+    await reconcileFcmRegistrationAttempts(
+      accessToken, userId, generation, context, attempts,
     );
-    registrationObligation.state = 'registered';
-    registrationObligation.tokenId = recovered.tokenId;
-    if (context.capturedForCleanup) {
-      await markFcmRemoteCleanupPending([registrationObligation]);
-    }
-    // Once recovery POST reached the server its exact DELETE is compensation,
-    // not a user-intent action. Finish it before observing a newer Enable and
-    // before starting the next recovery attempt.
-    const deactivationObligation = addFcmObligation(context, {
-      accessToken: context.accessToken ?? accessToken,
-      userId,
-      clientInstanceId: attempt.clientInstanceId,
-      kind: 'deactivation',
-      token: null,
-      tokenId: recovered.tokenId,
-    });
-    await persistFcmObligationBeforeSend(context, deactivationObligation);
-    try {
-      await deactivateMyFcmToken(
-        context.accessToken ?? accessToken,
-        recovered.tokenId,
-        generation,
-        (tokens) => updateFcmOperationCredentials(context, tokens),
-      );
-    } catch (error) {
-      if (!(error instanceof FaithLogApiError && error.detail.status === 404)) throw error;
-    }
-    registrationObligation.state = 'cleaned';
-    deactivationObligation.state = 'cleaned';
-    await clearFcmRegistrationAttempt(attempt, generation);
     performedCleanup = true;
   }
 
@@ -882,6 +854,7 @@ function createPendingFcmOperation(
     accessToken: undefined,
     refreshToken: undefined,
     capturedForCleanup: false,
+    serverBoundaryCrossed: false,
     obligations: new Set(),
     promise: Promise.resolve(),
   };
@@ -893,6 +866,76 @@ async function loadCleanupRefreshToken(context: PendingFcmOperation) {
   assertFcmAuthSessionCurrent(context.generation);
   context.refreshToken = session.refreshToken;
   return context.refreshToken;
+}
+
+async function reconcileFcmRegistrationAttempts(
+  accessToken: string,
+  userId: number,
+  generation: AuthSessionGeneration,
+  context: PendingFcmOperation,
+  attempts: Awaited<ReturnType<typeof getFcmRegistrationAttempts>>,
+) {
+  for (const attempt of attempts) {
+    // Reconciliation is privacy debt, not the current Enable/Disable intent.
+    // Once started, each recovery POST is followed by its exact DELETE and
+    // local repair before another user intent can take effect.
+    assertFcmAuthSessionCurrent(generation);
+    const registrationObligation = addFcmObligation(context, {
+      accessToken: context.accessToken ?? accessToken,
+      userId,
+      clientInstanceId: attempt.clientInstanceId,
+      kind: 'registration',
+      token: attempt.token,
+      tokenId: null,
+    });
+    await persistFcmObligationBeforeSend(context, registrationObligation);
+    const recovered = await registerMyFcmToken(
+      context.accessToken ?? accessToken,
+      {
+        appVersion: APP_VERSION,
+        clientInstanceId: attempt.clientInstanceId,
+        deviceType: getDeviceType(),
+        token: attempt.token,
+      },
+      generation,
+      (tokens) => updateFcmOperationCredentials(context, tokens),
+    );
+    registrationObligation.state = 'registered';
+    registrationObligation.tokenId = recovered.tokenId;
+    if (context.capturedForCleanup) {
+      await markFcmRemoteCleanupPending([registrationObligation]);
+    }
+    const deactivationObligation = addFcmObligation(context, {
+      accessToken: context.accessToken ?? accessToken,
+      userId,
+      clientInstanceId: attempt.clientInstanceId,
+      kind: 'deactivation',
+      token: null,
+      tokenId: recovered.tokenId,
+    });
+    await persistFcmObligationBeforeSend(context, deactivationObligation);
+    try {
+      await deactivateMyFcmToken(
+        context.accessToken ?? accessToken,
+        recovered.tokenId,
+        generation,
+        (tokens) => updateFcmOperationCredentials(context, tokens),
+      );
+    } catch (error) {
+      if (!(error instanceof FaithLogApiError && error.detail.status === 404)) throw error;
+    }
+    registrationObligation.state = 'cleaned';
+    deactivationObligation.state = 'cleaned';
+
+    const stored = await getStoredFcmRegistration();
+    if (
+      stored.tokenId === recovered.tokenId ||
+      (stored.clientInstanceId === attempt.clientInstanceId && stored.token === attempt.token)
+    ) {
+      await clearFcmRegistration(generation);
+    }
+    await clearFcmRegistrationAttempt(attempt, generation);
+  }
 }
 
 function addFcmObligation(
@@ -916,6 +959,7 @@ async function persistFcmObligationBeforeSend(
   if (context.capturedForCleanup) {
     await markFcmRemoteCleanupPending([obligation]);
   }
+  context.serverBoundaryCrossed = true;
 }
 
 async function updateFcmOperationCredentials(

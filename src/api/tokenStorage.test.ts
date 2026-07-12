@@ -491,6 +491,21 @@ describe('native auth token storage', () => {
     await expect(restartedStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([obligation]);
   });
 
+  it('does not create an empty durable cleanup gate', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    await tokenStorage.markFcmRemoteCleanupPending([]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+  });
+
+  it('self-clears a legacy empty cleanup record instead of treating it as debt', async () => {
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1, obligations: [],
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+    expect(testState.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+  });
+
   it('clears only completed cleanup identities and preserves concurrent obligations', async () => {
     const tokenStorage = await import('./tokenStorage');
     const first = {

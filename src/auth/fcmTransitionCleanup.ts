@@ -12,6 +12,7 @@ type CleanupCapture = {
   barrier: Promise<void>;
   settlement: Promise<FcmRemoteCleanupObligation[]>;
   hasPendingOperations: boolean;
+  hasPendingContexts?: boolean;
   obligations?: FcmRemoteCleanupObligation[];
 };
 let captureCleanup = (_generation?: number): CleanupCapture => ({
@@ -36,13 +37,21 @@ export function beginFcmTransitionCleanup(generation?: number) {
   const existing = cleanupByGeneration.get(key);
   if (existing) return existing;
   const captured = captureCleanup(generation);
-  if (!captured.hasPendingOperations) return Promise.resolve();
+  if (!(captured.hasPendingContexts ?? captured.hasPendingOperations)) return Promise.resolve();
   const initialObligations = [...(captured.obligations ?? [])];
   const operation = (async () => {
-    await markFcmRemoteCleanupPending(initialObligations);
+    if (initialObligations.length > 0) {
+      await markFcmRemoteCleanupPending(initialObligations);
+    }
     await captured.barrier;
     const obligations = await captured.settlement;
-    await markFcmRemoteCleanupPending(obligations);
+    if (obligations.length > 0) {
+      await markFcmRemoteCleanupPending(obligations);
+    }
+    if (obligations.length === 0) {
+      await clearFcmRemoteCleanupObligations(initialObligations);
+      return;
+    }
     const processed = await compensateCleanup(obligations);
     await clearFcmRemoteCleanupObligations([
       ...initialObligations,

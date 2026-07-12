@@ -1,9 +1,13 @@
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
 import {
   clearTokens,
+  clearAuthTeardownPending,
   getAuthSessionGeneration,
   getStoredAuthSession,
+  hasAuthTeardownPending,
   hasFcmRemoteCleanupPending,
+  markAuthTeardownPending,
+  materializeStoredSessionLogoutObligation,
   startAuthSessionClear,
 } from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
@@ -66,13 +70,18 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
 
   let hadDurableTeardown = false;
   try {
-    hadDurableTeardown = await hasFcmRemoteCleanupPending();
-    const authClear = hadDurableTeardown
-      ? startAuthSessionClear(getAuthSessionGeneration())
-      : null;
-    if (authClear) {
+    const [authTeardownPending, fcmCleanupPending] = await Promise.all([
+      hasAuthTeardownPending(), hasFcmRemoteCleanupPending(),
+    ]);
+    hadDurableTeardown = authTeardownPending || fcmCleanupPending;
+    if (hadDurableTeardown) {
       try {
-        await authClear.completion;
+        const generation = getAuthSessionGeneration();
+        if (!authTeardownPending) await markAuthTeardownPending();
+        await materializeStoredSessionLogoutObligation(generation);
+        const transition = startAuthSessionClear(generation);
+        if (!transition.cleared) throw new Error('Authentication teardown changed.');
+        await transition.completion;
       } catch {
         return {
           status: 'signedOut',
@@ -83,7 +92,8 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
     const cleanupComplete = await waitForFcmTransitionCleanup(
       BOOTSTRAP_REMOTE_CLEANUP_TIMEOUT_MS,
     );
-    if (authClear) {
+    if (hadDurableTeardown) {
+      if (cleanupComplete) await clearAuthTeardownPending();
       return cleanupComplete
         ? {
             status: 'signedOut',

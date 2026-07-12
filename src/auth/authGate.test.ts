@@ -26,9 +26,13 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../api/tokenStorage', () => ({
   clearTokens: vi.fn(),
+  clearAuthTeardownPending: vi.fn(async () => undefined),
   getAuthSessionGeneration: vi.fn(() => 17),
   getStoredAuthSession: vi.fn(),
+  hasAuthTeardownPending: vi.fn(async () => false),
   hasFcmRemoteCleanupPending: vi.fn(async () => false),
+  markAuthTeardownPending: vi.fn(async () => undefined),
+  materializeStoredSessionLogoutObligation: vi.fn(async () => null),
   startAuthSessionClear: vi.fn(),
 }));
 

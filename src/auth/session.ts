@@ -10,20 +10,26 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  clearAuthTeardownPending,
   clearFcmRemoteCleanupObligations,
   clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
+  hasAuthTeardownPending,
+  hasFcmRemoteCleanupPending,
   getStoredSelectedCampusId,
   getStoredAuthSession,
   getStoredClientInstanceId,
   isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   markAuthSessionClosing,
+  markAuthTeardownPending,
   markFcmRemoteCleanupPending,
   replaceFcmRemoteCleanupObligations,
+  materializeStoredSessionLogoutObligation,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
+  startAuthSessionClear,
   StaleAuthSessionReadError,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
@@ -178,8 +184,11 @@ async function prepareCurrentSessionLogoutInternal(
   if (!markAuthSessionClosing(expectedGeneration)) {
     throw new StaleAuthSessionReadError(expectedGeneration);
   }
+  await markAuthTeardownPending();
   const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
   const fcmOperations = capturePendingFcmOperations(expectedGeneration);
+  const hasServerFcmObligations = fcmOperations.hasServerObligations ??
+    (() => fcmOperations.hasPendingOperations);
   const initialFcmObligations = [...(fcmOperations.obligations ?? [])];
   if (initialFcmObligations.length > 0) {
     await markFcmRemoteCleanupPending(initialFcmObligations);
@@ -259,7 +268,7 @@ async function prepareCurrentSessionLogoutInternal(
       fcmPayload,
       fcmOperations.barrier,
       fcmOperations.settlement,
-      fcmOperations.hasPendingOperations,
+      hasServerFcmObligations,
       initialFcmObligations,
       sessionLogoutObligations,
       preparationWarning,
@@ -268,7 +277,7 @@ async function prepareCurrentSessionLogoutInternal(
     ), [
       ...initialFcmObligations,
       ...sessionLogoutObligations,
-    ],
+    ], hasServerFcmObligations,
   );
 
   return {
@@ -281,16 +290,19 @@ async function completeRemoteLogout(
   fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>,
   fcmRegistrationBarrier: Promise<void>,
   fcmOperationSettlement: Promise<FcmRemoteCleanupObligation[]>,
-  fcmOperationsMayHaveReachedServer: boolean,
+  hasServerFcmObligations: () => boolean,
   initialFcmObligations: FcmRemoteCleanupObligation[],
   sessionLogoutObligations: FcmRemoteCleanupObligation[],
   preparationWarning: string | null,
   isCancelled: () => boolean,
   markSent: () => void,
 ): Promise<LogoutResult> {
-  if (fcmOperationsMayHaveReachedServer) markSent();
+  if (hasServerFcmObligations()) markSent();
   await fcmRegistrationBarrier;
   const fcmObligations = await fcmOperationSettlement;
+  const fcmOperationsMayHaveReachedServer = hasServerFcmObligations() ||
+    fcmObligations.length > 0;
+  if (fcmOperationsMayHaveReachedServer) markSent();
   if (isCancelled()) {
     return {
       status: 'signedOutWithRemoteWarning',
@@ -404,6 +416,18 @@ async function completeRemoteLogout(
   }
 
   if (remoteWarning) {
+    if (remoteLogoutConfirmed && !remoteLogoutRestartRequired) {
+      await clearFcmRemoteCleanupGateIfIdle([
+        ...initialFcmObligations,
+        ...compensatedObligations,
+        ...sessionLogoutObligations,
+      ]);
+      try {
+        await clearAuthTeardownPending();
+      } catch {
+        remoteLogoutRestartRequired = true;
+      }
+    }
     return {status: 'signedOutWithRemoteWarning', message: remoteWarning};
   }
 
@@ -412,6 +436,15 @@ async function completeRemoteLogout(
     ...compensatedObligations,
     ...sessionLogoutObligations,
   ]);
+  try {
+    await clearAuthTeardownPending();
+  } catch {
+    remoteLogoutRestartRequired = true;
+    return {
+      status: 'signedOutWithRemoteWarning',
+      message: '로그아웃 완료 상태를 저장하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+    };
+  }
 
   return {status: 'signedOut'};
 }
@@ -422,12 +455,13 @@ function trackRemoteLogout(
     markSent: () => void,
   ) => Promise<LogoutResult>,
   obligations: FcmRemoteCleanupObligation[],
+  hasServerObligations: () => boolean = () => false,
 ) {
   let cancelled = false;
   let sent = false;
   const flight = {
     cancelBeforeSend: () => {
-      if (sent) return false;
+      if (sent || hasServerObligations()) return false;
       cancelled = true;
       return true;
     },
@@ -455,6 +489,7 @@ export async function waitForAuthEntryAvailability() {
     discardAllRefreshLogoutHandoffs();
     throw createLogoutCleanupPendingError();
   }
+  await ensurePendingTeardownLocallyInvalidated();
   await waitForActiveRemoteLogoutFlights(deadline);
   if (!(await waitForFcmTransitionCleanup(requireRemaining()))) {
     throw createLogoutCleanupPendingError();
@@ -464,6 +499,21 @@ export async function waitForAuthEntryAvailability() {
   );
   if (handoffStatus !== 'clear') remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
+  await clearAuthTeardownPending();
+}
+
+export async function ensurePendingTeardownLocallyInvalidated() {
+  const [authTeardownPending, fcmCleanupPending] = await Promise.all([
+    hasAuthTeardownPending(),
+    hasFcmRemoteCleanupPending(),
+  ]);
+  if (!authTeardownPending && !fcmCleanupPending) return;
+  const generation = getAuthSessionGeneration();
+  if (!authTeardownPending) await markAuthTeardownPending();
+  await materializeStoredSessionLogoutObligation(generation);
+  const transition = startAuthSessionClear(generation);
+  if (!transition.cleared) throw new StaleAuthSessionReadError(generation);
+  await transition.completion;
 }
 
 async function waitForActiveRemoteLogoutFlights(deadline: number) {

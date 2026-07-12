@@ -136,6 +136,7 @@ describe('FCM registration', () => {
       accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 86400, tokenType: 'Bearer',
     });
     vi.mocked(deactivateMyFcmTokenForCleanup).mockResolvedValue(null);
+    vi.mocked(deactivateMyFcmToken).mockResolvedValue(null);
     vi.mocked(registerMyFcmTokenForCleanup).mockResolvedValue({
       appVersion: '0.1.0-test', clientInstanceId: 'cleanup-client', deviceType: 'IOS',
       isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
@@ -184,7 +185,7 @@ describe('FCM registration', () => {
     );
     const preflight = beginAccountDeletionFcmPreflight(AUTH_GENERATION);
     let joined = false;
-    const join = preflight.wait().then(() => { joined = true; });
+    const join = preflight.join().then(() => { joined = true; });
     await Promise.resolve();
     expect(joined).toBe(false);
     expect(() => registerFcmTokenValue(
@@ -204,6 +205,24 @@ describe('FCM registration', () => {
     await join;
     expect(joined).toBe(true);
     preflight.release();
+  });
+
+  it('separates an obligation-free joined context from the server-send boundary', async () => {
+    let resolvePermission!: (value: 'denied') => void;
+    vi.mocked(requestNotificationPermission).mockReturnValue(new Promise((resolve) => {
+      resolvePermission = resolve;
+    }));
+    const registration = registerCurrentFcmToken(
+      'access-token', USER_ID, AUTH_GENERATION, 'automatic',
+    );
+    const captured = capturePendingFcmOperations(AUTH_GENERATION);
+    expect(captured.hasPendingContexts).toBe(true);
+    expect(captured.hasPendingOperations).toBe(false);
+    expect(captured.hasServerObligations?.()).toBe(false);
+    resolvePermission('denied');
+    await registration;
+    await captured.barrier;
+    expect(captured.hasServerObligations?.()).toBe(false);
   });
 
   it('joins FCM work without session compensation and deletes with the latest token', async () => {
@@ -228,7 +247,6 @@ describe('FCM registration', () => {
 
     const result = await deletion;
     expect(result).toMatchObject({status: 'completed', value: 'deleted'});
-    if (result.status === 'completed') await result.cleanup;
     expect(deleteAccount).toHaveBeenCalledOnce();
     expect(deleteAccount).toHaveBeenCalledWith('latest-access');
     expect(logoutUser).not.toHaveBeenCalled();
@@ -651,13 +669,80 @@ describe('FCM registration', () => {
       clientInstanceId: 'faithlog-client-1',
     });
     vi.mocked(getFcmRegistrationAttempts).mockResolvedValue([{
-      userId: USER_ID, clientInstanceId: 'faithlog-client-1', token: 'same-device-token',
+      userId: USER_ID, clientInstanceId: 'old-client-B', token: 'old-token-B',
     }]);
 
     await expect(inspectFcmRegistrationStatus(USER_ID, AUTH_GENERATION)).resolves.toMatchObject({
       status: 'tokenUnavailable',
     });
     expect(clearFcmRegistration).toHaveBeenCalledWith(AUTH_GENERATION);
+  });
+
+  it('repairs local state when recovered old-client DELETE reuses the current token id', async () => {
+    const attempt = {userId: USER_ID, clientInstanceId: 'old-client-B', token: 'old-token-B'};
+    let attempts = [attempt];
+    let stored: Awaited<ReturnType<typeof getStoredFcmRegistration>> = {
+      token: 'current-token', tokenId: 101, userId: USER_ID,
+      clientInstanceId: 'faithlog-client-1',
+    };
+    vi.mocked(getFcmRegistrationAttempts).mockImplementation(async () => attempts);
+    vi.mocked(clearFcmRegistrationAttempt).mockImplementation(async () => { attempts = []; });
+    vi.mocked(getStoredFcmRegistration).mockImplementation(async () => stored);
+    vi.mocked(clearFcmRegistration).mockImplementation(async () => {
+      stored = {token: null, tokenId: null, userId: null, clientInstanceId: null};
+      return true;
+    });
+    vi.mocked(saveFcmRegistration).mockImplementation(async (registration) => {
+      stored = registration;
+      return true;
+    });
+    vi.mocked(getDeviceFcmToken).mockResolvedValue({status: 'available', token: 'current-token'});
+    vi.mocked(registerMyFcmToken)
+      .mockResolvedValueOnce({
+        appVersion: '0.1.0-test', clientInstanceId: 'old-client-B', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+        lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 101,
+      })
+      .mockResolvedValueOnce({
+        appVersion: '0.1.0-test', clientInstanceId: 'faithlog-client-1', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+        lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 202,
+      });
+
+    await expect(registerCurrentFcmToken(
+      'access-token', USER_ID, AUTH_GENERATION, 'user',
+    )).resolves.toMatchObject({status: 'registered'});
+    expect(deactivateMyFcmToken).toHaveBeenCalledWith(
+      'access-token', 101, AUTH_GENERATION, expect.any(Function),
+    );
+    expect(clearFcmRegistration).toHaveBeenCalledWith(AUTH_GENERATION);
+    expect(stored).toMatchObject({token: 'current-token', tokenId: 202});
+    expect(attempts).toEqual([]);
+  });
+
+  it('reconciles unresolved attempts even when notification permission is denied', async () => {
+    const attempt = {userId: USER_ID, clientInstanceId: 'old-client', token: 'old-token'};
+    let attempts = [attempt];
+    vi.mocked(getFcmRegistrationAttempts).mockImplementation(async () => attempts);
+    vi.mocked(clearFcmRegistrationAttempt).mockImplementation(async () => { attempts = []; });
+    vi.mocked(requestNotificationPermission).mockResolvedValue('denied');
+    vi.mocked(registerMyFcmToken).mockResolvedValue({
+      appVersion: '0.1.0-test', clientInstanceId: 'old-client', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 303,
+    });
+
+    await expect(registerCurrentFcmToken(
+      'access-token', USER_ID, AUTH_GENERATION, 'automatic',
+    )).resolves.toEqual({status: 'permissionDenied', permission: 'denied'});
+    expect(registerMyFcmToken).toHaveBeenCalledWith(
+      'access-token', expect.objectContaining({token: 'old-token'}),
+      AUTH_GENERATION, expect.any(Function),
+    );
+    expect(deactivateMyFcmToken).toHaveBeenCalledWith(
+      'access-token', 303, AUTH_GENERATION, expect.any(Function),
+    );
+    expect(attempts).toEqual([]);
   });
 
   it('fails closed when privacy state is corrupt', async () => {
@@ -893,8 +978,14 @@ describe('FCM registration', () => {
   it('compensates a stale recovery POST before a newer enable re-registers', async () => {
     const attempt = {userId: USER_ID, clientInstanceId: 'old-client', token: 'same-token'};
     const secondAttempt = {userId: USER_ID, clientInstanceId: 'old-B', token: 'token-B'};
+    let remainingAttempts = [attempt, secondAttempt];
     let finishRecovery!: (value: FcmTokenRegisterResponse) => void;
-    vi.mocked(getFcmRegistrationAttempts).mockResolvedValue([attempt, secondAttempt]);
+    vi.mocked(getFcmRegistrationAttempts).mockImplementation(async () => remainingAttempts);
+    vi.mocked(clearFcmRegistrationAttempt).mockImplementation(async (cleared) => {
+      remainingAttempts = remainingAttempts.filter((candidate) =>
+        candidate.clientInstanceId !== cleared.clientInstanceId ||
+        candidate.token !== cleared.token);
+    });
     vi.mocked(getDeviceFcmToken).mockResolvedValue({status: 'available', token: 'same-token'});
     vi.mocked(registerMyFcmToken)
       .mockReturnValueOnce(new Promise((resolve) => { finishRecovery = resolve; }))
@@ -919,10 +1010,10 @@ describe('FCM registration', () => {
     expect(deactivateMyFcmToken).toHaveBeenCalledWith(
       'access-token', 101, AUTH_GENERATION, expect.any(Function),
     );
-    expect(registerMyFcmToken).toHaveBeenCalledTimes(2);
-    expect(registerMyFcmToken).not.toHaveBeenCalledWith(
-      expect.anything(), expect.objectContaining({token: 'token-B'}),
-      expect.anything(), expect.anything(),
+    expect(registerMyFcmToken).toHaveBeenCalledTimes(3);
+    expect(registerMyFcmToken).toHaveBeenCalledWith(
+      'access-token', expect.objectContaining({token: 'token-B'}),
+      AUTH_GENERATION, expect.any(Function),
     );
     expect(saveFcmOptOut).not.toHaveBeenCalledWith(
       USER_ID, expect.anything(), AUTH_GENERATION, {status: 'confirmed'},

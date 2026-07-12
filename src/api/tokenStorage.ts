@@ -5,6 +5,7 @@ import type {TokenPair} from './types';
 
 const AUTH_TOKENS_KEY = 'faithlog.authTokens.v2';
 const AUTH_INVALIDATED_KEY = 'faithlog.authInvalidated';
+const AUTH_TEARDOWN_PENDING_KEY = 'faithlog.authTeardownPending';
 const LEGACY_ACCESS_TOKEN_KEY = 'faithlog.accessToken';
 const LEGACY_REFRESH_TOKEN_KEY = 'faithlog.refreshToken';
 const FCM_REGISTRATION_KEY = 'faithlog.fcmRegistration.v2';
@@ -648,6 +649,7 @@ export async function clearFcmRegistrationAttemptAfterRemoteCleanup(
 export async function markFcmRemoteCleanupPending(
   obligations: StoredFcmRemoteCleanupObligation[] = [],
 ) {
+  if (obligations.length === 0) return;
   await withSecureStorageLock(async () => {
     const current = parseStoredFcmRemoteCleanupObligations(
       await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
@@ -662,6 +664,67 @@ export async function markFcmRemoteCleanupPending(
       FCM_REMOTE_CLEANUP_PENDING_KEY,
       JSON.stringify({version: 1, obligations: merged}),
     );
+  });
+}
+
+export async function markAuthTeardownPending() {
+  await withSecureStorageLock(() =>
+    setStorageItem(AUTH_TEARDOWN_PENDING_KEY, INVALIDATED_VALUE));
+}
+
+export async function hasAuthTeardownPending() {
+  return withSecureStorageLock(async () =>
+    (await getStorageItem(AUTH_TEARDOWN_PENDING_KEY)) === INVALIDATED_VALUE);
+}
+
+export async function clearAuthTeardownPending() {
+  await withSecureStorageLock(() => deleteStorageItem(AUTH_TEARDOWN_PENDING_KEY));
+}
+
+export async function materializeStoredSessionLogoutObligation(
+  expectedGeneration: AuthSessionGeneration = getAuthSessionGeneration(),
+) {
+  return withSecureStorageLock(async () => {
+    assertExpectedGeneration(expectedGeneration);
+    let record = parseStoredTokenRecord(await getStorageItem(AUTH_TOKENS_KEY));
+    if (!record) {
+      const [legacyAccessToken, legacyRefreshToken] = await Promise.all([
+        getStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+        getStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+      ]);
+      if (legacyAccessToken?.trim() && legacyRefreshToken?.trim()) {
+        record = {
+          version: 1,
+          accessToken: legacyAccessToken,
+          refreshToken: legacyRefreshToken,
+        };
+      }
+    }
+    assertExpectedGeneration(expectedGeneration);
+    if (!record) return null;
+    const current = parseStoredFcmRemoteCleanupObligations(
+      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+    );
+    assertExpectedGeneration(expectedGeneration);
+    const sessionLogout: StoredFcmRemoteCleanupObligation = {
+      accessToken: record.accessToken,
+      refreshToken: record.refreshToken,
+      userId: null,
+      clientInstanceId: null,
+      kind: 'clientLogout',
+      token: null,
+      tokenId: null,
+    };
+    const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
+    for (const entry of [...current, sessionLogout]) {
+      byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
+    }
+    await setStorageItem(
+      FCM_REMOTE_CLEANUP_PENDING_KEY,
+      JSON.stringify({version: 1, obligations: [...byIdentity.values()]}),
+    );
+    assertExpectedGeneration(expectedGeneration);
+    return {accessToken: record.accessToken, refreshToken: record.refreshToken};
   });
 }
 
@@ -731,7 +794,12 @@ export async function getFcmRemoteCleanupObligations() {
     const value = await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
     if (!value) return null;
     try {
-      return parseStoredFcmRemoteCleanupObligations(value);
+      const obligations = parseStoredFcmRemoteCleanupObligations(value);
+      if (obligations.length === 0) {
+        await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+        return null;
+      }
+      return obligations;
     } catch {
       return [];
     }
