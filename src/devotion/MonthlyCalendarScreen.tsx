@@ -28,6 +28,7 @@ import {
 } from '../components/ui';
 import {IconexIcon} from '../components/IconexIcon';
 import {colors} from '../theme';
+import {VersionedAsyncCache} from '../utils/versionedAsyncCache';
 import {
   buildDailyCompletionMap,
   getDailyCompletionCount,
@@ -84,9 +85,10 @@ export function MonthlyCalendarScreen({
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [quickSaveMessage, setQuickSaveMessage] = useState<string | null>(null);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const campusId = state.selectedCampus.campusId;
-  const monthlyCache = useRef(new Map<string, DevotionMonthlySummary>());
-  const weeklyCache = useRef(new Map<string, WeeklyDevotionSummary>());
+  const monthlyCache = useRef(new VersionedAsyncCache<string, DevotionMonthlySummary>());
+  const weeklyCache = useRef(new VersionedAsyncCache<string, WeeklyDevotionSummary>());
   const latestRequest = useRef(0);
   const viewKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}:${selectedWeekStart}`;
   const currentViewKey = useRef(viewKey);
@@ -106,21 +108,14 @@ export function MonthlyCalendarScreen({
 
       const monthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
       const weekKey = `${campusId}:${selectedWeekStart}`;
-      const monthWasCached = monthlyCache.current.has(monthKey);
       const visibleWeekStarts = getVisibleWeekStartDates(visibleMonth, selectedWeekStart);
       const [monthly] = await Promise.all([
-        monthlyCache.current.get(monthKey) ??
-          fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth).then((value) => {
-            monthlyCache.current.set(monthKey, value);
-            return value;
-          }),
-        ...(monthWasCached ? [selectedWeekStart] : visibleWeekStarts).map((weekStart) => {
+        monthlyCache.current.getOrLoad(monthKey, () =>
+          fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth)),
+        ...visibleWeekStarts.map((weekStart) => {
           const key = `${campusId}:${weekStart}`;
-          return weeklyCache.current.get(key) ??
-            fetchWeeklyDevotionSummary(accessToken, campusId, weekStart).then((value) => {
-              weeklyCache.current.set(key, value);
-              return value;
-            });
+          return weeklyCache.current.getOrLoad(key, () =>
+            fetchWeeklyDevotionSummary(accessToken, campusId, weekStart));
         }),
       ]);
 
@@ -150,7 +145,7 @@ export function MonthlyCalendarScreen({
 
   useEffect(() => {
     void loadCalendar();
-  }, [campusId, selectedWeekStart, visibleMonth.month, visibleMonth.year]);
+  }, [campusId, reloadVersion, selectedWeekStart, visibleMonth.month, visibleMonth.year]);
 
   const selectedCheck = formChecks.find((check) => check.recordDate === selectedDate);
   const locked = loadState.status === 'success' && Boolean(loadState.weekly.submittedAt);
@@ -197,15 +192,17 @@ export function MonthlyCalendarScreen({
       const savedDate = selectedCheck.recordDate;
       const savedMonthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
       const savedWeekKey = `${campusId}:${selectedWeekStart}`;
-      const savedViewKey = viewKey;
       await saveDevotionDailyCheck(accessToken, campusId, selectedCheck.recordDate, {
         quietTimeChecked: selectedCheck.quietTimeChecked,
         prayerChecked: selectedCheck.prayerChecked,
         bibleReadingChecked: selectedCheck.bibleReadingChecked,
       });
-      monthlyCache.current.delete(savedMonthKey);
-      weeklyCache.current.delete(savedWeekKey);
-      if (currentViewKey.current === savedViewKey) await loadCalendar();
+      monthlyCache.current.invalidate(savedMonthKey);
+      weeklyCache.current.invalidate(savedWeekKey);
+      const currentMonthPrefix = savedMonthKey + ':';
+      if (currentViewKey.current.startsWith(currentMonthPrefix)) {
+        setReloadVersion((current) => current + 1);
+      }
       setQuickSaveMessage(`${formatKoreanDate(savedDate)} 저장됨`);
     } catch (error) {
       const apiError = toApiError(error, '빠른 체크를 저장하지 못했습니다.');

@@ -136,6 +136,7 @@ import {PaymentScreen} from '../payments/PaymentScreen';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
+import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
 
 const initialState: AuthGateState = {
@@ -2538,6 +2539,8 @@ function UserHomeDashboard({
   const displayUserName = getCompactDisplayName(state.user.name, '사용자');
   const campusLabel = getHeaderCampusName(state.selectedCampus.campusName);
   const homeRequestSequence = useRef(0);
+  const currentHomeKey = useRef('');
+  currentHomeKey.current = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
 
   const loadHomeCards = async () => {
     const requestSequence = ++homeRequestSequence.current;
@@ -2565,8 +2568,7 @@ function UserHomeDashboard({
         key: HomeCardKey,
         setter: (value: CardState<T>) => void,
       ) => {
-        const latestKey = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
-        if (requestSequence !== homeRequestSequence.current || currentKey !== latestKey) return;
+        if (!isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
         if (result.status === 'fulfilled') {
           setter({status: 'success', data: result.value});
           return;
@@ -2578,10 +2580,7 @@ function UserHomeDashboard({
         }
       };
       const settle = <T,>(promise: Promise<T>, key: HomeCardKey, setter: (value: CardState<T>) => void) =>
-        promise.then(
-          (value) => apply({status: 'fulfilled', value}, requestKey, key, setter),
-          (reason) => apply({status: 'rejected', reason}, requestKey, key, setter),
-        );
+        settleIndependently(promise, (result) => apply(result, requestKey, key, setter));
       await Promise.all([
         settle(fetchDevotionMonthlySummary(accessToken, campusId, {month, year}), 'devotion', setMonthlyDevotionState),
         settle(fetchChargeSummary(accessToken, campusId, {month, year}), 'charges', setChargeState),

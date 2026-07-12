@@ -56,6 +56,7 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
+import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {
   getUserPollListGroups,
   getUserVisiblePollCount,
@@ -135,7 +136,14 @@ export function PollScreen({
   const [actionState, setActionState] = useState<ActionState>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const currentPollId = useRef<number | null>(selectedPollId);
+  const detailEpoch = useRef(0);
   currentPollId.current = selectedPollId;
+
+  const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
+    isCurrentDetailEpoch(
+      pollId, currentPollId.current, epoch, detailEpoch.current,
+      generation, getAuthSessionGeneration(),
+    );
 
   const loadPolls = async () => {
     setListState({status: 'loading'});
@@ -156,6 +164,8 @@ export function PollScreen({
   };
 
   const loadDetail = async (pollId: number, tab: DetailTab = detailTab) => {
+    const epoch = detailEpoch.current;
+    const generation = getAuthSessionGeneration();
     setDetailState({status: 'loading'});
     setActionError(null);
     try {
@@ -171,6 +181,7 @@ export function PollScreen({
         fetchPollResultState(accessToken, campusId, pollId),
       ]);
       const coffeeCatalog = await loadCoffeeCatalog(accessToken, detail);
+      if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
       if (coffeeCatalog.status === 'error') {
         handleAuthError(coffeeCatalog.error, setAuthState);
       }
@@ -185,6 +196,7 @@ export function PollScreen({
       setSelectedOptionIds(detail.myResponse?.optionIds ?? []);
       setDetailTab(tab);
     } catch (error) {
+      if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
       const apiError = toApiError(error, '투표 상세를 불러오지 못했습니다.');
       setDetailState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
@@ -197,16 +209,26 @@ export function PollScreen({
 
   const openDetail = (poll: PollSummary) => {
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
+    detailEpoch.current += 1;
+    currentPollId.current = poll.id;
+    setCommentContent('');
+    setEditingComment(null);
+    setActionState(null);
+    setActionError(null);
     setSelectedPollId(poll.id);
     setDetailTab(initialTab);
     void loadDetail(poll.id, initialTab);
   };
 
   const closeDetail = () => {
+    detailEpoch.current += 1;
+    currentPollId.current = null;
     setSelectedPollId(null);
     setDetailState({status: 'idle'});
     setActionError(null);
     setEditingComment(null);
+    setCommentContent('');
+    setActionState(null);
     void loadPolls();
   };
 
@@ -336,6 +358,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'comment'});
     setActionError(null);
     try {
@@ -345,20 +370,20 @@ export function PollScreen({
         return;
       }
 
-      const mutationPollId = activeDetail.id;
-      const mutationGeneration = getAuthSessionGeneration();
       const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
-      if (currentPollId.current !== mutationPollId || getAuthSessionGeneration() !== mutationGeneration) return;
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setCommentContent('');
-      setDetailState((current) => current.status === 'success'
+      setDetailState((current) => current.status === 'success' &&
+        current.detail.id === mutationPollId && created.pollId === mutationPollId
         ? {...current, comments: [...current.comments, created]}
         : current);
     } catch (error) {
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -374,6 +399,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'edit', id: editingComment.commentId});
     setActionError(null);
     try {
@@ -383,24 +411,24 @@ export function PollScreen({
         return;
       }
 
-      const mutationPollId = activeDetail.id;
-      const mutationGeneration = getAuthSessionGeneration();
       const updated = await updatePollComment(accessToken, campusId, mutationPollId, editingComment.commentId, {
         content,
       });
-      if (currentPollId.current !== mutationPollId || getAuthSessionGeneration() !== mutationGeneration) return;
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setEditingComment(null);
       setCommentContent('');
-      setDetailState((current) => current.status === 'success'
+      setDetailState((current) => current.status === 'success' &&
+        current.detail.id === mutationPollId && updated.pollId === mutationPollId
         ? {...current, comments: current.comments.map((item) =>
           item.commentId === updated.commentId ? updated : item)}
         : current);
     } catch (error) {
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -409,6 +437,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'delete', id: comment.commentId});
     setActionError(null);
     try {
@@ -418,20 +449,24 @@ export function PollScreen({
         return;
       }
 
-      const mutationPollId = activeDetail.id;
-      const mutationGeneration = getAuthSessionGeneration();
       await deletePollComment(accessToken, campusId, mutationPollId, comment.commentId);
-      const comments = await fetchPollComments(accessToken, campusId, mutationPollId);
-      if (currentPollId.current !== mutationPollId || getAuthSessionGeneration() !== mutationGeneration) return;
-      setDetailState((current) => current.status === 'success'
-        && current.detail.id === mutationPollId ? {...current, comments}
-        : current);
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+      try {
+        const comments = await fetchPollComments(accessToken, campusId, mutationPollId);
+        if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+        setDetailState((current) => current.status === 'success' && current.detail.id === mutationPollId
+          ? {...current, comments} : current);
+      } catch (refreshError) {
+        if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+        setActionError(toApiError(refreshError, '댓글은 삭제됐지만 목록을 새로고치지 못했습니다.'));
+      }
     } catch (error) {
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       const apiError = toApiError(error, '댓글을 삭제하지 못했습니다.');
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 

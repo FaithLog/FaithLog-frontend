@@ -13,7 +13,6 @@ import {
 import {
   FaithLogApiError,
   fetchMyCharges,
-  fetchPaymentAccounts,
   markMyChargePaid,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
@@ -46,6 +45,7 @@ import {
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
+import {getPaymentContext, invalidatePaymentContextCache} from './paymentContextCache';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -92,52 +92,6 @@ type AccountCopyFeedback = {
 } | null;
 
 const PAGE_SIZE = 20;
-const PAYMENT_CONTEXT_TTL_MS = 60_000;
-const paymentContextCache = new Map<
-  string,
-  {expiresAt: number; promise: Promise<{
-    accounts: PaymentAccount[];
-    coffeeAccountIdsWithCharges: number[];
-    totalUnpaidAmount: number;
-  }>}
->();
-
-function getPaymentContext(accessToken: string, campusId: number) {
-  const key = `${getAuthSessionGeneration()}:${campusId}`;
-  const cached = paymentContextCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.promise;
-  if (cached) paymentContextCache.delete(key);
-  const request = Promise.all([
-    fetchMyCharges(accessToken, campusId, {
-      page: 0,
-      paymentCategory: 'ALL',
-      size: 1,
-      sort: toChargeSort('createdAtDesc'),
-      status: 'UNPAID',
-    }),
-    fetchMyCharges(accessToken, campusId, {
-      page: 0,
-      paymentCategory: 'COFFEE',
-      size: 100,
-      sort: toChargeSort('createdAtDesc'),
-      status: 'ALL',
-    }),
-    fetchPaymentAccounts(accessToken, campusId),
-  ]).then(([unpaid, coffee, accounts]) => ({
-    accounts,
-    coffeeAccountIdsWithCharges: getLinkedPaymentAccountIds(coffee.items),
-    totalUnpaidAmount: unpaid.summary.unpaidAmount,
-  })).catch((error) => {
-    paymentContextCache.delete(key);
-    throw error;
-  });
-  paymentContextCache.set(key, {expiresAt: Date.now() + PAYMENT_CONTEXT_TTL_MS, promise: request});
-  return request;
-}
-
-function invalidatePaymentContext(campusId: number) {
-  paymentContextCache.delete(`${getAuthSessionGeneration()}:${campusId}`);
-}
 
 const categoryFilters: Array<{label: string; value: CategoryFilter}> = [
   {label: '벌금', value: 'PENALTY'},
@@ -181,6 +135,7 @@ export function PaymentScreen({
     useState<AccountCopyFeedback>(null);
   const accountCopyOpacity = useRef(new Animated.Value(0)).current;
   const latestListRequest = useRef(0);
+  const paymentMutationInFlight = useRef(false);
 
   useEffect(() => {
     if (!accountCopyFeedback) {
@@ -300,7 +255,7 @@ export function PaymentScreen({
   }, [campusId, category, status, sort]);
 
   const markPaid = async (charge: ChargeItem) => {
-    if (actionState.status === 'markingPaid' || charge.status !== 'UNPAID') {
+    if (paymentMutationInFlight.current || actionState.status === 'markingPaid' || charge.status !== 'UNPAID') {
       return;
     }
 
@@ -315,6 +270,7 @@ export function PaymentScreen({
       return;
     }
 
+    paymentMutationInFlight.current = true;
     setActionState({status: 'markingPaid', chargeItemId: charge.id});
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -324,7 +280,7 @@ export function PaymentScreen({
       }
 
       const paid = await markMyChargePaid(accessToken, campusId, charge.id);
-      invalidatePaymentContext(campusId);
+      invalidatePaymentContextCache(campusId);
       setActionState({status: 'complete', charge: paid});
       setSelectedChargeId(null);
       setNotice({
@@ -337,6 +293,8 @@ export function PaymentScreen({
       const apiError = toApiError(error, '납부 완료 처리를 하지 못했습니다.');
       setActionState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
+    } finally {
+      paymentMutationInFlight.current = false;
     }
   };
 
@@ -520,6 +478,7 @@ export function PaymentScreen({
           accessibilityPrefix="납부 유형 필터"
           items={categoryFilters}
           label="유형"
+          disabled={actionState.status === 'markingPaid'}
           onSelect={(value) => {
             setCategory(value);
             setLastKnownLastPage(null);
@@ -533,6 +492,7 @@ export function PaymentScreen({
           accessibilityPrefix="납부 상태 필터"
           items={statusFilters}
           label="상태"
+          disabled={actionState.status === 'markingPaid'}
           onSelect={(value) => {
             setStatus(value);
             setLastKnownLastPage(null);
@@ -546,6 +506,7 @@ export function PaymentScreen({
           accessibilityPrefix="납부 목록 정렬"
           items={sortOptions}
           label="정렬"
+          disabled={actionState.status === 'markingPaid'}
           onSelect={(value) => {
             setSort(value);
             setLastKnownLastPage(null);
@@ -632,12 +593,14 @@ export function PaymentScreen({
 
 function FilterRow<T extends string>({
   accessibilityPrefix,
+  disabled = false,
   items,
   label,
   onSelect,
   selected,
 }: {
   accessibilityPrefix: string;
+  disabled?: boolean;
   items: Array<{label: string; value: T}>;
   label: string;
   onSelect: (value: T) => void;
@@ -655,6 +618,7 @@ function FilterRow<T extends string>({
               accessibilityLabel={`${accessibilityPrefix}: ${item.label}`}
               accessibilityRole="button"
               accessibilityState={{selected: active}}
+              disabled={disabled}
               key={item.value}
               onPress={() => onSelect(item.value)}
               style={({pressed}) => [
@@ -1148,16 +1112,6 @@ function getAccountMissingState(
   const unpaidWithoutAccount = items.find((item) => item.status === 'UNPAID' && !item.account);
 
   return unpaidWithoutAccount?.paymentCategory ?? null;
-}
-
-function getLinkedPaymentAccountIds(items: ChargeItem[]) {
-  return Array.from(
-    new Set(
-      items
-        .map((item) => item.account?.paymentAccountId)
-        .filter((accountId): accountId is number => typeof accountId === 'number' && accountId > 0),
-    ),
-  );
 }
 
 function getVisiblePaymentAccounts(
