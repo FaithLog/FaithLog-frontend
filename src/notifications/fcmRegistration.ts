@@ -5,11 +5,14 @@ import {
 } from '../api/client';
 import {
   clearFcmRegistration,
+  clearFcmOptOut,
   getAuthSessionGeneration,
   getOrCreateClientInstanceId,
   getStoredFcmRegistration,
+  isFcmOptedOut,
   isAuthSessionGenerationCurrent,
   saveFcmRegistration,
+  saveFcmOptOut,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {FcmTokenRegisterResponse} from '../api/types';
@@ -56,6 +59,10 @@ export type FcmRegistrationStatus =
       message: string;
     }
   | {
+      status: 'optedOut';
+      message: string;
+    }
+  | {
       status: 'disabled';
       reason: FcmRuntimeDisabledReason;
       message: string;
@@ -92,10 +99,13 @@ export async function inspectFcmRegistrationStatus(
     return {status: 'permissionPrompt', permission};
   }
 
-  if (stored.tokenId && stored.userId === userId) {
-    const clientInstanceId = await getOrCreateClientInstanceId();
-    assertFcmAuthSessionCurrent(generation);
+  const clientInstanceId = await getOrCreateClientInstanceId();
+  assertFcmAuthSessionCurrent(generation);
+  if (await isFcmOptedOut(userId, clientInstanceId, generation)) {
+    return {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'};
+  }
 
+  if (stored.tokenId && stored.userId === userId) {
     if (stored.clientInstanceId === clientInstanceId) {
       return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
     }
@@ -116,6 +126,7 @@ export async function registerCurrentFcmToken(
   accessToken: string,
   userId: number,
   generation: AuthSessionGeneration = getAuthSessionGeneration(),
+  mode: 'automatic' | 'user' = 'user',
 ): Promise<FcmRegistrationStatus> {
   assertFcmAuthSessionCurrent(generation);
   const availability = getFcmRuntimeAvailability();
@@ -127,6 +138,16 @@ export async function registerCurrentFcmToken(
       reason: availability.reason,
       message: availability.message,
     };
+  }
+
+  const clientInstanceId = await getOrCreateClientInstanceId();
+  assertFcmAuthSessionCurrent(generation);
+  if (mode === 'automatic') {
+    if (await isFcmOptedOut(userId, clientInstanceId, generation)) {
+      return {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'};
+    }
+  } else {
+    await clearFcmOptOut(userId, clientInstanceId, generation);
   }
 
   const permission = await requestNotificationPermission();
@@ -187,16 +208,33 @@ export async function registerCurrentFcmToken(
   return {status: 'registered', permission, registration};
 }
 
+export async function ensureAutomaticFcmRegistration(
+  accessToken: string,
+  userId: number,
+  generation: AuthSessionGeneration,
+  isCurrent: () => boolean = () => true,
+) {
+  const status = await inspectFcmRegistrationStatus(userId, generation);
+  if (!isCurrent()) return status;
+  return status.status === 'registered' || status.status === 'registeredLocal' ||
+    status.status === 'optedOut'
+    ? status
+    : registerCurrentFcmToken(accessToken, userId, generation, 'automatic');
+}
+
 export function registerFcmTokenValue(
   accessToken: string,
   userId: number,
   token: string,
   generation: AuthSessionGeneration = getAuthSessionGeneration(),
 ): Promise<FcmTokenRegisterResponse | null> {
-  const operation = fcmRegistrationQueue.then(
-    () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
+  return enqueueFcmOperation(
     () => registerFcmTokenValueInternal(accessToken, userId, token, generation),
   );
+}
+
+function enqueueFcmOperation<T>(run: () => Promise<T>) {
+  const operation = fcmRegistrationQueue.then(run, run);
   fcmRegistrationQueue = operation.then(
     () => undefined,
     () => undefined,
@@ -239,6 +277,7 @@ async function registerFcmTokenValueInternal(
 
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
+  if (await isFcmOptedOut(userId, clientInstanceId, generation)) return null;
   const registration = await registerMyFcmToken(
     accessToken,
     {
@@ -294,6 +333,23 @@ export async function deactivateCurrentFcmToken(
   accessToken: string,
   userId: number,
   generation: AuthSessionGeneration = getAuthSessionGeneration(),
+) {
+  assertFcmAuthSessionCurrent(generation);
+
+  const clientInstanceId = await getOrCreateClientInstanceId();
+  assertFcmAuthSessionCurrent(generation);
+  const savedOptOut = await saveFcmOptOut(userId, clientInstanceId, generation);
+  if (!savedOptOut) throw new Error('Unable to persist the notification opt-out preference.');
+
+  return enqueueFcmOperation(
+    () => deactivateCurrentFcmTokenInternal(accessToken, userId, generation),
+  );
+}
+
+async function deactivateCurrentFcmTokenInternal(
+  accessToken: string,
+  userId: number,
+  generation: AuthSessionGeneration,
 ) {
   assertFcmAuthSessionCurrent(generation);
 

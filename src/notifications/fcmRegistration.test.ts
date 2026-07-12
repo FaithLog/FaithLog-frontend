@@ -15,11 +15,14 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../api/tokenStorage', () => ({
   clearFcmRegistration: vi.fn(),
+  clearFcmOptOut: vi.fn(),
   getAuthSessionGeneration: vi.fn(),
   getOrCreateClientInstanceId: vi.fn(),
   getStoredFcmRegistration: vi.fn(),
+  isFcmOptedOut: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   saveFcmRegistration: vi.fn(),
+  saveFcmOptOut: vi.fn(),
 }));
 
 vi.mock('./appInfo', () => ({
@@ -42,19 +45,26 @@ import {deactivateMyFcmToken, registerMyFcmToken} from '../api/client';
 import type {FcmTokenRegisterResponse} from '../api/types';
 import {
   getAuthSessionGeneration,
+  clearFcmRegistration,
+  clearFcmOptOut,
   getOrCreateClientInstanceId,
   getStoredFcmRegistration,
+  isFcmOptedOut,
   isAuthSessionGenerationCurrent,
   saveFcmRegistration,
+  saveFcmOptOut,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import {getFcmRuntimeAvailability, isFcmRuntimeEnabled} from './fcmEnvironment';
 import {
   capturePendingFcmRegistrationBarrier,
+  deactivateCurrentFcmToken,
+  ensureAutomaticFcmRegistration,
   registerCurrentFcmToken,
   registerFcmTokenValue,
 } from './fcmRegistration';
 import {
+  checkNotificationPermission,
   getDeviceFcmToken,
   getDeviceType,
   requestNotificationPermission,
@@ -69,11 +79,99 @@ describe('FCM registration', () => {
     vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
     vi.mocked(isAuthSessionGenerationCurrent).mockReturnValue(true);
     vi.mocked(saveFcmRegistration).mockResolvedValue(true);
+    vi.mocked(saveFcmOptOut).mockResolvedValue(true);
+    vi.mocked(isFcmOptedOut).mockResolvedValue(false);
     vi.mocked(getFcmRuntimeAvailability).mockReturnValue({enabled: true});
     vi.mocked(isFcmRuntimeEnabled).mockReturnValue(true);
     vi.mocked(requestNotificationPermission).mockResolvedValue('authorized');
+    vi.mocked(checkNotificationPermission).mockResolvedValue('authorized');
     vi.mocked(getDeviceType).mockReturnValue('IOS');
     vi.mocked(getOrCreateClientInstanceId).mockResolvedValue('faithlog-client-1');
+    vi.mocked(getStoredFcmRegistration).mockResolvedValue({
+      token: null, tokenId: null, userId: null, clientInstanceId: null,
+    });
+  });
+
+  it('respects persistent opt-out for automatic and token-refresh registration', async () => {
+    vi.mocked(isFcmOptedOut).mockResolvedValue(true);
+
+    await expect(registerCurrentFcmToken(
+      'access-token', USER_ID, AUTH_GENERATION, 'automatic',
+    )).resolves.toMatchObject({status: 'optedOut'});
+    await expect(registerFcmTokenValue(
+      'access-token', USER_ID, 'refreshed-device-token', AUTH_GENERATION,
+    )).resolves.toBeNull();
+    expect(requestNotificationPermission).not.toHaveBeenCalled();
+    expect(registerMyFcmToken).not.toHaveBeenCalled();
+  });
+
+  it('routes the production automatic coordinator through persistent opt-out', async () => {
+    vi.mocked(isFcmOptedOut).mockResolvedValue(true);
+    await expect(ensureAutomaticFcmRegistration(
+      'access-token', USER_ID, AUTH_GENERATION,
+    )).resolves.toMatchObject({status: 'optedOut'});
+    expect(registerMyFcmToken).not.toHaveBeenCalled();
+    expect(requestNotificationPermission).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-register after the Root operation becomes stale', async () => {
+    await expect(ensureAutomaticFcmRegistration(
+      'access-token', USER_ID, AUTH_GENERATION, () => false,
+    )).resolves.toMatchObject({status: 'tokenUnavailable'});
+    expect(requestNotificationPermission).not.toHaveBeenCalled();
+    expect(registerMyFcmToken).not.toHaveBeenCalled();
+  });
+
+  it('waits for pending registration then deactivates its latest token after opt-out', async () => {
+    let stored = {token: null, tokenId: null, userId: null, clientInstanceId: null} as Awaited<
+      ReturnType<typeof getStoredFcmRegistration>
+    >;
+    let optedOut = false;
+    let resolveRegistration!: (value: FcmTokenRegisterResponse) => void;
+    vi.mocked(isFcmOptedOut).mockImplementation(async () => optedOut);
+    vi.mocked(saveFcmOptOut).mockImplementation(async () => {
+      optedOut = true;
+      return true;
+    });
+    vi.mocked(getStoredFcmRegistration).mockImplementation(async () => stored);
+    vi.mocked(saveFcmRegistration).mockImplementation(async (registration) => {
+      stored = registration;
+      return true;
+    });
+    vi.mocked(clearFcmRegistration).mockImplementation(async () => {
+      stored = {token: null, tokenId: null, userId: null, clientInstanceId: null};
+      return true;
+    });
+    vi.mocked(registerMyFcmToken).mockReturnValue(new Promise((resolve) => {
+      resolveRegistration = resolve;
+    }));
+
+    const registration = registerFcmTokenValue(
+      'access-token', USER_ID, 'pending-device-token', AUTH_GENERATION,
+    );
+    await vi.waitFor(() => expect(registerMyFcmToken).toHaveBeenCalledOnce());
+    const deactivation = deactivateCurrentFcmToken(
+      'access-token', USER_ID, AUTH_GENERATION,
+    );
+    await vi.waitFor(() => expect(saveFcmOptOut).toHaveBeenCalledOnce());
+    expect(deactivateMyFcmToken).not.toHaveBeenCalled();
+
+    resolveRegistration({
+      appVersion: '0.1.0-test', clientInstanceId: 'faithlog-client-1',
+      deviceType: 'IOS', isActive: true,
+      lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 91,
+    });
+    await expect(registration).resolves.toMatchObject({tokenId: 91});
+    await expect(deactivation).resolves.toEqual({status: 'deactivated'});
+    expect(deactivateMyFcmToken).toHaveBeenCalledWith(
+      'access-token', 91, AUTH_GENERATION,
+    );
+    expect(vi.mocked(saveFcmRegistration).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(deactivateMyFcmToken).mock.invocationCallOrder[0]!,
+    );
+    expect(stored.tokenId).toBeNull();
+    expect(clearFcmOptOut).not.toHaveBeenCalled();
   });
 
   it('keeps the existing server registration when the current device token is unchanged', async () => {

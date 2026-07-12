@@ -24,10 +24,12 @@ vi.mock('../api/tokenStorage', () => ({
   getStoredAuthSession: vi.fn(),
   getStoredSelectedCampusId: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
+  isAuthSessionRequestAllowed: vi.fn(),
   markAuthSessionClosing: vi.fn(),
   rotateClientInstanceId: vi.fn(),
   saveSelectedCampusId: vi.fn(),
   saveTokens: vi.fn(),
+  startAuthSessionClear: vi.fn(),
   StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {
     constructor(readonly expectedGeneration: number) { super('stale'); }
   },
@@ -47,6 +49,7 @@ import {
   fetchMyCampuses,
   loginUser,
   logoutUser,
+  refreshAuthToken,
   signupUser,
 } from '../api/client';
 import {
@@ -56,10 +59,12 @@ import {
   getStoredAuthSession,
   getStoredSelectedCampusId,
   isAuthSessionGenerationCurrent,
+  isAuthSessionRequestAllowed,
   markAuthSessionClosing,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
+  startAuthSessionClear,
   StaleAuthSessionReadError,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
@@ -68,6 +73,7 @@ import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistra
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
 import {
+  hasRefreshLogoutHandoff,
   resetRefreshLogoutHandoffForTests,
   trackRefreshForLogout,
 } from './refreshLogoutHandoff';
@@ -75,6 +81,7 @@ import {
   loginAndEstablishSession,
   logoutCurrentSession,
   prepareCurrentSessionLogout,
+  refreshAndEstablishSession,
   resetAuthEntryBarrierForTests,
   signupAfterSessionCleanup,
   trackLocalSessionCleanup,
@@ -108,10 +115,17 @@ describe('auth session lifecycle', () => {
     vi.mocked(beginAuthSession).mockResolvedValue(AUTH_GENERATION);
     vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
     vi.mocked(isAuthSessionGenerationCurrent).mockReturnValue(true);
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(true);
     vi.mocked(markAuthSessionClosing).mockReturnValue(true);
     vi.mocked(getStoredSelectedCampusId).mockResolvedValue(null);
     vi.mocked(saveSelectedCampusId).mockResolvedValue(undefined);
     vi.mocked(saveTokens).mockResolvedValue(true);
+    vi.mocked(startAuthSessionClear).mockReturnValue({
+      cleared: true,
+      previousGeneration: AUTH_GENERATION,
+      currentGeneration: (AUTH_GENERATION + 1) as AuthSessionGeneration,
+      completion: Promise.resolve(),
+    });
     vi.mocked(clearTokens).mockResolvedValue(true);
     vi.mocked(rotateClientInstanceId).mockResolvedValue(true);
     vi.mocked(loginUser).mockResolvedValue(LOGIN_RESPONSE);
@@ -144,16 +158,12 @@ describe('auth session lifecycle', () => {
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
   });
 
-  it('returns typed cancellation when logout loses lineage during FCM preparation', async () => {
-    let finishFcm!: (value: {}) => void;
-    vi.mocked(getLogoutFcmDeactivationPayload).mockReturnValueOnce(
-      new Promise((resolve) => { finishFcm = resolve; }),
-    );
+  it('returns typed cancellation before FCM preparation when durable clear loses lineage', async () => {
     vi.mocked(clearTokens).mockResolvedValueOnce(false);
     const pending = prepareCurrentSessionLogout(42);
-    finishFcm({});
     await expect(pending).rejects.toBeInstanceOf(StaleAuthSessionReadError);
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
+    expect(getLogoutFcmDeactivationPayload).not.toHaveBeenCalled();
     await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(true);
   });
 
@@ -163,6 +173,85 @@ describe('auth session lifecycle', () => {
     expect(vi.mocked(markAuthSessionClosing).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(getStoredAuthSession).mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('shares one logout preparation per generation', async () => {
+    let finishRead!: (value: Awaited<ReturnType<typeof getStoredAuthSession>>) => void;
+    vi.mocked(getStoredAuthSession).mockReturnValueOnce(new Promise((resolve) => {
+      finishRead = resolve;
+    }));
+    const first = prepareCurrentSessionLogout(CURRENT_USER.id);
+    const second = prepareCurrentSessionLogout(CURRENT_USER.id);
+    expect(first).toBe(second);
+    expect(getStoredAuthSession).toHaveBeenCalledOnce();
+    finishRead({
+      generation: AUTH_GENERATION,
+      accessToken: LOGIN_RESPONSE.accessToken,
+      refreshToken: LOGIN_RESPONSE.refreshToken,
+    });
+    await expect(first).resolves.toBeDefined();
+    expect(clearTokens).toHaveBeenCalledOnce();
+  });
+
+  it.each(['reject', 'false'] as const)(
+    'tracks bootstrap-issued refresh tokens when durable save returns %s',
+    async (failureMode) => {
+      vi.mocked(refreshAuthToken).mockImplementation(async (_token, _generation, onIssued) => {
+        onIssued?.(LOGIN_RESPONSE);
+        return LOGIN_RESPONSE;
+      });
+      if (failureMode === 'reject') {
+        vi.mocked(saveTokens).mockRejectedValueOnce(new Error('secure storage failed'));
+      } else {
+        vi.mocked(saveTokens).mockResolvedValueOnce(false);
+        vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+      }
+
+      await expect(refreshAndEstablishSession(
+        LOGIN_RESPONSE.refreshToken,
+        AUTH_GENERATION,
+      )).rejects.toThrow();
+      await expect(loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      })).rejects.toThrow('앱을 완전히 종료');
+      expect(loginUser).not.toHaveBeenCalled();
+      expect(hasRefreshLogoutHandoff()).toBe(false);
+    },
+  );
+
+  it('discards bootstrap refresh handoff only after durable commit succeeds', async () => {
+    vi.mocked(refreshAuthToken).mockImplementation(async (_token, _generation, onIssued) => {
+      onIssued?.(LOGIN_RESPONSE);
+      return LOGIN_RESPONSE;
+    });
+    await expect(refreshAndEstablishSession(
+      LOGIN_RESPONSE.refreshToken,
+      AUTH_GENERATION,
+    )).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+    expect(saveTokens).toHaveBeenCalledWith(LOGIN_RESPONSE, AUTH_GENERATION);
+    expect(hasRefreshLogoutHandoff()).toBe(false);
+  });
+
+  it('durably clears auth before waiting for optional FCM logout metadata', async () => {
+    vi.mocked(getLogoutFcmDeactivationPayload).mockReturnValue(new Promise(() => {}));
+    void prepareCurrentSessionLogout(CURRENT_USER.id);
+    await vi.waitFor(() => expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION));
+    await vi.waitFor(() => expect(getLogoutFcmDeactivationPayload).toHaveBeenCalledOnce());
+    expect(vi.mocked(clearTokens).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(getLogoutFcmDeactivationPayload).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('warns when stored auth is already null and no remote handoff exists', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+      generation: AUTH_GENERATION, accessToken: null, refreshToken: null,
+    });
+    const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+    await expect(prepared.completeRemoteLogout()).resolves.toEqual({
+      status: 'signedOutWithRemoteWarning',
+      message: '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.',
+    });
+    expect(logoutUser).not.toHaveBeenCalled();
   });
 
   it('bounds account-deletion cleanup barrier before a new login', async () => {
@@ -308,6 +397,13 @@ describe('auth session lifecycle', () => {
     );
     void refresh.catch(() => undefined);
     vi.mocked(getStoredAuthSession).mockRejectedValueOnce(new Error('keychain read failed'));
+    let finishRegistration!: () => void;
+    vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValueOnce(
+      new Promise<void>((resolve) => { finishRegistration = resolve; }),
+    );
+    vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValueOnce({
+      clientInstanceId: 'faithlog-client-1',
+    });
 
     const preparation = prepareCurrentSessionLogout(CURRENT_USER.id);
     issueTokens({
@@ -317,13 +413,18 @@ describe('auth session lifecycle', () => {
     });
     rejectRefresh(new Error('closing gate rejected refresh result'));
     const prepared = await preparation;
-    await expect(prepared.completeRemoteLogout()).resolves.toEqual({
+    const remote = prepared.completeRemoteLogout();
+    await Promise.resolve();
+    expect(logoutUser).not.toHaveBeenCalled();
+    finishRegistration();
+    await expect(remote).resolves.toEqual({
       status: 'signedOutWithRemoteWarning',
       message: '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.',
     });
-    expect(getLogoutFcmDeactivationPayload).not.toHaveBeenCalled();
+    expect(getLogoutFcmDeactivationPayload).toHaveBeenCalledOnce();
     expect(logoutUser).toHaveBeenCalledWith('late-read-error-access', {
       refreshToken: 'late-read-error-refresh',
+      clientInstanceId: 'faithlog-client-1',
     });
   });
 

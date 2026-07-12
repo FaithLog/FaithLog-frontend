@@ -13,6 +13,7 @@ import {
   getAuthSessionGeneration,
   getStoredSelectedCampusId,
   getStoredAuthSession,
+  isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   markAuthSessionClosing,
   rotateClientInstanceId,
@@ -32,7 +33,15 @@ import type {
 import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {trackLocalSessionCleanup, waitForLocalSessionCleanup} from './localCleanupBarrier';
-import {collectRefreshTokensForLogout, hasRefreshLogoutHandoff} from './refreshLogoutHandoff';
+import {
+  collectRefreshTokensForLogout,
+  discardAllRefreshLogoutHandoffs,
+  discardRefreshTokensAfterCommit,
+  hasIssuedRefreshTokens,
+  settleRefreshHandoffsForAuthEntry,
+  trackRefreshForLogout,
+} from './refreshLogoutHandoff';
+import {expireAuthSession} from './sessionExpiration';
 export {trackLocalSessionCleanup} from './localCleanupBarrier';
 
 export type AuthenticatedSession = {
@@ -59,6 +68,7 @@ let remoteLogoutInFlight: {
   promise: Promise<LogoutResult>;
 } | null = null;
 let remoteLogoutRestartRequired = false;
+const logoutPreparationByGeneration = new Map<AuthSessionGeneration, Promise<PreparedLogout>>();
 const LOGOUT_PREPARATION_TIMEOUT_MS = 5_000;
 
 export async function loginAndEstablishSession(credentials: LoginRequest): Promise<SessionResolution> {
@@ -91,15 +101,26 @@ export async function refreshAndEstablishSession(
   generation: AuthSessionGeneration,
 ): Promise<SessionResolution> {
   try {
-    const tokens = await refreshAuthToken(refreshToken, generation);
+    const tokens = await trackRefreshForLogout(
+      generation,
+      (onIssued) => refreshAuthToken(refreshToken, generation, onIssued),
+    );
     const saved = await saveTokens(tokens, generation);
 
     if (!saved) {
       throw createAuthSessionChangedError(generation);
     }
 
+    if (!isAuthSessionRequestAllowed(generation)) {
+      throw createAuthSessionChangedError(generation);
+    }
+    discardRefreshTokensAfterCommit(generation);
+
     return establishSession(tokens, generation);
   } catch (error) {
+    if (isAuthSessionRequestAllowed(generation) && hasIssuedRefreshTokens(generation)) {
+      await expireAuthSession(generation);
+    }
     if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
       await clearTokens(generation);
     }
@@ -116,28 +137,36 @@ export async function logoutCurrentSession(userId?: number): Promise<LogoutResul
 export function prepareCurrentSessionLogout(
   userId?: number,
 ): Promise<PreparedLogout> {
-  const operation = prepareCurrentSessionLogoutInternal(userId);
-  return trackLocalSessionCleanup(operation, {
+  const generation = getAuthSessionGeneration();
+  const existing = logoutPreparationByGeneration.get(generation);
+  if (existing) return existing;
+  const operation = prepareCurrentSessionLogoutInternal(userId, generation);
+  const tracked = trackLocalSessionCleanup(operation, {
     isCancellation: (error) => error instanceof StaleAuthSessionReadError,
   });
+  const shared = tracked.finally(() => {
+    if (logoutPreparationByGeneration.get(generation) === shared) {
+      logoutPreparationByGeneration.delete(generation);
+    }
+  });
+  logoutPreparationByGeneration.set(generation, shared);
+  return shared;
 }
 
 async function prepareCurrentSessionLogoutInternal(
   userId?: number,
+  expectedGeneration: AuthSessionGeneration = getAuthSessionGeneration(),
 ): Promise<PreparedLogout> {
-  const expectedGeneration = getAuthSessionGeneration();
   if (!markAuthSessionClosing(expectedGeneration)) {
     throw new StaleAuthSessionReadError(expectedGeneration);
   }
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
-  let storageReadFailed = false;
   let preparationWarning: string | null = null;
 
   try {
     authSession = await getStoredAuthSession(expectedGeneration);
   } catch (error) {
     if (error instanceof StaleAuthSessionReadError) throw error;
-    storageReadFailed = true;
     preparationWarning = '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
     authSession = {
       generation: expectedGeneration,
@@ -146,24 +175,19 @@ async function prepareCurrentSessionLogoutInternal(
     };
   }
 
-  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>> = {};
-
-  if (!storageReadFailed) {
-    try {
-      fcmPayload = await getLogoutFcmDeactivationPayload(userId);
-    } catch {
-      preparationWarning =
-        '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.';
-    }
-  }
-
-  const fcmRegistrationBarrier = storageReadFailed
-    ? Promise.resolve()
-    : capturePendingFcmRegistrationBarrier();
+  const fcmRegistrationBarrier = capturePendingFcmRegistrationBarrier();
   const cleared = await clearTokens(expectedGeneration);
 
   if (!cleared) {
     throw new StaleAuthSessionReadError(expectedGeneration);
+  }
+
+  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>> = {};
+  try {
+    fcmPayload = await getLogoutFcmDeactivationPayload(userId);
+  } catch {
+    preparationWarning ??=
+      '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.';
   }
 
   const handedOffTokens = await collectRefreshTokensForLogout(expectedGeneration);
@@ -174,6 +198,10 @@ async function prepareCurrentSessionLogoutInternal(
         refreshToken: handedOffTokens.refreshToken,
       }
     : authSession;
+  if (!remoteAuthSession.accessToken) {
+    preparationWarning ??=
+      '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
+  }
 
   if (fcmPayload.clientInstanceId) {
     try {
@@ -271,9 +299,13 @@ function trackRemoteLogout(
 
 export async function waitForAuthEntryAvailability() {
   if (!(await waitForLocalSessionCleanup(LOGOUT_PREPARATION_TIMEOUT_MS))) {
+    discardAllRefreshLogoutHandoffs();
     throw createLogoutCleanupPendingError();
   }
-  if (hasRefreshLogoutHandoff()) remoteLogoutRestartRequired = true;
+  const handoffStatus = await settleRefreshHandoffsForAuthEntry(
+    LOGOUT_PREPARATION_TIMEOUT_MS,
+  );
+  if (handoffStatus !== 'clear') remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
   const pending = remoteLogoutInFlight;
 
@@ -310,7 +342,9 @@ function createLogoutCleanupPendingError() {
 export function resetAuthEntryBarrierForTests() {
   remoteLogoutInFlight = null;
   remoteLogoutRestartRequired = false;
+  logoutPreparationByGeneration.clear();
 }
+
 
 async function waitForLogoutBarrier(promise: Promise<unknown>) {
   let timeoutId: ReturnType<typeof setTimeout>;

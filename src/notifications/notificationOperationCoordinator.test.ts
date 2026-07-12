@@ -55,4 +55,16 @@ describe('notification operation coordinator', () => {
     const second = coordinator.start(7);
     expect(coordinator.isCurrent(second)).toBe(true);
   });
+
+  it('rejects the latest operation when its auth generation becomes stale', () => {
+    let currentGeneration = 8;
+    const coordinator = createNotificationOperationCoordinator(
+      (generation) => generation === currentGeneration,
+    );
+    coordinator.setup();
+    const operation = coordinator.start(8);
+    expect(coordinator.isCurrent(operation)).toBe(true);
+    currentGeneration = 9;
+    expect(coordinator.isCurrent(operation)).toBe(false);
+  });
 });

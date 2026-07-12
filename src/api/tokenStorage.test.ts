@@ -170,6 +170,46 @@ describe('native auth token storage', () => {
     await tokenStorage.clearTokens(generation);
   });
 
+  it('does not restore the previous auth session after durable logout and restart', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens({
+      accessToken: 'restart-old-access', refreshToken: 'restart-old-refresh',
+    }, generation);
+    await tokenStorage.clearTokens(generation);
+
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    await expect(restartedStorage.getStoredTokens()).resolves.toEqual({
+      accessToken: null, refreshToken: null,
+    });
+  });
+
+  it('persists user-scoped FCM opt-out across logout client rotation', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const clientInstanceId = await tokenStorage.getOrCreateClientInstanceId();
+    await expect(tokenStorage.saveFcmOptOut(42, clientInstanceId, generation)).resolves.toBe(true);
+    await tokenStorage.clearTokens(generation);
+    await tokenStorage.rotateClientInstanceId(clientInstanceId);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    const nextGeneration = restartedStorage.getAuthSessionGeneration();
+    const nextClientInstanceId = await restartedStorage.getOrCreateClientInstanceId();
+
+    await expect(restartedStorage.isFcmOptedOut(
+      42, nextClientInstanceId, nextGeneration,
+    )).resolves.toBe(true);
+    await restartedStorage.clearFcmOptOut(42, nextClientInstanceId, nextGeneration);
+    await expect(restartedStorage.isFcmOptedOut(
+      42, nextClientInstanceId, nextGeneration,
+    )).resolves.toBe(false);
+  });
+
   it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

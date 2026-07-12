@@ -63,6 +63,46 @@ export function hasRefreshLogoutHandoff(generation?: AuthSessionGeneration) {
   return generation === undefined ? entries.size > 0 : entries.has(generation);
 }
 
+export function hasIssuedRefreshTokens(generation?: AuthSessionGeneration) {
+  const candidates = generation === undefined
+    ? [...entries.values()]
+    : [entries.get(generation)].filter((entry): entry is RefreshHandoffEntry => Boolean(entry));
+  return candidates.some((entry) => entry.latestTokens !== null);
+}
+
+export async function settleRefreshHandoffsForAuthEntry(timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (entries.size > 0) {
+    const pending = [...entries.values()].filter((entry) => entry.inFlight > 0);
+    if (pending.length === 0) {
+      const issued = hasIssuedRefreshTokens();
+      entries.clear();
+      return issued ? 'issued' as const : 'clear' as const;
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      entries.clear();
+      return 'timeout' as const;
+    }
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const settled = await Promise.race([
+      Promise.all(pending.map((entry) => entry.settlement)).then(() => true),
+      new Promise<false>((resolve) => {
+        timeoutId = setTimeout(() => resolve(false), remainingMs);
+      }),
+    ]).finally(() => clearTimeout(timeoutId!));
+    if (!settled) {
+      entries.clear();
+      return 'timeout' as const;
+    }
+  }
+  return 'clear' as const;
+}
+
+export function discardAllRefreshLogoutHandoffs() {
+  entries.clear();
+}
+
 export function resetRefreshLogoutHandoffForTests() {
   entries.clear();
 }

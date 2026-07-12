@@ -124,6 +124,7 @@ import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {
   deactivateCurrentFcmToken,
+  ensureAutomaticFcmRegistration,
   inspectFcmRegistrationStatus,
   registerCurrentFcmToken,
   registerFcmTokenValue,
@@ -415,20 +416,12 @@ export function FaithLogApp() {
           return null;
         }
 
-        return inspectFcmRegistrationStatus(userId, generation).then((status) => {
-          if (
-            !active ||
-            status.status === 'registered'
-          ) {
-            return status;
-          }
-
-          return registerCurrentFcmToken(
-            session.accessToken!,
-            userId,
-            generation,
-          );
-        });
+        return ensureAutomaticFcmRegistration(
+          session.accessToken,
+          userId,
+          generation,
+          () => active && isAuthSessionRequestAllowed(generation),
+        );
       })
       .catch((error) => {
         if (!active) {
@@ -3553,6 +3546,13 @@ function renderNotificationSettingRows(state: NotificationUiState) {
         <>
           <ListRow label="권한" supportingText="기기 알림은 허용됨" value="허용됨" />
           <ListRow label="연결" supportingText={state.message} value="대기" />
+        </>
+      );
+    case 'optedOut':
+      return (
+        <>
+          <ListRow label="알림 연결" supportingText={state.message} value="비활성화" />
+          <ListRow label="다시 켜기" supportingText="알림 켜기를 누르면 다시 연결됩니다" value="선택" />
         </>
       );
     case 'disabled':
