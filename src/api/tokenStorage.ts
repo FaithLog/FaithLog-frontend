@@ -42,6 +42,16 @@ export class StaleAuthSessionReadError extends Error {
   }
 }
 
+export class StoredSessionTeardownPreparationError extends Error {
+  constructor(
+    readonly markerPersisted: boolean,
+    options?: {cause?: unknown},
+  ) {
+    super('Unable to prepare the stored session for durable teardown.');
+    this.cause = options?.cause;
+  }
+}
+
 export class CorruptFcmPrivacyStateError extends Error {
   constructor(readonly storageKey: 'optOut' | 'registrationAttempts' | 'remoteCleanup') {
     super(`Stored FCM ${storageKey} privacy state is corrupt.`);
@@ -686,46 +696,139 @@ export async function materializeStoredSessionLogoutObligation(
 ) {
   return withSecureStorageLock(async () => {
     assertExpectedGeneration(expectedGeneration);
-    let record = parseStoredTokenRecord(await getStorageItem(AUTH_TOKENS_KEY));
-    if (!record) {
-      const [legacyAccessToken, legacyRefreshToken] = await Promise.all([
-        getStorageItem(LEGACY_ACCESS_TOKEN_KEY),
-        getStorageItem(LEGACY_REFRESH_TOKEN_KEY),
-      ]);
-      if (legacyAccessToken?.trim() && legacyRefreshToken?.trim()) {
-        record = {
-          version: 1,
-          accessToken: legacyAccessToken,
-          refreshToken: legacyRefreshToken,
-        };
-      }
-    }
+    const record = await readStoredTokenRecordForTeardown();
     assertExpectedGeneration(expectedGeneration);
     if (!record) return null;
-    const current = parseStoredFcmRemoteCleanupObligations(
-      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
-    );
-    assertExpectedGeneration(expectedGeneration);
-    const sessionLogout: StoredFcmRemoteCleanupObligation = {
-      accessToken: record.accessToken,
-      refreshToken: record.refreshToken,
-      userId: null,
-      clientInstanceId: null,
-      kind: 'clientLogout',
-      token: null,
-      tokenId: null,
-    };
-    const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
-    for (const entry of [...current, sessionLogout]) {
-      byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
-    }
-    await setStorageItem(
-      FCM_REMOTE_CLEANUP_PENDING_KEY,
-      JSON.stringify({version: 1, obligations: [...byIdentity.values()]}),
-    );
+    await upsertStoredSessionLogoutObligation(record);
     assertExpectedGeneration(expectedGeneration);
     return {accessToken: record.accessToken, refreshToken: record.refreshToken};
   });
+}
+
+export async function prepareDurableStoredSessionTeardown(
+  expectedGeneration: AuthSessionGeneration = getAuthSessionGeneration(),
+) {
+  return withSecureStorageLock(async () => {
+    assertExpectedGeneration(expectedGeneration);
+    let markerAlreadyPending: boolean | 'unknown' = 'unknown';
+    try {
+      markerAlreadyPending =
+        (await getStorageItem(AUTH_TEARDOWN_PENDING_KEY)) === INVALIDATED_VALUE;
+    } catch {
+      // Continue with both durable recovery mechanisms. If lineage changes,
+      // the unknown prior marker ownership is retained fail-closed.
+    }
+    assertExpectedGeneration(expectedGeneration);
+    let markerPersisted = false;
+    let insertedSessionLogout = false;
+    let record: StoredTokenRecord | null = null;
+    try {
+      await setStorageItem(AUTH_TEARDOWN_PENDING_KEY, INVALIDATED_VALUE);
+      markerPersisted = true;
+    } catch {
+      // The session receipt below is an equivalent durable recovery gate.
+    }
+    try {
+      assertExpectedGeneration(expectedGeneration);
+      record = await readStoredTokenRecordForTeardown();
+      assertExpectedGeneration(expectedGeneration);
+      if (record) insertedSessionLogout = await upsertStoredSessionLogoutObligation(record);
+      assertExpectedGeneration(expectedGeneration);
+      return {
+        markerPersisted,
+        tokens: record
+          ? {accessToken: record.accessToken, refreshToken: record.refreshToken}
+          : null,
+      };
+    } catch (cause) {
+      if (cause instanceof StaleAuthSessionReadError) {
+        if (markerAlreadyPending === 'unknown' && markerPersisted) {
+          throw new StoredSessionTeardownPreparationError(true, {cause});
+        }
+        try {
+          if (insertedSessionLogout && record) {
+            await removeStoredSessionLogoutObligation(record);
+          }
+          if (markerPersisted && markerAlreadyPending === false) {
+            await deleteStorageItem(AUTH_TEARDOWN_PENDING_KEY);
+          }
+        } catch (rollbackCause) {
+          throw new StoredSessionTeardownPreparationError(markerPersisted, {
+            cause: rollbackCause,
+          });
+        }
+        throw cause;
+      }
+      throw new StoredSessionTeardownPreparationError(markerPersisted, {cause});
+    }
+  });
+}
+
+async function readStoredTokenRecordForTeardown(): Promise<StoredTokenRecord | null> {
+  let record = parseStoredTokenRecord(await getStorageItem(AUTH_TOKENS_KEY));
+  if (record) return record;
+  const [legacyAccessToken, legacyRefreshToken] = await Promise.all([
+    getStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+    getStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+  ]);
+  if (!legacyAccessToken?.trim() || !legacyRefreshToken?.trim()) return null;
+  return {
+    version: 1,
+    accessToken: legacyAccessToken,
+    refreshToken: legacyRefreshToken,
+  };
+}
+
+async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord) {
+  const current = parseStoredFcmRemoteCleanupObligations(
+    await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+  );
+  const sessionLogout: StoredFcmRemoteCleanupObligation = {
+    accessToken: record.accessToken,
+    refreshToken: record.refreshToken,
+    userId: null,
+    clientInstanceId: null,
+    kind: 'clientLogout',
+    token: null,
+    tokenId: null,
+  };
+  const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
+  const identity = getFcmRemoteCleanupIdentity(sessionLogout);
+  const inserted = !current.some((entry) => getFcmRemoteCleanupIdentity(entry) === identity);
+  for (const entry of [...current, sessionLogout]) {
+    byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
+  }
+  await setStorageItem(
+    FCM_REMOTE_CLEANUP_PENDING_KEY,
+    JSON.stringify({version: 1, obligations: [...byIdentity.values()]}),
+  );
+  return inserted;
+}
+
+async function removeStoredSessionLogoutObligation(record: StoredTokenRecord) {
+  const current = parseStoredFcmRemoteCleanupObligations(
+    await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+  );
+  const identity = getFcmRemoteCleanupIdentity({
+    accessToken: record.accessToken,
+    refreshToken: record.refreshToken,
+    userId: null,
+    clientInstanceId: null,
+    kind: 'clientLogout',
+    token: null,
+    tokenId: null,
+  });
+  const remaining = current.filter(
+    (entry) => getFcmRemoteCleanupIdentity(entry) !== identity,
+  );
+  if (remaining.length === 0) {
+    await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+    return;
+  }
+  await setStorageItem(
+    FCM_REMOTE_CLEANUP_PENDING_KEY,
+    JSON.stringify({version: 1, obligations: remaining}),
+  );
 }
 
 export async function clearFcmRemoteCleanupPending() {

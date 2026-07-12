@@ -986,6 +986,30 @@ describe('FaithLog API client', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('does not report the FCM server boundary before ownership and closing checks pass', async () => {
+    let finishOwnership!: (owned: boolean) => void;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => { finishOwnership = resolve; }),
+    );
+    const onDispatch = vi.fn();
+    const pending = registerMyFcmToken(
+      'first-user-access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      undefined,
+      onDispatch,
+    );
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishOwnership(true);
+
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(onDispatch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('retries a same-session stale token with an already rotated stored token', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,

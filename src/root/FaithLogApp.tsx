@@ -1931,7 +1931,11 @@ function AuthenticatedShell({
           ? nextState
           : currentState);
       };
-      if (transition.initialState.warning) applyWarning(transition.initialState);
+      if (transition.initialState.warning) {
+        setAuthState((currentState) => currentState.status === 'signedOut'
+          ? transition.initialState
+          : currentState);
+      }
       if (transition.remoteState) void transition.remoteState.then(applyWarning);
     });
   };

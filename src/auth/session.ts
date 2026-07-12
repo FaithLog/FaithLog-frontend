@@ -26,11 +26,13 @@ import {
   markFcmRemoteCleanupPending,
   replaceFcmRemoteCleanupObligations,
   materializeStoredSessionLogoutObligation,
+  prepareDurableStoredSessionTeardown,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
   startAuthSessionClear,
   StaleAuthSessionReadError,
+  StoredSessionTeardownPreparationError,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {
@@ -184,8 +186,30 @@ async function prepareCurrentSessionLogoutInternal(
   if (!markAuthSessionClosing(expectedGeneration)) {
     throw new StaleAuthSessionReadError(expectedGeneration);
   }
-  await markAuthTeardownPending();
   const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
+  let preparationWarning: string | null = null;
+  let durablePreparation: Awaited<ReturnType<typeof prepareDurableStoredSessionTeardown>>;
+  try {
+    durablePreparation = await prepareDurableStoredSessionTeardown(expectedGeneration);
+  } catch (error) {
+    if (
+      error instanceof StoredSessionTeardownPreparationError &&
+      error.markerPersisted
+    ) {
+      // Keep the original credentials intact so restart/auth-entry can retry
+      // materialization under the durable teardown marker.
+      throw error;
+    }
+    // Both recovery mechanisms failed. Still attempt durable local
+    // invalidation so an explicitly logged-out session cannot auto-restore.
+    const cleared = await clearTokens(expectedGeneration);
+    if (!cleared) throw new StaleAuthSessionReadError(expectedGeneration);
+    throw error;
+  }
+  if (!durablePreparation.markerPersisted) {
+    preparationWarning =
+      '로그아웃 복구 표식 대신 세션 폐기 영수증으로 기기 로그아웃을 완료했습니다.';
+  }
   const fcmOperations = capturePendingFcmOperations(expectedGeneration);
   const hasServerFcmObligations = fcmOperations.hasServerObligations ??
     (() => fcmOperations.hasPendingOperations);
@@ -193,20 +217,11 @@ async function prepareCurrentSessionLogoutInternal(
   if (initialFcmObligations.length > 0) {
     await markFcmRemoteCleanupPending(initialFcmObligations);
   }
-  let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
-  let preparationWarning: string | null = null;
-
-  try {
-    authSession = await getStoredAuthSession(expectedGeneration);
-  } catch (error) {
-    if (error instanceof StaleAuthSessionReadError) throw error;
-    preparationWarning = '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
-    authSession = {
-      generation: expectedGeneration,
-      accessToken: null,
-      refreshToken: null,
-    };
-  }
+  const authSession: Awaited<ReturnType<typeof getStoredAuthSession>> = {
+    generation: expectedGeneration,
+    accessToken: durablePreparation.tokens?.accessToken ?? null,
+    refreshToken: durablePreparation.tokens?.refreshToken ?? null,
+  };
 
   const preClearSessionLogout = createClientLogoutObligation(
     authSession.accessToken,

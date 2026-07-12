@@ -3,7 +3,9 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 const state = vi.hoisted(() => ({
   storage: new Map<string, string>(),
   failSet: new Set<string>(),
+  failSetOnce: new Set<string>(),
   failDelete: new Set<string>(),
+  failGetOnce: new Set<string>(),
 }));
 const api = vi.hoisted(() => ({
   deactivateCleanup: vi.fn(),
@@ -12,6 +14,7 @@ const api = vi.hoisted(() => ({
   fcmPayload: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
+  refresh: vi.fn(),
   register: vi.fn(),
   registerCleanup: vi.fn(),
   signup: vi.fn(),
@@ -19,8 +22,12 @@ const api = vi.hoisted(() => ({
 
 vi.mock('expo-secure-store', () => ({
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
-  getItemAsync: vi.fn(async (key: string) => state.storage.get(key) ?? null),
+  getItemAsync: vi.fn(async (key: string) => {
+    if (state.failGetOnce.delete(key)) throw new Error('get failed');
+    return state.storage.get(key) ?? null;
+  }),
   setItemAsync: vi.fn(async (key: string, value: string) => {
+    if (state.failSetOnce.delete(key)) throw new Error('set failed once');
     if (state.failSet.has(key)) throw new Error('set failed');
     state.storage.set(key, value);
   }),
@@ -42,7 +49,7 @@ vi.mock('../api/client', () => ({
   fetchMyCampuses: api.fetchCampuses,
   loginUser: api.login,
   logoutUser: api.logout,
-  refreshAuthToken: vi.fn(),
+  refreshAuthToken: api.refresh,
   refreshAuthTokenForCleanup: vi.fn(),
   registerMyFcmToken: api.register,
   registerMyFcmTokenForCleanup: api.registerCleanup,
@@ -64,12 +71,23 @@ describe('active remote cleanup ownership', () => {
   beforeEach(() => {
     state.storage.clear();
     state.failSet.clear();
+    state.failSetOnce.clear();
     state.failDelete.clear();
+    state.failGetOnce.clear();
     vi.clearAllMocks();
     vi.resetModules();
     api.deactivateCleanup.mockResolvedValue(null);
     api.fcmPayload.mockResolvedValue({});
     api.logout.mockResolvedValue(null);
+    api.registerCleanup.mockResolvedValue({
+      appVersion: '0.1.0-test', clientInstanceId: 'current-client', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+    });
+    api.refresh.mockResolvedValue({
+      accessToken: 'refreshed-access', refreshToken: 'refreshed-refresh',
+      accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+    });
     api.login.mockResolvedValue({
       accessToken: 'new-access', refreshToken: 'new-refresh',
       accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
@@ -310,6 +328,82 @@ describe('active remote cleanup ownership', () => {
     expect(state.storage.has('faithlog.authTokens.v2')).toBe(false);
   });
 
+  it('falls back to a durable receipt when the logout marker write fails once', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    state.failSetOnce.add('faithlog.authTeardownPending');
+    const session = await import('./session');
+
+    await session.prepareCurrentSessionLogout(42);
+    expect(state.storage.get('faithlog.authInvalidated')).toBe('1');
+    expect(state.storage.has('faithlog.authTokens.v2')).toBe(false);
+    expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(true);
+    expect(api.logout).not.toHaveBeenCalled();
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    await import('../notifications/fcmRegistration');
+    const gate = await import('./authGate');
+    await expect(gate.bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+    expect(api.logout).toHaveBeenCalledWith('old-access', {refreshToken: 'old-refresh'});
+    expect(api.refresh).not.toHaveBeenCalled();
+  });
+
+  it('keeps tokens and the teardown marker when the first credential read fails', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    state.failGetOnce.add('faithlog.authTokens.v2');
+    const session = await import('./session');
+
+    await expect(session.prepareCurrentSessionLogout(42)).rejects.toThrow(
+      'Unable to prepare the stored session for durable teardown',
+    );
+    expect(state.storage.get('faithlog.authTeardownPending')).toBe('1');
+    expect(state.storage.has('faithlog.authTokens.v2')).toBe(true);
+    expect(state.storage.has('faithlog.authInvalidated')).toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    await import('../notifications/fcmRegistration');
+    const gate = await import('./authGate');
+    await expect(gate.bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+    expect(api.logout).toHaveBeenCalledWith('old-access', {refreshToken: 'old-refresh'});
+    expect(api.refresh).not.toHaveBeenCalled();
+    expect(state.storage.has('faithlog.authTeardownPending')).toBe(false);
+    expect(state.storage.has('faithlog.authTokens.v2')).toBe(false);
+  });
+
+  it.each([false, true])(
+    'materializes a revoke receipt when the marker read fails (marker write fails: %s)',
+    async (markerWriteFails) => {
+      const storage = await import('../api/tokenStorage');
+      const generation = await storage.beginAuthSession();
+      await storage.saveTokens(
+        {accessToken: 'old-access', refreshToken: 'old-refresh'}, generation,
+      );
+      state.failGetOnce.add('faithlog.authTeardownPending');
+      if (markerWriteFails) state.failSetOnce.add('faithlog.authTeardownPending');
+      const session = await import('./session');
+
+      await session.prepareCurrentSessionLogout(42);
+      expect(state.storage.has('faithlog.authTokens.v2')).toBe(false);
+      expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(true);
+
+      const snapshot = new Map(state.storage);
+      vi.resetModules();
+      state.storage = snapshot;
+      await import('../notifications/fcmRegistration');
+      const gate = await import('./authGate');
+      await expect(gate.bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+      expect(api.logout).toHaveBeenCalledWith('old-access', {refreshToken: 'old-refresh'});
+      expect(api.refresh).not.toHaveBeenCalled();
+    },
+  );
+
   it('materializes legacy stored credentials before teardown deletes them', async () => {
     state.storage.set('faithlog.accessToken', 'legacy-access');
     state.storage.set('faithlog.refreshToken', 'legacy-refresh');
@@ -388,6 +482,23 @@ describe('active remote cleanup ownership', () => {
     await expect(deletion).rejects.toThrow('delete failed');
     expect(deleteAccount).not.toHaveBeenCalled();
     expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(true);
+
+    state.failDelete.clear();
+    const retryDelete = vi.fn(async () => undefined);
+    await expect(fcm.runAccountDeletionWithFcmPreflight(
+      generation, async () => 'old-access', retryDelete,
+    )).rejects.toThrow();
+    expect(retryDelete).not.toHaveBeenCalled();
+    expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(true);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    const restartedStorage = await import('../api/tokenStorage');
+    await expect(restartedStorage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
   });
 
   it('retains captured receipts when latest-token resolution cancels account deletion', async () => {
@@ -422,5 +533,73 @@ describe('active remote cleanup ownership', () => {
         kind: 'registration', token: 'device-token',
       })]),
     );
+  });
+
+  it.each([
+    {kind: 'sessionExpired', code: undefined, restoreFails: false, waiterBeforeFailure: true},
+    {kind: 'error', code: 'AUTH_SESSION_CHANGED', restoreFails: false, waiterBeforeFailure: true},
+    {kind: 'sessionExpired', code: undefined, restoreFails: true, waiterBeforeFailure: true},
+    {kind: 'sessionExpired', code: undefined, restoreFails: true, waiterBeforeFailure: false},
+  ] as const)('restores claimed receipts before propagating account deletion auth teardown ($code$kind, failure=$restoreFails, waiter=$waiterBeforeFailure)', async ({kind, code, restoreFails, waiterBeforeFailure}) => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    let finishRegistration!: (value: {
+      appVersion: string; clientInstanceId: string; deviceType: 'IOS'; isActive: boolean;
+      lastRefreshedAt: string; lastSeenAt: string; tokenId: number;
+    }) => void;
+    api.register.mockReturnValue(new Promise((resolve) => { finishRegistration = resolve; }));
+    const fcm = await import('../notifications/fcmRegistration');
+    const client = await import('../api/client');
+    const session = await import('./session');
+    const registration = fcm.registerFcmTokenValue(
+      'old-access', 42, 'device-token', generation,
+    );
+    await vi.waitFor(() => expect(api.register).toHaveBeenCalledOnce());
+    let rejectDelete!: (error: Error) => void;
+    const deleteAccount = vi.fn(() => new Promise<never>((_, reject) => {
+      rejectDelete = reject;
+    }));
+    const deletion = fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => 'old-access',
+      deleteAccount,
+    );
+    finishRegistration({
+      appVersion: '0.1.0-test', clientInstanceId: 'current-client', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+    });
+    await registration;
+    await vi.waitFor(() => expect(deleteAccount).toHaveBeenCalledOnce());
+    const nextLogin = waiterBeforeFailure
+      ? session.loginAndEstablishSession({
+          email: 'next@example.test', password: 'test-password',
+        })
+      : null;
+    await Promise.resolve();
+    expect(api.login).not.toHaveBeenCalled();
+    if (restoreFails) state.failSet.add('faithlog.fcmRemoteCleanupPending.v1');
+    rejectDelete(new client.FaithLogApiError({
+      kind, ...(code ? {code} : {}), message: 'auth teardown',
+      authSessionGeneration: generation,
+    }));
+
+    await expect(deletion).rejects.toThrow(restoreFails ? 'set failed' : 'auth teardown');
+    if (restoreFails) {
+      state.failSet.clear();
+      const blockedLogin = nextLogin ?? session.loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      });
+      await expect(blockedLogin).rejects.toThrow('앱을 완전히 종료');
+      expect(api.login).not.toHaveBeenCalled();
+      return;
+    }
+    await expect(nextLogin!).resolves.toMatchObject({status: 'noCampus'});
+    expect(api.deactivateCleanup).toHaveBeenCalledWith('old-access', 77);
+    expect(api.deactivateCleanup.mock.invocationCallOrder[0]).toBeLessThan(
+      api.login.mock.invocationCallOrder[0]!,
+    );
+    await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
   });
 });

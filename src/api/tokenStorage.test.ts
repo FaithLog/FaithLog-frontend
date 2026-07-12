@@ -96,6 +96,38 @@ describe('native auth token storage', () => {
     ).resolves.toBe(false);
   });
 
+  it('rolls back an old durable teardown intent when a successor session wins', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens(
+      {accessToken: 'old-access', refreshToken: 'old-refresh'}, generation,
+    );
+    let releaseMarker!: () => void;
+    const markerBlocked = new Promise<void>((resolve) => { releaseMarker = resolve; });
+    secureStoreMocks.setItemAsync.mockImplementationOnce(async (key, value) => {
+      testState.storage.set(key, value);
+      await markerBlocked;
+    });
+
+    const teardown = tokenStorage.prepareDurableStoredSessionTeardown(generation);
+    await vi.waitFor(() => {
+      expect(testState.storage.get('faithlog.authTeardownPending')).toBe('1');
+    });
+    const successor = tokenStorage.beginAuthSession();
+    releaseMarker();
+
+    await expect(teardown).rejects.toBeInstanceOf(tokenStorage.StaleAuthSessionReadError);
+    const successorGeneration = await successor;
+    expect(testState.storage.has('faithlog.authTeardownPending')).toBe(false);
+    expect(testState.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+    await expect(tokenStorage.saveTokens(
+      {accessToken: 'new-access', refreshToken: 'new-refresh'}, successorGeneration,
+    )).resolves.toBe(true);
+    await expect(tokenStorage.getStoredAuthSession(successorGeneration)).resolves.toMatchObject({
+      accessToken: 'new-access', refreshToken: 'new-refresh',
+    });
+  });
+
   it('does not assign a queued token read to a generation created by logout', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

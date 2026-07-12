@@ -76,6 +76,21 @@ export function beginFcmTransitionCleanup(generation?: number) {
   return tracked;
 }
 
+export function trackFcmTransitionBarrier(operation: Promise<void>) {
+  const tracked = operation.then(
+    () => undefined,
+    (error) => {
+      restartRequired = true;
+      throw error;
+    },
+  ).finally(() => {
+    cleanupInFlight.delete(tracked);
+  });
+  cleanupInFlight.add(tracked);
+  void tracked.catch(() => undefined);
+  return operation;
+}
+
 export async function requireFcmRemoteCleanupRestart(
   obligations: FcmRemoteCleanupObligation[] = [],
 ) {
@@ -132,9 +147,15 @@ export async function waitForFcmTransitionCleanup(timeoutMs: number) {
     if (restartRequired) return false;
   }
   if (restartRequired) return false;
-  return await runBeforeDeadline(
-    getFcmRemoteCleanupObligations(), deadline,
-  ).then((value) => value === null, () => false);
+  reconciliationInFlight ??= reconcileDurableCleanup(deadline).finally(() => {
+    reconciliationInFlight = null;
+  });
+  try {
+    return await runBeforeDeadline(reconciliationInFlight, deadline);
+  } catch {
+    restartRequired = true;
+    return false;
+  }
 }
 
 async function reconcileDurableCleanup(deadline: number) {

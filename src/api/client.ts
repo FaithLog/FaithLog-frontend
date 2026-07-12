@@ -163,6 +163,7 @@ type RequestOptions = {
   onResponseParsed?: (value: unknown) => void;
   onEffectiveAuthTokens?: (tokens: Pick<TokenPair, 'accessToken' | 'refreshToken'>) =>
     void | Promise<void>;
+  onRequestDispatch?: () => void;
 };
 
 type ParsedRequestOptions<T> = Omit<RequestOptions, 'responseParser'> & {
@@ -1323,6 +1324,7 @@ export async function apiRequest<T>(
   try {
     await assertRequestAccessTokenIsOwned(requestOptions);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
+    requestOptions.onRequestDispatch?.();
     const data = await executeApiRequest<T>(path, requestOptions);
     requestOptions.onResponseParsed?.(data);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
@@ -1372,6 +1374,7 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
   assertAuthSessionRequestIsAllowed(generation);
 
   try {
+    options.onRequestDispatch?.();
     const data = await executeApiRequest<T>(path, {
       ...options,
       accessToken: tokens.accessToken,
@@ -1638,6 +1641,7 @@ export function registerMyFcmToken(
   body: FcmTokenRegisterRequest,
   authSessionGeneration?: AuthSessionGeneration,
   onEffectiveAuthTokens?: RequestOptions['onEffectiveAuthTokens'],
+  onRequestDispatch?: RequestOptions['onRequestDispatch'],
 ) {
   return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
     accessToken,
@@ -1646,6 +1650,7 @@ export function registerMyFcmToken(
     method: 'POST',
     body,
     ...(onEffectiveAuthTokens ? {onEffectiveAuthTokens} : {}),
+    ...(onRequestDispatch ? {onRequestDispatch} : {}),
   });
 }
 
@@ -1669,6 +1674,7 @@ export function deactivateMyFcmToken(
   tokenId: unknown,
   authSessionGeneration?: AuthSessionGeneration,
   onEffectiveAuthTokens?: RequestOptions['onEffectiveAuthTokens'],
+  onRequestDispatch?: RequestOptions['onRequestDispatch'],
 ) {
   return apiRequest<null>(
     buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
@@ -1678,6 +1684,7 @@ export function deactivateMyFcmToken(
       responseParser: parseNullResponse,
       method: 'DELETE',
       ...(onEffectiveAuthTokens ? {onEffectiveAuthTokens} : {}),
+      ...(onRequestDispatch ? {onRequestDispatch} : {}),
     },
   );
 }
