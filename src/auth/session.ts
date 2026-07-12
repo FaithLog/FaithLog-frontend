@@ -271,12 +271,18 @@ async function completeRemoteLogout(
       });
       remoteLogoutConfirmed = true;
     } catch (error) {
-      if (isRemoteLogoutOutcomeUnknown(error)) remoteLogoutRestartRequired = true;
+      if (
+        isRemoteLogoutOutcomeUnknown(error) ||
+        fcmOperationsMayHaveReachedServer ||
+        Boolean(fcmPayload.clientInstanceId)
+      ) {
+        remoteLogoutRestartRequired = true;
+      }
       remoteWarning = toRemoteLogoutWarning(error);
     }
   }
 
-  if (!remoteLogoutRestartRequired && remoteLogoutConfirmed && fcmPayload.clientInstanceId) {
+  if (remoteLogoutConfirmed && fcmPayload.clientInstanceId) {
     try {
       await clearFcmRegistrationAttemptsForClientInstance(fcmPayload.clientInstanceId);
       const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);

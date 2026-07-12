@@ -40,6 +40,12 @@ export class StaleAuthSessionReadError extends Error {
   }
 }
 
+export class CorruptFcmPrivacyStateError extends Error {
+  constructor(readonly storageKey: 'optOut' | 'registrationAttempts') {
+    super(`Stored FCM ${storageKey} privacy state is corrupt.`);
+  }
+}
+
 export type StoredFcmRegistration = {
   token: string | null;
   tokenId: number | null;
@@ -496,17 +502,17 @@ export async function clearFcmRegistration(
   });
 }
 
-export async function getFcmRegistrationAttempt(
+export async function getFcmRegistrationAttempts(
   userId: number,
   generation: AuthSessionGeneration,
-): Promise<StoredFcmRegistrationAttempt | null> {
+): Promise<StoredFcmRegistrationAttempt[]> {
   return withSecureStorageLock(async () => {
     assertExpectedGeneration(generation);
     const entries = parseStoredFcmRegistrationAttempts(
       await getStorageItem(FCM_REGISTRATION_ATTEMPTS_KEY),
     );
     assertExpectedGeneration(generation);
-    return entries.find((entry) => entry.userId === userId) ?? null;
+    return entries.filter((entry) => entry.userId === userId);
   });
 }
 
@@ -516,13 +522,19 @@ export async function saveFcmRegistrationAttempt(
 ) {
   return withSecureStorageLock(async () => {
     assertExpectedGeneration(generation);
+    if (!isAuthSessionRequestAllowed(generation)) return false;
     const normalized = normalizeFcmRegistrationAttempt(attempt);
     if (!normalized) return false;
     const current = parseStoredFcmRegistrationAttempts(
       await getStorageItem(FCM_REGISTRATION_ATTEMPTS_KEY),
     );
     assertExpectedGeneration(generation);
-    const otherEntries = current.filter((entry) => entry.userId !== normalized.userId);
+    if (!isAuthSessionRequestAllowed(generation)) return false;
+    const otherEntries = current.filter((entry) =>
+      entry.userId !== normalized.userId ||
+      entry.clientInstanceId !== normalized.clientInstanceId ||
+      entry.token !== normalized.token,
+    );
     if (otherEntries.length >= 20) {
       throw new Error('Too many unresolved FCM registration attempts.');
     }
@@ -531,12 +543,13 @@ export async function saveFcmRegistrationAttempt(
       JSON.stringify({version: 1, entries: [...otherEntries, normalized]}),
     );
     assertExpectedGeneration(generation);
+    if (!isAuthSessionRequestAllowed(generation)) return false;
     return true;
   });
 }
 
 export async function clearFcmRegistrationAttempt(
-  userId: number,
+  attempt: StoredFcmRegistrationAttempt,
   generation: AuthSessionGeneration,
 ) {
   return withSecureStorageLock(async () => {
@@ -545,7 +558,13 @@ export async function clearFcmRegistrationAttempt(
       await getStorageItem(FCM_REGISTRATION_ATTEMPTS_KEY),
     );
     assertExpectedGeneration(generation);
-    const remaining = current.filter((entry) => entry.userId !== userId);
+    const normalized = normalizeFcmRegistrationAttempt(attempt);
+    if (!normalized) return;
+    const remaining = current.filter((entry) =>
+      entry.userId !== normalized.userId ||
+      entry.clientInstanceId !== normalized.clientInstanceId ||
+      entry.token !== normalized.token,
+    );
     if (remaining.length === current.length) return;
     if (remaining.length === 0) {
       await deleteStorageItem(FCM_REGISTRATION_ATTEMPTS_KEY);
@@ -632,16 +651,17 @@ export async function saveFcmOptOut(
     const retainedConfirmed = current.entries.filter(
       (candidate) => candidate.userId !== userId && candidate.status === 'confirmed',
     );
-    const confirmedCapacity = Math.max(0, 20 - retainedPending.length - (entry.status === 'confirmed' ? 1 : 0));
-    const boundedConfirmed = confirmedCapacity > 0
-      ? retainedConfirmed.slice(-confirmedCapacity)
-      : [];
+    const nextPending = entry.status === 'pending'
+      ? [...retainedPending, entry]
+      : retainedPending;
+    const nextConfirmed = entry.status === 'confirmed'
+      ? [...retainedConfirmed, entry].slice(-20)
+      : retainedConfirmed.slice(-20);
     const record: StoredFcmOptOutRecord = {
       version: 2,
       entries: [
-        ...retainedPending,
-        ...boundedConfirmed,
-        entry,
+        ...nextPending,
+        ...nextConfirmed,
       ],
     };
     await setStorageItem(FCM_OPT_OUT_KEY, JSON.stringify(record));
@@ -841,25 +861,29 @@ function parseStoredFcmOptOutRecord(value: string | null): StoredFcmOptOutRecord
       ? parsed.entries
       : parsed.version === 1
         ? [parsed]
-        : [];
-    const entries = rawEntries.flatMap((value): StoredFcmOptOutEntry[] => {
-      if (!value || typeof value !== 'object') return [];
+        : null;
+    if (!rawEntries) throw new CorruptFcmPrivacyStateError('optOut');
+    const entries = rawEntries.map((value): StoredFcmOptOutEntry => {
+      if (!value || typeof value !== 'object') throw new CorruptFcmPrivacyStateError('optOut');
       const entry = value as Record<string, unknown>;
       if (!Number.isInteger(entry.userId) || Number(entry.userId) <= 0 ||
-          typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId.trim()) return [];
+          typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId.trim()) {
+        throw new CorruptFcmPrivacyStateError('optOut');
+      }
       const tokenId = Number.isInteger(entry.tokenId) && Number(entry.tokenId) > 0
         ? Number(entry.tokenId)
         : null;
-      return [{
+      return {
         userId: Number(entry.userId),
         clientInstanceId: entry.clientInstanceId.trim(),
         status: entry.status === 'confirmed' ? 'confirmed' : 'pending',
         tokenId,
-      }];
+      };
     });
     return {version: 2, entries};
-  } catch {
-    return empty;
+  } catch (error) {
+    if (error instanceof CorruptFcmPrivacyStateError) throw error;
+    throw new CorruptFcmPrivacyStateError('optOut');
   }
 }
 
@@ -867,13 +891,17 @@ function parseStoredFcmRegistrationAttempts(value: string | null): StoredFcmRegi
   if (!value) return [];
   try {
     const parsed = JSON.parse(value) as {version?: unknown; entries?: unknown};
-    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return [];
-    return parsed.entries.flatMap((entry): StoredFcmRegistrationAttempt[] => {
+    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) {
+      throw new CorruptFcmPrivacyStateError('registrationAttempts');
+    }
+    return parsed.entries.map((entry): StoredFcmRegistrationAttempt => {
       const normalized = normalizeFcmRegistrationAttempt(entry);
-      return normalized ? [normalized] : [];
+      if (!normalized) throw new CorruptFcmPrivacyStateError('registrationAttempts');
+      return normalized;
     });
-  } catch {
-    return [];
+  } catch (error) {
+    if (error instanceof CorruptFcmPrivacyStateError) throw error;
+    throw new CorruptFcmPrivacyStateError('registrationAttempts');
   }
 }
 

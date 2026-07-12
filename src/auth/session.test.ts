@@ -2,9 +2,9 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('../api/client', () => ({
   FaithLogApiError: class FaithLogApiError extends Error {
-    readonly detail: {kind: string; message: string};
+    readonly detail: {kind: string; message: string; status?: number};
 
-    constructor(detail: {kind: string; message: string}) {
+    constructor(detail: {kind: string; message: string; status?: number}) {
       super(detail.message);
       this.detail = detail;
     }
@@ -616,6 +616,75 @@ describe('auth session lifecycle', () => {
       expect(vi.mocked(logoutUser).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(rotateClientInstanceId).mock.invocationCallOrder[0]!,
       );
+    },
+  );
+
+  it.each(['known DELETE', 'attempt recovery POST'])(
+    'keeps auth entry closed when a captured %s exceeds the remote deadline',
+    async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+          generation: AUTH_GENERATION, accessToken: null, refreshToken: null,
+        });
+        let finishOperation!: () => void;
+        const barrier = new Promise<void>((resolve) => { finishOperation = resolve; });
+        vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+          barrier,
+          settlement: barrier.then(() => ({
+            accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+          })),
+          hasPendingOperations: true,
+        });
+        const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+        const remote = prepared.completeRemoteLogout();
+        const nextLogin = loginAndEstablishSession({
+          email: 'next@example.test', password: 'test-password',
+        });
+        const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+        await vi.advanceTimersByTimeAsync(21_000);
+        await rejected;
+        expect(loginUser).not.toHaveBeenCalled();
+        finishOperation();
+        await remote;
+        expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {
+          clientInstanceId: 'captured-old-client',
+        });
+        expect(rotateClientInstanceId).toHaveBeenCalledWith('captured-old-client');
+        expect(loginUser).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([401, 500])(
+    'restart-gates auth entry when captured FCM compensation logout returns %s',
+    async (status) => {
+      vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+        generation: AUTH_GENERATION, accessToken: null, refreshToken: null,
+      });
+      vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+        barrier: Promise.resolve(),
+        settlement: Promise.resolve({
+          accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+        }),
+        hasPendingOperations: true,
+      });
+      vi.mocked(logoutUser).mockRejectedValueOnce(new FaithLogApiError({
+        kind: status === 401 ? 'sessionExpired' : 'error', status, message: 'logout failed',
+      }));
+
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      await expect(prepared.completeRemoteLogout()).resolves.toMatchObject({
+        status: 'signedOutWithRemoteWarning',
+      });
+      await expect(loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      })).rejects.toThrow('앱을 완전히 종료');
+      expect(loginUser).not.toHaveBeenCalled();
+      expect(clearFcmRegistrationAttemptsForClientInstance).not.toHaveBeenCalled();
+      expect(rotateClientInstanceId).not.toHaveBeenCalled();
     },
   );
 
