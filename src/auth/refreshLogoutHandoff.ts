@@ -59,6 +59,10 @@ export function discardRefreshTokensAfterCommit(generation: AuthSessionGeneratio
   entries.delete(generation);
 }
 
+export function discardRefreshTokensForGeneration(generation: AuthSessionGeneration) {
+  entries.delete(generation);
+}
+
 export function hasRefreshLogoutHandoff(generation?: AuthSessionGeneration) {
   return generation === undefined ? entries.size > 0 : entries.has(generation);
 }

@@ -30,7 +30,7 @@ import type {
   LoginResponse,
   SignupRequest,
 } from '../api/types';
-import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
+import {capturePendingFcmOperations} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {trackLocalSessionCleanup, waitForLocalSessionCleanup} from './localCleanupBarrier';
 import {
@@ -63,13 +63,15 @@ export type PreparedLogout = {
   completeRemoteLogout: () => Promise<LogoutResult>;
 };
 
-let remoteLogoutInFlight: {
+type RemoteLogoutFlight = {
   cancelBeforeSend: () => boolean;
   promise: Promise<LogoutResult>;
-} | null = null;
+};
+const remoteLogoutFlights = new Set<RemoteLogoutFlight>();
 let remoteLogoutRestartRequired = false;
 const logoutPreparationByGeneration = new Map<AuthSessionGeneration, Promise<PreparedLogout>>();
 const LOGOUT_PREPARATION_TIMEOUT_MS = 5_000;
+const REMOTE_LOGOUT_BARRIER_TIMEOUT_MS = 21_000;
 
 export async function loginAndEstablishSession(credentials: LoginRequest): Promise<SessionResolution> {
   await waitForAuthEntryAvailability();
@@ -175,22 +177,27 @@ async function prepareCurrentSessionLogoutInternal(
     };
   }
 
-  const fcmRegistrationBarrier = capturePendingFcmRegistrationBarrier();
+  const fcmOperations = capturePendingFcmOperations();
   const cleared = await clearTokens(expectedGeneration);
 
   if (!cleared) {
     throw new StaleAuthSessionReadError(expectedGeneration);
   }
 
-  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>> = {};
-  try {
-    fcmPayload = await getLogoutFcmDeactivationPayload(userId);
-  } catch {
+  const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
+  const fcmPayloadPromise = getLogoutFcmDeactivationPayload(userId).then(
+    (payload) => ({payload, failed: false as const}),
+    () => ({payload: {}, failed: true as const}),
+  );
+  const [handedOffTokens, fcmResult] = await Promise.all([
+    handedOffTokensPromise,
+    fcmPayloadPromise,
+  ]);
+  let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>> = fcmResult.payload;
+  if (fcmResult.failed) {
     preparationWarning ??=
       '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.';
   }
-
-  const handedOffTokens = await collectRefreshTokensForLogout(expectedGeneration);
   const remoteAuthSession = handedOffTokens
     ? {
         ...authSession,
@@ -221,7 +228,8 @@ async function prepareCurrentSessionLogoutInternal(
     completeRemoteLogout(
       remoteAuthSession,
       fcmPayload,
-      fcmRegistrationBarrier,
+      fcmOperations.barrier,
+      fcmOperations.hasPendingOperations,
       preparationWarning,
       isCancelled,
       markSent,
@@ -237,10 +245,12 @@ async function completeRemoteLogout(
   authSession: Awaited<ReturnType<typeof getStoredAuthSession>>,
   fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>>,
   fcmRegistrationBarrier: Promise<void>,
+  fcmOperationsMayHaveReachedServer: boolean,
   preparationWarning: string | null,
   isCancelled: () => boolean,
   markSent: () => void,
 ): Promise<LogoutResult> {
+  if (fcmOperationsMayHaveReachedServer) markSent();
   await fcmRegistrationBarrier;
   if (isCancelled()) {
     return {
@@ -288,12 +298,10 @@ function trackRemoteLogout(
     promise: Promise.resolve({status: 'signedOut'} as LogoutResult),
   };
   const tracked = createOperation(() => cancelled, () => { sent = true; }).finally(() => {
-    if (remoteLogoutInFlight === flight) {
-      remoteLogoutInFlight = null;
-    }
+    remoteLogoutFlights.delete(flight);
   });
   flight.promise = tracked;
-  remoteLogoutInFlight = flight;
+  remoteLogoutFlights.add(flight);
   return tracked;
 }
 
@@ -307,18 +315,23 @@ export async function waitForAuthEntryAvailability() {
   );
   if (handoffStatus !== 'clear') remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
-  const pending = remoteLogoutInFlight;
+  const pending = [...remoteLogoutFlights];
 
-  if (!pending) {
+  if (pending.length === 0) {
     return;
   }
 
   try {
-    await waitForLogoutBarrier(pending.promise);
+    await waitForLogoutBarrier(
+      Promise.all(pending.map((flight) => flight.promise)),
+      REMOTE_LOGOUT_BARRIER_TIMEOUT_MS,
+    );
     if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
   } catch {
-    if (pending.cancelBeforeSend()) {
-      if (remoteLogoutInFlight === pending) remoteLogoutInFlight = null;
+    const cancellationResults = pending.map((flight) => flight.cancelBeforeSend());
+    const allCancelledBeforeSend = cancellationResults.every(Boolean);
+    if (allCancelledBeforeSend) {
+      pending.forEach((flight) => remoteLogoutFlights.delete(flight));
       return;
     }
     remoteLogoutRestartRequired = true;
@@ -340,20 +353,20 @@ function createLogoutCleanupPendingError() {
 }
 
 export function resetAuthEntryBarrierForTests() {
-  remoteLogoutInFlight = null;
+  remoteLogoutFlights.clear();
   remoteLogoutRestartRequired = false;
   logoutPreparationByGeneration.clear();
 }
 
 
-async function waitForLogoutBarrier(promise: Promise<unknown>) {
+async function waitForLogoutBarrier(promise: Promise<unknown>, timeoutMs: number) {
   let timeoutId: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => reject(new FaithLogApiError({
       kind: 'conflict',
       code: 'LOGOUT_CLEANUP_PENDING',
       message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
-    })), LOGOUT_PREPARATION_TIMEOUT_MS);
+    })), timeoutMs);
   });
   try {
     await Promise.race([promise, timeout]);

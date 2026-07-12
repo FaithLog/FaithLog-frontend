@@ -8,6 +8,7 @@ import {
   clearFcmOptOut,
   getAuthSessionGeneration,
   getOrCreateClientInstanceId,
+  getFcmOptOutState,
   getStoredFcmRegistration,
   isFcmOptedOut,
   isAuthSessionGenerationCurrent,
@@ -63,6 +64,10 @@ export type FcmRegistrationStatus =
       message: string;
     }
   | {
+      status: 'optedOutPending';
+      message: string;
+    }
+  | {
       status: 'disabled';
       reason: FcmRuntimeDisabledReason;
       message: string;
@@ -101,8 +106,11 @@ export async function inspectFcmRegistrationStatus(
 
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
-  if (await isFcmOptedOut(userId, clientInstanceId, generation)) {
-    return {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'};
+  const optOut = await getFcmOptOutState(userId, generation);
+  if (optOut) {
+    return optOut.status === 'confirmed'
+      ? {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'}
+      : {status: 'optedOutPending', message: '서버의 알림 연결 해제를 다시 확인해야 합니다.'};
   }
 
   if (stored.tokenId && stored.userId === userId) {
@@ -143,8 +151,11 @@ export async function registerCurrentFcmToken(
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
   if (mode === 'automatic') {
-    if (await isFcmOptedOut(userId, clientInstanceId, generation)) {
-      return {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'};
+    const optOut = await getFcmOptOutState(userId, generation);
+    if (optOut) {
+      return optOut.status === 'confirmed'
+        ? {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'}
+        : {status: 'optedOutPending', message: '서버의 알림 연결 해제를 다시 확인해야 합니다.'};
     }
   } else {
     await clearFcmOptOut(userId, clientInstanceId, generation);
@@ -214,12 +225,33 @@ export async function ensureAutomaticFcmRegistration(
   generation: AuthSessionGeneration,
   isCurrent: () => boolean = () => true,
 ) {
-  const status = await inspectFcmRegistrationStatus(userId, generation);
+  const status = await inspectFcmRegistrationStatusWithCleanup(
+    accessToken, userId, generation,
+  );
   if (!isCurrent()) return status;
   return status.status === 'registered' || status.status === 'registeredLocal' ||
-    status.status === 'optedOut'
+    status.status === 'optedOut' || status.status === 'optedOutPending'
     ? status
     : registerCurrentFcmToken(accessToken, userId, generation, 'automatic');
+}
+
+export async function inspectFcmRegistrationStatusWithCleanup(
+  accessToken: string,
+  userId: number,
+  generation: AuthSessionGeneration,
+) {
+  const optOut = await getFcmOptOutState(userId, generation);
+  if (optOut?.status === 'pending') {
+    try {
+      await enqueueFcmOperation(
+        () => deactivateCurrentFcmTokenInternal(accessToken, userId, generation),
+      );
+    } catch (error) {
+      if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') throw error;
+      return {status: 'optedOutPending' as const, message: '서버의 알림 연결 해제를 다시 확인해야 합니다.'};
+    }
+  }
+  return inspectFcmRegistrationStatus(userId, generation);
 }
 
 export function registerFcmTokenValue(
@@ -248,10 +280,15 @@ function enqueueFcmOperation<T>(run: () => Promise<T>) {
 }
 
 export function capturePendingFcmRegistrationBarrier(): Promise<void> {
+  return capturePendingFcmOperations().barrier;
+}
+
+export function capturePendingFcmOperations() {
   const pendingAtCapture = [...pendingFcmRegistrations];
-  return pendingAtCapture.length === 0
+  const barrier = pendingAtCapture.length === 0
     ? Promise.resolve()
     : Promise.allSettled(pendingAtCapture).then(() => undefined);
+  return {barrier, hasPendingOperations: pendingAtCapture.length > 0};
 }
 
 async function registerFcmTokenValueInternal(
@@ -338,7 +375,12 @@ export async function deactivateCurrentFcmToken(
 
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
-  const savedOptOut = await saveFcmOptOut(userId, clientInstanceId, generation);
+  const stored = await getStoredFcmRegistration();
+  assertFcmAuthSessionCurrent(generation);
+  const savedOptOut = await saveFcmOptOut(userId, clientInstanceId, generation, {
+    status: 'pending',
+    tokenId: stored.userId === userId ? stored.tokenId : null,
+  });
   if (!savedOptOut) throw new Error('Unable to persist the notification opt-out preference.');
 
   return enqueueFcmOperation(
@@ -358,20 +400,35 @@ async function deactivateCurrentFcmTokenInternal(
     return {status: 'skipped' as const};
   }
 
-  const {tokenId, userId: storedUserId} = await getStoredFcmRegistration();
+  const {tokenId: storedTokenId, userId: storedUserId} = await getStoredFcmRegistration();
+  assertFcmAuthSessionCurrent(generation);
+  const optOut = await getFcmOptOutState(userId, generation);
+  const tokenId = storedUserId === userId ? storedTokenId : optOut?.tokenId ?? null;
+  const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
 
-  if (!tokenId || storedUserId !== userId) {
+  if (!tokenId) {
     await clearFcmRegistration(generation);
+    await saveFcmOptOut(userId, clientInstanceId, generation, {status: 'confirmed'});
     return {status: 'skipped' as const};
   }
+
+  await saveFcmOptOut(userId, clientInstanceId, generation, {
+    status: 'pending', tokenId,
+  });
 
   try {
     await deactivateMyFcmToken(accessToken, tokenId, generation);
     await clearFcmRegistration(generation);
+    await saveFcmOptOut(userId, clientInstanceId, generation, {status: 'confirmed'});
 
     return {status: 'deactivated' as const};
   } catch (error) {
+    if (error instanceof FaithLogApiError && error.detail.status === 404) {
+      await clearFcmRegistration(generation);
+      await saveFcmOptOut(userId, clientInstanceId, generation, {status: 'confirmed'});
+      return {status: 'deactivated' as const};
+    }
     if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
       await clearFcmRegistration(generation);
     }

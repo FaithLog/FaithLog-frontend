@@ -1,6 +1,6 @@
 import {getAuthSessionGeneration, startAuthSessionClear, type AuthSessionGeneration} from '../api/tokenStorage';
 import {requireLocalSessionCleanupRestart, trackLocalSessionCleanup} from './localCleanupBarrier';
-import {hasIssuedRefreshTokens} from './refreshLogoutHandoff';
+import {discardRefreshTokensForGeneration, hasIssuedRefreshTokens} from './refreshLogoutHandoff';
 
 export type SessionExpirationEvent = {
   expiredGeneration: AuthSessionGeneration;
@@ -18,6 +18,7 @@ export function expireAuthSession(generation: AuthSessionGeneration) {
   const transition = startAuthSessionClear(generation);
   if (transition.cleared && hasIssuedRefreshTokens(generation)) {
     requireLocalSessionCleanupRestart();
+    discardRefreshTokensForGeneration(generation);
   }
   const clearedGeneration = transition.currentGeneration;
   if (transition.cleared && clearedGeneration === generation + 1) {

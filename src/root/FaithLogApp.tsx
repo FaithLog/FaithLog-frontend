@@ -125,7 +125,7 @@ import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
-  inspectFcmRegistrationStatus,
+  inspectFcmRegistrationStatusWithCleanup,
   registerCurrentFcmToken,
   registerFcmTokenValue,
   type FcmRegistrationStatus,
@@ -3359,7 +3359,15 @@ function NotificationSettingsDetail({
     if (!isCurrent()) return;
     setState({status: 'checking'});
     try {
-      const nextState = await inspectFcmRegistrationStatus(
+      const accessToken = await resolveCurrentAccessToken(() => {
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
+      });
+      if (!accessToken || !isCurrent()) return;
+      const nextState = await inspectFcmRegistrationStatusWithCleanup(
+        accessToken,
         userId,
         identity.generation as AuthSessionGeneration,
       );
@@ -3553,6 +3561,13 @@ function renderNotificationSettingRows(state: NotificationUiState) {
         <>
           <ListRow label="알림 연결" supportingText={state.message} value="비활성화" />
           <ListRow label="다시 켜기" supportingText="알림 켜기를 누르면 다시 연결됩니다" value="선택" />
+        </>
+      );
+    case 'optedOutPending':
+      return (
+        <>
+          <ListRow label="알림 연결" supportingText={state.message} value="확인 필요" />
+          <ListRow label="재시도" supportingText="다시 확인하면 서버 해제를 재시도합니다" value="대기" />
         </>
       );
     case 'disabled':

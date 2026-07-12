@@ -40,7 +40,9 @@ vi.mock('./fcmLogout', () => ({
 }));
 
 vi.mock('../notifications/fcmRegistration', () => ({
-  capturePendingFcmRegistrationBarrier: vi.fn(() => Promise.resolve()),
+  capturePendingFcmOperations: vi.fn(() => ({
+    barrier: Promise.resolve(), hasPendingOperations: false,
+  })),
 }));
 
 import {
@@ -69,7 +71,7 @@ import {
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {CurrentUser, LoginResponse} from '../api/types';
-import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
+import {capturePendingFcmOperations} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
 import {
@@ -138,9 +140,9 @@ describe('auth session lifecycle', () => {
       refreshToken: LOGIN_RESPONSE.refreshToken,
     });
     vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValue({});
-    vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValue(
-      Promise.resolve(),
-    );
+    vi.mocked(capturePendingFcmOperations).mockReturnValue({
+      barrier: Promise.resolve(), hasPendingOperations: false,
+    });
     vi.mocked(logoutUser).mockResolvedValue(null);
   });
 
@@ -295,13 +297,14 @@ describe('auth session lifecycle', () => {
     expect(signupUser).not.toHaveBeenCalled();
   });
 
-  it('cancels a late remote logout before allowing the next login', async () => {
+  it('waits past five seconds for sent FCM registration and remote logout before login', async () => {
     vi.useFakeTimers();
     try {
       let finishRegistration!: () => void;
-      vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValue(
-        new Promise<void>((resolve) => { finishRegistration = resolve; }),
-      );
+      vi.mocked(capturePendingFcmOperations).mockReturnValue({
+        barrier: new Promise<void>((resolve) => { finishRegistration = resolve; }),
+        hasPendingOperations: true,
+      });
 
       const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
       const remoteLogout = prepared.completeRemoteLogout();
@@ -310,15 +313,14 @@ describe('auth session lifecycle', () => {
       });
 
       await vi.advanceTimersByTimeAsync(5_000);
-      await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+      expect(loginUser).not.toHaveBeenCalled();
       expect(logoutUser).not.toHaveBeenCalled();
 
+      await vi.advanceTimersByTimeAsync(1_000);
       finishRegistration();
-      await expect(remoteLogout).resolves.toEqual({
-        status: 'signedOutWithRemoteWarning',
-        message: '원격 로그아웃 정리가 지연되어 앱 재시작 후 다시 확인해야 합니다.',
-      });
-      expect(logoutUser).not.toHaveBeenCalled();
+      await expect(remoteLogout).resolves.toEqual({status: 'signedOut'});
+      await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+      expect(logoutUser).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
@@ -339,7 +341,7 @@ describe('auth session lifecycle', () => {
         email: 'user@example.test', password: 'test-password',
       });
       const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(21_000);
       await rejected;
       expect(loginUser).not.toHaveBeenCalled();
 
@@ -349,6 +351,81 @@ describe('auth session lifecycle', () => {
         email: 'user@example.test', password: 'test-password',
       })).rejects.toThrow('앱을 완전히 종료');
       expect(loginUser).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains issued refresh tokens while optional FCM metadata times out auth entry', async () => {
+    vi.useFakeTimers();
+    try {
+      const refresh = trackRefreshForLogout(AUTH_GENERATION, async (onIssued) => {
+        onIssued({
+          ...LOGIN_RESPONSE,
+          accessToken: 'metadata-wait-access',
+          refreshToken: 'metadata-wait-refresh',
+        });
+        throw new Error('closing rejected local save');
+      });
+      await expect(refresh).rejects.toThrow();
+      let finishMetadata!: (value: {}) => void;
+      vi.mocked(getLogoutFcmDeactivationPayload).mockReturnValueOnce(
+        new Promise((resolve) => { finishMetadata = resolve; }),
+      );
+      vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+        generation: AUTH_GENERATION, accessToken: null, refreshToken: null,
+      });
+      const preparation = prepareCurrentSessionLogout(CURRENT_USER.id);
+      await vi.waitFor(() => expect(getLogoutFcmDeactivationPayload).toHaveBeenCalledOnce());
+      const nextLogin = loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      });
+      const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      finishMetadata({});
+
+      const prepared = await preparation;
+      await prepared.completeRemoteLogout();
+      expect(logoutUser).toHaveBeenCalledWith('metadata-wait-access', {
+        refreshToken: 'metadata-wait-refresh',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tracks every remote logout flight until all generations settle', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishFirstBarrier!: () => void;
+      vi.mocked(capturePendingFcmOperations)
+        .mockReturnValueOnce({
+          barrier: new Promise<void>((resolve) => { finishFirstBarrier = resolve; }),
+          hasPendingOperations: true,
+        })
+        .mockReturnValueOnce({barrier: Promise.resolve(), hasPendingOperations: false});
+      const firstPrepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      const firstRemote = firstPrepared.completeRemoteLogout();
+
+      const nextGeneration = (AUTH_GENERATION + 1) as AuthSessionGeneration;
+      vi.mocked(getAuthSessionGeneration).mockReturnValue(nextGeneration);
+      vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+        generation: nextGeneration,
+        accessToken: 'second-access',
+        refreshToken: 'second-refresh',
+      });
+      const secondPrepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      await expect(secondPrepared.completeRemoteLogout()).resolves.toEqual({status: 'signedOut'});
+
+      const nextLogin = loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(loginUser).not.toHaveBeenCalled();
+      finishFirstBarrier();
+      await expect(firstRemote).resolves.toEqual({status: 'signedOut'});
+      await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
     } finally {
       vi.useRealTimers();
     }
@@ -398,9 +475,10 @@ describe('auth session lifecycle', () => {
     void refresh.catch(() => undefined);
     vi.mocked(getStoredAuthSession).mockRejectedValueOnce(new Error('keychain read failed'));
     let finishRegistration!: () => void;
-    vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValueOnce(
-      new Promise<void>((resolve) => { finishRegistration = resolve; }),
-    );
+    vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+      barrier: new Promise<void>((resolve) => { finishRegistration = resolve; }),
+      hasPendingOperations: true,
+    });
     vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValueOnce({
       clientInstanceId: 'faithlog-client-1',
     });
@@ -536,15 +614,16 @@ describe('auth session lifecycle', () => {
 
   it('waits for registrations captured before logout before calling the server', async () => {
     let finishRegistration!: () => void;
-    vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValue(
-      new Promise<void>((resolve) => {
+    vi.mocked(capturePendingFcmOperations).mockReturnValue({
+      barrier: new Promise<void>((resolve) => {
         finishRegistration = resolve;
       }),
-    );
+      hasPendingOperations: true,
+    });
 
     const pending = logoutCurrentSession(CURRENT_USER.id);
     await vi.waitFor(() =>
-      expect(capturePendingFcmRegistrationBarrier).toHaveBeenCalledOnce(),
+      expect(capturePendingFcmOperations).toHaveBeenCalledOnce(),
     );
     expect(logoutUser).not.toHaveBeenCalled();
     finishRegistration();
@@ -555,11 +634,12 @@ describe('auth session lifecycle', () => {
 
   it('does not allow a new login to overtake the previous remote logout', async () => {
     let finishRegistration!: () => void;
-    vi.mocked(capturePendingFcmRegistrationBarrier).mockReturnValue(
-      new Promise<void>((resolve) => {
+    vi.mocked(capturePendingFcmOperations).mockReturnValue({
+      barrier: new Promise<void>((resolve) => {
         finishRegistration = resolve;
       }),
-    );
+      hasPendingOperations: true,
+    });
 
     const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
     const remoteLogout = prepared.completeRemoteLogout();

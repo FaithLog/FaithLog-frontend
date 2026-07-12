@@ -73,11 +73,22 @@ type LegacyStoredFcmRegistrationRecord = {
   userId: number;
 };
 
-type StoredFcmOptOutRecord = {
-  version: 1;
+type StoredFcmOptOutEntry = {
   userId: number;
   clientInstanceId: string;
+  status: 'confirmed' | 'pending';
+  tokenId: number | null;
 };
+
+type StoredFcmOptOutRecord = {
+  version: 2;
+  entries: StoredFcmOptOutEntry[];
+};
+
+export type StoredFcmOptOutState = Pick<
+  StoredFcmOptOutEntry,
+  'clientInstanceId' | 'status' | 'tokenId'
+>;
 
 let authSessionGeneration = 0 as AuthSessionGeneration;
 const closingAuthSessionGenerations = new Set<number>();
@@ -483,12 +494,22 @@ export async function isFcmOptedOut(
   _clientInstanceId: string,
   generation: AuthSessionGeneration,
 ) {
+  return (await getFcmOptOutState(userId, generation)) !== null;
+}
+
+export async function getFcmOptOutState(
+  userId: number,
+  generation: AuthSessionGeneration,
+): Promise<StoredFcmOptOutState | null> {
   return withSecureStorageLock(async () => {
     assertExpectedGeneration(generation);
     const serialized = await getStorageItem(FCM_OPT_OUT_KEY);
     assertExpectedGeneration(generation);
     const record = parseStoredFcmOptOutRecord(serialized);
-    return record?.userId === userId;
+    const entry = record.entries.find((candidate) => candidate.userId === userId);
+    return entry
+      ? {clientInstanceId: entry.clientInstanceId, status: entry.status, tokenId: entry.tokenId}
+      : null;
   });
 }
 
@@ -496,14 +517,27 @@ export async function saveFcmOptOut(
   userId: number,
   clientInstanceId: string,
   generation: AuthSessionGeneration,
+  state: {status: 'confirmed' | 'pending'; tokenId?: number | null} = {status: 'pending'},
 ) {
   return withSecureStorageLock(async () => {
     assertExpectedGeneration(generation);
     if (!Number.isInteger(userId) || userId <= 0 || !clientInstanceId.trim()) return false;
-    const record: StoredFcmOptOutRecord = {
-      version: 1,
+    const current = parseStoredFcmOptOutRecord(await getStorageItem(FCM_OPT_OUT_KEY));
+    assertExpectedGeneration(generation);
+    const entry: StoredFcmOptOutEntry = {
       userId,
       clientInstanceId: clientInstanceId.trim(),
+      status: state.status,
+      tokenId: state.tokenId && Number.isInteger(state.tokenId) && state.tokenId > 0
+        ? state.tokenId
+        : null,
+    };
+    const record: StoredFcmOptOutRecord = {
+      version: 2,
+      entries: [
+        ...current.entries.filter((candidate) => candidate.userId !== userId),
+        entry,
+      ].slice(-20),
     };
     await setStorageItem(FCM_OPT_OUT_KEY, JSON.stringify(record));
     assertExpectedGeneration(generation);
@@ -520,8 +554,13 @@ export async function clearFcmOptOut(
     assertExpectedGeneration(generation);
     const record = parseStoredFcmOptOutRecord(await getStorageItem(FCM_OPT_OUT_KEY));
     assertExpectedGeneration(generation);
-    if (record?.userId === userId) {
-      await deleteStorageItem(FCM_OPT_OUT_KEY);
+    const remaining = record.entries.filter((entry) => entry.userId !== userId);
+    if (remaining.length !== record.entries.length) {
+      if (remaining.length > 0) {
+        await setStorageItem(FCM_OPT_OUT_KEY, JSON.stringify({version: 2, entries: remaining}));
+      } else {
+        await deleteStorageItem(FCM_OPT_OUT_KEY);
+      }
       assertExpectedGeneration(generation);
     }
   });
@@ -688,16 +727,34 @@ function parseStoredFcmRegistrationRecord(
   };
 }
 
-function parseStoredFcmOptOutRecord(value: string | null): StoredFcmOptOutRecord | null {
-  if (!value) return null;
+function parseStoredFcmOptOutRecord(value: string | null): StoredFcmOptOutRecord {
+  const empty: StoredFcmOptOutRecord = {version: 2, entries: []};
+  if (!value) return empty;
   try {
-    const parsed = JSON.parse(value) as Partial<StoredFcmOptOutRecord>;
-    return parsed.version === 1 && Number.isInteger(parsed.userId) && Number(parsed.userId) > 0 &&
-      typeof parsed.clientInstanceId === 'string' && parsed.clientInstanceId.trim()
-      ? {version: 1, userId: Number(parsed.userId), clientInstanceId: parsed.clientInstanceId.trim()}
-      : null;
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const rawEntries = parsed.version === 2 && Array.isArray(parsed.entries)
+      ? parsed.entries
+      : parsed.version === 1
+        ? [parsed]
+        : [];
+    const entries = rawEntries.flatMap((value): StoredFcmOptOutEntry[] => {
+      if (!value || typeof value !== 'object') return [];
+      const entry = value as Record<string, unknown>;
+      if (!Number.isInteger(entry.userId) || Number(entry.userId) <= 0 ||
+          typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId.trim()) return [];
+      const tokenId = Number.isInteger(entry.tokenId) && Number(entry.tokenId) > 0
+        ? Number(entry.tokenId)
+        : null;
+      return [{
+        userId: Number(entry.userId),
+        clientInstanceId: entry.clientInstanceId.trim(),
+        status: entry.status === 'pending' ? 'pending' : 'confirmed',
+        tokenId,
+      }];
+    });
+    return {version: 2, entries: entries.slice(-20)};
   } catch {
-    return null;
+    return empty;
   }
 }
 

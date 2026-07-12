@@ -11,7 +11,7 @@ vi.mock('../api/tokenStorage', () => ({
 }));
 import {createSessionExpirationHandler, expireAuthSession, isExpirationEventCurrent, subscribeSessionExpiration} from './sessionExpiration';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
-import {resetRefreshLogoutHandoffForTests, trackRefreshForLogout} from './refreshLogoutHandoff';
+import {hasRefreshLogoutHandoff, resetRefreshLogoutHandoffForTests, trackRefreshForLogout} from './refreshLogoutHandoff';
 
 describe('central session expiration lineage', () => {
   beforeEach(() => {
@@ -107,5 +107,6 @@ describe('central session expiration lineage', () => {
 
     await expireAuthSession(4 as never);
     await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+    expect(hasRefreshLogoutHandoff()).toBe(false);
   });
 });

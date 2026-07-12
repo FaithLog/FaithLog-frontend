@@ -210,6 +210,20 @@ describe('native auth token storage', () => {
     )).resolves.toBe(false);
   });
 
+  it('keeps multiple users opt-out preferences isolated on one device', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const clientInstanceId = await tokenStorage.getOrCreateClientInstanceId();
+    await tokenStorage.saveFcmOptOut(41, clientInstanceId, generation, {status: 'confirmed'});
+    await tokenStorage.saveFcmOptOut(42, clientInstanceId, generation, {status: 'confirmed'});
+    await expect(tokenStorage.isFcmOptedOut(41, clientInstanceId, generation)).resolves.toBe(true);
+    await expect(tokenStorage.isFcmOptedOut(42, clientInstanceId, generation)).resolves.toBe(true);
+
+    await tokenStorage.clearFcmOptOut(41, clientInstanceId, generation);
+    await expect(tokenStorage.isFcmOptedOut(41, clientInstanceId, generation)).resolves.toBe(false);
+    await expect(tokenStorage.isFcmOptedOut(42, clientInstanceId, generation)).resolves.toBe(true);
+  });
+
   it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

@@ -1187,7 +1187,7 @@ describe('FaithLog API client', () => {
     expect(saveTokens).not.toHaveBeenCalled();
   });
 
-  it('retains issued refresh tokens for teardown when durable save rejects', async () => {
+  it('restart-gates and clears issued refresh tokens when durable save rejects', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,
       accessToken: 'expired-access-token',
@@ -1215,7 +1215,7 @@ describe('FaithLog API client', () => {
     await expect(apiRequest('/protected', {
       accessToken: 'expired-access-token', responseParser: parseOkResponse,
     })).rejects.toThrow();
-    expect(hasRefreshLogoutHandoff(FIRST_AUTH_GENERATION)).toBe(true);
+    expect(hasRefreshLogoutHandoff(FIRST_AUTH_GENERATION)).toBe(false);
     expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
   });
 
