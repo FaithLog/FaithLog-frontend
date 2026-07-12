@@ -9,7 +9,7 @@ import {
 } from '../api/client';
 import {
   clearFcmRegistration,
-  clearFcmRemoteCleanupObligations,
+  clearFcmRemoteCleanupObligationsAndMarkTerminal,
   clearFcmRegistrationAttempt,
   clearFcmRegistrationAttemptAfterRemoteCleanup,
   clearFcmRegistrationAttemptsForClientInstance,
@@ -33,7 +33,7 @@ import {
   completeFcmAccountDeletionClaim,
   markFcmAccountDeletionClaimCascadeConfirmed,
   restoreFcmAccountDeletionClaim,
-  replaceFcmRemoteCleanupObligations,
+  replaceFcmRemoteCleanupObligationsAndMarkTransition,
   rotateClientInstanceId,
   type AuthSessionGeneration,
   CorruptFcmPrivacyStateError,
@@ -1236,13 +1236,23 @@ export async function compensateCapturedFcmOperations(
       const sessionLogout = obligations.find((candidate) =>
         candidate.kind === 'clientLogout' && candidate.state !== 'cleaned');
       if (sessionLogout) {
-        await replaceFcmCleanupReceiptsWithRetry([obligation], [sessionLogout]);
+        await replaceFcmCleanupReceiptsWithRetry(
+          [obligation], [sessionLogout], () => {
+            obligation.state = 'cleaned';
+            observer.onObligationReplaced?.(obligation, null);
+          },
+        );
       } else {
-        await clearFcmCleanupReceiptsWithRetry([obligation]);
+        await clearFcmCleanupReceiptsWithRetry([obligation], () => {
+          obligation.state = 'cleaned';
+          observer.onObligationReplaced?.(obligation, null);
+        });
       }
     }
-    obligation.state = 'cleaned';
-    observer.onObligationReplaced?.(obligation, null);
+    if (obligation.state !== 'cleaned') {
+      obligation.state = 'cleaned';
+      observer.onObligationReplaced?.(obligation, null);
+    }
   }
   return pending;
 }
@@ -1291,24 +1301,26 @@ async function compensateFcmObligation(
         tokenId: null,
         state: 'mayHaveSent',
       };
-      await replaceFcmCleanupReceiptsWithRetry([obligation], [retirement]);
-      // The remote session revoke is terminal only after its durable receipt
-      // has atomically advanced to the local retirement phase.
-      obligation.state = 'cleaned';
-      observer.onObligationReplaced?.(obligation, retirement);
+      await replaceFcmCleanupReceiptsWithRetry([obligation], [retirement], () => {
+        // This state transition runs before the storage lock releases.
+        obligation.state = 'cleaned';
+        observer.onObligationReplaced?.(obligation, retirement);
+      });
       await clearFcmRegistrationAttemptsForClientInstance(clientInstanceId);
       const current = await getStoredClientInstanceId();
       if (current === clientInstanceId) {
         const rotated = await rotateClientInstanceId(clientInstanceId);
         if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
       }
-      await replaceFcmCleanupReceiptsWithRetry([retirement], []);
-      retirement.state = 'cleaned';
-      observer.onObligationReplaced?.(retirement, null);
+      await replaceFcmCleanupReceiptsWithRetry([retirement], [], () => {
+        retirement.state = 'cleaned';
+        observer.onObligationReplaced?.(retirement, null);
+      });
     } else {
-      await clearFcmCleanupReceiptsWithRetry([obligation]);
-      obligation.state = 'cleaned';
-      observer.onObligationReplaced?.(obligation, null);
+      await clearFcmCleanupReceiptsWithRetry([obligation], () => {
+        obligation.state = 'cleaned';
+        observer.onObligationReplaced?.(obligation, null);
+      });
     }
     return;
   }
@@ -1347,21 +1359,27 @@ async function persistFcmCleanupReceiptsWithRetry(
 async function replaceFcmCleanupReceiptsWithRetry(
   completed: FcmRemoteCleanupObligation[],
   replacements: FcmRemoteCleanupObligation[],
+  markTransition: () => void,
 ) {
   try {
-    await replaceFcmRemoteCleanupObligations(completed, replacements);
+    await replaceFcmRemoteCleanupObligationsAndMarkTransition(
+      completed, replacements, markTransition,
+    );
   } catch {
-    await replaceFcmRemoteCleanupObligations(completed, replacements);
+    await replaceFcmRemoteCleanupObligationsAndMarkTransition(
+      completed, replacements, markTransition,
+    );
   }
 }
 
 async function clearFcmCleanupReceiptsWithRetry(
   completed: FcmRemoteCleanupObligation[],
+  markTerminal: () => void,
 ) {
   try {
-    await clearFcmRemoteCleanupObligations(completed);
+    await clearFcmRemoteCleanupObligationsAndMarkTerminal(completed, markTerminal);
   } catch {
-    await clearFcmRemoteCleanupObligations(completed);
+    await clearFcmRemoteCleanupObligationsAndMarkTerminal(completed, markTerminal);
   }
 }
 

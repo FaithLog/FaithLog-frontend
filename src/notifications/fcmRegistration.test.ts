@@ -41,8 +41,16 @@ vi.mock('../api/tokenStorage', () => ({
   saveFcmOptOut: vi.fn(),
   markFcmRemoteCleanupPending: vi.fn(),
   replaceFcmRemoteCleanupObligations: vi.fn(),
+  replaceFcmRemoteCleanupObligationsAndMarkTransition: vi.fn(
+    async (_completed: unknown[], _replacements: unknown[], markTransition: () => void) => {
+      markTransition();
+    },
+  ),
   clearFcmRegistrationAttemptsForClientInstance: vi.fn(),
   clearFcmRemoteCleanupObligations: vi.fn(),
+  clearFcmRemoteCleanupObligationsAndMarkTerminal: vi.fn(
+    async (_obligations: unknown[], markTerminal: () => void) => { markTerminal(); },
+  ),
   claimFcmRemoteCleanupForAccountDeletion: vi.fn(),
   completeFcmAccountDeletionClaim: vi.fn(),
   markFcmAccountDeletionClaimCascadeConfirmed: vi.fn(),
@@ -95,7 +103,7 @@ import {
   markFcmRemoteCleanupPending,
   markFcmAccountDeletionClaimCascadeConfirmed,
   completeFcmAccountDeletionClaim,
-  replaceFcmRemoteCleanupObligations,
+  replaceFcmRemoteCleanupObligationsAndMarkTransition,
   saveFcmRegistration,
   saveFcmRegistrationAttempt,
   saveFcmOptOut,
@@ -678,9 +686,11 @@ describe('FCM registration', () => {
 
   it('retries logout-to-retirement persistence before treating remote logout as terminal', async () => {
     vi.mocked(logoutUser).mockResolvedValueOnce(null);
-    vi.mocked(replaceFcmRemoteCleanupObligations)
+    vi.mocked(replaceFcmRemoteCleanupObligationsAndMarkTransition)
       .mockRejectedValueOnce(new Error('first atomic replacement failed'))
-      .mockResolvedValue(undefined);
+      .mockImplementation(async (_completed, _replacements, markTransition) => {
+        markTransition();
+      });
     const obligation = {
       accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
       clientInstanceId: null, kind: 'clientLogout' as const,
@@ -693,12 +703,14 @@ describe('FCM registration', () => {
       onObligationReplaced,
     })).resolves.toEqual([obligation]);
     expect(logoutUser).toHaveBeenCalledOnce();
-    expect(replaceFcmRemoteCleanupObligations).toHaveBeenCalledTimes(3);
-    expect(replaceFcmRemoteCleanupObligations).toHaveBeenNthCalledWith(
+    expect(replaceFcmRemoteCleanupObligationsAndMarkTransition).toHaveBeenCalledTimes(3);
+    expect(replaceFcmRemoteCleanupObligationsAndMarkTransition).toHaveBeenNthCalledWith(
       1, [obligation], [expect.objectContaining({kind: 'clientRetirement'})],
+      expect.any(Function),
     );
-    expect(replaceFcmRemoteCleanupObligations).toHaveBeenNthCalledWith(
+    expect(replaceFcmRemoteCleanupObligationsAndMarkTransition).toHaveBeenNthCalledWith(
       2, [obligation], [expect.objectContaining({kind: 'clientRetirement'})],
+      expect.any(Function),
     );
     const retirement = onObligationReplaced.mock.calls[0]?.[1];
     expect(onObligationReplaced).toHaveBeenNthCalledWith(

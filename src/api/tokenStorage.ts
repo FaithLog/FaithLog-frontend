@@ -868,7 +868,17 @@ export async function clearFcmRemoteCleanupPending() {
 export async function clearFcmRemoteCleanupObligations(
   obligations: StoredFcmRemoteCleanupObligation[],
 ) {
-  if (obligations.length === 0) return;
+  return clearFcmRemoteCleanupObligationsAndMarkTerminal(obligations, () => undefined);
+}
+
+export async function clearFcmRemoteCleanupObligationsAndMarkTerminal(
+  obligations: StoredFcmRemoteCleanupObligation[],
+  markTerminal: () => void,
+) {
+  if (obligations.length === 0) {
+    markTerminal();
+    return;
+  }
   await withSecureStorageLock(async () => {
     const state = await readFcmRemoteCleanupState();
     const cleared = new Set(obligations.map(getFcmRemoteCleanupIdentity));
@@ -890,6 +900,10 @@ export async function clearFcmRemoteCleanupObligations(
           }
         : null,
     });
+    // This synchronous callback is part of the storage transaction's
+    // linearization point. The queue cannot start a stale timeout upsert until
+    // the corresponding live receipts are terminal.
+    markTerminal();
   });
 }
 
@@ -988,6 +1002,16 @@ export async function replaceFcmRemoteCleanupObligations(
   completed: StoredFcmRemoteCleanupObligation[],
   replacements: StoredFcmRemoteCleanupObligation[],
 ) {
+  return replaceFcmRemoteCleanupObligationsAndMarkTransition(
+    completed, replacements, () => undefined,
+  );
+}
+
+export async function replaceFcmRemoteCleanupObligationsAndMarkTransition(
+  completed: StoredFcmRemoteCleanupObligation[],
+  replacements: StoredFcmRemoteCleanupObligation[],
+  markTransition: () => void,
+) {
   await withSecureStorageLock(async () => {
     const state = await readFcmRemoteCleanupState();
     const removed = new Set(completed.map(getFcmRemoteCleanupIdentity));
@@ -1012,6 +1036,7 @@ export async function replaceFcmRemoteCleanupObligations(
           }
         : null,
     });
+    markTransition();
   });
 }
 

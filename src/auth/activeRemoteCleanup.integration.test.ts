@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   failSet: new Set<string>(),
   failSetOnce: new Set<string>(),
   blockSetOnce: new Map<string, Promise<void>>(),
+  blockDeleteOnce: new Map<string, Promise<void>>(),
   failDelete: new Set<string>(),
   failDeleteOnce: new Set<string>(),
   failGetOnce: new Set<string>(),
@@ -41,6 +42,11 @@ vi.mock('expo-secure-store', () => ({
     state.storage.set(key, value);
   }),
   deleteItemAsync: vi.fn(async (key: string) => {
+    const blocked = state.blockDeleteOnce.get(key);
+    if (blocked) {
+      state.blockDeleteOnce.delete(key);
+      await blocked;
+    }
     if (state.failDeleteOnce.delete(key)) throw new Error('delete failed once');
     if (state.failDelete.has(key)) throw new Error('delete failed');
     state.storage.delete(key);
@@ -89,6 +95,7 @@ describe('active remote cleanup ownership', () => {
     state.failSet.clear();
     state.failSetOnce.clear();
     state.blockSetOnce.clear();
+    state.blockDeleteOnce.clear();
     state.failDelete.clear();
     state.failDeleteOnce.clear();
     state.failGetOnce.clear();
@@ -685,6 +692,116 @@ describe('active remote cleanup ownership', () => {
       compensate: restartedFcm.compensateCapturedFcmOperations,
     });
     await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+  });
+
+  it('linearizes a direct no-client logout clear before queued timeout persistence', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    let finishLogout!: () => void;
+    api.logout.mockImplementation((_access, _body, onDispatch) => {
+      (onDispatch as (() => void) | undefined)?.();
+      return new Promise<null>((resolve) => { finishLogout = () => resolve(null); });
+    });
+    const session = await import('./session');
+    const logout = session.logoutCurrentSession(42);
+    await vi.waitFor(() => expect(api.logout).toHaveBeenCalledOnce());
+
+    let releaseClear!: () => void;
+    state.blockDeleteOnce.set(
+      'faithlog.fcmRemoteCleanupPending.v1',
+      new Promise<void>((resolve) => { releaseClear = resolve; }),
+    );
+    finishLogout();
+    await vi.waitFor(() => {
+      expect(state.blockDeleteOnce.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+    });
+
+    vi.useFakeTimers();
+    try {
+      const nextLogin = session.loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      });
+      const rejected = expect(nextLogin).rejects.toMatchObject({
+        detail: {code: 'LOGOUT_CLEANUP_PENDING'},
+      });
+      await vi.advanceTimersByTimeAsync(21_000);
+      releaseClear();
+      await expect(logout).resolves.toEqual({status: 'signedOut'});
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    const restartedSession = await import('./session');
+    await expect(restartedSession.loginAndEstablishSession({
+      email: 'next@example.test', password: 'test-password',
+    })).resolves.toMatchObject({status: 'noCampus'});
+    expect(api.logout).toHaveBeenCalledOnce();
+  });
+
+  it('linearizes a compensated no-client logout clear before queued timeout persistence', async () => {
+    const storage = await import('../api/tokenStorage');
+    const receipt = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+      state: 'mayHaveSent' as 'mayHaveSent' | 'cleaned',
+    };
+    await storage.markFcmRemoteCleanupPending([receipt]);
+    let finishLogout!: () => void;
+    api.logout.mockImplementation(() =>
+      new Promise<null>((resolve) => { finishLogout = () => resolve(null); }));
+    const fcm = await import('../notifications/fcmRegistration');
+    const compensation = fcm.compensateCapturedFcmOperations([receipt]);
+    await vi.waitFor(() => expect(api.logout).toHaveBeenCalledOnce());
+
+    let releaseClear!: () => void;
+    state.blockDeleteOnce.set(
+      'faithlog.fcmRemoteCleanupPending.v1',
+      new Promise<void>((resolve) => { releaseClear = resolve; }),
+    );
+    finishLogout();
+    await vi.waitFor(() => {
+      expect(state.blockDeleteOnce.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+    });
+    // This is the production timeout persistence operation queued behind the
+    // terminal clear while its live receipt still appears may-have-sent.
+    const timeoutPersistence = storage.markFcmRemoteCleanupPending([receipt]);
+    releaseClear();
+    await expect(compensation).resolves.toEqual([
+      expect.objectContaining({kind: 'clientLogout', state: 'cleaned'}),
+    ]);
+    await timeoutPersistence;
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    const restartedSession = await import('./session');
+    await expect(restartedSession.loginAndEstablishSession({
+      email: 'next@example.test', password: 'test-password',
+    })).resolves.toMatchObject({status: 'noCampus'});
     expect(api.logout).toHaveBeenCalledOnce();
   });
 

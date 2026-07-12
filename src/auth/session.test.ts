@@ -22,6 +22,9 @@ vi.mock('../api/tokenStorage', () => ({
   clearTokens: vi.fn(),
   clearAuthTeardownPending: vi.fn(async () => undefined),
   clearFcmRemoteCleanupObligations: vi.fn(async () => undefined),
+  clearFcmRemoteCleanupObligationsAndMarkTerminal: vi.fn(
+    async (_obligations: unknown[], markTerminal: () => void) => { markTerminal(); },
+  ),
   clearFcmRegistrationAttemptsForClientInstance: vi.fn(),
   getAuthSessionGeneration: vi.fn(),
   hasAuthTeardownPending: vi.fn(async () => false),
@@ -35,6 +38,11 @@ vi.mock('../api/tokenStorage', () => ({
   markAuthTeardownPending: vi.fn(async () => undefined),
   markFcmRemoteCleanupPending: vi.fn(async () => undefined),
   replaceFcmRemoteCleanupObligations: vi.fn(async () => undefined),
+  replaceFcmRemoteCleanupObligationsAndMarkTransition: vi.fn(
+    async (_completed: unknown[], _replacements: unknown[], markTransition: () => void) => {
+      markTransition();
+    },
+  ),
   materializeStoredSessionLogoutObligation: vi.fn(async () => null),
   prepareDurableStoredSessionTeardown: vi.fn(),
   rotateClientInstanceId: vi.fn(),
@@ -82,6 +90,7 @@ import {
   clearTokens,
   clearAuthTeardownPending,
   clearFcmRemoteCleanupObligations,
+  clearFcmRemoteCleanupObligationsAndMarkTerminal,
   clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
   getStoredAuthSession,
@@ -92,7 +101,7 @@ import {
   markAuthSessionClosing,
   markFcmRemoteCleanupPending,
   prepareDurableStoredSessionTeardown,
-  replaceFcmRemoteCleanupObligations,
+  replaceFcmRemoteCleanupObligationsAndMarkTransition,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
@@ -1427,8 +1436,9 @@ describe('auth session lifecycle', () => {
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token',
     }, expect.any(Function));
-    expect(clearFcmRemoteCleanupObligations).toHaveBeenCalledWith(
+    expect(clearFcmRemoteCleanupObligationsAndMarkTerminal).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({kind: 'clientLogout'})]),
+      expect.any(Function),
     );
   });
 
@@ -1449,11 +1459,12 @@ describe('auth session lifecycle', () => {
       refreshToken: 'login-refresh-token',
       clientInstanceId: 'faithlog-client-1',
     }, expect.any(Function));
-    expect(replaceFcmRemoteCleanupObligations).toHaveBeenCalledWith(
+    expect(replaceFcmRemoteCleanupObligationsAndMarkTransition).toHaveBeenCalledWith(
       [expect.objectContaining({kind: 'clientLogout'})],
       [expect.objectContaining({
         kind: 'clientRetirement', clientInstanceId: 'faithlog-client-1',
       })],
+      expect.any(Function),
     );
   });
 

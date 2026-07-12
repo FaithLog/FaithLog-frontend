@@ -12,6 +12,7 @@ import {
   clearTokens,
   clearAuthTeardownPending,
   clearFcmRemoteCleanupObligations,
+  clearFcmRemoteCleanupObligationsAndMarkTerminal,
   clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
   hasAuthTeardownPending,
@@ -24,7 +25,7 @@ import {
   markAuthSessionClosing,
   markAuthTeardownPending,
   markFcmRemoteCleanupPending,
-  replaceFcmRemoteCleanupObligations,
+  replaceFcmRemoteCleanupObligationsAndMarkTransition,
   materializeStoredSessionLogoutObligation,
   prepareDurableStoredSessionTeardown,
   rotateClientInstanceId,
@@ -442,11 +443,12 @@ async function completeRemoteLogout(
     !sessionLogoutHandledByCompensation &&
     !effectiveFcmPayload.clientInstanceId
   ) {
-    await clearFcmCleanupReceiptsWithRetry(sessionLogoutObligations);
-    for (const sessionLogout of sessionLogoutObligations) {
-      sessionLogout.state = 'cleaned';
-      replaceObligation(sessionLogout, null);
-    }
+    await clearFcmCleanupReceiptsWithRetry(sessionLogoutObligations, () => {
+      for (const sessionLogout of sessionLogoutObligations) {
+        sessionLogout.state = 'cleaned';
+        replaceObligation(sessionLogout, null);
+      }
+    });
   }
 
   if (
@@ -462,19 +464,22 @@ async function completeRemoteLogout(
       await replaceFcmCleanupReceiptsWithRetry(
         sessionLogoutObligations,
         retirementObligation,
+        () => {
+          for (const sessionLogout of sessionLogoutObligations) {
+            sessionLogout.state = 'cleaned';
+            replaceObligation(sessionLogout, retirementObligation[0] ?? null);
+          }
+        },
       );
-      for (const sessionLogout of sessionLogoutObligations) {
-        sessionLogout.state = 'cleaned';
-        replaceObligation(sessionLogout, retirementObligation[0] ?? null);
-      }
       await clearFcmRegistrationAttemptsForClientInstance(effectiveFcmPayload.clientInstanceId);
       const rotated = await rotateClientInstanceId(effectiveFcmPayload.clientInstanceId);
       if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
-      await replaceFcmCleanupReceiptsWithRetry(retirementObligation, []);
-      if (retirementObligation[0]) {
-        retirementObligation[0].state = 'cleaned';
-        replaceObligation(retirementObligation[0], null);
-      }
+      await replaceFcmCleanupReceiptsWithRetry(retirementObligation, [], () => {
+        if (retirementObligation[0]) {
+          retirementObligation[0].state = 'cleaned';
+          replaceObligation(retirementObligation[0], null);
+        }
+      });
     } catch {
       remoteLogoutRestartRequired = true;
       remoteWarning =
@@ -519,21 +524,27 @@ async function completeRemoteLogout(
 async function replaceFcmCleanupReceiptsWithRetry(
   completed: FcmRemoteCleanupObligation[],
   replacements: FcmRemoteCleanupObligation[],
+  markTransition: () => void,
 ) {
   try {
-    await replaceFcmRemoteCleanupObligations(completed, replacements);
+    await replaceFcmRemoteCleanupObligationsAndMarkTransition(
+      completed, replacements, markTransition,
+    );
   } catch {
-    await replaceFcmRemoteCleanupObligations(completed, replacements);
+    await replaceFcmRemoteCleanupObligationsAndMarkTransition(
+      completed, replacements, markTransition,
+    );
   }
 }
 
 async function clearFcmCleanupReceiptsWithRetry(
   completed: FcmRemoteCleanupObligation[],
+  markTerminal: () => void,
 ) {
   try {
-    await clearFcmRemoteCleanupObligations(completed);
+    await clearFcmRemoteCleanupObligationsAndMarkTerminal(completed, markTerminal);
   } catch {
-    await clearFcmRemoteCleanupObligations(completed);
+    await clearFcmRemoteCleanupObligationsAndMarkTerminal(completed, markTerminal);
   }
 }
 
