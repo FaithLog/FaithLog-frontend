@@ -1,7 +1,9 @@
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
 import {clearTokens, getStoredAuthSession} from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
-import {refreshAndEstablishSession} from './session';
+import {establishStoredAccessTokenSession, refreshAndEstablishSession} from './session';
+
+const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 
 export type AuthGateState =
   | {status: 'loading'; message: string}
@@ -66,13 +68,17 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
     };
   }
 
-  const {generation, refreshToken} = storedSession;
+  const {accessToken, generation, refreshToken} = storedSession;
 
   if (!refreshToken) {
     return {status: 'signedOut'};
   }
 
   try {
+    if (accessToken && !isJwtExpiringSoon(accessToken, ACCESS_TOKEN_REFRESH_WINDOW_MS)) {
+      return await establishStoredAccessTokenSession(accessToken, generation);
+    }
+
     return await refreshAndEstablishSession(refreshToken, generation);
   } catch (error) {
     if (error instanceof FaithLogApiError) {
@@ -94,6 +100,21 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
       status: 'error',
       message: '앱 시작 중 알 수 없는 문제가 발생했습니다.',
     };
+  }
+}
+
+export function isJwtExpiringSoon(token: string, windowMs: number, nowMs = Date.now()) {
+  try {
+    const payloadSegment = token.split('.')[1];
+    if (!payloadSegment || typeof globalThis.atob !== 'function') {
+      return true;
+    }
+    const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const payload = JSON.parse(globalThis.atob(padded)) as {exp?: unknown};
+    return typeof payload.exp !== 'number' || payload.exp * 1000 <= nowMs + windowMs;
+  } catch {
+    return true;
   }
 }
 

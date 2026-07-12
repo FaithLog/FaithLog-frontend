@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {
@@ -85,8 +85,12 @@ export function MonthlyCalendarScreen({
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [quickSaveMessage, setQuickSaveMessage] = useState<string | null>(null);
   const campusId = state.selectedCampus.campusId;
+  const monthlyCache = useRef(new Map<string, DevotionMonthlySummary>());
+  const weeklyCache = useRef(new Map<string, WeeklyDevotionSummary>());
+  const latestRequest = useRef(0);
 
   const loadCalendar = async () => {
+    const requestId = ++latestRequest.current;
     setLoadState({status: 'loading'});
     setActionError(null);
     try {
@@ -96,29 +100,32 @@ export function MonthlyCalendarScreen({
         return;
       }
 
-      const visibleWeekStartDates = getVisibleWeekStartDates(visibleMonth, selectedWeekStart);
-      const [monthly, ...weeklySummaries] = await Promise.all([
-        fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth),
-        ...visibleWeekStartDates.map((weekStartDate) =>
-          fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
-        ),
+      const monthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
+      const weekKey = `${campusId}:${selectedWeekStart}`;
+      const [monthly, weekly] = await Promise.all([
+        monthlyCache.current.get(monthKey) ??
+          fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth).then((value) => {
+            monthlyCache.current.set(monthKey, value);
+            return value;
+          }),
+        weeklyCache.current.get(weekKey) ??
+          fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart).then((value) => {
+            weeklyCache.current.set(weekKey, value);
+            return value;
+          }),
       ]);
-      const weekly =
-        weeklySummaries.find((summary) => summary.weekStartDate === selectedWeekStart) ??
-        weeklySummaries[0];
 
-      if (!weekly) {
-        throw new Error('Selected weekly devotion summary is missing.');
-      }
+      if (requestId !== latestRequest.current) return;
 
       setLoadState({
         status: 'success',
         monthly,
         weekly,
-        dailyCompletionByDate: buildDailyCompletionMap(weeklySummaries),
+        dailyCompletionByDate: buildDailyCompletionMap([weekly]),
       });
       setFormChecks(normalizeWeekChecks(weekly));
     } catch (error) {
+      if (requestId !== latestRequest.current) return;
       const apiError = toApiError(error, '월간 경건생활 캘린더를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
@@ -177,6 +184,8 @@ export function MonthlyCalendarScreen({
         prayerChecked: selectedCheck.prayerChecked,
         bibleReadingChecked: selectedCheck.bibleReadingChecked,
       });
+      monthlyCache.current.delete(`${campusId}:${visibleMonth.year}-${visibleMonth.month}`);
+      weeklyCache.current.delete(`${campusId}:${selectedWeekStart}`);
       await loadCalendar();
       setQuickSaveMessage(`${formatKoreanDate(savedDate)} 저장됨`);
     } catch (error) {
@@ -558,21 +567,6 @@ function getMonthGridRows(year: number, month: number) {
   }
 
   return rows;
-}
-
-function getVisibleWeekStartDates(
-  visibleMonth: {year: number; month: number},
-  selectedWeekStart: string,
-) {
-  const weekStarts = new Set<string>([selectedWeekStart]);
-
-  getMonthGridCells(visibleMonth.year, visibleMonth.month).forEach((cell) => {
-    if (cell) {
-      weekStarts.add(getWeekStartDate(parseDate(cell.date)));
-    }
-  });
-
-  return Array.from(weekStarts).sort();
 }
 
 function getWeekCompletionCount(monthly: DevotionMonthlySummary, date: string) {

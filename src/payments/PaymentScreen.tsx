@@ -17,7 +17,7 @@ import {
   markMyChargePaid,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens, getAuthSessionGeneration, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
   ChargeItem,
@@ -92,6 +92,50 @@ type AccountCopyFeedback = {
 } | null;
 
 const PAGE_SIZE = 20;
+const paymentContextCache = new Map<
+  string,
+  Promise<{
+    accounts: PaymentAccount[];
+    coffeeAccountIdsWithCharges: number[];
+    totalUnpaidAmount: number;
+  }>
+>();
+
+function getPaymentContext(accessToken: string, campusId: number) {
+  const key = `${getAuthSessionGeneration()}:${campusId}`;
+  const cached = paymentContextCache.get(key);
+  if (cached) return cached;
+  const request = Promise.all([
+    fetchMyCharges(accessToken, campusId, {
+      page: 0,
+      paymentCategory: 'ALL',
+      size: 1,
+      sort: toChargeSort('createdAtDesc'),
+      status: 'UNPAID',
+    }),
+    fetchMyCharges(accessToken, campusId, {
+      page: 0,
+      paymentCategory: 'COFFEE',
+      size: 100,
+      sort: toChargeSort('createdAtDesc'),
+      status: 'ALL',
+    }),
+    fetchPaymentAccounts(accessToken, campusId),
+  ]).then(([unpaid, coffee, accounts]) => ({
+    accounts,
+    coffeeAccountIdsWithCharges: getLinkedPaymentAccountIds(coffee.items),
+    totalUnpaidAmount: unpaid.summary.unpaidAmount,
+  })).catch((error) => {
+    paymentContextCache.delete(key);
+    throw error;
+  });
+  paymentContextCache.set(key, request);
+  return request;
+}
+
+function invalidatePaymentContext(campusId: number) {
+  paymentContextCache.delete(`${getAuthSessionGeneration()}:${campusId}`);
+}
 
 const categoryFilters: Array<{label: string; value: CategoryFilter}> = [
   {label: '벌금', value: 'PENALTY'},
@@ -177,7 +221,7 @@ export function PaymentScreen({
         return;
       }
 
-      const [charges, totalUnpaidCharges, coffeeCharges, accounts] = await Promise.all([
+      const [charges, context] = await Promise.all([
         fetchMyCharges(accessToken, campusId, {
           page: nextPage,
           paymentCategory: category,
@@ -185,24 +229,9 @@ export function PaymentScreen({
           sort: toChargeSort(sort),
           status,
         }),
-        fetchMyCharges(accessToken, campusId, {
-          page: 0,
-          paymentCategory: 'ALL',
-          size: 1,
-          sort: toChargeSort('createdAtDesc'),
-          status: 'UNPAID',
-        }),
-        fetchMyCharges(accessToken, campusId, {
-          page: 0,
-          paymentCategory: 'COFFEE',
-          size: 100,
-          sort: toChargeSort('createdAtDesc'),
-          status: 'ALL',
-        }),
-        fetchPaymentAccounts(accessToken, campusId),
+        getPaymentContext(accessToken, campusId),
       ]);
-      const totalUnpaidAmount = totalUnpaidCharges.summary.unpaidAmount;
-      const coffeeAccountIdsWithCharges = getLinkedPaymentAccountIds(coffeeCharges.items);
+      const {accounts, coffeeAccountIdsWithCharges, totalUnpaidAmount} = context;
 
       if (nextPage > 0 && charges.items.length === 0) {
         const fallbackPage = nextPage - 1;
@@ -285,6 +314,7 @@ export function PaymentScreen({
       }
 
       const paid = await markMyChargePaid(accessToken, campusId, charge.id);
+      invalidatePaymentContext(campusId);
       setActionState({status: 'complete', charge: paid});
       setSelectedChargeId(null);
       setNotice({

@@ -26,7 +26,7 @@ import {
   updatePollComment,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens, getAuthSessionGeneration, getStoredTokens} from '../api/tokenStorage';
 import type {
   ApiError,
   CoffeeBrand,
@@ -343,9 +343,11 @@ export function PollScreen({
         return;
       }
 
-      await createPollComment(accessToken, campusId, activeDetail.id, {content});
+      const created = await createPollComment(accessToken, campusId, activeDetail.id, {content});
       setCommentContent('');
-      await loadDetail(activeDetail.id, 'comments');
+      setDetailState((current) => current.status === 'success'
+        ? {...current, comments: [...current.comments, created]}
+        : current);
     } catch (error) {
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
       setActionError(apiError);
@@ -376,12 +378,15 @@ export function PollScreen({
         return;
       }
 
-      await updatePollComment(accessToken, campusId, activeDetail.id, editingComment.commentId, {
+      const updated = await updatePollComment(accessToken, campusId, activeDetail.id, editingComment.commentId, {
         content,
       });
       setEditingComment(null);
       setCommentContent('');
-      await loadDetail(activeDetail.id, 'comments');
+      setDetailState((current) => current.status === 'success'
+        ? {...current, comments: current.comments.map((item) =>
+          item.commentId === updated.commentId ? updated : item)}
+        : current);
     } catch (error) {
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
       setActionError(apiError);
@@ -406,7 +411,10 @@ export function PollScreen({
       }
 
       await deletePollComment(accessToken, campusId, activeDetail.id, comment.commentId);
-      await loadDetail(activeDetail.id, 'comments');
+      setDetailState((current) => current.status === 'success'
+        ? {...current, comments: current.comments.filter((item) =>
+          item.commentId !== comment.commentId)}
+        : current);
     } catch (error) {
       const apiError = toApiError(error, '댓글을 삭제하지 못했습니다.');
       setActionError(apiError);
@@ -1533,6 +1541,13 @@ function normalizePollOptionLabel(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR');
 }
 
+const COFFEE_CATALOG_TTL_MS = 5 * 60_000;
+let coffeeCatalogFlight: {
+  generation: number;
+  expiresAt: number;
+  promise: Promise<CoffeeCatalogState>;
+} | null = null;
+
 async function loadCoffeeCatalog(
   accessToken: string,
   detail: PollDetail,
@@ -1541,7 +1556,17 @@ async function loadCoffeeCatalog(
     return {status: 'notNeeded'};
   }
 
-  try {
+  const generation = getAuthSessionGeneration();
+  if (
+    coffeeCatalogFlight &&
+    coffeeCatalogFlight.generation === generation &&
+    coffeeCatalogFlight.expiresAt > Date.now()
+  ) {
+    return coffeeCatalogFlight.promise;
+  }
+
+  const promise = (async (): Promise<CoffeeCatalogState> => {
+   try {
     const brands = await fetchCoffeeBrands(accessToken);
     const menusByBrand = await Promise.all(
       brands
@@ -1563,7 +1588,18 @@ async function loadCoffeeCatalog(
     }
 
     return {status: 'error', error: apiError};
+   }
+  })();
+  coffeeCatalogFlight = {
+    generation,
+    expiresAt: Date.now() + COFFEE_CATALOG_TTL_MS,
+    promise,
+  };
+  const result = await promise;
+  if (result.status === 'error' && coffeeCatalogFlight?.promise === promise) {
+    coffeeCatalogFlight = null;
   }
+  return result;
 }
 
 async function fetchPollResultState(

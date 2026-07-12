@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  AppState,
   Keyboard,
   KeyboardAvoidingView,
   type KeyboardTypeOptions,
@@ -214,7 +215,6 @@ type NotificationUiState =
   | {status: 'dismissed'}
   | FcmRegistrationStatus;
 
-const HOME_TODAY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 export function FaithLogApp() {
   const androidShellInsets = useAndroidShellLayoutInsets();
@@ -2538,12 +2538,10 @@ function UserHomeDashboard({
   const displayUserName = getCompactDisplayName(state.user.name, '사용자');
   const campusLabel = getHeaderCampusName(state.selectedCampus.campusName);
 
-  const runCardRequest = async <T,>(
-    key: HomeCardKey,
-    setCardState: (cardState: CardState<T>) => void,
-    request: (accessToken: string) => Promise<T>,
-  ) => {
-    setCardState({status: 'loading'});
+  const loadHomeCards = async () => {
+    setMonthlyDevotionState({status: 'loading'});
+    setChargeState({status: 'loading'});
+    setPrayerState({status: 'loading'});
     try {
       const {accessToken} = await getStoredTokens();
 
@@ -2552,35 +2550,43 @@ function UserHomeDashboard({
           kind: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         };
-        setCardState({status: 'error', error});
+        setMonthlyDevotionState({status: 'error', error});
+        setChargeState({status: 'error', error});
+        setPrayerState({status: 'error', error});
         setAuthState({status: 'sessionExpired', message: error.message});
         return;
       }
 
-      const data = await request(accessToken);
-      setCardState({status: 'success', data});
+      const results = await Promise.allSettled([
+        fetchDevotionMonthlySummary(accessToken, campusId, {month, year}),
+        fetchChargeSummary(accessToken, campusId, {month, year}),
+        fetchPrayerWeek(accessToken, campusId, weekStartDate),
+      ] as const);
+      const apply = <T,>(
+        result: PromiseSettledResult<T>,
+        key: HomeCardKey,
+        setter: (value: CardState<T>) => void,
+      ) => {
+        if (result.status === 'fulfilled') {
+          setter({status: 'success', data: result.value});
+          return;
+        }
+        const error = toApiError(result.reason, getHomeCardFallbackMessage(key));
+        setter({status: 'error', error});
+        if (error.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: error.message});
+        }
+      };
+      apply(results[0], 'devotion', setMonthlyDevotionState);
+      apply(results[1], 'charges', setChargeState);
+      apply(results[2], 'prayers', setPrayerState);
     } catch (error) {
-      const apiError = toApiError(error, getHomeCardFallbackMessage(key));
-      setCardState({status: 'error', error: apiError});
-
-      if (apiError.kind === 'sessionExpired') {
-        setAuthState({status: 'sessionExpired', message: apiError.message});
-      }
+      const apiError = toApiError(error, '홈 요약을 불러오지 못했습니다.');
+      setMonthlyDevotionState({status: 'error', error: apiError});
+      setChargeState({status: 'error', error: apiError});
+      setPrayerState({status: 'error', error: apiError});
     }
   };
-
-  const loadMonthlyDevotion = () =>
-    runCardRequest('devotion', setMonthlyDevotionState, (accessToken) =>
-      fetchDevotionMonthlySummary(accessToken, campusId, {month, year}),
-    );
-  const loadCharges = () =>
-    runCardRequest('charges', setChargeState, (accessToken) =>
-      fetchChargeSummary(accessToken, campusId, {month, year}),
-    );
-  const loadPrayers = () =>
-    runCardRequest('prayers', setPrayerState, (accessToken) =>
-      fetchPrayerWeek(accessToken, campusId, weekStartDate),
-    );
 
   useEffect(() => {
     const refreshToday = () => {
@@ -2590,17 +2596,35 @@ function UserHomeDashboard({
         formatLocalDate(currentToday) === formatLocalDate(nextToday) ? currentToday : nextToday,
       );
     };
-    const intervalId = setInterval(refreshToday, HOME_TODAY_REFRESH_INTERVAL_MS);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const scheduleMidnightRefresh = () => {
+      clearTimeout(timeoutId);
+      const now = new Date();
+      const nextMidnight = new Date(now);
+      nextMidnight.setHours(24, 0, 1, 0);
+      timeoutId = setTimeout(() => {
+        refreshToday();
+        scheduleMidnightRefresh();
+      }, nextMidnight.getTime() - now.getTime());
+    };
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshToday();
+        scheduleMidnightRefresh();
+      }
+    });
 
     refreshToday();
+    scheduleMidnightRefresh();
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearTimeout(timeoutId);
+      subscription.remove();
+    };
   }, []);
 
   useEffect(() => {
-    void loadMonthlyDevotion();
-    void loadCharges();
-    void loadPrayers();
+    void loadHomeCards();
   }, [campusId, month, weekStartDate, year]);
 
   return (

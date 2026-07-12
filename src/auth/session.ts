@@ -90,6 +90,13 @@ export async function refreshAndEstablishSession(
   }
 }
 
+export async function establishStoredAccessTokenSession(
+  accessToken: string,
+  generation: AuthSessionGeneration,
+): Promise<SessionResolution> {
+  return establishSession({accessToken}, generation);
+}
+
 export async function logoutCurrentSession(userId?: number): Promise<LogoutResult> {
   const prepared = await prepareCurrentSessionLogout(userId);
   return prepared.completeRemoteLogout();
