@@ -47,6 +47,7 @@ import {
   getStoredAuthSession,
   getStoredTokens,
   saveSelectedCampusId,
+  StaleAuthSessionReadError,
 } from '../api/tokenStorage';
 import type {
   ApiError,
@@ -167,6 +168,7 @@ type SetAuthState = Dispatch<SetStateAction<AuthGateState>>;
 type SignedOutAuthState = Extract<AuthGateState, {status: 'signedOut'}>;
 type PrepareLogout = (userId?: number) => Promise<PreparedLogout>;
 type LogoutAuthTransition = {
+  cancelled?: boolean;
   initialState: SignedOutAuthState;
   remoteState: Promise<SignedOutAuthState | null> | null;
 };
@@ -194,7 +196,10 @@ export async function beginLogoutAuthTransition(
       }));
 
     return {initialState: {status: 'signedOut'}, remoteState};
-  } catch {
+  } catch (error) {
+    if (error instanceof StaleAuthSessionReadError) {
+      return {cancelled: true, initialState: {status: 'signedOut'}, remoteState: null};
+    }
     return {
       initialState: {status: 'signedOut', warning: LOCAL_LOGOUT_FAILURE_WARNING},
       remoteState: null,
@@ -209,18 +214,46 @@ export function purgePaymentContextForAuthState(
   if (status !== 'authenticated') invalidate();
 }
 
+export function applyAuthResultIfCurrent(
+  epoch: number,
+  currentEpoch: number,
+  apply: () => void,
+) {
+  if (epoch === currentEpoch) apply();
+}
+
 export async function finalizeAccountDeletionTeardown(
   clear: () => Promise<unknown> = () => clearTokens(),
   invalidate: () => void = invalidatePaymentContextCache,
 ) {
   try {
-    await clear();
+    const cleared = await clear();
+    if (cleared === false) {
+      return '로그인 세션이 변경되어 이 기기의 이전 로그인 정보 정리를 확인하지 못했습니다.';
+    }
     return null;
   } catch {
     return '계정은 삭제됐지만 이 기기의 로그인 정보 정리를 완료하지 못했습니다.';
   } finally {
     invalidate();
   }
+}
+
+export function beginAccountDeletionTeardown(
+  transitionToPublic: () => void,
+  clear: () => Promise<unknown> = () => clearTokens(),
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  invalidate();
+  transitionToPublic();
+  return finalizeAccountDeletionTeardown(clear, () => {});
+}
+
+export function attachAccountDeletionCleanupWarning(
+  current: AuthGateState,
+  warning: string,
+): AuthGateState {
+  return current.status === 'signedOut' ? {...current, warning} : current;
 }
 
 type CardState<T> =
@@ -250,6 +283,7 @@ export function FaithLogApp() {
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const autoFcmRegistrationAttemptRef = useRef<string | null>(null);
+  const authTransitionEpoch = useRef(0);
   const clearAppMessage = () => {};
   const ignoreAppMessage = (_notice: AppMessage) => {};
   const publicAuthMode =
@@ -259,15 +293,19 @@ export function FaithLogApp() {
   const RootContainer = Platform.OS === 'android' ? View : SafeAreaView;
 
   const retryBootstrap = () => {
+    const epoch = ++authTransitionEpoch.current;
     setEntryTarget(null);
     clearAppMessage();
     setAuthState({status: 'loading', message: '세션을 다시 확인하고 있어요.'});
-    void bootstrapAuthGate().then(setAuthState);
+    void bootstrapAuthGate().then((result) => applyAuthResultIfCurrent(
+      epoch, authTransitionEpoch.current, () => setAuthState(result),
+    ));
   };
 
   useEffect(() => subscribeSessionExpiration(createSessionExpirationHandler(
     getAuthSessionGeneration,
     () => {
+      authTransitionEpoch.current += 1;
       invalidatePaymentContextCache();
       setAuthState({
         status: 'sessionExpired',
@@ -277,8 +315,11 @@ export function FaithLogApp() {
   )), []);
 
   useEffect(() => {
+    const epoch = authTransitionEpoch.current;
     void initializeNativeFirebaseMessaging();
-    void bootstrapAuthGate().then(setAuthState);
+    void bootstrapAuthGate().then((result) => applyAuthResultIfCurrent(
+      epoch, authTransitionEpoch.current, () => setAuthState(result),
+    ));
   }, []);
 
   useEffect(() => {
@@ -1871,6 +1912,10 @@ function AuthenticatedShell({
     };
 
     const transition = await beginLogoutAuthTransition(userId);
+    if (transition.cancelled) {
+      setLoggingOut(false);
+      return;
+    }
     transitionToSignedOut(transition.initialState.warning);
 
     if (transition.remoteState) {
@@ -3797,12 +3842,13 @@ function AccountDeletionScreen({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
-        await finalizeAccountDeletionTeardown();
+        invalidatePaymentContextCache();
         shouldResetBusy = false;
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
+        void finalizeAccountDeletionTeardown(() => clearTokens(), () => {});
         return;
       }
 
@@ -3810,20 +3856,28 @@ function AccountDeletionScreen({
         password,
         confirmText,
       });
-      const cleanupWarning = await finalizeAccountDeletionTeardown();
       setConfirmVisible(false);
       shouldResetBusy = false;
-      setAuthState({status: 'signedOut', ...(cleanupWarning ? {warning: cleanupWarning} : {})});
+      void beginAccountDeletionTeardown(
+        () => setAuthState({status: 'signedOut'}),
+      )
+        .then((cleanupWarning) => {
+          if (!cleanupWarning) return;
+          setAuthState((current) => attachAccountDeletionCleanupWarning(
+            current, cleanupWarning,
+          ));
+        });
     } catch (deleteError) {
       const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
 
       if (apiError.kind === 'sessionExpired') {
-        await finalizeAccountDeletionTeardown(
-          () => clearTokens(apiError.authSessionGeneration),
-        );
+        invalidatePaymentContextCache();
         setConfirmVisible(false);
         shouldResetBusy = false;
         setAuthState({status: 'sessionExpired', message: apiError.message});
+        void finalizeAccountDeletionTeardown(
+          () => clearTokens(apiError.authSessionGeneration), () => {},
+        );
         return;
       }
 

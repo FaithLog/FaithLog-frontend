@@ -1,10 +1,15 @@
 import {describe, expect, it, vi} from 'vitest';
 
-vi.mock('../api/tokenStorage', () => ({
-  clearTokens: vi.fn(),
-  getAuthSessionGeneration: vi.fn(() => 0),
+const storage = vi.hoisted(() => ({
+  generation: 5,
+  startAuthSessionClear: vi.fn(),
 }));
-import {createSessionExpirationHandler, isExpirationEventCurrent} from './sessionExpiration';
+
+vi.mock('../api/tokenStorage', () => ({
+  getAuthSessionGeneration: vi.fn(() => storage.generation),
+  startAuthSessionClear: storage.startAuthSessionClear,
+}));
+import {createSessionExpirationHandler, expireAuthSession, isExpirationEventCurrent, subscribeSessionExpiration} from './sessionExpiration';
 
 describe('central session expiration lineage', () => {
   const event = {expiredGeneration: 4 as never, clearedGeneration: 5 as never};
@@ -42,4 +47,18 @@ describe('central session expiration lineage', () => {
       expect(rootState).toBe('sessionExpired');
     },
   );
+
+  it('does not emit when stale clear did not advance generation', async () => {
+    storage.startAuthSessionClear.mockReturnValue({
+      cleared: false,
+      previousGeneration: 5,
+      currentGeneration: 5,
+      completion: Promise.resolve(),
+    });
+    const listener = vi.fn();
+    const unsubscribe = subscribeSessionExpiration(listener);
+    await expireAuthSession(4 as never);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
 });

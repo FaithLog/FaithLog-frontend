@@ -1,4 +1,4 @@
-import {clearTokens, getAuthSessionGeneration, type AuthSessionGeneration} from '../api/tokenStorage';
+import {getAuthSessionGeneration, startAuthSessionClear, type AuthSessionGeneration} from '../api/tokenStorage';
 
 export type SessionExpirationEvent = {
   expiredGeneration: AuthSessionGeneration;
@@ -13,13 +13,14 @@ export function subscribeSessionExpiration(listener: (event: SessionExpirationEv
 }
 
 export async function expireAuthSession(generation: AuthSessionGeneration) {
-  const clearing = clearTokens(generation);
-  const clearedGeneration = getAuthSessionGeneration();
-  if (clearedGeneration === generation + 1) {
+  const transition = startAuthSessionClear(generation);
+  const clearedGeneration = transition.currentGeneration;
+  if (transition.cleared && clearedGeneration === generation + 1) {
     const event = {expiredGeneration: generation, clearedGeneration};
     listeners.forEach((listener) => listener(event));
   }
-  return clearing;
+  await transition.completion;
+  return transition.cleared && getAuthSessionGeneration() === clearedGeneration;
 }
 
 export function isExpirationEventCurrent(

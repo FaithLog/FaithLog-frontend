@@ -9,7 +9,9 @@ vi.mock('react-native', () => ({
 
 vi.mock('../api/client', () => ({}));
 vi.mock('../api/errorPolicy', () => ({}));
-vi.mock('../api/tokenStorage', () => ({}));
+vi.mock('../api/tokenStorage', () => ({
+  StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {},
+}));
 vi.mock('../admin/AdminScreen', () => ({}));
 vi.mock('../admin/ServiceAdminScreen', () => ({}));
 vi.mock('../auth/authForms', () => ({}));
@@ -38,7 +40,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {beginLogoutAuthTransition, finalizeAccountDeletionTeardown, purgePaymentContextForAuthState} from './FaithLogApp';
+import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, finalizeAccountDeletionTeardown, purgePaymentContextForAuthState} from './FaithLogApp';
 
 describe('logout UI transition', () => {
   it('clears payment context immediately on logout teardown', async () => {
@@ -63,6 +65,26 @@ describe('logout UI transition', () => {
       async () => { throw new Error('secure storage unavailable'); }, invalidate,
     )).resolves.toContain('계정은 삭제됐지만');
     expect(invalidate).toHaveBeenCalledOnce();
+  });
+
+  it('does not let a delayed bootstrap result overwrite expiration', () => {
+    let state = 'sessionExpired';
+    applyAuthResultIfCurrent(2, 3, () => { state = 'error'; });
+    expect(state).toBe('sessionExpired');
+  });
+
+  it('hides protected UI and purges cache before a hanging local clear completes', () => {
+    const invalidate = vi.fn();
+    const transition = vi.fn();
+    const never = new Promise<never>(() => {});
+    void beginAccountDeletionTeardown(transition, () => never, invalidate);
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(transition).toHaveBeenCalledOnce();
+  });
+
+  it('does not attach a late cleanup warning to a newly authenticated session', () => {
+    const authenticated = {status: 'authenticated'} as never;
+    expect(attachAccountDeletionCleanupWarning(authenticated, 'late warning')).toBe(authenticated);
   });
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {

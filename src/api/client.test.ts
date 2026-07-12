@@ -7,6 +7,7 @@ vi.mock('./tokenStorage', () => ({
   isAccessTokenOwnedByAuthSession: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   saveTokens: vi.fn(),
+  startAuthSessionClear: vi.fn(),
 }));
 
 import {
@@ -870,6 +871,26 @@ describe('FaithLog API client', () => {
     expect(saveTokens).not.toHaveBeenCalled();
   });
 
+  it('rechecks generation after deferred ownership and before mutation fetch', async () => {
+    let finishOwnership!: (owned: boolean) => void;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => { finishOwnership = resolve; }),
+    );
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'first-user-access-token',
+      method: 'POST',
+      body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    finishOwnership(true);
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('retries a same-session stale token with an already rotated stored token', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,
@@ -910,6 +931,35 @@ describe('FaithLog API client', () => {
         String(url).endsWith('/api/v1/auth/refresh'),
       ),
     ).toBe(false);
+  });
+
+  it('rechecks generation after a rotated-token promise and before retry fetch', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+      success: false,
+      code: 'AUTH_UNAUTHORIZED',
+      message: 'expired',
+    })));
+    let finishStoredRead!: (value: Awaited<ReturnType<typeof getStoredAuthSession>>) => void;
+    vi.mocked(getStoredAuthSession).mockReturnValueOnce(new Promise((resolve) => {
+      finishStoredRead = resolve;
+    }));
+    const pending = apiRequest('/protected', {
+      accessToken: 'old-access',
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    finishStoredRead({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access',
+      refreshToken: 'rotated-refresh',
+    });
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('does not persist a delayed refresh after logout or account replacement', async () => {

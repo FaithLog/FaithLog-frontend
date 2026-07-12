@@ -1317,6 +1317,7 @@ export async function apiRequest<T>(
 
   try {
     await assertRequestAccessTokenIsOwned(requestOptions);
+    assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     const data = await executeApiRequest<T>(path, requestOptions);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     return data;
@@ -1360,6 +1361,7 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
 
   assertAuthSessionGenerationIsCurrent(generation);
   const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken, generation);
+  assertAuthSessionGenerationIsCurrent(generation);
 
   try {
     const data = await executeApiRequest<T>(path, {

@@ -109,8 +109,41 @@ describe('native auth token storage', () => {
     const logout = tokenStorage.clearTokens(generation);
     releaseWrite();
     await expect(write).resolves.toBe(false);
-    await expect(queuedRead).resolves.toEqual({accessToken: null, refreshToken: null});
+    await expect(queuedRead).rejects.toMatchObject({expectedGeneration: generation});
     await expect(logout).resolves.toBe(true);
+  });
+
+  it('keeps a tombstone if token rotation is interrupted after the token write', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseTokenWrite!: () => void;
+    const tokenWriteBlocked = new Promise<void>((resolve) => { releaseTokenWrite = resolve; });
+    secureStoreMocks.setItemAsync
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value); // auth tombstone
+      })
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value); // token record reached durable storage
+        await tokenWriteBlocked;
+      });
+    const rotation = tokenStorage.saveTokens(
+      {accessToken: 'rotated-access', refreshToken: 'rotated-refresh'}, generation,
+    );
+    await vi.waitFor(() => {
+      expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+      expect(testState.storage.get('faithlog.authTokens.v2')).toContain('rotated-access');
+    });
+
+    const crashSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = crashSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    await expect(restartedStorage.getStoredTokens()).resolves.toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+    releaseTokenWrite();
+    await rotation;
   });
 
   it('keeps every rotated access token owned by the same auth session', async () => {

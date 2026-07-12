@@ -59,6 +59,7 @@ import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
+import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
   getUserVisiblePollCount,
@@ -359,6 +360,9 @@ export function PollScreen({
         campusId,
         content: trimmed,
         ...(optionMenuId === undefined ? {} : {menuId: optionMenuId}),
+        isCurrent: () => isCurrentDetailOperation(
+          mutationPollId, mutationEpoch, mutationGeneration,
+        ),
         pollId: mutationPollId,
       });
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
@@ -1558,32 +1562,34 @@ async function addUserPollOptionWithMenuContractFallback({
   content,
   menuId,
   pollId,
+  isCurrent,
 }: {
   accessToken: string;
   campusId: number;
   content: string;
   menuId?: number;
   pollId: number;
+  isCurrent: () => boolean;
 }) {
   const requests =
     menuId === undefined
       ? [{content}]
       : [{content, menuId}, {menuId}, {content}];
-  let lastError: unknown = null;
+  return runPollOptionFallback(
+    requests,
+    isCurrent,
+    (request) => addUserPollOption(accessToken, campusId, pollId, request),
+    canRetryPollOptionAddWithNextContract,
+    createStalePollMutationError,
+  );
+}
 
-  for (const request of requests) {
-    try {
-      return await addUserPollOption(accessToken, campusId, pollId, request);
-    } catch (error) {
-      if (!canRetryPollOptionAddWithNextContract(error)) {
-        throw error;
-      }
-
-      lastError = error;
-    }
-  }
-
-  throw lastError;
+function createStalePollMutationError() {
+  return new FaithLogApiError({
+    kind: 'error',
+    code: 'AUTH_SESSION_CHANGED',
+    message: '투표 화면이 변경되어 이전 작업을 취소했습니다.',
+  });
 }
 
 function canRetryPollOptionAddWithNextContract(error: unknown) {

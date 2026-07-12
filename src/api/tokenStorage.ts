@@ -31,6 +31,12 @@ export type StoredAuthSession = StoredTokens & {
   generation: AuthSessionGeneration;
 };
 
+export class StaleAuthSessionReadError extends Error {
+  constructor(readonly expectedGeneration: AuthSessionGeneration) {
+    super('Authentication session changed while reading secure storage.');
+  }
+}
+
 export type StoredFcmRegistration = {
   token: string | null;
   tokenId: number | null;
@@ -91,10 +97,9 @@ export async function getStoredAuthSession(
 ): Promise<StoredAuthSession> {
   return withSecureStorageLock(async () => {
     const generation = expectedGeneration;
-    if (!isAuthSessionGenerationCurrent(generation)) {
-      return {generation: authSessionGeneration, accessToken: null, refreshToken: null};
-    }
+    assertExpectedGeneration(generation);
     const invalidated = await getStorageItem(AUTH_INVALIDATED_KEY);
+    assertExpectedGeneration(generation);
 
     if (invalidated === INVALIDATED_VALUE) {
       cachedAccessToken = null;
@@ -103,6 +108,7 @@ export async function getStoredAuthSession(
     }
 
     const serialized = await getStorageItem(AUTH_TOKENS_KEY);
+    assertExpectedGeneration(generation);
     const stored = parseStoredTokenRecord(serialized);
 
     if (serialized && !stored) {
@@ -110,6 +116,7 @@ export async function getStoredAuthSession(
       currentSessionAccessTokens.clear();
       await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
       await deleteStorageItem(AUTH_TOKENS_KEY).catch(() => undefined);
+      assertExpectedGeneration(generation);
       return {generation, accessToken: null, refreshToken: null};
     }
 
@@ -124,7 +131,7 @@ export async function getStoredAuthSession(
         };
       }
 
-      return {generation: authSessionGeneration, accessToken: null, refreshToken: null};
+      throw new StaleAuthSessionReadError(generation);
     }
 
     const [legacyAccessToken, legacyRefreshToken] = await Promise.all([
@@ -133,7 +140,7 @@ export async function getStoredAuthSession(
     ]);
 
     if (!isAuthSessionGenerationCurrent(generation)) {
-      return {generation: authSessionGeneration, accessToken: null, refreshToken: null};
+      throw new StaleAuthSessionReadError(generation);
     }
 
     if (!legacyAccessToken || !legacyRefreshToken) {
@@ -154,11 +161,7 @@ export async function getStoredAuthSession(
     ]);
 
     if (!isAuthSessionGenerationCurrent(generation)) {
-      return {
-        generation: authSessionGeneration,
-        accessToken: null,
-        refreshToken: null,
-      };
+      throw new StaleAuthSessionReadError(generation);
     }
 
     cachedAccessToken = legacyAccessToken;
@@ -209,6 +212,8 @@ export async function saveTokens(
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     };
+    await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
+    if (!isAuthSessionGenerationCurrent(generation)) return false;
     await setStorageItem(AUTH_TOKENS_KEY, JSON.stringify(record));
 
     if (!isAuthSessionGenerationCurrent(generation)) {
@@ -219,6 +224,7 @@ export async function saveTokens(
       deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
       deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
     ]);
+    if (!isAuthSessionGenerationCurrent(generation)) return false;
     await deleteStorageItem(AUTH_INVALIDATED_KEY);
 
     if (isAuthSessionGenerationCurrent(generation)) {
@@ -233,16 +239,34 @@ export async function saveTokens(
 export async function clearTokens(
   expectedGeneration?: AuthSessionGeneration | number,
 ) {
+  const transition = startAuthSessionClear(expectedGeneration);
+  await transition.completion;
+  return transition.cleared && isAuthSessionGenerationCurrent(transition.currentGeneration);
+}
+
+export function startAuthSessionClear(
+  expectedGeneration?: AuthSessionGeneration | number,
+) {
+  const previousGeneration = authSessionGeneration;
   if (
     expectedGeneration !== undefined &&
     !isAuthSessionGenerationCurrent(expectedGeneration)
   ) {
-    return false;
+    return {
+      cleared: false as const,
+      previousGeneration,
+      currentGeneration: authSessionGeneration,
+      completion: Promise.resolve(),
+    };
   }
 
-  const invalidatedGeneration = advanceAuthSessionGeneration();
-  await withSecureStorageLock(invalidateStoredAuthData);
-  return isAuthSessionGenerationCurrent(invalidatedGeneration);
+  const currentGeneration = advanceAuthSessionGeneration();
+  return {
+    cleared: true as const,
+    previousGeneration,
+    currentGeneration,
+    completion: withSecureStorageLock(invalidateStoredAuthData),
+  };
 }
 
 export async function getStoredSelectedCampusId(): Promise<number | null> {
@@ -466,6 +490,12 @@ function advanceAuthSessionGeneration() {
   cachedAccessToken = null;
   currentSessionAccessTokens.clear();
   return authSessionGeneration;
+}
+
+function assertExpectedGeneration(generation: AuthSessionGeneration) {
+  if (!isAuthSessionGenerationCurrent(generation)) {
+    throw new StaleAuthSessionReadError(generation);
+  }
 }
 
 async function invalidateStoredAuthData() {

@@ -15,6 +15,7 @@ import {
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
+  StaleAuthSessionReadError,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {
@@ -102,7 +103,8 @@ export async function prepareCurrentSessionLogout(
 
   try {
     authSession = await getStoredAuthSession();
-  } catch {
+  } catch (error) {
+    if (error instanceof StaleAuthSessionReadError) throw error;
     await clearTokens();
     return {
       completeRemoteLogout: async () => ({
