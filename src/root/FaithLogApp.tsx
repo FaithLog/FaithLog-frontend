@@ -129,6 +129,7 @@ import {
   inspectFcmRegistrationStatusWithCleanup,
   registerCurrentFcmToken,
   registerFcmTokenValue,
+  runAccountDeletionWithFcmPreflight,
   type FcmRegistrationStatus,
 } from '../notifications/fcmRegistration';
 import {isFcmRuntimeEnabled} from '../notifications/fcmEnvironment';
@@ -3883,34 +3884,31 @@ function AccountDeletionScreen({
     setBusy(true);
     setError(null);
     try {
-      const accessToken = await resolveCurrentAccessToken(() => {
-        shouldResetBusy = false;
-        setAuthState({
-          status: 'sessionExpired',
-          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-        });
-      });
-
-      if (!accessToken) {
-        return;
-      }
-
-      // Settle any already-sent notification operation while the account credential is
-      // still valid so a late registration cannot outlive successful account deletion.
-      await beginFcmTransitionCleanup(deletionGeneration);
-      if (!isAuthSessionRequestAllowed(deletionGeneration)) return;
-      await deleteMyAccount(accessToken, {
-        password,
-        confirmText,
-      });
-      if (!isAuthSessionRequestAllowed(deletionGeneration)) return;
+      const deletion = await runAccountDeletionWithFcmPreflight(
+        deletionGeneration,
+        () => resolveCurrentAccessToken(() => {
+          shouldResetBusy = false;
+          setAuthState({
+            status: 'sessionExpired',
+            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          });
+        }),
+        (accessToken) => deleteMyAccount(accessToken, {password, confirmText}),
+      );
+      if (deletion.status === 'cancelled') return;
       setConfirmVisible(false);
       shouldResetBusy = false;
       void beginAccountDeletionTeardown(
         () => setAuthState({status: 'signedOut'}),
-        () => clearTokens(deletionGeneration),
+        async () => {
+          const [cleared] = await Promise.all([
+            clearTokens(deletionGeneration),
+            deletion.cleanup,
+          ]);
+          return cleared;
+        },
         invalidatePaymentContextCache,
-        beginFcmTransitionCleanup,
+        async () => undefined,
         deletionGeneration,
       )
         .then((cleanupWarning) => {

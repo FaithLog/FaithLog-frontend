@@ -70,11 +70,20 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
     const authClear = hadDurableTeardown
       ? startAuthSessionClear(getAuthSessionGeneration())
       : null;
+    if (authClear) {
+      try {
+        await authClear.completion;
+      } catch {
+        return {
+          status: 'signedOut',
+          warning: '이전 로그인 정보를 안전하게 삭제하지 못했습니다. 앱을 다시 실행해 주세요.',
+        };
+      }
+    }
     const cleanupComplete = await waitForFcmTransitionCleanup(
       BOOTSTRAP_REMOTE_CLEANUP_TIMEOUT_MS,
     );
     if (authClear) {
-      await authClear.completion.catch(() => undefined);
       return cleanupComplete
         ? {
             status: 'signedOut',

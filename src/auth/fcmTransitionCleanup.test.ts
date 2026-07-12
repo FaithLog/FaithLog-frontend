@@ -82,6 +82,30 @@ describe('shared FCM auth-transition cleanup', () => {
     expect(state.obligations).toBeNull();
   });
 
+  it('clears a cleaned obligation created dynamically after an empty capture', async () => {
+    let finish!: () => void;
+    const barrier = new Promise<void>((resolve) => { finish = resolve; });
+    const dynamic = {
+      accessToken: 'old-access', clientInstanceId: 'old-client', userId: 42,
+      kind: 'deactivation' as const, token: null, tokenId: 77,
+      state: 'cleaned' as const,
+    };
+    capturePendingFcmOperations.mockReturnValueOnce({
+      barrier,
+      obligations: [],
+      settlement: barrier.then(() => [dynamic]),
+      hasPendingOperations: true,
+    });
+    // The captured context persists its dynamic pre-send receipt.
+    state.obligations = [dynamic];
+    const cleanup = beginFcmTransitionCleanup(7);
+    finish();
+    await cleanup;
+
+    expect(compensateCapturedFcmOperations).toHaveBeenCalledWith([dynamic]);
+    expect(state.obligations).toBeNull();
+  });
+
   it.each(['timeout', 'server-500'] as const)(
     'keeps a durable restart gate across module-memory reset after %s',
     async (failure) => {

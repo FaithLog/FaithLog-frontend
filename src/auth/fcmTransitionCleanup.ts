@@ -44,7 +44,11 @@ export function beginFcmTransitionCleanup(generation?: number) {
     const obligations = await captured.settlement;
     await markFcmRemoteCleanupPending(obligations);
     const processed = await compensateCleanup(obligations);
-    await clearFcmRemoteCleanupObligations([...initialObligations, ...processed]);
+    await clearFcmRemoteCleanupObligations([
+      ...initialObligations,
+      ...obligations,
+      ...processed,
+    ]);
   })();
   const tracked = operation.then(
     () => undefined,
@@ -85,7 +89,12 @@ export async function waitForFcmTransitionCleanup(timeoutMs: number) {
     reconciliationInFlight ??= reconcileDurableCleanup(deadline).finally(() => {
       reconciliationInFlight = null;
     });
-    if (!(await reconciliationInFlight)) return false;
+    try {
+      if (!(await runBeforeDeadline(reconciliationInFlight, deadline))) return false;
+    } catch {
+      restartRequired = true;
+      return false;
+    }
     if (restartRequired) return false;
   }
   while (cleanupInFlight.size > 0) {

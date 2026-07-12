@@ -509,6 +509,34 @@ describe('native auth token storage', () => {
     await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([second]);
   });
 
+  it('atomically replaces session logout with retirement while preserving unrelated debt', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const logout = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+    };
+    const unrelated = {
+      accessToken: 'other-access', userId: 42, clientInstanceId: 'old-client',
+      kind: 'deactivation' as const, token: null, tokenId: 77,
+    };
+    const retirement = {
+      accessToken: 'old-access', refreshToken: null, userId: null,
+      clientInstanceId: 'current-client', kind: 'clientRetirement' as const,
+      token: null, tokenId: null,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([logout, unrelated]);
+    await tokenStorage.replaceFcmRemoteCleanupObligations([logout], [retirement]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual(
+      expect.arrayContaining([
+        unrelated,
+        expect.objectContaining({
+          kind: 'clientRetirement', clientInstanceId: 'current-client',
+        }),
+      ]),
+    );
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.not.toContainEqual(logout);
+  });
+
   it.each([
     {userId: 42, clientInstanceId: 'old-client', kind: 'deactivation', token: null, tokenId: null},
     {userId: 42, clientInstanceId: 'old-client', kind: 'registration', token: null, tokenId: null},

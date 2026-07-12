@@ -15,10 +15,12 @@ import {
   getAuthSessionGeneration,
   getStoredSelectedCampusId,
   getStoredAuthSession,
+  getStoredClientInstanceId,
   isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   markAuthSessionClosing,
   markFcmRemoteCleanupPending,
+  replaceFcmRemoteCleanupObligations,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
@@ -301,7 +303,7 @@ async function completeRemoteLogout(
       compensatedObligations = await compensateCapturedFcmOperations(fcmObligations);
     } catch {
       remoteLogoutRestartRequired = true;
-      await requireFcmRemoteCleanupRestart(fcmObligations).catch(() => undefined);
+      await requireFcmRemoteCleanupRestart().catch(() => undefined);
       return {
         status: 'signedOutWithRemoteWarning',
         message: '이전 알림 연결 정리를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
@@ -310,19 +312,37 @@ async function completeRemoteLogout(
   }
   await clearFcmRemoteCleanupObligations([
     ...initialFcmObligations,
+    ...fcmObligations,
     ...compensatedObligations,
   ]);
   const accessToken = authSession.accessToken ?? fcmObligations[0]?.accessToken ?? null;
   const {refreshToken} = authSession;
+  const sessionLogoutHandledByCompensation = compensatedObligations.some(
+    (obligation) => obligation.kind === 'clientLogout',
+  );
+  let effectiveFcmPayload = fcmPayload;
+  if (!sessionLogoutHandledByCompensation && !effectiveFcmPayload.clientInstanceId) {
+    try {
+      const storedClientInstanceId = await getStoredClientInstanceId();
+      if (storedClientInstanceId) {
+        effectiveFcmPayload = {...effectiveFcmPayload, clientInstanceId: storedClientInstanceId};
+      }
+    } catch {
+      remoteLogoutRestartRequired = true;
+      await requireFcmRemoteCleanupRestart().catch(() => undefined);
+      return {
+        status: 'signedOutWithRemoteWarning',
+        message: '기기 알림 연결 정보를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+      };
+    }
+  }
   const durableObligations = [
     ...sessionLogoutObligations,
   ];
   let remoteWarning = preparationWarning;
-  let remoteLogoutConfirmed = compensatedObligations.some(
-    (obligation) => obligation.kind === 'clientLogout',
-  );
+  let remoteLogoutConfirmed = sessionLogoutHandledByCompensation;
 
-  if (!accessToken && (fcmOperationsMayHaveReachedServer || fcmPayload.clientInstanceId)) {
+  if (!accessToken && (fcmOperationsMayHaveReachedServer || effectiveFcmPayload.clientInstanceId)) {
     remoteLogoutRestartRequired = true;
     await requireFcmRemoteCleanupRestart(durableObligations).catch(() => undefined);
     remoteWarning =
@@ -334,14 +354,14 @@ async function completeRemoteLogout(
       markSent();
       await logoutUser(accessToken, {
         ...(refreshToken ? {refreshToken} : {}),
-        ...fcmPayload,
+        ...effectiveFcmPayload,
       });
       remoteLogoutConfirmed = true;
     } catch (error) {
       if (
         isRemoteLogoutOutcomeUnknown(error) ||
         fcmOperationsMayHaveReachedServer ||
-        Boolean(fcmPayload.clientInstanceId)
+        Boolean(effectiveFcmPayload.clientInstanceId)
       ) {
         remoteLogoutRestartRequired = true;
         await requireFcmRemoteCleanupRestart(durableObligations).catch(() => undefined);
@@ -350,21 +370,32 @@ async function completeRemoteLogout(
     }
   }
 
-  if (remoteLogoutConfirmed) {
+  if (
+    remoteLogoutConfirmed &&
+    !sessionLogoutHandledByCompensation &&
+    !effectiveFcmPayload.clientInstanceId
+  ) {
     await clearFcmRemoteCleanupObligations(sessionLogoutObligations);
   }
 
-  if (remoteLogoutConfirmed && fcmPayload.clientInstanceId) {
+  if (
+    remoteLogoutConfirmed &&
+    !sessionLogoutHandledByCompensation &&
+    effectiveFcmPayload.clientInstanceId
+  ) {
     const retirementObligation = createClientRetirementObligation(
       accessToken,
-      fcmPayload.clientInstanceId,
+      effectiveFcmPayload.clientInstanceId,
     );
     try {
-      await markFcmRemoteCleanupPending(retirementObligation);
-      await clearFcmRegistrationAttemptsForClientInstance(fcmPayload.clientInstanceId);
-      const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);
+      await replaceFcmRemoteCleanupObligations(
+        sessionLogoutObligations,
+        retirementObligation,
+      );
+      await clearFcmRegistrationAttemptsForClientInstance(effectiveFcmPayload.clientInstanceId);
+      const rotated = await rotateClientInstanceId(effectiveFcmPayload.clientInstanceId);
       if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
-      await clearFcmRemoteCleanupObligations(retirementObligation);
+      await replaceFcmRemoteCleanupObligations(retirementObligation, []);
     } catch {
       remoteLogoutRestartRequired = true;
       remoteWarning =
@@ -412,29 +443,38 @@ function trackRemoteLogout(
 }
 
 export async function waitForAuthEntryAvailability() {
-  if (!(await waitForLocalSessionCleanup(LOGOUT_PREPARATION_TIMEOUT_MS))) {
+  const deadline = Date.now() + REMOTE_LOGOUT_BARRIER_TIMEOUT_MS;
+  const requireRemaining = () => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw createLogoutCleanupPendingError();
+    return remaining;
+  };
+  if (!(await waitForLocalSessionCleanup(
+    Math.min(LOGOUT_PREPARATION_TIMEOUT_MS, requireRemaining()),
+  ))) {
     discardAllRefreshLogoutHandoffs();
     throw createLogoutCleanupPendingError();
   }
-  await waitForActiveRemoteLogoutFlights();
-  if (!(await waitForFcmTransitionCleanup(REMOTE_LOGOUT_BARRIER_TIMEOUT_MS))) {
+  await waitForActiveRemoteLogoutFlights(deadline);
+  if (!(await waitForFcmTransitionCleanup(requireRemaining()))) {
     throw createLogoutCleanupPendingError();
   }
   const handoffStatus = await settleRefreshHandoffsForAuthEntry(
-    LOGOUT_PREPARATION_TIMEOUT_MS,
+    Math.min(LOGOUT_PREPARATION_TIMEOUT_MS, requireRemaining()),
   );
   if (handoffStatus !== 'clear') remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
 }
 
-async function waitForActiveRemoteLogoutFlights() {
-  const deadline = Date.now() + REMOTE_LOGOUT_BARRIER_TIMEOUT_MS;
+async function waitForActiveRemoteLogoutFlights(deadline: number) {
   while (remoteLogoutFlights.size > 0) {
     const pending = [...remoteLogoutFlights];
     try {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw createLogoutCleanupPendingError();
       await waitForLogoutBarrier(
         Promise.all(pending.map((flight) => flight.promise)),
-        Math.max(1, deadline - Date.now()),
+        remaining,
       );
       if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
     } catch {

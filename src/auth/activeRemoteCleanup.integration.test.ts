@@ -5,6 +5,7 @@ const api = vi.hoisted(() => ({
   deactivateCleanup: vi.fn(),
   fetchCampuses: vi.fn(),
   fetchUser: vi.fn(),
+  fcmPayload: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
   register: vi.fn(),
@@ -45,7 +46,7 @@ vi.mock('../notifications/notificationAdapter', () => ({
   checkNotificationPermission: vi.fn(), getDeviceFcmToken: vi.fn(),
   getDeviceType: vi.fn(() => 'IOS'), requestNotificationPermission: vi.fn(),
 }));
-vi.mock('./fcmLogout', () => ({getLogoutFcmDeactivationPayload: vi.fn(async () => ({}))}));
+vi.mock('./fcmLogout', () => ({getLogoutFcmDeactivationPayload: api.fcmPayload}));
 
 describe('active remote cleanup ownership', () => {
   beforeEach(() => {
@@ -53,6 +54,7 @@ describe('active remote cleanup ownership', () => {
     vi.clearAllMocks();
     vi.resetModules();
     api.deactivateCleanup.mockResolvedValue(null);
+    api.fcmPayload.mockResolvedValue({});
     api.logout.mockResolvedValue(null);
     api.login.mockResolvedValue({
       accessToken: 'new-access', refreshToken: 'new-refresh',
@@ -147,5 +149,121 @@ describe('active remote cleanup ownership', () => {
         }),
       ]),
     );
+  });
+
+  it('restarts a crash-safe session logout with the stored current client and retires it', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    const currentClient = await storage.getOrCreateClientInstanceId();
+    const session = await import('./session');
+    api.fcmPayload.mockReturnValue(new Promise(() => {}));
+    void session.prepareCurrentSessionLogout(42);
+    await vi.waitFor(() => {
+      expect(state.storage.get('faithlog.authInvalidated')).toBe('1');
+      expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(true);
+    });
+
+    const snapshot = new Map(state.storage);
+    expect(snapshot.get('faithlog.clientInstanceId')).toBe(currentClient);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedStorage = await import('../api/tokenStorage');
+    await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+    expect(api.logout).toHaveBeenCalledWith('old-access', {
+      refreshToken: 'old-refresh', clientInstanceId: currentClient,
+    });
+    await expect(restartedStorage.getStoredClientInstanceId()).resolves.not.toBe(currentClient);
+    await expect(restartedStorage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+  });
+
+  it('does not leave an empty durable gate after account deletion with no FCM work', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    const fcm = await import('../notifications/fcmRegistration');
+    const deleteAccount = vi.fn(async () => undefined);
+
+    const result = await fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => 'old-access',
+      deleteAccount,
+    );
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') await result.cleanup;
+    expect(deleteAccount).toHaveBeenCalledWith('old-access');
+    await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+  });
+
+  it('joins an FCM credential rotation and deletes the account with stored A2', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'A1', refreshToken: 'R1'}, generation);
+    const rotated = {accessToken: 'A2', refreshToken: 'R2'};
+    api.register.mockImplementation(async (...args: unknown[]) => {
+      await storage.saveTokens(rotated, generation);
+      const onEffective = args[3] as ((tokens: typeof rotated) => Promise<void>) | undefined;
+      await onEffective?.(rotated);
+      return {
+        appVersion: '0.1.0-test', clientInstanceId: 'current-client', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+        lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+      };
+    });
+    const fcm = await import('../notifications/fcmRegistration');
+    const registration = fcm.registerFcmTokenValue('A1', 42, 'device-token', generation);
+    const deleteAccount = vi.fn(async () => undefined);
+    const deletion = fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => (await storage.getStoredAuthSession(generation)).accessToken,
+      deleteAccount,
+    );
+
+    await registration;
+    const result = await deletion;
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') await result.cleanup;
+    expect(deleteAccount).toHaveBeenCalledOnce();
+    expect(deleteAccount).toHaveBeenCalledWith('A2');
+    expect(api.logout).not.toHaveBeenCalled();
+  });
+
+  it('clears captured receipts without teardown when account deletion fails normally', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    let finishRegistration!: (value: {
+      appVersion: string; clientInstanceId: string; deviceType: 'IOS'; isActive: boolean;
+      lastRefreshedAt: string; lastSeenAt: string; tokenId: number;
+    }) => void;
+    api.register.mockReturnValue(new Promise((resolve) => { finishRegistration = resolve; }));
+    const fcm = await import('../notifications/fcmRegistration');
+    const registration = fcm.registerFcmTokenValue(
+      'old-access', 42, 'desired-device-token', generation,
+    );
+    await vi.waitFor(() => expect(api.register).toHaveBeenCalledOnce());
+    const deletion = fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => 'old-access',
+      async () => { throw new Error('wrong password'); },
+    );
+    finishRegistration({
+      appVersion: '0.1.0-test', clientInstanceId: 'current-client', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+    });
+    await registration;
+
+    await expect(deletion).rejects.toThrow('wrong password');
+    await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+    await expect(storage.getStoredAuthSession(generation)).resolves.toMatchObject({
+      accessToken: 'old-access', refreshToken: 'old-refresh',
+    });
+    expect(api.logout).not.toHaveBeenCalled();
+    expect(api.deactivateCleanup).not.toHaveBeenCalled();
   });
 });

@@ -63,6 +63,7 @@ describe('durable FCM reconciliation', () => {
         lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
       });
     const storage = await import('../api/tokenStorage');
+    const currentClient = await storage.getOrCreateClientInstanceId();
     await storage.markFcmRemoteCleanupPending([{
       accessToken: 'expired-access', refreshToken: 'old-refresh', userId: 42,
       clientInstanceId: 'old-client', kind: 'registration', token: 'old-token', tokenId: null,
@@ -74,8 +75,11 @@ describe('durable FCM reconciliation', () => {
     await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
     expect(api.logout).toHaveBeenCalledOnce();
     expect(api.logout).toHaveBeenCalledWith('rotated-access', {
-      refreshToken: 'rotated-refresh', clientInstanceId: 'old-client',
+      refreshToken: 'rotated-refresh', clientInstanceId: currentClient,
     });
+    expect(api.deactivate.mock.invocationCallOrder[0]).toBeLessThan(
+      api.logout.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('refreshes an expired client logout without appending a duplicate logout', async () => {
@@ -86,6 +90,7 @@ describe('durable FCM reconciliation', () => {
       }))
       .mockResolvedValueOnce(null);
     const storage = await import('../api/tokenStorage');
+    const currentClient = await storage.getOrCreateClientInstanceId();
     await storage.markFcmRemoteCleanupPending([{
       accessToken: 'expired-access', refreshToken: 'old-refresh', userId: null,
       clientInstanceId: null, kind: 'clientLogout', token: null, tokenId: null,
@@ -97,8 +102,9 @@ describe('durable FCM reconciliation', () => {
     await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
     expect(api.logout).toHaveBeenCalledTimes(2);
     expect(api.logout).toHaveBeenLastCalledWith('rotated-access', {
-      refreshToken: 'rotated-refresh',
+      refreshToken: 'rotated-refresh', clientInstanceId: currentClient,
     });
+    await expect(storage.getStoredClientInstanceId()).resolves.not.toBe(currentClient);
   });
 
   it('retries local client retirement without repeating remote logout', async () => {

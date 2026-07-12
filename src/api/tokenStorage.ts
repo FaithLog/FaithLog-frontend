@@ -692,6 +692,36 @@ export async function clearFcmRemoteCleanupObligations(
   });
 }
 
+export async function replaceFcmRemoteCleanupObligations(
+  completed: StoredFcmRemoteCleanupObligation[],
+  replacements: StoredFcmRemoteCleanupObligation[],
+) {
+  await withSecureStorageLock(async () => {
+    const current = parseStoredFcmRemoteCleanupObligations(
+      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+    );
+    const removed = new Set(completed.map(getFcmRemoteCleanupIdentity));
+    const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
+    for (const entry of current) {
+      if (!removed.has(getFcmRemoteCleanupIdentity(entry))) {
+        byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
+      }
+    }
+    for (const entry of replacements) {
+      byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
+    }
+    const next = [...byIdentity.values()];
+    if (next.length === 0) {
+      await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+    } else {
+      await setStorageItem(
+        FCM_REMOTE_CLEANUP_PENDING_KEY,
+        JSON.stringify({version: 1, obligations: next}),
+      );
+    }
+  });
+}
+
 export async function hasFcmRemoteCleanupPending() {
   return (await getFcmRemoteCleanupObligations()) !== null;
 }
