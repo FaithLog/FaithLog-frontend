@@ -1,5 +1,7 @@
 import {describe, expect, it, vi} from 'vitest';
 
+const invalidatePaymentContextCache = vi.hoisted(() => vi.fn());
+
 vi.mock('react-native', () => ({
   Platform: {OS: 'ios'},
   StyleSheet: {create: <T>(styles: T) => styles},
@@ -27,6 +29,7 @@ vi.mock('../notifications/nativeFirebaseMessaging', () => ({}));
 vi.mock('../notifications/notificationAdapter', () => ({}));
 vi.mock('../notifications/pushNavigation', () => ({}));
 vi.mock('../payments/PaymentScreen', () => ({}));
+vi.mock('../payments/paymentContextCache', () => ({invalidatePaymentContextCache}));
 vi.mock('../polls/PollScreen', () => ({}));
 vi.mock('../prayers/PrayerScreen', () => ({}));
 vi.mock('../theme', () => ({
@@ -38,6 +41,12 @@ vi.mock('../utils/money', () => ({}));
 import {beginLogoutAuthTransition} from './FaithLogApp';
 
 describe('logout UI transition', () => {
+  it('clears payment context immediately on logout teardown', async () => {
+    await beginLogoutAuthTransition(42, async () => ({
+      completeRemoteLogout: async () => ({status: 'signedOut'}),
+    }));
+    expect(invalidatePaymentContextCache).toHaveBeenCalledWith();
+  });
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {
       throw new Error('secure storage unavailable');

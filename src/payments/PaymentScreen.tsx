@@ -46,6 +46,7 @@ import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {getPaymentContext, invalidatePaymentContextCache} from './paymentContextCache';
+import {isPaymentNavigationLocked} from './paymentViewSafety';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -135,6 +136,7 @@ export function PaymentScreen({
     useState<AccountCopyFeedback>(null);
   const accountCopyOpacity = useRef(new Animated.Value(0)).current;
   const latestListRequest = useRef(0);
+  const latestListRequestKey = useRef('');
   const paymentMutationInFlight = useRef(false);
 
   useEffect(() => {
@@ -168,6 +170,11 @@ export function PaymentScreen({
     const requestSequence = ++latestListRequest.current;
     const requestGeneration = getAuthSessionGeneration();
     const requestKey = `${requestGeneration}:${campusId}:${category}:${status}:${sort}:${nextPage}`;
+    latestListRequestKey.current = requestKey;
+    const isCurrentListRequest = () =>
+      requestSequence === latestListRequest.current &&
+      requestKey === latestListRequestKey.current &&
+      getAuthSessionGeneration() === requestGeneration;
     const showLoading = options.showLoading ?? true;
     const previousSuccess = loadState.status === 'success' ? loadState : null;
 
@@ -193,8 +200,7 @@ export function PaymentScreen({
         getPaymentContext(accessToken, campusId),
       ]);
       const {accounts, coffeeAccountIdsWithCharges, totalUnpaidAmount} = context;
-      const currentKey = `${getAuthSessionGeneration()}:${campusId}:${category}:${status}:${sort}:${nextPage}`;
-      if (requestSequence !== latestListRequest.current || requestKey !== currentKey) return;
+      if (!isCurrentListRequest()) return;
 
       if (nextPage > 0 && charges.items.length === 0) {
         const fallbackPage = nextPage - 1;
@@ -218,7 +224,7 @@ export function PaymentScreen({
           sort: toChargeSort(sort),
           status,
         });
-        if (requestSequence !== latestListRequest.current) return;
+        if (!isCurrentListRequest()) return;
         setLoadState({
           status: 'success',
           accounts,
@@ -242,7 +248,7 @@ export function PaymentScreen({
         totalUnpaidAmount,
       });
     } catch (error) {
-      if (requestSequence !== latestListRequest.current) return;
+      if (!isCurrentListRequest()) return;
       const apiError = toApiError(error, '납부 정보를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
@@ -357,6 +363,7 @@ export function PaymentScreen({
             <Text style={styles.figmaTitle}>청구 상세</Text>
             <Button
               accessibilityLabel="납부 목록으로 돌아가기"
+              disabled={isPaymentNavigationLocked(actionState.status)}
               onPress={() => setSelectedChargeId(null)}
               variant="ghost">
               목록
@@ -553,14 +560,14 @@ export function PaymentScreen({
           <View style={styles.actionRow}>
             <Button
               accessibilityLabel="이전 납부 목록 페이지"
-              disabled={page === 0}
+              disabled={page === 0 || isPaymentNavigationLocked(actionState.status)}
               onPress={() => loadPayments(Math.max(0, page - 1))}
               variant="secondary">
               이전
             </Button>
             <Button
               accessibilityLabel="다음 납부 목록 페이지"
-              disabled={!hasNextPage}
+              disabled={!hasNextPage || isPaymentNavigationLocked(actionState.status)}
               onPress={() => loadPayments(page + 1)}
               variant="secondary">
               다음

@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest';
-import {isCurrentDetailEpoch, isCurrentRequest, settleIndependently} from './requestIdentity';
+import {isCurrentDetailEpoch, isCurrentRequest, isMountedGenerationCurrent, settleIndependently} from './requestIdentity';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -31,5 +31,26 @@ describe('request identity', () => {
   it('rejects a same-poll response from before close and reopen', () => {
     expect(isCurrentDetailEpoch(9, 9, 3, 4, 1, 1)).toBe(false);
     expect(isCurrentDetailEpoch(9, 9, 4, 4, 1, 1)).toBe(true);
+  });
+
+  it.each(['response', 'optionAdd'])('blocks stale %s completion after A to B navigation', async () => {
+    const operation = deferred<string>();
+    const applied: string[] = [];
+    const started = {pollId: 1, epoch: 2, generation: 7};
+    const current = {pollId: 2, epoch: 3, generation: 7};
+    const task = operation.promise.then((value) => {
+      if (isCurrentDetailEpoch(
+        started.pollId, current.pollId, started.epoch, current.epoch,
+        started.generation, current.generation,
+      )) applied.push(value);
+    });
+    operation.resolve('must-not-touch-B');
+    await task;
+    expect(applied).toEqual([]);
+  });
+
+  it('blocks a home result after generation changes without a rerender', () => {
+    expect(isMountedGenerationCurrent(true, 4, 5)).toBe(false);
+    expect(isMountedGenerationCurrent(false, 5, 5)).toBe(false);
   });
 });

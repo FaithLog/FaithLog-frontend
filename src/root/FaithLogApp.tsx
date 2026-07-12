@@ -133,10 +133,11 @@ import {
   parsePushNotificationOpenPayload,
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
+import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
-import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
+import {isCurrentRequest, isMountedGenerationCurrent, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
 
 const initialState: AuthGateState = {
@@ -175,6 +176,7 @@ export async function beginLogoutAuthTransition(
   userId: number,
   prepareLogout: PrepareLogout = prepareCurrentSessionLogout,
 ): Promise<LogoutAuthTransition> {
+  invalidatePaymentContextCache();
   try {
     const prepared = await prepareLogout(userId);
     const remoteState = Promise.resolve()
@@ -2539,12 +2541,14 @@ function UserHomeDashboard({
   const displayUserName = getCompactDisplayName(state.user.name, '사용자');
   const campusLabel = getHeaderCampusName(state.selectedCampus.campusName);
   const homeRequestSequence = useRef(0);
+  const homeMounted = useRef(true);
   const currentHomeKey = useRef('');
   currentHomeKey.current = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
 
   const loadHomeCards = async () => {
     const requestSequence = ++homeRequestSequence.current;
-    const requestKey = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
+    const requestGeneration = getAuthSessionGeneration();
+    const requestKey = `${requestGeneration}:${campusId}:${year}-${month}:${weekStartDate}`;
     setMonthlyDevotionState({status: 'loading'});
     setChargeState({status: 'loading'});
     setPrayerState({status: 'loading'});
@@ -2552,6 +2556,9 @@ function UserHomeDashboard({
       const {accessToken} = await getStoredTokens();
 
       if (!accessToken) {
+        if (!isMountedGenerationCurrent(
+          homeMounted.current, requestGeneration, getAuthSessionGeneration(),
+        )) return;
         const error: ApiError = {
           kind: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
@@ -2568,7 +2575,8 @@ function UserHomeDashboard({
         key: HomeCardKey,
         setter: (value: CardState<T>) => void,
       ) => {
-        if (!isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
+        if (!isMountedGenerationCurrent(homeMounted.current, requestGeneration, getAuthSessionGeneration()) ||
+            !isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
         if (result.status === 'fulfilled') {
           setter({status: 'success', data: result.value});
           return;
@@ -2587,13 +2595,22 @@ function UserHomeDashboard({
         settle(fetchPrayerWeek(accessToken, campusId, weekStartDate), 'prayers', setPrayerState),
       ]);
     } catch (error) {
-      if (requestSequence !== homeRequestSequence.current) return;
+      if (!isMountedGenerationCurrent(homeMounted.current, requestGeneration, getAuthSessionGeneration()) ||
+          requestSequence !== homeRequestSequence.current) return;
       const apiError = toApiError(error, '홈 요약을 불러오지 못했습니다.');
       setMonthlyDevotionState({status: 'error', error: apiError});
       setChargeState({status: 'error', error: apiError});
       setPrayerState({status: 'error', error: apiError});
     }
   };
+
+  useEffect(() => {
+    homeMounted.current = true;
+    return () => {
+      homeMounted.current = false;
+      homeRequestSequence.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     const refreshToday = () => {

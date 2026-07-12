@@ -27,3 +27,11 @@ export function isCurrentDetailEpoch(
 ) {
   return pollId === currentPollId && epoch === currentEpoch && generation === currentGeneration;
 }
+
+export function isMountedGenerationCurrent(
+  mounted: boolean,
+  generation: number,
+  currentGeneration: number,
+) {
+  return mounted && generation === currentGeneration;
+}
