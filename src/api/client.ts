@@ -141,6 +141,7 @@ import {
   getAuthSessionGeneration,
   getStoredAuthSession,
   isAccessTokenOwnedByAuthSession,
+  isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   saveTokens,
   type AuthSessionGeneration,
@@ -1442,6 +1443,7 @@ async function refreshAndPersistTokens(
 ) {
   try {
     const tokens = await refreshAuthToken(refreshToken, generation);
+    assertAuthSessionGenerationIsCurrent(generation);
     const saved = await saveTokens(tokens, generation);
 
     if (!saved) {
@@ -1503,7 +1505,9 @@ function assertRequestAuthSessionIsCurrent(
     return;
   }
 
-  assertAuthSessionGenerationIsCurrent(options.authSessionGeneration);
+  if (!isAuthSessionRequestAllowed(options.authSessionGeneration)) {
+    throw new FaithLogApiError(createAuthSessionChangedError(options.authSessionGeneration));
+  }
 }
 
 async function assertRequestAccessTokenIsOwned(options: RequestOptions) {

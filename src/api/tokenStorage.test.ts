@@ -162,6 +162,45 @@ describe('native auth token storage', () => {
     expect(tokenStorage.getAuthSessionGeneration()).toBe(generation + 1);
   });
 
+  it('closes the current request gate synchronously before storage cleanup', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = tokenStorage.getAuthSessionGeneration();
+    expect(tokenStorage.markAuthSessionClosing(generation)).toBe(true);
+    expect(tokenStorage.isAuthSessionRequestAllowed(generation)).toBe(false);
+    await tokenStorage.clearTokens(generation);
+  });
+
+  it('keeps fail-closed marker when final token commit marker removal fails', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.authInvalidated') throw new Error('delete interrupted');
+      testState.storage.delete(key);
+    });
+    await expect(tokenStorage.saveTokens({
+      accessToken: 'new-access', refreshToken: 'new-refresh',
+    }, generation)).rejects.toThrow('delete interrupted');
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      testState.storage.delete(key);
+    });
+  });
+
+  it('keeps fail-closed marker when legacy migration finalization is interrupted', async () => {
+    testState.storage.set('faithlog.accessToken', 'legacy-access');
+    testState.storage.set('faithlog.refreshToken', 'legacy-refresh');
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.authInvalidated') throw new Error('migration interrupted');
+      testState.storage.delete(key);
+    });
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getStoredTokens()).rejects.toThrow('migration interrupted');
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      testState.storage.delete(key);
+    });
+  });
+
   it('keeps every rotated access token owned by the same auth session', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

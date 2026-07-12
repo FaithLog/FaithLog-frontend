@@ -65,6 +65,7 @@ import {
   loginAndEstablishSession,
   logoutCurrentSession,
   prepareCurrentSessionLogout,
+  trackLocalSessionCleanup,
 } from './session';
 
 const AUTH_GENERATION = 11 as AuthSessionGeneration;
@@ -136,6 +137,22 @@ describe('auth session lifecycle', () => {
     finishFcm({});
     await expect(pending).rejects.toBeInstanceOf(StaleAuthSessionReadError);
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
+  });
+
+  it('bounds account-deletion cleanup barrier before a new login', async () => {
+    vi.useFakeTimers();
+    try {
+      trackLocalSessionCleanup(new Promise<never>(() => {}));
+      const login = loginAndEstablishSession({
+        email: 'user@example.test', password: 'password',
+      });
+      const rejected = expect(login).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(loginUser).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('persists login tokens only after user and campus establishment succeeds', async () => {

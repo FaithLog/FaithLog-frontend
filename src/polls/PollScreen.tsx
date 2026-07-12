@@ -26,7 +26,7 @@ import {
   updatePollComment,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getAuthSessionGeneration, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens, getAuthSessionGeneration} from '../api/tokenStorage';
 import type {
   ApiError,
   CoffeeBrand,
@@ -37,6 +37,7 @@ import type {
   PollSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {
   Body,
@@ -153,10 +154,13 @@ export function PollScreen({
   ) => screenMounted.current && currentPollId.current === pollId && detailEpoch.current === epoch &&
     shouldHandleRequestError(error, generation, getAuthSessionGeneration());
 
-  useEffect(() => () => {
-    screenMounted.current = false;
-    detailEpoch.current += 1;
-    currentPollId.current = null;
+  useEffect(() => {
+    screenMounted.current = true;
+    return () => {
+      screenMounted.current = false;
+      detailEpoch.current += 1;
+      currentPollId.current = null;
+    };
   }, []);
 
   const loadPolls = async () => {
@@ -1730,15 +1734,10 @@ async function fetchPollResultState(
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
-    await clearTokens();
+  return resolveCurrentAccessToken(async (generation) => {
+    await clearTokens(generation);
     setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) => void) {

@@ -8,9 +8,10 @@ import {
   saveWeeklyDevotion,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens} from '../api/tokenStorage';
 import type {ApiError, DevotionDailyCheck, PenaltyRule, WeeklyDevotionSummary} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {
   Conflict,
   ErrorState,
@@ -946,15 +947,10 @@ function DevotionActionError({error, onRetry}: {error: ApiError; onRetry: () => 
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
-    await clearTokens();
+  return resolveCurrentAccessToken(async (generation) => {
+    await clearTokens(generation);
     setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) => void) {

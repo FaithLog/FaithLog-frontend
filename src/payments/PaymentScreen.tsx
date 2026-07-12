@@ -16,7 +16,7 @@ import {
   markMyChargePaid,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getAuthSessionGeneration, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens, getAuthSessionGeneration} from '../api/tokenStorage';
 import type {
   ApiError,
   ChargeItem,
@@ -28,6 +28,7 @@ import type {
   PaymentCategory,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {
   Body,
@@ -1086,14 +1087,9 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '로그인 세션을 다시 확인해 주세요.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) => void) {

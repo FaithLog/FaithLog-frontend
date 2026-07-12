@@ -9,7 +9,7 @@ import {
   updateCampus,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens} from '../api/tokenStorage';
 import type {
   ApiError,
   CampusDetail,
@@ -18,6 +18,7 @@ import type {
   ServiceAdminCampusOperationStatus,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {validateCampusCreateForm} from '../campus/campusForms';
 import {
   Body,
@@ -916,14 +917,9 @@ function toEditForm(campus: CampusDetail): CampusEditForm {
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 async function handleAuthError(

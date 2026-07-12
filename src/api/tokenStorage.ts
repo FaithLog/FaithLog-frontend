@@ -73,6 +73,7 @@ type LegacyStoredFcmRegistrationRecord = {
 };
 
 let authSessionGeneration = 0 as AuthSessionGeneration;
+const closingAuthSessionGenerations = new Set<number>();
 let cachedAccessToken: string | null | undefined;
 const currentSessionAccessTokens = new Set<string>();
 let secureStorageQueue: Promise<void> = Promise.resolve();
@@ -85,6 +86,19 @@ export function isAuthSessionGenerationCurrent(
   generation: AuthSessionGeneration | number,
 ) {
   return generation === authSessionGeneration;
+}
+
+export function markAuthSessionClosing(generation: AuthSessionGeneration | number) {
+  if (!isAuthSessionGenerationCurrent(generation)) return false;
+  closingAuthSessionGenerations.add(generation);
+  return true;
+}
+
+export function isAuthSessionRequestAllowed(
+  generation: AuthSessionGeneration | number,
+) {
+  return isAuthSessionGenerationCurrent(generation) &&
+    !closingAuthSessionGenerations.has(generation);
 }
 
 export async function beginAuthSession() {
@@ -504,6 +518,7 @@ export async function rotateClientInstanceId(expectedClientInstanceId: string) {
 }
 
 function advanceAuthSessionGeneration() {
+  closingAuthSessionGenerations.delete(authSessionGeneration);
   authSessionGeneration = (authSessionGeneration + 1) as AuthSessionGeneration;
   cachedAccessToken = null;
   currentSessionAccessTokens.clear();

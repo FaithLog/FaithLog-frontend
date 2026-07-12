@@ -5,6 +5,7 @@ vi.mock('./tokenStorage', () => ({
   getAuthSessionGeneration: vi.fn(),
   getStoredAuthSession: vi.fn(),
   isAccessTokenOwnedByAuthSession: vi.fn(),
+  isAuthSessionRequestAllowed: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   saveTokens: vi.fn(),
   startAuthSessionClear: vi.fn(),
@@ -33,6 +34,7 @@ import {
   getAuthSessionGeneration,
   getStoredAuthSession,
   isAccessTokenOwnedByAuthSession,
+  isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   saveTokens,
   type AuthSessionGeneration,
@@ -125,6 +127,9 @@ describe('FaithLog API client', () => {
       (generation) => generation === currentAuthGeneration,
     );
     vi.mocked(isAccessTokenOwnedByAuthSession).mockResolvedValue(true);
+    vi.mocked(isAuthSessionRequestAllowed).mockImplementation(
+      (generation) => generation === currentAuthGeneration,
+    );
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: currentAuthGeneration,
       accessToken: null,
@@ -883,6 +888,26 @@ describe('FaithLog API client', () => {
       responseParser: parseOkResponse,
     });
     currentAuthGeneration = 2 as AuthSessionGeneration;
+    finishOwnership(true);
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects mutation fetch when logout marks its generation closing', async () => {
+    let finishOwnership!: (owned: boolean) => void;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => { finishOwnership = resolve; }),
+    );
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'first-user-access-token',
+      method: 'PATCH',
+      body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
     finishOwnership(true);
     await expect(pending).rejects.toSatisfy((error) => {
       expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});

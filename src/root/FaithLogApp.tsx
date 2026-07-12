@@ -46,6 +46,7 @@ import {
   getAuthSessionGeneration,
   getStoredAuthSession,
   getStoredTokens,
+  markAuthSessionClosing,
   saveSelectedCampusId,
   StaleAuthSessionReadError,
 } from '../api/tokenStorage';
@@ -69,12 +70,14 @@ import {
   validateSignupForm,
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
   prepareCurrentSessionLogout,
+  trackLocalSessionCleanup,
   type PreparedLogout,
 } from '../auth/session';
 import {
@@ -246,7 +249,7 @@ export function beginAccountDeletionTeardown(
 ) {
   invalidate();
   transitionToPublic();
-  return finalizeAccountDeletionTeardown(clear, () => {});
+  return trackLocalSessionCleanup(finalizeAccountDeletionTeardown(clear, () => {}));
 }
 
 export function attachAccountDeletionCleanupWarning(
@@ -1018,12 +1021,10 @@ function InviteCodeForm({
 
     setSubmitting(true);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const joined = await joinCampus(accessToken, result.payload);
       const nextState = await resolveAuthenticatedCampusState(
@@ -1129,12 +1130,10 @@ function CampusCreateForm({
 
     setSubmitting(true);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const created = await createCampus(accessToken, result.payload);
       const nextState = await resolveAuthenticatedCampusState(
@@ -1661,7 +1660,8 @@ function getAuthFormErrorMessage(error: unknown, context: 'login' | 'signup') {
   return '요청 중 알 수 없는 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
-function getApiErrorMessage(error: ApiError, context: 'login' | 'signup') {
+export function getApiErrorMessage(error: ApiError, context: 'login' | 'signup') {
+  if (error.code === 'LOGOUT_CLEANUP_PENDING') return error.message;
   switch (error.kind) {
     case 'sessionExpired':
       return context === 'login'
@@ -1821,15 +1821,13 @@ function AuthenticatedShell({
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const nextState = await refreshAuthenticatedCampusState(accessToken, state);
       setAuthState(nextState);
@@ -1865,15 +1863,13 @@ function AuthenticatedShell({
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
       const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
@@ -1912,6 +1908,7 @@ function AuthenticatedShell({
 
     const userId = state.user.id;
     const logoutGeneration = getAuthSessionGeneration();
+    if (!markAuthSessionClosing(logoutGeneration)) return;
     setLoggingOut(true);
     setLogoutConfirmVisible(false);
     setRoute('userHome');
@@ -1985,15 +1982,13 @@ function AuthenticatedShell({
   const refreshCampusDetail = async () => {
     setCampusDetailState({status: 'loading'});
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, state.selectedCampus.campusId);
       setSelectedCampusDetail(detail);
@@ -2016,15 +2011,13 @@ function AuthenticatedShell({
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
       const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
@@ -2077,16 +2070,14 @@ function AuthenticatedShell({
     }
 
     setCampusDetailState({status: 'loading'});
-    void getStoredTokens()
-      .then(({accessToken}) => {
-        if (!accessToken) {
+    void resolveCurrentAccessToken(() => {
           setAuthState({
             status: 'sessionExpired',
             message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
           });
-          return null;
-        }
-
+      })
+      .then((accessToken) => {
+        if (!accessToken) return null;
         return fetchCampusDetail(accessToken, state.selectedCampus.campusId);
       })
       .then((detail) => {
@@ -3838,16 +3829,17 @@ function AccountDeletionScreen({
     setBusy(true);
     setError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken((generation) => {
         invalidatePaymentContextCache();
         shouldResetBusy = false;
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        void finalizeAccountDeletionTeardown(() => clearTokens(), () => {});
+        void finalizeAccountDeletionTeardown(() => clearTokens(generation), () => {});
+      });
+
+      if (!accessToken) {
         return;
       }
 
@@ -4046,15 +4038,13 @@ function CoffeeDutyProfileRow({
 
     const loadCoffeeDuty = async () => {
       try {
-        const {accessToken} = await getStoredTokens();
-
-        if (!accessToken) {
+        const accessToken = await resolveCurrentAccessToken(() => {
           setAuthState({
             status: 'sessionExpired',
             message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
           });
-          return;
-        }
+        });
+        if (!accessToken) return;
 
         const duty = await fetchMyDutyAssignment(accessToken, state.selectedCampus.campusId);
         const canManage =

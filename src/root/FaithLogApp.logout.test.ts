@@ -16,7 +16,9 @@ vi.mock('../admin/AdminScreen', () => ({}));
 vi.mock('../admin/ServiceAdminScreen', () => ({}));
 vi.mock('../auth/authForms', () => ({}));
 vi.mock('../auth/authGate', () => ({}));
-vi.mock('../auth/session', () => ({}));
+vi.mock('../auth/session', () => ({
+  trackLocalSessionCleanup: <T>(operation: Promise<T>) => operation,
+}));
 vi.mock('../campus/campusForms', () => ({}));
 vi.mock('../components/ui', () => ({}));
 vi.mock('../components/IconexIcon', () => ({}));
@@ -40,7 +42,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, purgePaymentContextForAuthState} from './FaithLogApp';
+import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
 import {StaleAuthSessionReadError} from '../api/tokenStorage';
 
 describe('logout UI transition', () => {
@@ -96,6 +98,14 @@ describe('logout UI transition', () => {
     void never;
     expect(invalidate).toHaveBeenCalledOnce();
     expect(signedOut).toHaveBeenCalledOnce();
+  });
+
+  it('shows restart recovery copy for a bounded logout barrier timeout', () => {
+    expect(getApiErrorMessage({
+      kind: 'conflict',
+      code: 'LOGOUT_CLEANUP_PENDING',
+      message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+    }, 'login')).toContain('앱을 완전히 종료');
   });
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {

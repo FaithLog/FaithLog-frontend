@@ -110,6 +110,14 @@ export function prepareCurrentSessionLogout(
   return operation;
 }
 
+export function trackLocalSessionCleanup<T>(operation: Promise<T>) {
+  const barrier = operation.then(() => undefined, () => undefined).finally(() => {
+    if (logoutPreparationInFlight === barrier) logoutPreparationInFlight = null;
+  });
+  logoutPreparationInFlight = barrier;
+  return operation;
+}
+
 async function prepareCurrentSessionLogoutInternal(
   userId?: number,
 ): Promise<PreparedLogout> {
@@ -216,18 +224,11 @@ function trackRemoteLogout(operation: Promise<LogoutResult>) {
 async function waitForPendingRemoteLogout() {
   const preparation = logoutPreparationInFlight;
   if (preparation) {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new FaithLogApiError({
-        kind: 'conflict',
-        code: 'LOGOUT_CLEANUP_PENDING',
-        message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
-      })), LOGOUT_PREPARATION_TIMEOUT_MS);
-    });
     try {
-      await Promise.race([preparation, timeout]);
-    } finally {
-      clearTimeout(timeoutId!);
+      await waitForLogoutBarrier(preparation);
+    } catch (error) {
+      if (logoutPreparationInFlight === preparation) logoutPreparationInFlight = null;
+      throw error;
     }
   }
   const pending = remoteLogoutInFlight;
@@ -237,9 +238,26 @@ async function waitForPendingRemoteLogout() {
   }
 
   try {
-    await pending;
+    await waitForLogoutBarrier(pending);
   } catch {
+    if (remoteLogoutInFlight === pending) remoteLogoutInFlight = null;
     // A failed best-effort remote logout must not permanently block a new login.
+  }
+}
+
+async function waitForLogoutBarrier(promise: Promise<unknown>) {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new FaithLogApiError({
+      kind: 'conflict',
+      code: 'LOGOUT_CLEANUP_PENDING',
+      message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+    })), LOGOUT_PREPARATION_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timeoutId!);
   }
 }
 

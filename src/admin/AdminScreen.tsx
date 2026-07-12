@@ -66,7 +66,6 @@ import {prayerApi} from '../api/prayerApi';
 import {
   clearStoredPrayerSeason,
   clearTokens,
-  getStoredTokens,
   saveStoredPrayerSeason,
 } from '../api/tokenStorage';
 import type {
@@ -104,6 +103,7 @@ import type {
   PrayerWeekSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
@@ -10563,14 +10563,9 @@ function AdminInlineError({
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 async function handleAuthError(
