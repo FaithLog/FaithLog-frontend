@@ -11,9 +11,11 @@ import {
   clearFcmRegistration,
   clearFcmRegistrationAttempt,
   clearFcmRegistrationAttemptAfterRemoteCleanup,
+  clearFcmRegistrationAttemptsForClientInstance,
   clearFcmOptOut,
   getAuthSessionGeneration,
   getStoredAuthSession,
+  getStoredClientInstanceId,
   getOrCreateClientInstanceId,
   getFcmOptOutState,
   getFcmRegistrationAttempts,
@@ -25,6 +27,7 @@ import {
   saveFcmRegistrationAttempt,
   saveFcmOptOut,
   markFcmRemoteCleanupPending,
+  rotateClientInstanceId,
   type AuthSessionGeneration,
   CorruptFcmPrivacyStateError,
 } from '../api/tokenStorage';
@@ -47,7 +50,9 @@ import {
 
 type PendingFcmOperation = {
   generation: AuthSessionGeneration;
+  accessToken: string | undefined;
   refreshToken: string | null | undefined;
+  capturedForCleanup: boolean;
   privacyIntent?: Promise<void>;
   obligations: Set<FcmRemoteCleanupObligation>;
   promise: Promise<unknown>;
@@ -58,7 +63,7 @@ export type FcmRemoteCleanupObligation = {
   refreshToken?: string | null;
   userId: number | null;
   clientInstanceId: string | null;
-  kind: 'registration' | 'deactivation' | 'clientLogout';
+  kind: 'registration' | 'deactivation' | 'clientLogout' | 'clientRetirement';
   token: string | null;
   tokenId: number | null;
   state: 'mayHaveSent' | 'registered' | 'cleaned';
@@ -179,6 +184,7 @@ export function registerCurrentFcmToken(
 ): Promise<FcmRegistrationStatus> {
   const intent = mode === 'user' ? setFcmIntent(userId, true) : null;
   const context = createPendingFcmOperation(generation);
+  context.accessToken = accessToken;
   if (intent) {
     context.privacyIntent = enqueueFcmPrivacyIntent(async () => {
       assertFcmOperationCurrent(userId, generation, intent);
@@ -332,6 +338,7 @@ export async function inspectFcmRegistrationStatusWithCleanup(
         return inspectFcmRegistrationStatus(userId, generation);
       }
       const context = createPendingFcmOperation(generation);
+      context.accessToken = accessToken;
       await enqueueFcmOperation(
         () => isFcmIntentCurrent(userId, intent) && !intent.enabled
           ? deactivateCurrentFcmTokenInternal(accessToken, userId, generation, context, intent)
@@ -354,7 +361,9 @@ export function registerFcmTokenValue(
 ): Promise<FcmTokenRegisterResponse | null> {
   const context: PendingFcmOperation = {
     generation,
+    accessToken,
     refreshToken: undefined,
+    capturedForCleanup: false,
     obligations: new Set(),
     promise: Promise.resolve(),
   };
@@ -391,6 +400,7 @@ export function capturePendingFcmOperations(expectedGeneration?: number): {
 } {
   const pendingAtCapture = [...pendingFcmRegistrations].filter((operation) =>
     expectedGeneration === undefined || operation.generation === expectedGeneration);
+  pendingAtCapture.forEach((operation) => { operation.capturedForCleanup = true; });
   const obligations = pendingAtCapture.flatMap((operation) =>
     [...operation.obligations].filter((obligation) => obligation.state !== 'cleaned'));
   const barrier = pendingAtCapture.length === 0
@@ -452,8 +462,9 @@ async function registerFcmTokenValueInternal(
         tokenId: null,
       })
     : null;
+  if (context && obligation) await persistFcmObligationBeforeSend(context, obligation);
   const registration = await registerMyFcmToken(
-    accessToken,
+    context?.accessToken ?? accessToken,
     {
       appVersion: APP_VERSION,
       clientInstanceId,
@@ -461,6 +472,7 @@ async function registerFcmTokenValueInternal(
       token: normalizedToken,
     },
     generation,
+    context ? (tokens) => updateFcmOperationCredentials(context, tokens) : undefined,
   );
   if (obligation) {
     obligation.state = 'registered';
@@ -507,14 +519,20 @@ async function deactivateStaleFcmToken(
     await loadCleanupRefreshToken(context);
     assertFcmAuthSessionCurrent(generation);
     const obligation = addFcmObligation(context, {
-      accessToken,
+      accessToken: context.accessToken ?? accessToken,
       userId,
       clientInstanceId: contextClientInstanceId(context),
       kind: 'deactivation',
       token: null,
       tokenId: previousTokenId,
     });
-    await deactivateMyFcmToken(accessToken, previousTokenId, generation);
+    await persistFcmObligationBeforeSend(context, obligation);
+    await deactivateMyFcmToken(
+      context.accessToken ?? accessToken,
+      previousTokenId,
+      generation,
+      (tokens) => updateFcmOperationCredentials(context, tokens),
+    );
     obligation.state = 'cleaned';
   } catch {
     // A stale push token should not block the fresh registration from being used.
@@ -528,6 +546,7 @@ export function deactivateCurrentFcmToken(
 ) {
   const intent = setFcmIntent(userId, false);
   const context = createPendingFcmOperation(generation);
+  context.accessToken = accessToken;
   context.privacyIntent = enqueueFcmPrivacyIntent(async () => {
     assertFcmOperationCurrent(userId, generation, intent);
     const clientInstanceId = await getOrCreateClientInstanceId();
@@ -585,9 +604,15 @@ async function deactivateCurrentFcmTokenInternal(
   assertFcmOperationCurrent(userId, generation, intent);
   const attempts = await getFcmRegistrationAttempts(userId, generation);
   assertFcmOperationCurrent(userId, generation, intent);
-  const cleanupTargets: Array<{tokenId: number; attempt: typeof attempts[number] | null}> = [];
+  const cleanupTargets: Array<{
+    tokenId: number;
+    attempt: typeof attempts[number] | null;
+    mustCompensate: boolean;
+  }> = [];
   const initialTokenId = storedUserId === userId ? storedTokenId : optOut?.tokenId ?? null;
-  if (initialTokenId) cleanupTargets.push({tokenId: initialTokenId, attempt: null});
+  if (initialTokenId) {
+    cleanupTargets.push({tokenId: initialTokenId, attempt: null, mustCompensate: false});
+  }
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmOperationCurrent(userId, generation, intent);
   await loadCleanupRefreshToken(context);
@@ -596,15 +621,16 @@ async function deactivateCurrentFcmTokenInternal(
   for (const attempt of attempts) {
     assertFcmOperationCurrent(userId, generation, intent);
     const registrationObligation = addFcmObligation(context, {
-      accessToken,
+      accessToken: context.accessToken ?? accessToken,
       userId,
       clientInstanceId: attempt.clientInstanceId,
       kind: 'registration',
       token: attempt.token,
       tokenId: null,
     });
+    await persistFcmObligationBeforeSend(context, registrationObligation);
     const recovered = await registerMyFcmToken(
-      accessToken,
+      context.accessToken ?? accessToken,
       {
         appVersion: APP_VERSION,
         clientInstanceId: attempt.clientInstanceId,
@@ -612,11 +638,14 @@ async function deactivateCurrentFcmTokenInternal(
         token: attempt.token,
       },
       generation,
+      (tokens) => updateFcmOperationCredentials(context, tokens),
     );
-    assertFcmOperationCurrent(userId, generation, intent);
     registrationObligation.state = 'registered';
     registrationObligation.tokenId = recovered.tokenId;
-    cleanupTargets.push({tokenId: recovered.tokenId, attempt});
+    if (context.capturedForCleanup) {
+      await markFcmRemoteCleanupPending([registrationObligation]);
+    }
+    cleanupTargets.push({tokenId: recovered.tokenId, attempt, mustCompensate: true});
   }
 
   if (cleanupTargets.length === 0) {
@@ -630,23 +659,36 @@ async function deactivateCurrentFcmTokenInternal(
 
   try {
     for (const target of cleanupTargets) {
-      assertFcmOperationCurrent(userId, generation, intent);
-      await saveFcmOptOut(userId, clientInstanceId, generation, {
-        status: 'pending', tokenId: target.tokenId,
-      });
-      assertFcmOperationCurrent(userId, generation, intent);
+      if (!target.mustCompensate) {
+        assertFcmOperationCurrent(userId, generation, intent);
+      }
+      if (isFcmOperationCurrent(userId, generation, intent)) {
+        await saveFcmOptOut(userId, clientInstanceId, generation, {
+          status: 'pending', tokenId: target.tokenId,
+        });
+        if (!target.mustCompensate) {
+          assertFcmOperationCurrent(userId, generation, intent);
+        }
+      }
       const deactivationObligation = addFcmObligation(context, {
-        accessToken,
+        accessToken: context.accessToken ?? accessToken,
         userId,
         clientInstanceId: target.attempt?.clientInstanceId ?? clientInstanceId,
         kind: 'deactivation',
         token: null,
         tokenId: target.tokenId,
       });
+      await persistFcmObligationBeforeSend(context, deactivationObligation);
       try {
-        assertFcmOperationCurrent(userId, generation, intent);
-        await deactivateMyFcmToken(accessToken, target.tokenId, generation);
-        assertFcmOperationCurrent(userId, generation, intent);
+        if (!target.mustCompensate) {
+          assertFcmOperationCurrent(userId, generation, intent);
+        }
+        await deactivateMyFcmToken(
+          context.accessToken ?? accessToken,
+          target.tokenId,
+          generation,
+          (tokens) => updateFcmOperationCredentials(context, tokens),
+        );
       } catch (error) {
         if (!(error instanceof FaithLogApiError && error.detail.status === 404)) throw error;
       }
@@ -656,11 +698,11 @@ async function deactivateCurrentFcmTokenInternal(
           obligation.state = 'cleaned';
         }
       }
+      await clearFcmRegistration(generation);
       if (target.attempt) {
-        assertFcmOperationCurrent(userId, generation, intent);
         await clearFcmRegistrationAttempt(target.attempt, generation);
-        assertFcmOperationCurrent(userId, generation, intent);
       }
+      assertFcmOperationCurrent(userId, generation, intent);
     }
     assertFcmOperationCurrent(userId, generation, intent);
     await clearFcmRegistration(generation);
@@ -681,7 +723,14 @@ async function deactivateCurrentFcmTokenInternal(
 function createPendingFcmOperation(
   generation: AuthSessionGeneration,
 ): PendingFcmOperation {
-  return {generation, refreshToken: undefined, obligations: new Set(), promise: Promise.resolve()};
+  return {
+    generation,
+    accessToken: undefined,
+    refreshToken: undefined,
+    capturedForCleanup: false,
+    obligations: new Set(),
+    promise: Promise.resolve(),
+  };
 }
 
 async function loadCleanupRefreshToken(context: PendingFcmOperation) {
@@ -698,11 +747,37 @@ function addFcmObligation(
 ) {
   const tracked: FcmRemoteCleanupObligation = {
     ...obligation,
+    accessToken: context.accessToken ?? obligation.accessToken,
     refreshToken: obligation.refreshToken ?? context.refreshToken ?? null,
     state: 'mayHaveSent',
   };
   context.obligations.add(tracked);
   return tracked;
+}
+
+async function persistFcmObligationBeforeSend(
+  context: PendingFcmOperation,
+  obligation: FcmRemoteCleanupObligation,
+) {
+  if (context.capturedForCleanup) {
+    await markFcmRemoteCleanupPending([obligation]);
+  }
+}
+
+async function updateFcmOperationCredentials(
+  context: PendingFcmOperation,
+  tokens: {accessToken: string; refreshToken: string},
+) {
+  context.accessToken = tokens.accessToken;
+  context.refreshToken = tokens.refreshToken;
+  const pending = [...context.obligations].filter((obligation) => obligation.state !== 'cleaned');
+  pending.forEach((obligation) => {
+    obligation.accessToken = tokens.accessToken;
+    obligation.refreshToken = tokens.refreshToken;
+  });
+  if (context.capturedForCleanup && pending.length > 0) {
+    await markFcmRemoteCleanupPending(pending);
+  }
 }
 
 function contextClientInstanceId(context: PendingFcmOperation) {
@@ -727,22 +802,29 @@ export async function compensateCapturedFcmOperations(
         candidate.accessToken = refreshed.accessToken;
         candidate.refreshToken = refreshed.refreshToken;
       }
-      const logoutObligation: FcmRemoteCleanupObligation = {
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        userId: null,
-        clientInstanceId: obligation.clientInstanceId,
-        kind: 'clientLogout',
-        token: null,
-        tokenId: null,
-        state: 'mayHaveSent',
-      };
-      obligations.push(logoutObligation);
-      pending.push(logoutObligation);
-      await markFcmRemoteCleanupPending([
-        ...sameCredentialObligations,
-        logoutObligation,
-      ]);
+      const introduced: FcmRemoteCleanupObligation[] = [];
+      if (obligation.kind !== 'clientLogout') {
+        const existingLogout = obligations.find((candidate) =>
+          candidate.kind === 'clientLogout' &&
+          candidate.refreshToken === refreshed.refreshToken &&
+          candidate.clientInstanceId === obligation.clientInstanceId);
+        if (!existingLogout) {
+          const logoutObligation: FcmRemoteCleanupObligation = {
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            userId: null,
+            clientInstanceId: obligation.clientInstanceId,
+            kind: 'clientLogout',
+            token: null,
+            tokenId: null,
+            state: 'mayHaveSent',
+          };
+          obligations.push(logoutObligation);
+          pending.push(logoutObligation);
+          introduced.push(logoutObligation);
+        }
+      }
+      await markFcmRemoteCleanupPending([...sameCredentialObligations, ...introduced]);
       await compensateFcmObligation(obligation);
     }
     obligation.state = 'cleaned';
@@ -761,6 +843,16 @@ export async function compensateCapturedFcmOperations(
 }
 
 async function compensateFcmObligation(obligation: FcmRemoteCleanupObligation) {
+  if (obligation.kind === 'clientRetirement') {
+    if (!obligation.clientInstanceId) throw new Error('Missing FCM client retirement identity.');
+    await clearFcmRegistrationAttemptsForClientInstance(obligation.clientInstanceId);
+    const currentClientInstanceId = await getStoredClientInstanceId();
+    if (currentClientInstanceId === obligation.clientInstanceId) {
+      const rotated = await rotateClientInstanceId(obligation.clientInstanceId);
+      if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
+    }
+    return;
+  }
   if (obligation.kind === 'clientLogout') {
     await logoutUser(obligation.accessToken, {
       ...(obligation.refreshToken ? {refreshToken: obligation.refreshToken} : {}),
@@ -855,6 +947,16 @@ function assertFcmOperationCurrent(
 ) {
   assertFcmAuthSessionCurrent(generation);
   assertFcmIntentCurrent(userId, intent);
+}
+
+function isFcmOperationCurrent(
+  userId: number,
+  generation: AuthSessionGeneration,
+  intent: FcmIntent | null,
+) {
+  return isAuthSessionGenerationCurrent(generation) &&
+    isAuthSessionRequestAllowed(generation) &&
+    (!intent || isFcmIntentCurrent(userId, intent));
 }
 
 configureFcmTransitionCleanup({

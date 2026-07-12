@@ -10,6 +10,7 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  clearFcmRemoteCleanupObligations,
   clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
   getStoredSelectedCampusId,
@@ -177,8 +178,9 @@ async function prepareCurrentSessionLogoutInternal(
   }
   const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
   const fcmOperations = capturePendingFcmOperations(expectedGeneration);
-  if (fcmOperations.hasPendingOperations) {
-    await markFcmRemoteCleanupPending(fcmOperations.obligations ?? []);
+  const initialFcmObligations = [...(fcmOperations.obligations ?? [])];
+  if (initialFcmObligations.length > 0) {
+    await markFcmRemoteCleanupPending(initialFcmObligations);
   }
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
   let preparationWarning: string | null = null;
@@ -193,6 +195,15 @@ async function prepareCurrentSessionLogoutInternal(
       accessToken: null,
       refreshToken: null,
     };
+  }
+
+  const preClearSessionLogout = createClientLogoutObligation(
+    authSession.accessToken,
+    authSession.refreshToken,
+    undefined,
+  );
+  if (preClearSessionLogout.length > 0) {
+    await markFcmRemoteCleanupPending(preClearSessionLogout);
   }
 
   const cleared = await clearTokens(expectedGeneration);
@@ -221,6 +232,20 @@ async function prepareCurrentSessionLogoutInternal(
         refreshToken: handedOffTokens.refreshToken,
       }
     : authSession;
+  const remoteSessionLogout = createClientLogoutObligation(
+    remoteAuthSession.accessToken,
+    remoteAuthSession.refreshToken,
+    undefined,
+  );
+  const isSamePreClearSession = preClearSessionLogout[0]?.accessToken ===
+    remoteSessionLogout[0]?.accessToken &&
+    preClearSessionLogout[0]?.refreshToken === remoteSessionLogout[0]?.refreshToken;
+  const sessionLogoutObligations = isSamePreClearSession
+    ? preClearSessionLogout
+    : remoteSessionLogout;
+  if (!isSamePreClearSession && sessionLogoutObligations.length > 0) {
+    await markFcmRemoteCleanupPending(sessionLogoutObligations);
+  }
   if (!remoteAuthSession.accessToken) {
     preparationWarning ??=
       '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
@@ -233,14 +258,14 @@ async function prepareCurrentSessionLogoutInternal(
       fcmOperations.barrier,
       fcmOperations.settlement,
       fcmOperations.hasPendingOperations,
+      initialFcmObligations,
+      sessionLogoutObligations,
       preparationWarning,
       isCancelled,
       markSent,
     ), [
-      ...(fcmOperations.obligations ?? []),
-      ...createClientLogoutObligation(
-        remoteAuthSession.accessToken, remoteAuthSession.refreshToken, fcmPayload.clientInstanceId,
-      ),
+      ...initialFcmObligations,
+      ...sessionLogoutObligations,
     ],
   );
 
@@ -255,6 +280,8 @@ async function completeRemoteLogout(
   fcmRegistrationBarrier: Promise<void>,
   fcmOperationSettlement: Promise<FcmRemoteCleanupObligation[]>,
   fcmOperationsMayHaveReachedServer: boolean,
+  initialFcmObligations: FcmRemoteCleanupObligation[],
+  sessionLogoutObligations: FcmRemoteCleanupObligation[],
   preparationWarning: string | null,
   isCancelled: () => boolean,
   markSent: () => void,
@@ -268,9 +295,10 @@ async function completeRemoteLogout(
       message: '원격 로그아웃 정리가 지연되어 앱 재시작 후 다시 확인해야 합니다.',
     };
   }
+  let compensatedObligations: FcmRemoteCleanupObligation[] = [];
   if (fcmObligations.length > 0) {
     try {
-      await compensateCapturedFcmOperations(fcmObligations);
+      compensatedObligations = await compensateCapturedFcmOperations(fcmObligations);
     } catch {
       remoteLogoutRestartRequired = true;
       await requireFcmRemoteCleanupRestart(fcmObligations).catch(() => undefined);
@@ -280,14 +308,19 @@ async function completeRemoteLogout(
       };
     }
   }
+  await clearFcmRemoteCleanupObligations([
+    ...initialFcmObligations,
+    ...compensatedObligations,
+  ]);
   const accessToken = authSession.accessToken ?? fcmObligations[0]?.accessToken ?? null;
   const {refreshToken} = authSession;
   const durableObligations = [
-    ...fcmObligations,
-    ...createClientLogoutObligation(accessToken, refreshToken, fcmPayload.clientInstanceId),
+    ...sessionLogoutObligations,
   ];
   let remoteWarning = preparationWarning;
-  let remoteLogoutConfirmed = false;
+  let remoteLogoutConfirmed = compensatedObligations.some(
+    (obligation) => obligation.kind === 'clientLogout',
+  );
 
   if (!accessToken && (fcmOperationsMayHaveReachedServer || fcmPayload.clientInstanceId)) {
     remoteLogoutRestartRequired = true;
@@ -296,7 +329,7 @@ async function completeRemoteLogout(
       '이전 알림 등록의 원격 정리를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.';
   }
 
-  if (accessToken) {
+  if (accessToken && !remoteLogoutConfirmed) {
     try {
       markSent();
       await logoutUser(accessToken, {
@@ -317,14 +350,23 @@ async function completeRemoteLogout(
     }
   }
 
+  if (remoteLogoutConfirmed) {
+    await clearFcmRemoteCleanupObligations(sessionLogoutObligations);
+  }
+
   if (remoteLogoutConfirmed && fcmPayload.clientInstanceId) {
+    const retirementObligation = createClientRetirementObligation(
+      accessToken,
+      fcmPayload.clientInstanceId,
+    );
     try {
+      await markFcmRemoteCleanupPending(retirementObligation);
       await clearFcmRegistrationAttemptsForClientInstance(fcmPayload.clientInstanceId);
       const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);
       if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
+      await clearFcmRemoteCleanupObligations(retirementObligation);
     } catch {
       remoteLogoutRestartRequired = true;
-      await requireFcmRemoteCleanupRestart(durableObligations).catch(() => undefined);
       remoteWarning =
         '알림 연결 정리를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.';
     }
@@ -334,7 +376,11 @@ async function completeRemoteLogout(
     return {status: 'signedOutWithRemoteWarning', message: remoteWarning};
   }
 
-  await clearFcmRemoteCleanupGateIfIdle(durableObligations);
+  await clearFcmRemoteCleanupGateIfIdle([
+    ...initialFcmObligations,
+    ...compensatedObligations,
+    ...sessionLogoutObligations,
+  ]);
 
   return {status: 'signedOut'};
 }
@@ -370,6 +416,7 @@ export async function waitForAuthEntryAvailability() {
     discardAllRefreshLogoutHandoffs();
     throw createLogoutCleanupPendingError();
   }
+  await waitForActiveRemoteLogoutFlights();
   if (!(await waitForFcmTransitionCleanup(REMOTE_LOGOUT_BARRIER_TIMEOUT_MS))) {
     throw createLogoutCleanupPendingError();
   }
@@ -378,6 +425,9 @@ export async function waitForAuthEntryAvailability() {
   );
   if (handoffStatus !== 'clear') remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
+}
+
+async function waitForActiveRemoteLogoutFlights() {
   const deadline = Date.now() + REMOTE_LOGOUT_BARRIER_TIMEOUT_MS;
   while (remoteLogoutFlights.size > 0) {
     const pending = [...remoteLogoutFlights];
@@ -420,6 +470,22 @@ function createClientLogoutObligation(
         state: 'mayHaveSent',
       }]
     : [];
+}
+
+function createClientRetirementObligation(
+  accessToken: string | null,
+  clientInstanceId: string,
+): FcmRemoteCleanupObligation[] {
+  return [{
+    accessToken: accessToken ?? 'retired-session',
+    refreshToken: null,
+    clientInstanceId,
+    userId: null,
+    kind: 'clientRetirement',
+    token: null,
+    tokenId: null,
+    state: 'mayHaveSent',
+  }];
 }
 
 function isRemoteLogoutOutcomeUnknown(error: unknown) {

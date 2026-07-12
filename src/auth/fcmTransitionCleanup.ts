@@ -17,12 +17,15 @@ type CleanupCapture = {
 let captureCleanup = (_generation?: number): CleanupCapture => ({
   barrier: Promise.resolve(), settlement: Promise.resolve([]), hasPendingOperations: false,
 });
-let compensateCleanup: (obligations: FcmRemoteCleanupObligation[]) => Promise<unknown> =
-  async () => undefined;
+let compensateCleanup: (
+  obligations: FcmRemoteCleanupObligation[],
+) => Promise<FcmRemoteCleanupObligation[]> = async (obligations) => obligations;
 
 export function configureFcmTransitionCleanup(options: {
   capture: (generation?: number) => CleanupCapture;
-  compensate: (obligations: FcmRemoteCleanupObligation[]) => Promise<unknown>;
+  compensate: (
+    obligations: FcmRemoteCleanupObligation[],
+  ) => Promise<FcmRemoteCleanupObligation[]>;
 }) {
   captureCleanup = options.capture;
   compensateCleanup = options.compensate;
@@ -34,13 +37,14 @@ export function beginFcmTransitionCleanup(generation?: number) {
   if (existing) return existing;
   const captured = captureCleanup(generation);
   if (!captured.hasPendingOperations) return Promise.resolve();
+  const initialObligations = [...(captured.obligations ?? [])];
   const operation = (async () => {
-    await markFcmRemoteCleanupPending(captured.obligations ?? []);
+    await markFcmRemoteCleanupPending(initialObligations);
     await captured.barrier;
     const obligations = await captured.settlement;
     await markFcmRemoteCleanupPending(obligations);
-    await compensateCleanup(obligations);
-    await clearFcmRemoteCleanupObligations(obligations);
+    const processed = await compensateCleanup(obligations);
+    await clearFcmRemoteCleanupObligations([...initialObligations, ...processed]);
   })();
   const tracked = operation.then(
     () => undefined,
@@ -120,10 +124,13 @@ async function reconcileDurableCleanup(deadline: number) {
     const durable = await runBeforeDeadline(getFcmRemoteCleanupObligations(), deadline);
     if (durable === null) return true;
     if (durable.length === 0) return false;
-    await runBeforeDeadline(compensateCleanup(durable.map((obligation) => ({
+    const processed = await runBeforeDeadline(compensateCleanup(durable.map((obligation) => ({
       ...obligation, state: 'mayHaveSent' as const,
     }))), deadline);
-    await runBeforeDeadline(clearFcmRemoteCleanupObligations(durable), deadline);
+    await runBeforeDeadline(
+      clearFcmRemoteCleanupObligations([...durable, ...processed]),
+      deadline,
+    );
     return true;
   } catch {
     restartRequired = true;

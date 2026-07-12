@@ -8,7 +8,14 @@ vi.mock('../api/tokenStorage', () => ({
   clearFcmRemoteCleanupPending: vi.fn(async () => { state.obligations = null; }),
   clearFcmRemoteCleanupObligations: vi.fn(async (cleared: unknown[]) => {
     if (!state.obligations) return;
-    state.obligations = state.obligations.filter((entry) => !cleared.includes(entry));
+    const identity = (value: unknown) => {
+      const entry = value as Record<string, unknown>;
+      return [entry.userId, entry.clientInstanceId, entry.kind, entry.token].join('|');
+    };
+    const clearedIdentities = new Set(cleared.map(identity));
+    state.obligations = state.obligations.filter(
+      (entry) => !clearedIdentities.has(identity(entry)),
+    );
     if (state.obligations.length === 0) state.obligations = null;
   }),
   getFcmRemoteCleanupObligations: vi.fn(async () => state.obligations),
@@ -164,5 +171,26 @@ describe('shared FCM auth-transition cleanup', () => {
     expect(capturePendingFcmOperations).toHaveBeenCalledOnce();
     finish();
     await first;
+    expect(state.obligations).toBeNull();
+  });
+
+  it('clears obligations introduced by compensation in the same reconciliation', async () => {
+    const original = {
+      accessToken: 'expired-access', refreshToken: 'old-refresh', userId: 42,
+      clientInstanceId: 'old-client', kind: 'registration' as const,
+      token: 'old-token', tokenId: null,
+    };
+    const introduced = {
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh', userId: null,
+      clientInstanceId: 'old-client', kind: 'clientLogout' as const,
+      token: null, tokenId: null, state: 'cleaned' as const,
+    };
+    state.obligations = [original];
+    compensateCapturedFcmOperations.mockImplementationOnce(async (working) => {
+      state.obligations = [original, introduced];
+      return [...working, introduced];
+    });
+    await expect(waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(state.obligations).toBeNull();
   });
 });

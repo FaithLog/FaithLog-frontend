@@ -3895,6 +3895,10 @@ function AccountDeletionScreen({
         return;
       }
 
+      // Settle any already-sent notification operation while the account credential is
+      // still valid so a late registration cannot outlive successful account deletion.
+      await beginFcmTransitionCleanup(deletionGeneration);
+      if (!isAuthSessionRequestAllowed(deletionGeneration)) return;
       await deleteMyAccount(accessToken, {
         password,
         confirmText,

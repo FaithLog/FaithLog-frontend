@@ -26,7 +26,10 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../api/tokenStorage', () => ({
   clearTokens: vi.fn(),
+  getAuthSessionGeneration: vi.fn(() => 17),
   getStoredAuthSession: vi.fn(),
+  hasFcmRemoteCleanupPending: vi.fn(async () => false),
+  startAuthSessionClear: vi.fn(),
 }));
 
 vi.mock('./session', () => ({

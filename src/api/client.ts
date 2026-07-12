@@ -161,6 +161,8 @@ type RequestOptions = {
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
   onResponseParsed?: (value: unknown) => void;
+  onEffectiveAuthTokens?: (tokens: Pick<TokenPair, 'accessToken' | 'refreshToken'>) =>
+    void | Promise<void>;
 };
 
 type ParsedRequestOptions<T> = Omit<RequestOptions, 'responseParser'> & {
@@ -1366,6 +1368,8 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
   assertAuthSessionRequestIsAllowed(generation);
   const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken, generation);
   assertAuthSessionRequestIsAllowed(generation);
+  await options.onEffectiveAuthTokens?.(tokens);
+  assertAuthSessionRequestIsAllowed(generation);
 
   try {
     const data = await executeApiRequest<T>(path, {
@@ -1633,6 +1637,7 @@ export function registerMyFcmToken(
   accessToken: string,
   body: FcmTokenRegisterRequest,
   authSessionGeneration?: AuthSessionGeneration,
+  onEffectiveAuthTokens?: RequestOptions['onEffectiveAuthTokens'],
 ) {
   return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
     accessToken,
@@ -1640,6 +1645,7 @@ export function registerMyFcmToken(
     responseParser: parseFcmTokenRegisterResponse,
     method: 'POST',
     body,
+    ...(onEffectiveAuthTokens ? {onEffectiveAuthTokens} : {}),
   });
 }
 
@@ -1662,6 +1668,7 @@ export function deactivateMyFcmToken(
   accessToken: string,
   tokenId: unknown,
   authSessionGeneration?: AuthSessionGeneration,
+  onEffectiveAuthTokens?: RequestOptions['onEffectiveAuthTokens'],
 ) {
   return apiRequest<null>(
     buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
@@ -1670,6 +1677,7 @@ export function deactivateMyFcmToken(
       ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
       responseParser: parseNullResponse,
       method: 'DELETE',
+      ...(onEffectiveAuthTokens ? {onEffectiveAuthTokens} : {}),
     },
   );
 }

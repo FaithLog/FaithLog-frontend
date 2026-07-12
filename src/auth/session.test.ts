@@ -20,6 +20,7 @@ vi.mock('../api/client', () => ({
 vi.mock('../api/tokenStorage', () => ({
   beginAuthSession: vi.fn(),
   clearTokens: vi.fn(),
+  clearFcmRemoteCleanupObligations: vi.fn(async () => undefined),
   clearFcmRegistrationAttemptsForClientInstance: vi.fn(),
   getAuthSessionGeneration: vi.fn(),
   getStoredAuthSession: vi.fn(),
@@ -53,7 +54,7 @@ vi.mock('../notifications/fcmRegistration', () => ({
   capturePendingFcmOperations: vi.fn(() => ({
     barrier: Promise.resolve(), settlement: Promise.resolve([]), hasPendingOperations: false,
   })),
-  compensateCapturedFcmOperations: vi.fn(async () => undefined),
+  compensateCapturedFcmOperations: vi.fn(async (obligations) => obligations),
 }));
 
 import {
@@ -68,6 +69,7 @@ import {
 import {
   beginAuthSession,
   clearTokens,
+  clearFcmRemoteCleanupObligations,
   clearFcmRegistrationAttemptsForClientInstance,
   getAuthSessionGeneration,
   getStoredAuthSession,
@@ -551,9 +553,11 @@ describe('auth session lifecycle', () => {
     await firstRemote;
     await Promise.resolve();
     expect(loginUser).not.toHaveBeenCalled();
+    expect(waitForFcmTransitionCleanup).not.toHaveBeenCalled();
     finishSecond();
     await secondRemote;
     await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
+    expect(waitForFcmTransitionCleanup).toHaveBeenCalledOnce();
   });
 
   it('hands a refresh issued during logout to the remote revocation request', async () => {
@@ -1019,6 +1023,9 @@ describe('auth session lifecycle', () => {
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token',
     });
+    expect(clearFcmRemoteCleanupObligations).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({kind: 'clientLogout'})]),
+    );
   });
 
   it('restart-gates auth entry after revocation when client rotation fails', async () => {
@@ -1038,6 +1045,11 @@ describe('auth session lifecycle', () => {
       refreshToken: 'login-refresh-token',
       clientInstanceId: 'faithlog-client-1',
     });
+    expect(markFcmRemoteCleanupPending).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kind: 'clientRetirement', clientInstanceId: 'faithlog-client-1',
+      }),
+    ]);
   });
 
   it('returns a visible warning result when remote logout cannot be confirmed', async () => {

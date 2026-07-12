@@ -65,7 +65,7 @@ export type StoredFcmRemoteCleanupObligation = {
   refreshToken?: string | null;
   userId: number | null;
   clientInstanceId: string | null;
-  kind: 'registration' | 'deactivation' | 'clientLogout';
+  kind: 'registration' | 'deactivation' | 'clientLogout' | 'clientRetirement';
   token: string | null;
   tokenId: number | null;
 };
@@ -1059,7 +1059,7 @@ function parseStoredFcmRemoteCleanupObligations(
           (entry.clientInstanceId !== null &&
            (typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId.trim())) ||
           (entry.kind !== 'registration' && entry.kind !== 'deactivation' &&
-           entry.kind !== 'clientLogout') ||
+           entry.kind !== 'clientLogout' && entry.kind !== 'clientRetirement') ||
           (entry.token !== null && typeof entry.token !== 'string') ||
           (entry.tokenId !== null && (!Number.isInteger(entry.tokenId) || Number(entry.tokenId) <= 0))) {
         throw new CorruptFcmPrivacyStateError('remoteCleanup');
@@ -1076,7 +1076,9 @@ function parseStoredFcmRemoteCleanupObligations(
           ((typeof token === 'string' && Boolean(token.trim())) || tokenId !== null)
         : kind === 'deactivation'
           ? userId !== null && normalizedClientId !== null && token === null && tokenId !== null
-          : userId === null && token === null && tokenId === null;
+          : kind === 'clientLogout'
+            ? userId === null && token === null && tokenId === null
+            : userId === null && normalizedClientId !== null && token === null && tokenId === null;
       if (!validKindShape) throw new CorruptFcmPrivacyStateError('remoteCleanup');
       return {
         accessToken: entry.accessToken.trim(),

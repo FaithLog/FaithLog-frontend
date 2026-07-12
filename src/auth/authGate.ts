@@ -1,5 +1,11 @@
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
-import {clearTokens, getStoredAuthSession} from '../api/tokenStorage';
+import {
+  clearTokens,
+  getAuthSessionGeneration,
+  getStoredAuthSession,
+  hasFcmRemoteCleanupPending,
+  startAuthSessionClear,
+} from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
 import {refreshAndEstablishSession} from './session';
 import {waitForFcmTransitionCleanup} from './fcmTransitionCleanup';
@@ -58,8 +64,28 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
     };
   }
 
+  let hadDurableTeardown = false;
   try {
-    if (!(await waitForFcmTransitionCleanup(BOOTSTRAP_REMOTE_CLEANUP_TIMEOUT_MS))) {
+    hadDurableTeardown = await hasFcmRemoteCleanupPending();
+    const authClear = hadDurableTeardown
+      ? startAuthSessionClear(getAuthSessionGeneration())
+      : null;
+    const cleanupComplete = await waitForFcmTransitionCleanup(
+      BOOTSTRAP_REMOTE_CLEANUP_TIMEOUT_MS,
+    );
+    if (authClear) {
+      await authClear.completion.catch(() => undefined);
+      return cleanupComplete
+        ? {
+            status: 'signedOut',
+            warning: '이전 로그아웃 정리를 완료했습니다. 다시 로그인해 주세요.',
+          }
+        : {
+            status: 'signedOut',
+            warning: '이전 알림 연결 정리가 필요합니다. 네트워크를 확인한 뒤 앱을 다시 실행해 주세요.',
+          };
+    }
+    if (!cleanupComplete) {
       return {
         status: 'signedOut',
         warning: '이전 알림 연결 정리가 필요합니다. 네트워크를 확인한 뒤 앱을 다시 실행해 주세요.',

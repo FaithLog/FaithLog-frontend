@@ -28,6 +28,7 @@ import {
   isMockModeEnabled,
   loginUser,
   logoutUser,
+  registerMyFcmToken,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -608,6 +609,48 @@ describe('FaithLog API client', () => {
       FIRST_AUTH_GENERATION,
     );
     expect(clearTokens).not.toHaveBeenCalled();
+  });
+
+  it('awaits effective FCM credentials before sending a transparent 401 retry', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    let releaseCredentialUpdate!: () => void;
+    const credentialUpdate = new Promise<void>((resolve) => {
+      releaseCredentialUpdate = resolve;
+    });
+    const onEffectiveAuthTokens = vi.fn(async () => credentialUpdate);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        accessToken: 'fresh-access-token', refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+      })))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+        lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+      })));
+
+    const request = registerMyFcmToken(
+      'expired-access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      onEffectiveAuthTokens,
+    );
+    await vi.waitFor(() => expect(onEffectiveAuthTokens).toHaveBeenCalledWith({
+      accessToken: 'fresh-access-token', refreshToken: 'fresh-refresh-token',
+      accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    releaseCredentialUpdate();
+    await expect(request).resolves.toMatchObject({tokenId: 77});
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('refreshes once for admin payment account create before keeping endpoint 401 inline', async () => {

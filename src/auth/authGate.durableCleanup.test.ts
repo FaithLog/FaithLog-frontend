@@ -47,5 +47,32 @@ describe('cold bootstrap durable cleanup gate', () => {
     await expect(bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
     expect(refreshAndEstablishSession).not.toHaveBeenCalled();
     expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(true);
+    expect(state.storage.get('faithlog.authInvalidated')).toBe('1');
+  });
+
+  it('stays signed out after successful reconciliation instead of restoring old refresh tokens', async () => {
+    state.storage.set('faithlog.authTokens.v2', JSON.stringify({
+      version: 1, accessToken: 'old-access', refreshToken: 'old-refresh',
+    }));
+    state.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1,
+      obligations: [{
+        accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+        clientInstanceId: null, kind: 'clientLogout', token: null, tokenId: null,
+      }],
+    }));
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.configureFcmTransitionCleanup({
+      capture: () => ({
+        barrier: Promise.resolve(), settlement: Promise.resolve([]), hasPendingOperations: false,
+      }),
+      compensate: async (obligations) => obligations,
+    });
+    const {bootstrapAuthGate} = await import('./authGate');
+
+    await expect(bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+    expect(refreshAndEstablishSession).not.toHaveBeenCalled();
+    expect(state.storage.get('faithlog.authInvalidated')).toBe('1');
+    expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
   });
 });
