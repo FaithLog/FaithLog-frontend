@@ -470,6 +470,73 @@ describe('active remote cleanup ownership', () => {
     expect(api.login).not.toHaveBeenCalled();
   });
 
+  it('retries a failed durable logout-to-retirement transition without replaying logout', async () => {
+    const storage = await import('../api/tokenStorage');
+    const currentClient = await storage.getOrCreateClientInstanceId();
+    const logoutReceipt = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const,
+      token: null, tokenId: null,
+    };
+    await storage.markFcmRemoteCleanupPending([logoutReceipt]);
+    state.failSetOnce.add('faithlog.fcmRemoteCleanupPending.v1');
+    const fcm = await import('../notifications/fcmRegistration');
+    await expect(fcm.compensateCapturedFcmOperations([{
+      ...logoutReceipt, state: 'mayHaveSent',
+    }])).resolves.toEqual([
+      expect.objectContaining({kind: 'clientLogout', state: 'cleaned'}),
+    ]);
+    expect(api.logout).toHaveBeenCalledOnce();
+    expect(api.logout).toHaveBeenCalledWith('old-access', {
+      refreshToken: 'old-refresh', clientInstanceId: currentClient,
+    });
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+  });
+
+  it('re-persists a refresh-introduced logout after its first durable write fails', async () => {
+    const storage = await import('../api/tokenStorage');
+    const currentClient = await storage.getOrCreateClientInstanceId();
+    const receipt = {
+      accessToken: 'expired-access', refreshToken: 'expired-refresh', userId: 42,
+      clientInstanceId: 'old-client', kind: 'deactivation' as const,
+      token: null, tokenId: 77,
+    };
+    await storage.markFcmRemoteCleanupPending([receipt]);
+    const client = await import('../api/client');
+    api.deactivateCleanup
+      .mockRejectedValueOnce(new client.FaithLogApiError({
+        kind: 'sessionExpired', status: 401, message: 'expired cleanup access',
+      }))
+      .mockResolvedValue(null);
+    state.failSetOnce.add('faithlog.fcmRemoteCleanupPending.v1');
+    const fcm = await import('../notifications/fcmRegistration');
+    const processed = await fcm.compensateCapturedFcmOperations([{
+      ...receipt, state: 'mayHaveSent',
+    }]);
+    expect(processed).toEqual(expect.arrayContaining([
+      expect.objectContaining({kind: 'clientLogout', accessToken: 'cleanup-access'}),
+    ]));
+    expect(api.refreshCleanup).toHaveBeenCalledWith('expired-refresh');
+    expect(api.logout).toHaveBeenCalledWith('cleanup-access', {
+      refreshToken: 'cleanup-refresh', clientInstanceId: currentClient,
+    });
+    await storage.clearFcmRemoteCleanupObligations(processed);
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+  });
+
   it('removes terminal-only identities after mixed account-claim compensation', async () => {
     state.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
       version: 2,

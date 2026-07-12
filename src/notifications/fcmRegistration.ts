@@ -1181,7 +1181,10 @@ export async function compensateCapturedFcmOperations(
           existingLogout.refreshToken = refreshed.refreshToken;
         }
       }
-      await markFcmRemoteCleanupPending([...sameCredentialObligations, ...introduced]);
+      await persistFcmCleanupReceiptsWithRetry([
+        ...sameCredentialObligations,
+        ...introduced,
+      ]);
       await compensateFcmObligation(obligation, observer);
     }
     obligation.state = 'cleaned';
@@ -1232,9 +1235,6 @@ async function compensateFcmObligation(
     } else {
       await logoutUser(obligation.accessToken, body);
     }
-    // The remote session revoke is terminal even if the following local
-    // client-retirement persistence fails. Do not resurrect this credential.
-    obligation.state = 'cleaned';
     if (clientInstanceId) {
       const retirement: FcmRemoteCleanupObligation = {
         accessToken: obligation.accessToken,
@@ -1246,14 +1246,19 @@ async function compensateFcmObligation(
         tokenId: null,
         state: 'mayHaveSent',
       };
-      await replaceFcmRemoteCleanupObligations([obligation], [retirement]);
+      await replaceFcmCleanupReceiptsWithRetry([obligation], [retirement]);
+      // The remote session revoke is terminal only after its durable receipt
+      // has atomically advanced to the local retirement phase.
+      obligation.state = 'cleaned';
       await clearFcmRegistrationAttemptsForClientInstance(clientInstanceId);
       const current = await getStoredClientInstanceId();
       if (current === clientInstanceId) {
         const rotated = await rotateClientInstanceId(clientInstanceId);
         if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
       }
-      await replaceFcmRemoteCleanupObligations([retirement], []);
+      await replaceFcmCleanupReceiptsWithRetry([retirement], []);
+    } else {
+      obligation.state = 'cleaned';
     }
     return;
   }
@@ -1276,6 +1281,27 @@ async function compensateFcmObligation(
     await deactivateMyFcmTokenForCleanup(obligation.accessToken, tokenId);
   } catch (error) {
     if (!(error instanceof FaithLogApiError && error.detail.status === 404)) throw error;
+  }
+}
+
+async function persistFcmCleanupReceiptsWithRetry(
+  obligations: FcmRemoteCleanupObligation[],
+) {
+  try {
+    await markFcmRemoteCleanupPending(obligations);
+  } catch {
+    await markFcmRemoteCleanupPending(obligations);
+  }
+}
+
+async function replaceFcmCleanupReceiptsWithRetry(
+  completed: FcmRemoteCleanupObligation[],
+  replacements: FcmRemoteCleanupObligation[],
+) {
+  try {
+    await replaceFcmRemoteCleanupObligations(completed, replacements);
+  } catch {
+    await replaceFcmRemoteCleanupObligations(completed, replacements);
   }
 }
 

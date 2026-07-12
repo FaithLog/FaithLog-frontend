@@ -93,6 +93,7 @@ import {
   isAuthSessionGenerationCurrent,
   isAuthSessionRequestAllowed,
   markFcmRemoteCleanupPending,
+  replaceFcmRemoteCleanupObligations,
   saveFcmRegistration,
   saveFcmRegistrationAttempt,
   saveFcmOptOut,
@@ -620,6 +621,9 @@ describe('FCM registration', () => {
   });
 
   it('refreshes an expired cleanup credential and durably schedules its rotated session logout', async () => {
+    vi.mocked(markFcmRemoteCleanupPending)
+      .mockRejectedValueOnce(new Error('first receipt write failed'))
+      .mockResolvedValue(undefined);
     vi.mocked(registerMyFcmTokenForCleanup)
       .mockRejectedValueOnce(new FaithLogApiError({
         kind: 'sessionExpired', status: 401, message: 'expired',
@@ -655,6 +659,8 @@ describe('FCM registration', () => {
     expect(vi.mocked(markFcmRemoteCleanupPending)).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({kind: 'clientLogout'})]),
     );
+    expect(vi.mocked(markFcmRemoteCleanupPending).mock.calls.filter(([receipts]) =>
+      receipts?.some((receipt) => receipt.kind === 'clientLogout'))).toHaveLength(2);
     expect(logoutUser).toHaveBeenCalledWith('cleanup-access-token', {
       refreshToken: 'cleanup-refresh-token', clientInstanceId: 'faithlog-client-1',
     }, expect.any(Function));
@@ -664,6 +670,30 @@ describe('FCM registration', () => {
     expect(onRequestDispatch).toHaveBeenCalledWith(
       expect.objectContaining({kind: 'clientLogout', accessToken: 'cleanup-access-token'}),
     );
+  });
+
+  it('retries logout-to-retirement persistence before treating remote logout as terminal', async () => {
+    vi.mocked(logoutUser).mockResolvedValueOnce(null);
+    vi.mocked(replaceFcmRemoteCleanupObligations)
+      .mockRejectedValueOnce(new Error('first atomic replacement failed'))
+      .mockResolvedValue(undefined);
+    const obligation = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const,
+      token: null, tokenId: null,
+      state: 'mayHaveSent' as 'mayHaveSent' | 'cleaned',
+    };
+
+    await expect(compensateCapturedFcmOperations([obligation])).resolves.toEqual([obligation]);
+    expect(logoutUser).toHaveBeenCalledOnce();
+    expect(replaceFcmRemoteCleanupObligations).toHaveBeenCalledTimes(3);
+    expect(replaceFcmRemoteCleanupObligations).toHaveBeenNthCalledWith(
+      1, [obligation], [expect.objectContaining({kind: 'clientRetirement'})],
+    );
+    expect(replaceFcmRemoteCleanupObligations).toHaveBeenNthCalledWith(
+      2, [obligation], [expect.objectContaining({kind: 'clientRetirement'})],
+    );
+    expect(obligation.state).toBe('cleaned');
   });
 
   it('refreshes an expired client logout and sends the rotated logout exactly once', async () => {
