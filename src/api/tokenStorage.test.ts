@@ -329,6 +329,34 @@ describe('native auth token storage', () => {
   });
 
   it.each([
+    ['missing tokenId', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'pending',
+    }]}],
+    ['invalid tokenId', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'pending', tokenId: '77',
+    }]}],
+    ['missing status', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', tokenId: null,
+    }]}],
+    ['invalid status', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'disabled', tokenId: null,
+    }]}],
+    ['confirmed with token', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'confirmed', tokenId: 77,
+    }]}],
+    ['duplicate user', {version: 2, entries: [
+      {userId: 42, clientInstanceId: 'client-42', status: 'confirmed', tokenId: null},
+      {userId: 42, clientInstanceId: 'client-42', status: 'pending', tokenId: 77},
+    ]}],
+  ])('rejects semantic-invalid v2 opt-out state: %s', async (_name, value) => {
+    testState.storage.set('faithlog.fcmOptOut.v1', JSON.stringify(value));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getFcmOptOutState(
+      42, tokenStorage.getAuthSessionGeneration(),
+    )).rejects.toBeInstanceOf(tokenStorage.CorruptFcmPrivacyStateError);
+  });
+
+  it.each([
     ['malformed JSON', '{'],
     ['unknown version', JSON.stringify({version: 99, entries: []})],
     ['partial invalid entry', JSON.stringify({
@@ -364,6 +392,81 @@ describe('native auth token storage', () => {
 
     await expect(saving).resolves.toBe(false);
     expect(testState.storage.has('faithlog.fcmRegistrationAttempts.v1')).toBe(false);
+  });
+
+  it('keeps FCM registration tombstoned when closing wins a delayed record write', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const attempt = {userId: 42, clientInstanceId: 'client-42', token: 'device-token'};
+    await tokenStorage.saveFcmRegistrationAttempt(attempt, generation);
+    let releaseRecordWrite!: () => void;
+    let recordWriteStarted = false;
+    const blockedWrite = new Promise<void>((resolve) => { releaseRecordWrite = resolve; });
+    secureStoreMocks.setItemAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'faithlog.fcmRegistration.v2') {
+        recordWriteStarted = true;
+        await blockedWrite;
+      }
+      testState.storage.set(key, value);
+    });
+    const saving = tokenStorage.saveFcmRegistration({
+      token: 'device-token', tokenId: 77, userId: 42, clientInstanceId: 'client-42',
+    }, generation);
+    await vi.waitFor(() => expect(recordWriteStarted).toBe(true));
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseRecordWrite();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: null, tokenId: null, userId: null, clientInstanceId: null,
+    });
+    await expect(tokenStorage.getFcmRegistrationAttempts(42, generation)).resolves.toEqual([attempt]);
+  });
+
+  it('re-tombstones FCM registration when closing wins final marker removal', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const attempt = {userId: 42, clientInstanceId: 'client-42', token: 'device-token'};
+    await tokenStorage.saveFcmRegistrationAttempt(attempt, generation);
+    let releaseMarkerDelete!: () => void;
+    let markerDeleteStarted = false;
+    const blockedDelete = new Promise<void>((resolve) => { releaseMarkerDelete = resolve; });
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.fcmRegistrationInvalidated') {
+        markerDeleteStarted = true;
+        await blockedDelete;
+      }
+      testState.storage.delete(key);
+    });
+    const saving = tokenStorage.saveFcmRegistration({
+      token: 'device-token', tokenId: 77, userId: 42, clientInstanceId: 'client-42',
+    }, generation);
+    await vi.waitFor(() => expect(markerDeleteStarted).toBe(true));
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseMarkerDelete();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: null, tokenId: null, userId: null, clientInstanceId: null,
+    });
+    await expect(tokenStorage.getFcmRegistrationAttempts(42, generation)).resolves.toEqual([attempt]);
+  });
+
+  it('round-trips the device-level remote cleanup gate across module restart', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const obligation = {
+      accessToken: 'old-access', clientInstanceId: 'old-client',
+      kind: 'registration' as const, token: 'old-token', tokenId: null,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([obligation]);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    await expect(restartedStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(restartedStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([obligation]);
   });
 
   it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {

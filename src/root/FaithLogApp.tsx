@@ -82,6 +82,7 @@ import {
   type PreparedLogout,
 } from '../auth/session';
 import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
+import {beginFcmTransitionCleanup} from '../auth/fcmTransitionCleanup';
 import {
   type CampusCreateFormValues,
   type InviteCodeFormValues,
@@ -250,9 +251,12 @@ export function beginAccountDeletionTeardown(
   transitionToPublic: () => void,
   clear: () => Promise<unknown>,
   invalidate: () => void = invalidatePaymentContextCache,
+  beginRemoteCleanup: (generation?: number) => Promise<void> = beginFcmTransitionCleanup,
+  remoteCleanupGeneration?: number,
 ) {
   invalidate();
   transitionToPublic();
+  void beginRemoteCleanup(remoteCleanupGeneration);
   const cleanup = clear();
   trackLocalSessionCleanup(cleanup);
   return finalizeAccountDeletionTeardown(() => cleanup, () => {});
@@ -3901,6 +3905,9 @@ function AccountDeletionScreen({
       void beginAccountDeletionTeardown(
         () => setAuthState({status: 'signedOut'}),
         () => clearTokens(deletionGeneration),
+        invalidatePaymentContextCache,
+        beginFcmTransitionCleanup,
+        deletionGeneration,
       )
         .then((cleanupWarning) => {
           if (!cleanupWarning) return;
@@ -3921,6 +3928,9 @@ function AccountDeletionScreen({
         void beginAccountDeletionTeardown(
           () => setAuthState({status: 'sessionExpired', message: apiError.message}),
           () => clearTokens(generation),
+          invalidatePaymentContextCache,
+          beginFcmTransitionCleanup,
+          generation,
         );
         return;
       }

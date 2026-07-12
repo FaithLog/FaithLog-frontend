@@ -11,6 +11,7 @@ const FCM_REGISTRATION_KEY = 'faithlog.fcmRegistration.v2';
 const FCM_INVALIDATED_KEY = 'faithlog.fcmRegistrationInvalidated';
 const FCM_OPT_OUT_KEY = 'faithlog.fcmOptOut.v1';
 const FCM_REGISTRATION_ATTEMPTS_KEY = 'faithlog.fcmRegistrationAttempts.v1';
+const FCM_REMOTE_CLEANUP_PENDING_KEY = 'faithlog.fcmRemoteCleanupPending.v1';
 const LEGACY_FCM_TOKEN_KEY = 'faithlog.fcmToken';
 const LEGACY_FCM_TOKEN_ID_KEY = 'faithlog.fcmTokenId';
 const CLIENT_INSTANCE_ID_KEY = 'faithlog.clientInstanceId';
@@ -41,7 +42,7 @@ export class StaleAuthSessionReadError extends Error {
 }
 
 export class CorruptFcmPrivacyStateError extends Error {
-  constructor(readonly storageKey: 'optOut' | 'registrationAttempts') {
+  constructor(readonly storageKey: 'optOut' | 'registrationAttempts' | 'remoteCleanup') {
     super(`Stored FCM ${storageKey} privacy state is corrupt.`);
   }
 }
@@ -57,6 +58,15 @@ export type StoredFcmRegistrationAttempt = {
   token: string;
   userId: number;
   clientInstanceId: string;
+};
+
+export type StoredFcmRemoteCleanupObligation = {
+  accessToken: string;
+  refreshToken?: string | null;
+  clientInstanceId: string;
+  kind: 'registration' | 'deactivation' | 'clientLogout';
+  token: string | null;
+  tokenId: number | null;
 };
 
 export type StoredPrayerSeason = {
@@ -432,7 +442,7 @@ export async function saveFcmRegistration(
 ) {
   return withSecureStorageLock(async () => {
     if (
-      !isAuthSessionGenerationCurrent(generation) ||
+      !isAuthSessionRequestAllowed(generation) ||
       !registration.token.trim() ||
       !Number.isInteger(registration.tokenId) ||
       registration.tokenId <= 0 ||
@@ -450,19 +460,25 @@ export async function saveFcmRegistration(
       userId: registration.userId,
       clientInstanceId: registration.clientInstanceId.trim(),
     };
+    await setStorageItem(FCM_INVALIDATED_KEY, INVALIDATED_VALUE);
+    if (!isAuthSessionRequestAllowed(generation)) return false;
     await setStorageItem(FCM_REGISTRATION_KEY, JSON.stringify(record));
 
-    if (!isAuthSessionGenerationCurrent(generation)) {
+    if (!isAuthSessionRequestAllowed(generation)) {
       return false;
     }
 
     await deleteStorageItem(FCM_INVALIDATED_KEY);
+    if (!isAuthSessionRequestAllowed(generation)) {
+      await setStorageItem(FCM_INVALIDATED_KEY, INVALIDATED_VALUE);
+      return false;
+    }
     await Promise.allSettled([
       deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
       deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
     ]);
 
-    return isAuthSessionGenerationCurrent(generation);
+    return isAuthSessionRequestAllowed(generation);
   });
 }
 
@@ -598,6 +614,48 @@ export async function clearFcmRegistrationAttemptsForClientInstance(
         FCM_REGISTRATION_ATTEMPTS_KEY,
         JSON.stringify({version: 1, entries: remaining}),
       );
+    }
+  });
+}
+
+export async function markFcmRemoteCleanupPending(
+  obligations: StoredFcmRemoteCleanupObligation[] = [],
+) {
+  await withSecureStorageLock(async () => {
+    const current = parseStoredFcmRemoteCleanupObligations(
+      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+    );
+    const merged = [...current, ...obligations].filter((entry, index, all) =>
+      all.findIndex((candidate) =>
+        candidate.accessToken === entry.accessToken &&
+        candidate.refreshToken === entry.refreshToken &&
+        candidate.clientInstanceId === entry.clientInstanceId &&
+        candidate.kind === entry.kind &&
+        candidate.token === entry.token &&
+        candidate.tokenId === entry.tokenId) === index);
+    await setStorageItem(
+      FCM_REMOTE_CLEANUP_PENDING_KEY,
+      JSON.stringify({version: 1, obligations: merged}),
+    );
+  });
+}
+
+export async function clearFcmRemoteCleanupPending() {
+  await withSecureStorageLock(() => deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY));
+}
+
+export async function hasFcmRemoteCleanupPending() {
+  return (await getFcmRemoteCleanupObligations()) !== null;
+}
+
+export async function getFcmRemoteCleanupObligations() {
+  return withSecureStorageLock(async () => {
+    const value = await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+    if (!value) return null;
+    try {
+      return parseStoredFcmRemoteCleanupObligations(value);
+    } catch {
+      return [];
     }
   });
 }
@@ -870,6 +928,17 @@ function parseStoredFcmOptOutRecord(value: string | null): StoredFcmOptOutRecord
           typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId.trim()) {
         throw new CorruptFcmPrivacyStateError('optOut');
       }
+      const isV2 = parsed.version === 2;
+      if (isV2 && entry.status !== 'pending' && entry.status !== 'confirmed') {
+        throw new CorruptFcmPrivacyStateError('optOut');
+      }
+      if (isV2 && entry.tokenId !== null &&
+          (!Number.isInteger(entry.tokenId) || Number(entry.tokenId) <= 0)) {
+        throw new CorruptFcmPrivacyStateError('optOut');
+      }
+      if (isV2 && entry.status === 'confirmed' && entry.tokenId !== null) {
+        throw new CorruptFcmPrivacyStateError('optOut');
+      }
       const tokenId = Number.isInteger(entry.tokenId) && Number(entry.tokenId) > 0
         ? Number(entry.tokenId)
         : null;
@@ -880,6 +949,9 @@ function parseStoredFcmOptOutRecord(value: string | null): StoredFcmOptOutRecord
         tokenId,
       };
     });
+    if (new Set(entries.map((entry) => entry.userId)).size !== entries.length) {
+      throw new CorruptFcmPrivacyStateError('optOut');
+    }
     return {version: 2, entries};
   } catch (error) {
     if (error instanceof CorruptFcmPrivacyStateError) throw error;
@@ -916,6 +988,45 @@ function normalizeFcmRegistrationAttempt(value: unknown): StoredFcmRegistrationA
     clientInstanceId: attempt.clientInstanceId.trim(),
     token: attempt.token.trim(),
   };
+}
+
+function parseStoredFcmRemoteCleanupObligations(
+  value: string | null,
+): StoredFcmRemoteCleanupObligation[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as {version?: unknown; obligations?: unknown};
+    if (parsed.version !== 1 || !Array.isArray(parsed.obligations)) {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    return parsed.obligations.map((value): StoredFcmRemoteCleanupObligation => {
+      if (!value || typeof value !== 'object') {
+        throw new CorruptFcmPrivacyStateError('remoteCleanup');
+      }
+      const entry = value as Record<string, unknown>;
+      if (typeof entry.accessToken !== 'string' || !entry.accessToken ||
+          (entry.refreshToken !== undefined && entry.refreshToken !== null &&
+           typeof entry.refreshToken !== 'string') ||
+          typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId ||
+          (entry.kind !== 'registration' && entry.kind !== 'deactivation' &&
+           entry.kind !== 'clientLogout') ||
+          (entry.token !== null && typeof entry.token !== 'string') ||
+          (entry.tokenId !== null && (!Number.isInteger(entry.tokenId) || Number(entry.tokenId) <= 0))) {
+        throw new CorruptFcmPrivacyStateError('remoteCleanup');
+      }
+      return {
+        accessToken: entry.accessToken,
+        ...(typeof entry.refreshToken === 'string' ? {refreshToken: entry.refreshToken} : {}),
+        clientInstanceId: entry.clientInstanceId,
+        kind: entry.kind,
+        token: entry.token as string | null,
+        tokenId: entry.tokenId === null ? null : Number(entry.tokenId),
+      };
+    });
+  } catch (error) {
+    if (error instanceof CorruptFcmPrivacyStateError) throw error;
+    throw new CorruptFcmPrivacyStateError('remoteCleanup');
+  }
 }
 
 function parseJsonRecord(value: string | null): Record<string, unknown> | null {

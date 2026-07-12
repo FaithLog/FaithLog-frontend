@@ -1633,6 +1633,21 @@ export function registerMyFcmToken(
   });
 }
 
+export function registerMyFcmTokenForCleanup(
+  accessToken: string,
+  body: FcmTokenRegisterRequest,
+) {
+  return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
+    accessToken,
+    allowAuthSessionChange: true,
+    allowUnstoredAccessToken: true,
+    responseParser: parseFcmTokenRegisterResponse,
+    skipAuthRefresh: true,
+    method: 'POST',
+    body,
+  });
+}
+
 export function deactivateMyFcmToken(
   accessToken: string,
   tokenId: unknown,
@@ -1644,6 +1659,23 @@ export function deactivateMyFcmToken(
       accessToken,
       ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
       responseParser: parseNullResponse,
+      method: 'DELETE',
+    },
+  );
+}
+
+export function deactivateMyFcmTokenForCleanup(
+  accessToken: string,
+  tokenId: unknown,
+) {
+  return apiRequest<null>(
+    buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
+    {
+      accessToken,
+      allowAuthSessionChange: true,
+      allowUnstoredAccessToken: true,
+      responseParser: parseNullResponse,
+      skipAuthRefresh: true,
       method: 'DELETE',
     },
   );

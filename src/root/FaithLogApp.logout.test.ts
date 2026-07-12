@@ -18,6 +18,9 @@ vi.mock('../auth/authForms', () => ({}));
 vi.mock('../auth/authGate', () => ({}));
 vi.mock('../auth/session', () => ({
 }));
+vi.mock('../auth/fcmTransitionCleanup', () => ({
+  beginFcmTransitionCleanup: vi.fn(async () => undefined),
+}));
 vi.mock('../campus/campusForms', () => ({}));
 vi.mock('../components/ui', () => ({}));
 vi.mock('../components/IconexIcon', () => ({}));
@@ -101,6 +104,16 @@ describe('logout UI transition', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('captures pending FCM cleanup before account-deletion local teardown', async () => {
+    const remoteCleanup = vi.fn(async () => undefined);
+    const clear = vi.fn(async () => true);
+    await beginAccountDeletionTeardown(vi.fn(), clear, vi.fn(), remoteCleanup);
+    expect(remoteCleanup).toHaveBeenCalledOnce();
+    expect(remoteCleanup.mock.invocationCallOrder[0]).toBeLessThan(
+      clear.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('restart-gates account deletion cleanup rejection despite its UI warning result', async () => {

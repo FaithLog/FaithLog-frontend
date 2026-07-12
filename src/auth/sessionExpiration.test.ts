@@ -9,6 +9,11 @@ vi.mock('../api/tokenStorage', () => ({
   getAuthSessionGeneration: vi.fn(() => storage.generation),
   startAuthSessionClear: storage.startAuthSessionClear,
 }));
+
+vi.mock('./fcmTransitionCleanup', () => ({
+  beginFcmTransitionCleanup: vi.fn(async () => undefined),
+}));
+import {beginFcmTransitionCleanup} from './fcmTransitionCleanup';
 import {createSessionExpirationHandler, expireAuthSession, isExpirationEventCurrent, subscribeSessionExpiration} from './sessionExpiration';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
 import {hasRefreshLogoutHandoff, resetRefreshLogoutHandoffForTests, trackRefreshForLogout} from './refreshLogoutHandoff';
@@ -18,6 +23,7 @@ describe('central session expiration lineage', () => {
     resetLocalCleanupBarrierForTests();
     resetRefreshLogoutHandoffForTests();
     storage.startAuthSessionClear.mockReset();
+    vi.mocked(beginFcmTransitionCleanup).mockClear();
   });
   const event = {expiredGeneration: 4 as never, clearedGeneration: 5 as never};
   it('accepts only the exact clear transition', () => {
@@ -67,6 +73,18 @@ describe('central session expiration lineage', () => {
     await expireAuthSession(4 as never);
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
+  });
+
+  it('captures FCM cleanup before the central generation clear', async () => {
+    storage.startAuthSessionClear.mockReturnValue({
+      cleared: true, previousGeneration: 4, currentGeneration: 5,
+      completion: Promise.resolve(),
+    });
+    await expireAuthSession(4 as never);
+    expect(beginFcmTransitionCleanup).toHaveBeenCalledWith(4);
+    expect(vi.mocked(beginFcmTransitionCleanup).mock.invocationCallOrder[0]).toBeLessThan(
+      storage.startAuthSessionClear.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('keeps every later login restart-gated when central expiration cleanup hangs', async () => {

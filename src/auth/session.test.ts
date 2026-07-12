@@ -40,10 +40,19 @@ vi.mock('./fcmLogout', () => ({
   getLogoutFcmDeactivationPayload: vi.fn(),
 }));
 
+vi.mock('./fcmTransitionCleanup', () => ({
+  beginFcmTransitionCleanup: vi.fn(async () => undefined),
+  clearFcmRemoteCleanupGateIfIdle: vi.fn(async () => undefined),
+  requireFcmRemoteCleanupRestart: vi.fn(async () => undefined),
+  resetFcmTransitionCleanupForTests: vi.fn(),
+  waitForFcmTransitionCleanup: vi.fn(async () => true),
+}));
+
 vi.mock('../notifications/fcmRegistration', () => ({
   capturePendingFcmOperations: vi.fn(() => ({
-    barrier: Promise.resolve(), settlement: Promise.resolve(null), hasPendingOperations: false,
+    barrier: Promise.resolve(), settlement: Promise.resolve([]), hasPendingOperations: false,
   })),
+  compensateCapturedFcmOperations: vi.fn(async () => undefined),
 }));
 
 import {
@@ -73,8 +82,13 @@ import {
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {CurrentUser, LoginResponse} from '../api/types';
-import {capturePendingFcmOperations} from '../notifications/fcmRegistration';
+import {capturePendingFcmOperations, compensateCapturedFcmOperations} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
+import {
+  clearFcmRemoteCleanupGateIfIdle,
+  requireFcmRemoteCleanupRestart,
+  waitForFcmTransitionCleanup,
+} from './fcmTransitionCleanup';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
 import {
   hasRefreshLogoutHandoff,
@@ -144,9 +158,13 @@ describe('auth session lifecycle', () => {
     });
     vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValue({});
     vi.mocked(capturePendingFcmOperations).mockReturnValue({
-      barrier: Promise.resolve(), settlement: Promise.resolve(null), hasPendingOperations: false,
+      barrier: Promise.resolve(), settlement: Promise.resolve([]), hasPendingOperations: false,
     });
+    vi.mocked(compensateCapturedFcmOperations).mockResolvedValue([]);
     vi.mocked(logoutUser).mockResolvedValue(null);
+    vi.mocked(waitForFcmTransitionCleanup).mockResolvedValue(true);
+    vi.mocked(requireFcmRemoteCleanupRestart).mockResolvedValue(undefined);
+    vi.mocked(clearFcmRemoteCleanupGateIfIdle).mockResolvedValue(undefined);
   });
 
   it('does not persist login tokens when session establishment fails', async () => {
@@ -333,13 +351,25 @@ describe('auth session lifecycle', () => {
     expect(signupUser).not.toHaveBeenCalled();
   });
 
+  it('does not call login or signup while the durable FCM cleanup gate is set', async () => {
+    vi.mocked(waitForFcmTransitionCleanup).mockResolvedValue(false);
+    await expect(loginAndEstablishSession({
+      email: 'user@example.test', password: 'test-password',
+    })).rejects.toThrow('앱을 완전히 종료');
+    await expect(signupAfterSessionCleanup({
+      email: 'new@example.test', name: 'new', password: 'test-password',
+    })).rejects.toThrow('앱을 완전히 종료');
+    expect(loginUser).not.toHaveBeenCalled();
+    expect(signupUser).not.toHaveBeenCalled();
+  });
+
   it('waits past five seconds for sent FCM registration and remote logout before login', async () => {
     vi.useFakeTimers();
     try {
       let finishRegistration!: () => void;
       vi.mocked(capturePendingFcmOperations).mockReturnValue({
         barrier: new Promise<void>((resolve) => { finishRegistration = resolve; }),
-        settlement: Promise.resolve(null),
+        settlement: Promise.resolve([]),
         hasPendingOperations: true,
       });
 
@@ -439,11 +469,11 @@ describe('auth session lifecycle', () => {
       vi.mocked(capturePendingFcmOperations)
         .mockReturnValueOnce({
           barrier: new Promise<void>((resolve) => { finishFirstBarrier = resolve; }),
-          settlement: Promise.resolve(null),
+          settlement: Promise.resolve([]),
           hasPendingOperations: true,
         })
         .mockReturnValueOnce({
-          barrier: Promise.resolve(), settlement: Promise.resolve(null), hasPendingOperations: false,
+          barrier: Promise.resolve(), settlement: Promise.resolve([]), hasPendingOperations: false,
         });
       const firstPrepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
       const firstRemote = firstPrepared.completeRemoteLogout();
@@ -478,10 +508,10 @@ describe('auth session lifecycle', () => {
     const secondBarrier = new Promise<void>((resolve) => { finishSecond = resolve; });
     vi.mocked(capturePendingFcmOperations)
       .mockReturnValueOnce({
-        barrier: firstBarrier, settlement: Promise.resolve(null), hasPendingOperations: true,
+        barrier: firstBarrier, settlement: Promise.resolve([]), hasPendingOperations: true,
       })
       .mockReturnValueOnce({
-        barrier: secondBarrier, settlement: Promise.resolve(null), hasPendingOperations: true,
+        barrier: secondBarrier, settlement: Promise.resolve([]), hasPendingOperations: true,
       });
     const firstPrepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
     const firstRemote = firstPrepared.completeRemoteLogout();
@@ -587,9 +617,11 @@ describe('auth session lifecycle', () => {
       const registrationBarrier = new Promise<void>((resolve) => { finishRegistration = resolve; });
       vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
         barrier: registrationBarrier,
-        settlement: registrationBarrier.then(() => ({
+        settlement: registrationBarrier.then(() => [{
           accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
-        })),
+          kind: 'registration' as const, token: 'captured-token', tokenId: null,
+          state: 'mayHaveSent' as const,
+        }]),
         hasPendingOperations: true,
       });
       vi.mocked(getLogoutFcmDeactivationPayload).mockRejectedValueOnce(
@@ -607,17 +639,62 @@ describe('auth session lifecycle', () => {
       await remote;
       await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
 
-      expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {
-        clientInstanceId: 'captured-old-client',
-      });
+      expect(compensateCapturedFcmOperations).toHaveBeenCalledOnce();
+      expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {});
       expect(vi.mocked(logoutUser).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(loginUser).mock.invocationCallOrder[0]!,
       );
-      expect(vi.mocked(logoutUser).mock.invocationCallOrder[0]).toBeLessThan(
-        vi.mocked(rotateClientInstanceId).mock.invocationCallOrder[0]!,
-      );
+      expect(rotateClientInstanceId).not.toHaveBeenCalled();
     },
   );
+
+  it('cleans captured old clients A/B before current-client logout and auth entry', async () => {
+    const obligations = [
+      {
+        accessToken: 'old-access', clientInstanceId: 'old-A', kind: 'registration' as const,
+        token: 'token-A', tokenId: null, state: 'mayHaveSent' as const,
+      },
+      {
+        accessToken: 'old-access', clientInstanceId: 'old-B', kind: 'deactivation' as const,
+        token: null, tokenId: 202, state: 'mayHaveSent' as const,
+      },
+    ];
+    vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+      barrier: Promise.resolve(), settlement: Promise.resolve(obligations),
+      hasPendingOperations: true,
+    });
+    vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValueOnce({
+      clientInstanceId: 'current-C',
+    });
+    let finishCompensation!: () => void;
+    vi.mocked(compensateCapturedFcmOperations).mockReturnValueOnce(
+      new Promise((resolve) => { finishCompensation = () => resolve(obligations); }),
+    );
+
+    const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+    const remote = prepared.completeRemoteLogout();
+    const nextLogin = loginAndEstablishSession({
+      email: 'next@example.test', password: 'test-password',
+    });
+    await Promise.resolve();
+    expect(logoutUser).not.toHaveBeenCalled();
+    expect(loginUser).not.toHaveBeenCalled();
+    finishCompensation();
+    await remote;
+    await nextLogin;
+
+    expect(compensateCapturedFcmOperations).toHaveBeenCalledWith(obligations);
+    expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
+      refreshToken: 'login-refresh-token', clientInstanceId: 'current-C',
+    });
+    expect(rotateClientInstanceId).toHaveBeenCalledWith('current-C');
+    expect(vi.mocked(compensateCapturedFcmOperations).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(logoutUser).mock.invocationCallOrder[0]!,
+    );
+    expect(vi.mocked(logoutUser).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(loginUser).mock.invocationCallOrder[0]!,
+    );
+  });
 
   it.each(['known DELETE', 'attempt recovery POST'])(
     'keeps auth entry closed when a captured %s exceeds the remote deadline',
@@ -629,11 +706,15 @@ describe('auth session lifecycle', () => {
         });
         let finishOperation!: () => void;
         const barrier = new Promise<void>((resolve) => { finishOperation = resolve; });
+        const obligation = {
+          accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+          kind: 'registration' as const, token: 'captured-token', tokenId: null,
+          state: 'mayHaveSent' as const,
+        };
         vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
           barrier,
-          settlement: barrier.then(() => ({
-            accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
-          })),
+          obligations: [obligation],
+          settlement: barrier.then(() => [obligation]),
           hasPendingOperations: true,
         });
         const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
@@ -647,10 +728,9 @@ describe('auth session lifecycle', () => {
         expect(loginUser).not.toHaveBeenCalled();
         finishOperation();
         await remote;
-        expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {
-          clientInstanceId: 'captured-old-client',
-        });
-        expect(rotateClientInstanceId).toHaveBeenCalledWith('captured-old-client');
+        expect(compensateCapturedFcmOperations).toHaveBeenCalledOnce();
+        expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {});
+        expect(rotateClientInstanceId).not.toHaveBeenCalled();
         expect(loginUser).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
@@ -664,11 +744,15 @@ describe('auth session lifecycle', () => {
       vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
         generation: AUTH_GENERATION, accessToken: null, refreshToken: null,
       });
+      const obligation = {
+        accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+        kind: 'registration' as const, token: 'captured-token', tokenId: null,
+        state: 'mayHaveSent' as const,
+      };
       vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
         barrier: Promise.resolve(),
-        settlement: Promise.resolve({
-          accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
-        }),
+        obligations: [obligation],
+        settlement: Promise.resolve([obligation]),
         hasPendingOperations: true,
       });
       vi.mocked(logoutUser).mockRejectedValueOnce(new FaithLogApiError({
@@ -703,7 +787,7 @@ describe('auth session lifecycle', () => {
     let finishRegistration!: () => void;
     vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
       barrier: new Promise<void>((resolve) => { finishRegistration = resolve; }),
-      settlement: Promise.resolve(null),
+      settlement: Promise.resolve([]),
       hasPendingOperations: true,
     });
     vi.mocked(getLogoutFcmDeactivationPayload).mockResolvedValueOnce({
@@ -853,7 +937,7 @@ describe('auth session lifecycle', () => {
       barrier: new Promise<void>((resolve) => {
         finishRegistration = resolve;
       }),
-      settlement: Promise.resolve(null),
+      settlement: Promise.resolve([]),
       hasPendingOperations: true,
     });
 
@@ -874,7 +958,7 @@ describe('auth session lifecycle', () => {
       barrier: new Promise<void>((resolve) => {
         finishRegistration = resolve;
       }),
-      settlement: Promise.resolve(null),
+      settlement: Promise.resolve([]),
       hasPendingOperations: true,
     });
 

@@ -24,6 +24,9 @@ vi.mock('../api/tokenStorage', () => ({
   StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {},
 }));
 
+const beginFcmTransitionCleanup = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('./fcmTransitionCleanup', () => ({beginFcmTransitionCleanup}));
+
 import {isAccessTokenResolutionCurrent, resolveCurrentAccessToken} from './accessTokenResolver';
 
 describe('access token resolver lineage', () => {
@@ -31,6 +34,7 @@ describe('access token resolver lineage', () => {
     mocks.allowed = true;
     mocks.generation = 1;
     vi.clearAllMocks();
+    beginFcmTransitionCleanup.mockClear();
   });
   it('does not invoke missing-token side effects for a fulfilled old null token', async () => {
     let finish!: (value: unknown) => void;
@@ -60,6 +64,7 @@ describe('access token resolver lineage', () => {
     expect(mocks.generation).toBe(4);
     expect(mocks.allowed).toBe(false);
     expect(onMissing).toHaveBeenCalledWith(3);
+    expect(beginFcmTransitionCleanup).toHaveBeenCalledOnce();
   });
 
   it('closes the common request gate before a missing-token callback can yield', async () => {

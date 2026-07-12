@@ -1,6 +1,7 @@
 import {getAuthSessionGeneration, startAuthSessionClear, type AuthSessionGeneration} from '../api/tokenStorage';
 import {requireLocalSessionCleanupRestart, trackLocalSessionCleanup} from './localCleanupBarrier';
 import {discardRefreshTokensForGeneration, hasIssuedRefreshTokens} from './refreshLogoutHandoff';
+import {beginFcmTransitionCleanup} from './fcmTransitionCleanup';
 
 export type SessionExpirationEvent = {
   expiredGeneration: AuthSessionGeneration;
@@ -15,6 +16,7 @@ export function subscribeSessionExpiration(listener: (event: SessionExpirationEv
 }
 
 export function expireAuthSession(generation: AuthSessionGeneration) {
+  beginFcmTransitionCleanup(generation);
   const transition = startAuthSessionClear(generation);
   if (transition.cleared && hasIssuedRefreshTokens(generation)) {
     requireLocalSessionCleanupRestart();
