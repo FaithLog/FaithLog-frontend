@@ -49,6 +49,7 @@ import {
   markAuthSessionClosing,
   saveSelectedCampusId,
   StaleAuthSessionReadError,
+  type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {
   ApiError,
@@ -130,6 +131,7 @@ import {
 } from '../notifications/fcmRegistration';
 import {isFcmRuntimeEnabled} from '../notifications/fcmEnvironment';
 import {initializeNativeFirebaseMessaging} from '../notifications/nativeFirebaseMessaging';
+import {createNotificationOperationCoordinator, type NotificationOperationIdentity} from '../notifications/notificationOperationCoordinator';
 import {
   getInitialNotificationOpenPayload,
   openNotificationSettings,
@@ -224,10 +226,6 @@ export function applyAuthResultIfCurrent(
   apply: () => void,
 ) {
   if (epoch === currentEpoch) apply();
-}
-
-export function createNotificationInspectPressHandler(inspect: () => Promise<void>) {
-  return () => { void inspect(); };
 }
 
 export async function finalizeAccountDeletionTeardown(
@@ -3355,20 +3353,23 @@ function NotificationSettingsDetail({
   userId: number;
 }) {
   const [state, setState] = useState<NotificationUiState>({status: 'checking'});
-  const notificationMounted = useRef(true);
-  const notificationOperation = useRef(0);
+  const notificationCoordinator = useRef(
+    createNotificationOperationCoordinator(isAuthSessionRequestAllowed),
+  ).current;
 
   const inspect = async (
-    expectedGeneration = getAuthSessionGeneration(),
-    expectedOperation = ++notificationOperation.current,
+    identity: NotificationOperationIdentity = notificationCoordinator.start(
+      getAuthSessionGeneration(),
+    ),
   ) => {
-    const isCurrent = () => notificationMounted.current &&
-      notificationOperation.current === expectedOperation &&
-      isAuthSessionRequestAllowed(expectedGeneration);
+    const isCurrent = () => notificationCoordinator.isCurrent(identity);
     if (!isCurrent()) return;
     setState({status: 'checking'});
     try {
-      const nextState = await inspectFcmRegistrationStatus(userId, expectedGeneration);
+      const nextState = await inspectFcmRegistrationStatus(
+        userId,
+        identity.generation as AuthSessionGeneration,
+      );
       if (!isCurrent()) return;
       setState(nextState);
     } catch {
@@ -3386,10 +3387,8 @@ function NotificationSettingsDetail({
     }
 
     const requestGeneration = getAuthSessionGeneration();
-    const operation = ++notificationOperation.current;
-    const isCurrent = () => notificationMounted.current &&
-      notificationOperation.current === operation &&
-      isAuthSessionRequestAllowed(requestGeneration);
+    const identity = notificationCoordinator.start(requestGeneration);
+    const isCurrent = () => notificationCoordinator.isCurrent(identity);
     setState({status: 'registering'});
     try {
       const accessToken = await resolveCurrentAccessToken(() => {
@@ -3424,10 +3423,8 @@ function NotificationSettingsDetail({
     }
 
     const requestGeneration = getAuthSessionGeneration();
-    const operation = ++notificationOperation.current;
-    const isCurrent = () => notificationMounted.current &&
-      notificationOperation.current === operation &&
-      isAuthSessionRequestAllowed(requestGeneration);
+    const identity = notificationCoordinator.start(requestGeneration);
+    const isCurrent = () => notificationCoordinator.isCurrent(identity);
     setState({status: 'deactivating'});
     try {
       const accessToken = await resolveCurrentAccessToken(() => {
@@ -3444,7 +3441,7 @@ function NotificationSettingsDetail({
         requestGeneration,
       );
       if (!isCurrent()) return;
-      await inspect(requestGeneration, operation);
+      await inspect(identity);
     } catch (error) {
       if (!isCurrent()) return;
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
@@ -3457,11 +3454,10 @@ function NotificationSettingsDetail({
   };
 
   useEffect(() => {
-    notificationMounted.current = true;
+    notificationCoordinator.setup();
     void inspect();
     return () => {
-      notificationMounted.current = false;
-      notificationOperation.current += 1;
+      notificationCoordinator.cleanup();
     };
   }, []);
 
@@ -3492,7 +3488,7 @@ function NotificationSettingsDetail({
         <Button
           accessibilityLabel="알림 설정 다시 확인"
           disabled={busy}
-          onPress={createNotificationInspectPressHandler(() => inspect())}
+          onPress={notificationCoordinator.createInspectPressHandler(() => inspect())}
           variant="secondary">
           {state.status === 'checking' ? '확인 중...' : '다시 확인'}
         </Button>

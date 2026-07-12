@@ -41,7 +41,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, createNotificationInspectPressHandler, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
+import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
 import {StaleAuthSessionReadError} from '../api/tokenStorage';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from '../auth/localCleanupBarrier';
 
@@ -113,12 +113,6 @@ describe('logout UI transition', () => {
     await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
   });
 
-  it('does not forward the Pressable event as a notification generation', () => {
-    const inspect = vi.fn(async () => {});
-    const onPress = createNotificationInspectPressHandler(inspect);
-    (onPress as (event: unknown) => void)({nativeEvent: {}});
-    expect(inspect).toHaveBeenCalledWith();
-  });
 
   it('does not attach a late cleanup warning to a newly authenticated session', () => {
     const authenticated = {status: 'authenticated'} as never;

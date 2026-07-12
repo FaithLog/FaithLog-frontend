@@ -24,6 +24,7 @@ vi.mock('../api/tokenStorage', () => ({
   getStoredAuthSession: vi.fn(),
   getStoredSelectedCampusId: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
+  markAuthSessionClosing: vi.fn(),
   rotateClientInstanceId: vi.fn(),
   saveSelectedCampusId: vi.fn(),
   saveTokens: vi.fn(),
@@ -55,6 +56,7 @@ import {
   getStoredAuthSession,
   getStoredSelectedCampusId,
   isAuthSessionGenerationCurrent,
+  markAuthSessionClosing,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
@@ -106,6 +108,7 @@ describe('auth session lifecycle', () => {
     vi.mocked(beginAuthSession).mockResolvedValue(AUTH_GENERATION);
     vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
     vi.mocked(isAuthSessionGenerationCurrent).mockReturnValue(true);
+    vi.mocked(markAuthSessionClosing).mockReturnValue(true);
     vi.mocked(getStoredSelectedCampusId).mockResolvedValue(null);
     vi.mocked(saveSelectedCampusId).mockResolvedValue(undefined);
     vi.mocked(saveTokens).mockResolvedValue(true);
@@ -152,6 +155,14 @@ describe('auth session lifecycle', () => {
     await expect(pending).rejects.toBeInstanceOf(StaleAuthSessionReadError);
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
     await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(true);
+  });
+
+  it('marks its exact generation closing before any stored-session read', async () => {
+    await prepareCurrentSessionLogout(CURRENT_USER.id);
+    expect(markAuthSessionClosing).toHaveBeenCalledWith(AUTH_GENERATION);
+    expect(vi.mocked(markAuthSessionClosing).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(getStoredAuthSession).mock.invocationCallOrder[0]!,
+    );
   });
 
   it('bounds account-deletion cleanup barrier before a new login', async () => {
@@ -283,6 +294,54 @@ describe('auth session lifecycle', () => {
     expect(logoutUser).toHaveBeenCalledWith('issued-during-logout-access', {
       refreshToken: 'issued-during-logout-refresh',
     });
+  });
+
+  it('revokes a late refresh handoff even when the stored-session read fails', async () => {
+    let issueTokens!: (tokens: LoginResponse) => void;
+    let rejectRefresh!: (error: Error) => void;
+    const refresh = trackRefreshForLogout(
+      AUTH_GENERATION,
+      (onIssued) => new Promise<never>((_, reject) => {
+        issueTokens = (tokens) => onIssued(tokens);
+        rejectRefresh = reject;
+      }),
+    );
+    void refresh.catch(() => undefined);
+    vi.mocked(getStoredAuthSession).mockRejectedValueOnce(new Error('keychain read failed'));
+
+    const preparation = prepareCurrentSessionLogout(CURRENT_USER.id);
+    issueTokens({
+      ...LOGIN_RESPONSE,
+      accessToken: 'late-read-error-access',
+      refreshToken: 'late-read-error-refresh',
+    });
+    rejectRefresh(new Error('closing gate rejected refresh result'));
+    const prepared = await preparation;
+    await expect(prepared.completeRemoteLogout()).resolves.toEqual({
+      status: 'signedOutWithRemoteWarning',
+      message: '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.',
+    });
+    expect(getLogoutFcmDeactivationPayload).not.toHaveBeenCalled();
+    expect(logoutUser).toHaveBeenCalledWith('late-read-error-access', {
+      refreshToken: 'late-read-error-refresh',
+    });
+  });
+
+  it('blocks every auth entry while an issued refresh handoff is unconsumed', async () => {
+    const refresh = trackRefreshForLogout(AUTH_GENERATION, async (onIssued) => {
+      onIssued({...LOGIN_RESPONSE});
+      throw new Error('durable save failed');
+    });
+    await expect(refresh).rejects.toThrow('durable save failed');
+
+    await expect(loginAndEstablishSession({
+      email: 'user@example.test', password: 'test-password',
+    })).rejects.toThrow('앱을 완전히 종료');
+    await expect(signupAfterSessionCleanup({
+      email: 'new@example.test', name: 'new', password: 'test-password',
+    })).rejects.toThrow('앱을 완전히 종료');
+    expect(loginUser).not.toHaveBeenCalled();
+    expect(signupUser).not.toHaveBeenCalled();
   });
 
   it('restart-gates a concurrent auth entry when production-like logout timeout settles first', async () => {

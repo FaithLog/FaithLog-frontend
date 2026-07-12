@@ -43,6 +43,7 @@ import {
 } from './tokenStorage';
 import {
   collectRefreshTokensForLogout,
+  hasRefreshLogoutHandoff,
   resetRefreshLogoutHandoffForTests,
 } from '../auth/refreshLogoutHandoff';
 
@@ -1184,6 +1185,38 @@ describe('FaithLog API client', () => {
     });
     expect(clearTokens).not.toHaveBeenCalled();
     expect(saveTokens).not.toHaveBeenCalled();
+  });
+
+  it('retains issued refresh tokens for teardown when durable save rejects', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        accessToken: 'issued-before-save-failure',
+        refreshToken: 'issued-refresh-before-save-failure',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      })));
+    vi.mocked(saveTokens).mockRejectedValueOnce(new Error('secure storage write failed'));
+    vi.mocked(startAuthSessionClear).mockReturnValueOnce({
+      cleared: true,
+      previousGeneration: FIRST_AUTH_GENERATION,
+      currentGeneration: 2 as AuthSessionGeneration,
+      completion: Promise.resolve(),
+    });
+
+    await expect(apiRequest('/protected', {
+      accessToken: 'expired-access-token', responseParser: parseOkResponse,
+    })).rejects.toThrow();
+    expect(hasRefreshLogoutHandoff(FIRST_AUTH_GENERATION)).toBe(true);
+    expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
   });
 
   it('refreshes once for concurrent 401 responses and retries original requests', async () => {

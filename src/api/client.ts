@@ -146,7 +146,7 @@ import {
   saveTokens,
   type AuthSessionGeneration,
 } from './tokenStorage';
-import {discardRefreshTokensAfterCommit, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
+import {discardRefreshTokensAfterCommit, hasRefreshLogoutHandoff, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
 
 type RequestOptions = {
   accessToken?: string;
@@ -1462,6 +1462,13 @@ async function refreshAndPersistTokens(
 
     return tokens;
   } catch (error) {
+    if (
+      hasRefreshLogoutHandoff(generation) &&
+      isAuthSessionRequestAllowed(generation)
+    ) {
+      await expireAuthSession(generation);
+      throw new FaithLogApiError(createSessionExpiredError(generation));
+    }
     if (
       isAuthSessionChangedError(error) ||
       !isAuthSessionGenerationCurrent(generation)

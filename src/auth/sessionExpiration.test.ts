@@ -11,10 +11,12 @@ vi.mock('../api/tokenStorage', () => ({
 }));
 import {createSessionExpirationHandler, expireAuthSession, isExpirationEventCurrent, subscribeSessionExpiration} from './sessionExpiration';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
+import {resetRefreshLogoutHandoffForTests, trackRefreshForLogout} from './refreshLogoutHandoff';
 
 describe('central session expiration lineage', () => {
   beforeEach(() => {
     resetLocalCleanupBarrierForTests();
+    resetRefreshLogoutHandoffForTests();
     storage.startAuthSessionClear.mockReset();
   });
   const event = {expiredGeneration: 4 as never, clearedGeneration: 5 as never};
@@ -85,5 +87,25 @@ describe('central session expiration lineage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('restart-gates generation teardown with an unconsumed issued refresh', async () => {
+    storage.startAuthSessionClear.mockReturnValue({
+      cleared: true,
+      previousGeneration: 4,
+      currentGeneration: 5,
+      completion: Promise.resolve(),
+    });
+    const refresh = trackRefreshForLogout(4 as never, async (onIssued) => {
+      onIssued({
+        accessToken: 'issued-access', refreshToken: 'issued-refresh',
+        accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+      });
+      throw new Error('durable save failed');
+    });
+    await expect(refresh).rejects.toThrow('durable save failed');
+
+    await expireAuthSession(4 as never);
+    await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
   });
 });

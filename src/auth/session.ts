@@ -14,6 +14,7 @@ import {
   getStoredSelectedCampusId,
   getStoredAuthSession,
   isAuthSessionGenerationCurrent,
+  markAuthSessionClosing,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
@@ -31,7 +32,7 @@ import type {
 import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {trackLocalSessionCleanup, waitForLocalSessionCleanup} from './localCleanupBarrier';
-import {collectRefreshTokensForLogout} from './refreshLogoutHandoff';
+import {collectRefreshTokensForLogout, hasRefreshLogoutHandoff} from './refreshLogoutHandoff';
 export {trackLocalSessionCleanup} from './localCleanupBarrier';
 
 export type AuthenticatedSession = {
@@ -125,40 +126,47 @@ async function prepareCurrentSessionLogoutInternal(
   userId?: number,
 ): Promise<PreparedLogout> {
   const expectedGeneration = getAuthSessionGeneration();
+  if (!markAuthSessionClosing(expectedGeneration)) {
+    throw new StaleAuthSessionReadError(expectedGeneration);
+  }
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
+  let storageReadFailed = false;
+  let preparationWarning: string | null = null;
 
   try {
     authSession = await getStoredAuthSession(expectedGeneration);
   } catch (error) {
     if (error instanceof StaleAuthSessionReadError) throw error;
-    const cleared = await clearTokens(expectedGeneration);
-    if (!cleared) throw new StaleAuthSessionReadError(expectedGeneration);
-    return {
-      completeRemoteLogout: async () => ({
-        status: 'signedOutWithRemoteWarning',
-        message: '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.',
-      }),
+    storageReadFailed = true;
+    preparationWarning = '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
+    authSession = {
+      generation: expectedGeneration,
+      accessToken: null,
+      refreshToken: null,
     };
   }
 
   let fcmPayload: Awaited<ReturnType<typeof getLogoutFcmDeactivationPayload>> = {};
-  let preparationWarning: string | null = null;
 
-  try {
-    fcmPayload = await getLogoutFcmDeactivationPayload(userId);
-  } catch {
-    preparationWarning =
-      '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.';
+  if (!storageReadFailed) {
+    try {
+      fcmPayload = await getLogoutFcmDeactivationPayload(userId);
+    } catch {
+      preparationWarning =
+        '서버 로그아웃은 요청했지만 기기 알림 연결 해제 여부는 확인하지 못했습니다.';
+    }
   }
 
-  const fcmRegistrationBarrier = capturePendingFcmRegistrationBarrier();
-  const cleared = await clearTokens(authSession.generation);
+  const fcmRegistrationBarrier = storageReadFailed
+    ? Promise.resolve()
+    : capturePendingFcmRegistrationBarrier();
+  const cleared = await clearTokens(expectedGeneration);
 
   if (!cleared) {
-    throw new StaleAuthSessionReadError(authSession.generation);
+    throw new StaleAuthSessionReadError(expectedGeneration);
   }
 
-  const handedOffTokens = await collectRefreshTokensForLogout(authSession.generation);
+  const handedOffTokens = await collectRefreshTokensForLogout(expectedGeneration);
   const remoteAuthSession = handedOffTokens
     ? {
         ...authSession,
@@ -265,6 +273,7 @@ export async function waitForAuthEntryAvailability() {
   if (!(await waitForLocalSessionCleanup(LOGOUT_PREPARATION_TIMEOUT_MS))) {
     throw createLogoutCleanupPendingError();
   }
+  if (hasRefreshLogoutHandoff()) remoteLogoutRestartRequired = true;
   if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
   const pending = remoteLogoutInFlight;
 

@@ -1,6 +1,10 @@
 const cleanupInFlight = new Set<Promise<void>>();
 let restartRequired = false;
 
+export function requireLocalSessionCleanupRestart() {
+  restartRequired = true;
+}
+
 export function trackLocalSessionCleanup<T>(
   operation: Promise<T>,
   options: {isCancellation?: (error: unknown) => boolean} = {},
