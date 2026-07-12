@@ -92,19 +92,21 @@ type AccountCopyFeedback = {
 } | null;
 
 const PAGE_SIZE = 20;
+const PAYMENT_CONTEXT_TTL_MS = 60_000;
 const paymentContextCache = new Map<
   string,
-  Promise<{
+  {expiresAt: number; promise: Promise<{
     accounts: PaymentAccount[];
     coffeeAccountIdsWithCharges: number[];
     totalUnpaidAmount: number;
-  }>
+  }>}
 >();
 
 function getPaymentContext(accessToken: string, campusId: number) {
   const key = `${getAuthSessionGeneration()}:${campusId}`;
   const cached = paymentContextCache.get(key);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) paymentContextCache.delete(key);
   const request = Promise.all([
     fetchMyCharges(accessToken, campusId, {
       page: 0,
@@ -129,7 +131,7 @@ function getPaymentContext(accessToken: string, campusId: number) {
     paymentContextCache.delete(key);
     throw error;
   });
-  paymentContextCache.set(key, request);
+  paymentContextCache.set(key, {expiresAt: Date.now() + PAYMENT_CONTEXT_TTL_MS, promise: request});
   return request;
 }
 
@@ -178,6 +180,7 @@ export function PaymentScreen({
   const [accountCopyFeedback, setAccountCopyFeedback] =
     useState<AccountCopyFeedback>(null);
   const accountCopyOpacity = useRef(new Animated.Value(0)).current;
+  const latestListRequest = useRef(0);
 
   useEffect(() => {
     if (!accountCopyFeedback) {
@@ -207,6 +210,9 @@ export function PaymentScreen({
     nextPage = page,
     options: {showLoading?: boolean} = {},
   ) => {
+    const requestSequence = ++latestListRequest.current;
+    const requestGeneration = getAuthSessionGeneration();
+    const requestKey = `${requestGeneration}:${campusId}:${category}:${status}:${sort}:${nextPage}`;
     const showLoading = options.showLoading ?? true;
     const previousSuccess = loadState.status === 'success' ? loadState : null;
 
@@ -232,6 +238,8 @@ export function PaymentScreen({
         getPaymentContext(accessToken, campusId),
       ]);
       const {accounts, coffeeAccountIdsWithCharges, totalUnpaidAmount} = context;
+      const currentKey = `${getAuthSessionGeneration()}:${campusId}:${category}:${status}:${sort}:${nextPage}`;
+      if (requestSequence !== latestListRequest.current || requestKey !== currentKey) return;
 
       if (nextPage > 0 && charges.items.length === 0) {
         const fallbackPage = nextPage - 1;
@@ -255,6 +263,7 @@ export function PaymentScreen({
           sort: toChargeSort(sort),
           status,
         });
+        if (requestSequence !== latestListRequest.current) return;
         setLoadState({
           status: 'success',
           accounts,
@@ -278,6 +287,7 @@ export function PaymentScreen({
         totalUnpaidAmount,
       });
     } catch (error) {
+      if (requestSequence !== latestListRequest.current) return;
       const apiError = toApiError(error, '납부 정보를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);

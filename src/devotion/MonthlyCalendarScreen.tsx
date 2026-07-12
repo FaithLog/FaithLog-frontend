@@ -88,9 +88,13 @@ export function MonthlyCalendarScreen({
   const monthlyCache = useRef(new Map<string, DevotionMonthlySummary>());
   const weeklyCache = useRef(new Map<string, WeeklyDevotionSummary>());
   const latestRequest = useRef(0);
+  const viewKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}:${selectedWeekStart}`;
+  const currentViewKey = useRef(viewKey);
+  currentViewKey.current = viewKey;
 
   const loadCalendar = async () => {
     const requestId = ++latestRequest.current;
+    const requestedViewKey = viewKey;
     setLoadState({status: 'loading'});
     setActionError(null);
     try {
@@ -102,30 +106,42 @@ export function MonthlyCalendarScreen({
 
       const monthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
       const weekKey = `${campusId}:${selectedWeekStart}`;
-      const [monthly, weekly] = await Promise.all([
+      const monthWasCached = monthlyCache.current.has(monthKey);
+      const visibleWeekStarts = getVisibleWeekStartDates(visibleMonth, selectedWeekStart);
+      const [monthly] = await Promise.all([
         monthlyCache.current.get(monthKey) ??
           fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth).then((value) => {
             monthlyCache.current.set(monthKey, value);
             return value;
           }),
-        weeklyCache.current.get(weekKey) ??
-          fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart).then((value) => {
-            weeklyCache.current.set(weekKey, value);
-            return value;
-          }),
+        ...(monthWasCached ? [selectedWeekStart] : visibleWeekStarts).map((weekStart) => {
+          const key = `${campusId}:${weekStart}`;
+          return weeklyCache.current.get(key) ??
+            fetchWeeklyDevotionSummary(accessToken, campusId, weekStart).then((value) => {
+              weeklyCache.current.set(key, value);
+              return value;
+            });
+        }),
       ]);
 
-      if (requestId !== latestRequest.current) return;
+      if (requestId !== latestRequest.current || requestedViewKey !== currentViewKey.current) return;
+      const weekly = weeklyCache.current.get(weekKey);
+      if (!weekly) throw new Error('Selected weekly devotion summary is missing.');
 
       setLoadState({
         status: 'success',
         monthly,
         weekly,
-        dailyCompletionByDate: buildDailyCompletionMap([weekly]),
+        dailyCompletionByDate: buildDailyCompletionMap(
+          visibleWeekStarts.flatMap((weekStart) => {
+            const summary = weeklyCache.current.get(`${campusId}:${weekStart}`);
+            return summary ? [summary] : [];
+          }),
+        ),
       });
       setFormChecks(normalizeWeekChecks(weekly));
     } catch (error) {
-      if (requestId !== latestRequest.current) return;
+      if (requestId !== latestRequest.current || requestedViewKey !== currentViewKey.current) return;
       const apiError = toApiError(error, '월간 경건생활 캘린더를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
@@ -179,14 +195,17 @@ export function MonthlyCalendarScreen({
       }
 
       const savedDate = selectedCheck.recordDate;
+      const savedMonthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
+      const savedWeekKey = `${campusId}:${selectedWeekStart}`;
+      const savedViewKey = viewKey;
       await saveDevotionDailyCheck(accessToken, campusId, selectedCheck.recordDate, {
         quietTimeChecked: selectedCheck.quietTimeChecked,
         prayerChecked: selectedCheck.prayerChecked,
         bibleReadingChecked: selectedCheck.bibleReadingChecked,
       });
-      monthlyCache.current.delete(`${campusId}:${visibleMonth.year}-${visibleMonth.month}`);
-      weeklyCache.current.delete(`${campusId}:${selectedWeekStart}`);
-      await loadCalendar();
+      monthlyCache.current.delete(savedMonthKey);
+      weeklyCache.current.delete(savedWeekKey);
+      if (currentViewKey.current === savedViewKey) await loadCalendar();
       setQuickSaveMessage(`${formatKoreanDate(savedDate)} 저장됨`);
     } catch (error) {
       const apiError = toApiError(error, '빠른 체크를 저장하지 못했습니다.');
@@ -567,6 +586,17 @@ function getMonthGridRows(year: number, month: number) {
   }
 
   return rows;
+}
+
+function getVisibleWeekStartDates(
+  visibleMonth: {year: number; month: number},
+  selectedWeekStart: string,
+) {
+  const weekStarts = new Set<string>([selectedWeekStart]);
+  getMonthGridCells(visibleMonth.year, visibleMonth.month).forEach((cell) => {
+    if (cell) weekStarts.add(getWeekStartDate(parseDate(cell.date)));
+  });
+  return Array.from(weekStarts).sort();
 }
 
 function getWeekCompletionCount(monthly: DevotionMonthlySummary, date: string) {

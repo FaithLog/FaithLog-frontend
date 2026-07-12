@@ -30,7 +30,6 @@ vi.mock('../api/tokenStorage', () => ({
 }));
 
 vi.mock('./session', () => ({
-  establishStoredAccessTokenSession: vi.fn(),
   refreshAndEstablishSession: vi.fn(),
 }));
 
@@ -40,8 +39,8 @@ import {
   getStoredAuthSession,
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
-import {bootstrapAuthGate, isJwtExpiringSoon} from './authGate';
-import {establishStoredAccessTokenSession, refreshAndEstablishSession} from './session';
+import {bootstrapAuthGate} from './authGate';
+import {refreshAndEstablishSession} from './session';
 
 const AUTH_GENERATION = 17 as AuthSessionGeneration;
 
@@ -100,38 +99,17 @@ describe('auth bootstrap gate', () => {
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
   });
 
-  it('uses a stored access token without a refresh round trip when expiry is not near', async () => {
-    const payload = globalThis.btoa(
-      JSON.stringify({exp: Math.floor(Date.now() / 1000) + 3600}),
-    );
-    vi.mocked(getStoredAuthSession).mockResolvedValue({
-      generation: AUTH_GENERATION,
-      accessToken: `header.${payload}.signature`,
-      refreshToken: 'refresh-token',
-    });
-    vi.mocked(establishStoredAccessTokenSession).mockResolvedValue({
+  it('always refreshes on restart so remotely revoked sessions fail closed', async () => {
+    vi.mocked(refreshAndEstablishSession).mockResolvedValue({
       status: 'noCampus',
       user: {
-        id: 1,
-        email: 'safe@example.com',
-        name: '사용자',
-        role: 'USER',
-        isActive: true,
-        lastLoginAt: null,
-        campusMemberships: [],
+        id: 1, email: 'safe@example.com', name: '사용자', role: 'USER',
+        isActive: true, lastLoginAt: null, campusMemberships: [],
       },
     });
-
     await bootstrapAuthGate();
-
-    expect(establishStoredAccessTokenSession).toHaveBeenCalledWith(
-      `header.${payload}.signature`,
-      AUTH_GENERATION,
+    expect(refreshAndEstablishSession).toHaveBeenCalledWith(
+      'expired-refresh-token', AUTH_GENERATION,
     );
-    expect(refreshAndEstablishSession).not.toHaveBeenCalled();
-  });
-
-  it('treats JWT expiry only as a refresh hint and fails closed for malformed tokens', () => {
-    expect(isJwtExpiringSoon('not-a-jwt', 60_000)).toBe(true);
   });
 });

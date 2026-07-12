@@ -2537,8 +2537,11 @@ function UserHomeDashboard({
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
   const displayUserName = getCompactDisplayName(state.user.name, '사용자');
   const campusLabel = getHeaderCampusName(state.selectedCampus.campusName);
+  const homeRequestSequence = useRef(0);
 
   const loadHomeCards = async () => {
+    const requestSequence = ++homeRequestSequence.current;
+    const requestKey = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
     setMonthlyDevotionState({status: 'loading'});
     setChargeState({status: 'loading'});
     setPrayerState({status: 'loading'});
@@ -2557,16 +2560,13 @@ function UserHomeDashboard({
         return;
       }
 
-      const results = await Promise.allSettled([
-        fetchDevotionMonthlySummary(accessToken, campusId, {month, year}),
-        fetchChargeSummary(accessToken, campusId, {month, year}),
-        fetchPrayerWeek(accessToken, campusId, weekStartDate),
-      ] as const);
       const apply = <T,>(
-        result: PromiseSettledResult<T>,
+        result: PromiseSettledResult<T>, currentKey: string,
         key: HomeCardKey,
         setter: (value: CardState<T>) => void,
       ) => {
+        const latestKey = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
+        if (requestSequence !== homeRequestSequence.current || currentKey !== latestKey) return;
         if (result.status === 'fulfilled') {
           setter({status: 'success', data: result.value});
           return;
@@ -2577,10 +2577,18 @@ function UserHomeDashboard({
           setAuthState({status: 'sessionExpired', message: error.message});
         }
       };
-      apply(results[0], 'devotion', setMonthlyDevotionState);
-      apply(results[1], 'charges', setChargeState);
-      apply(results[2], 'prayers', setPrayerState);
+      const settle = <T,>(promise: Promise<T>, key: HomeCardKey, setter: (value: CardState<T>) => void) =>
+        promise.then(
+          (value) => apply({status: 'fulfilled', value}, requestKey, key, setter),
+          (reason) => apply({status: 'rejected', reason}, requestKey, key, setter),
+        );
+      await Promise.all([
+        settle(fetchDevotionMonthlySummary(accessToken, campusId, {month, year}), 'devotion', setMonthlyDevotionState),
+        settle(fetchChargeSummary(accessToken, campusId, {month, year}), 'charges', setChargeState),
+        settle(fetchPrayerWeek(accessToken, campusId, weekStartDate), 'prayers', setPrayerState),
+      ]);
     } catch (error) {
+      if (requestSequence !== homeRequestSequence.current) return;
       const apiError = toApiError(error, '홈 요약을 불러오지 못했습니다.');
       setMonthlyDevotionState({status: 'error', error: apiError});
       setChargeState({status: 'error', error: apiError});

@@ -1,9 +1,10 @@
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
+const {normalizeAppEnvironment} = require('./scripts/metroEnvironment');
 
 const config = getDefaultConfig(__dirname);
 
-if (process.env.EXPO_PUBLIC_APP_ENV === 'production') {
+if (normalizeAppEnvironment(process.env.EXPO_PUBLIC_APP_ENV) === 'production') {
   const defaultResolveRequest = config.resolver.resolveRequest;
   config.resolver.resolveRequest = (context, moduleName, platform) => {
     if (moduleName === './mockAdapter') {

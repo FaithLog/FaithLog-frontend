@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -134,6 +134,8 @@ export function PollScreen({
   const [optionAddContent, setOptionAddContent] = useState('');
   const [actionState, setActionState] = useState<ActionState>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const currentPollId = useRef<number | null>(selectedPollId);
+  currentPollId.current = selectedPollId;
 
   const loadPolls = async () => {
     setListState({status: 'loading'});
@@ -343,7 +345,10 @@ export function PollScreen({
         return;
       }
 
-      const created = await createPollComment(accessToken, campusId, activeDetail.id, {content});
+      const mutationPollId = activeDetail.id;
+      const mutationGeneration = getAuthSessionGeneration();
+      const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
+      if (currentPollId.current !== mutationPollId || getAuthSessionGeneration() !== mutationGeneration) return;
       setCommentContent('');
       setDetailState((current) => current.status === 'success'
         ? {...current, comments: [...current.comments, created]}
@@ -378,9 +383,12 @@ export function PollScreen({
         return;
       }
 
-      const updated = await updatePollComment(accessToken, campusId, activeDetail.id, editingComment.commentId, {
+      const mutationPollId = activeDetail.id;
+      const mutationGeneration = getAuthSessionGeneration();
+      const updated = await updatePollComment(accessToken, campusId, mutationPollId, editingComment.commentId, {
         content,
       });
+      if (currentPollId.current !== mutationPollId || getAuthSessionGeneration() !== mutationGeneration) return;
       setEditingComment(null);
       setCommentContent('');
       setDetailState((current) => current.status === 'success'
@@ -410,10 +418,13 @@ export function PollScreen({
         return;
       }
 
-      await deletePollComment(accessToken, campusId, activeDetail.id, comment.commentId);
+      const mutationPollId = activeDetail.id;
+      const mutationGeneration = getAuthSessionGeneration();
+      await deletePollComment(accessToken, campusId, mutationPollId, comment.commentId);
+      const comments = await fetchPollComments(accessToken, campusId, mutationPollId);
+      if (currentPollId.current !== mutationPollId || getAuthSessionGeneration() !== mutationGeneration) return;
       setDetailState((current) => current.status === 'success'
-        ? {...current, comments: current.comments.filter((item) =>
-          item.commentId !== comment.commentId)}
+        && current.detail.id === mutationPollId ? {...current, comments}
         : current);
     } catch (error) {
       const apiError = toApiError(error, '댓글을 삭제하지 못했습니다.');
