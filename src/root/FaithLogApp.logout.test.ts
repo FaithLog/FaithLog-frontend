@@ -41,7 +41,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
+import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, createNotificationInspectPressHandler, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
 import {StaleAuthSessionReadError} from '../api/tokenStorage';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from '../auth/localCleanupBarrier';
 
@@ -101,6 +101,23 @@ describe('logout UI transition', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('restart-gates account deletion cleanup rejection despite its UI warning result', async () => {
+    const cleanup = beginAccountDeletionTeardown(
+      vi.fn(),
+      async () => { throw new Error('durable cleanup failed'); },
+      vi.fn(),
+    );
+    await expect(cleanup).resolves.toContain('계정은 삭제됐지만');
+    await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+  });
+
+  it('does not forward the Pressable event as a notification generation', () => {
+    const inspect = vi.fn(async () => {});
+    const onPress = createNotificationInspectPressHandler(inspect);
+    (onPress as (event: unknown) => void)({nativeEvent: {}});
+    expect(inspect).toHaveBeenCalledWith();
   });
 
   it('does not attach a late cleanup warning to a newly authenticated session', () => {

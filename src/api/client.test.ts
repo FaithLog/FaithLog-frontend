@@ -27,6 +27,7 @@ import {
   getApiBaseUrl,
   isMockModeEnabled,
   loginUser,
+  logoutUser,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -40,6 +41,10 @@ import {
   startAuthSessionClear,
   type AuthSessionGeneration,
 } from './tokenStorage';
+import {
+  collectRefreshTokensForLogout,
+  resetRefreshLogoutHandoffForTests,
+} from '../auth/refreshLogoutHandoff';
 
 const API_BASE_URL = 'https://api.faithlog.test/root/';
 const FIRST_AUTH_GENERATION = 1 as AuthSessionGeneration;
@@ -118,6 +123,7 @@ type ResponseEnvelope<T> = {
 
 describe('FaithLog API client', () => {
   beforeEach(() => {
+    resetRefreshLogoutHandoffForTests();
     currentAuthGeneration = FIRST_AUTH_GENERATION;
     process.env.EXPO_PUBLIC_API_BASE_URL = API_BASE_URL;
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
@@ -154,6 +160,25 @@ describe('FaithLog API client', () => {
     expect(buildApiUrl('/api/v1/users/me')).toBe(
       'https://api.faithlog.test/root/api/v1/users/me',
     );
+  });
+
+  it('reports an actually-sent logout timeout as an unknown offline outcome', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetch).mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }));
+      const logout = logoutUser('captured-access', {refreshToken: 'captured-refresh'});
+      const rejected = expect(logout).rejects.toSatisfy((error) => {
+        expectApiError(error, {kind: 'offline', code: 'REQUEST_TIMEOUT'});
+        return true;
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('requires the approved HTTPS origin for preview and production builds', () => {
@@ -1123,6 +1148,10 @@ describe('FaithLog API client', () => {
     });
     expect(saveTokens).not.toHaveBeenCalled();
     expect(clearTokens).not.toHaveBeenCalled();
+    await expect(collectRefreshTokensForLogout(FIRST_AUTH_GENERATION)).resolves.toMatchObject({
+      accessToken: 'stale-fresh-access-token',
+      refreshToken: 'stale-fresh-refresh-token',
+    });
   });
 
   it('preserves stored tokens when refresh fails because the device is offline', async () => {

@@ -226,6 +226,10 @@ export function applyAuthResultIfCurrent(
   if (epoch === currentEpoch) apply();
 }
 
+export function createNotificationInspectPressHandler(inspect: () => Promise<void>) {
+  return () => { void inspect(); };
+}
+
 export async function finalizeAccountDeletionTeardown(
   clear: () => Promise<unknown>,
   invalidate: () => void = invalidatePaymentContextCache,
@@ -250,7 +254,9 @@ export function beginAccountDeletionTeardown(
 ) {
   invalidate();
   transitionToPublic();
-  return trackLocalSessionCleanup(finalizeAccountDeletionTeardown(clear, () => {}));
+  const cleanup = clear();
+  trackLocalSessionCleanup(cleanup);
+  return finalizeAccountDeletionTeardown(() => cleanup, () => {});
 }
 
 export function attachAccountDeletionCleanupWarning(
@@ -3349,16 +3355,24 @@ function NotificationSettingsDetail({
   userId: number;
 }) {
   const [state, setState] = useState<NotificationUiState>({status: 'checking'});
+  const notificationMounted = useRef(true);
+  const notificationOperation = useRef(0);
 
-  const inspect = async (expectedGeneration = getAuthSessionGeneration()) => {
-    if (!isAuthSessionRequestAllowed(expectedGeneration)) return;
+  const inspect = async (
+    expectedGeneration = getAuthSessionGeneration(),
+    expectedOperation = ++notificationOperation.current,
+  ) => {
+    const isCurrent = () => notificationMounted.current &&
+      notificationOperation.current === expectedOperation &&
+      isAuthSessionRequestAllowed(expectedGeneration);
+    if (!isCurrent()) return;
     setState({status: 'checking'});
     try {
       const nextState = await inspectFcmRegistrationStatus(userId, expectedGeneration);
-      if (!isAuthSessionRequestAllowed(expectedGeneration)) return;
+      if (!isCurrent()) return;
       setState(nextState);
     } catch {
-      if (!isAuthSessionRequestAllowed(expectedGeneration)) return;
+      if (!isCurrent()) return;
       setState({
         status: 'error',
         error: {kind: 'error', message: '알림 설정을 확인하지 못했습니다.'},
@@ -3372,6 +3386,10 @@ function NotificationSettingsDetail({
     }
 
     const requestGeneration = getAuthSessionGeneration();
+    const operation = ++notificationOperation.current;
+    const isCurrent = () => notificationMounted.current &&
+      notificationOperation.current === operation &&
+      isAuthSessionRequestAllowed(requestGeneration);
     setState({status: 'registering'});
     try {
       const accessToken = await resolveCurrentAccessToken(() => {
@@ -3380,17 +3398,17 @@ function NotificationSettingsDetail({
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
       });
-      if (!accessToken || !isAuthSessionRequestAllowed(requestGeneration)) return;
+      if (!accessToken || !isCurrent()) return;
 
       const result = await registerCurrentFcmToken(
         accessToken,
         userId,
         requestGeneration,
       );
-      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
+      if (!isCurrent()) return;
       setState(result);
     } catch (error) {
-      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
+      if (!isCurrent()) return;
       const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
@@ -3406,6 +3424,10 @@ function NotificationSettingsDetail({
     }
 
     const requestGeneration = getAuthSessionGeneration();
+    const operation = ++notificationOperation.current;
+    const isCurrent = () => notificationMounted.current &&
+      notificationOperation.current === operation &&
+      isAuthSessionRequestAllowed(requestGeneration);
     setState({status: 'deactivating'});
     try {
       const accessToken = await resolveCurrentAccessToken(() => {
@@ -3414,17 +3436,17 @@ function NotificationSettingsDetail({
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
       });
-      if (!accessToken || !isAuthSessionRequestAllowed(requestGeneration)) return;
+      if (!accessToken || !isCurrent()) return;
 
       await deactivateCurrentFcmToken(
         accessToken,
         userId,
         requestGeneration,
       );
-      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
-      await inspect(requestGeneration);
+      if (!isCurrent()) return;
+      await inspect(requestGeneration, operation);
     } catch (error) {
-      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
+      if (!isCurrent()) return;
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
@@ -3435,7 +3457,12 @@ function NotificationSettingsDetail({
   };
 
   useEffect(() => {
+    notificationMounted.current = true;
     void inspect();
+    return () => {
+      notificationMounted.current = false;
+      notificationOperation.current += 1;
+    };
   }, []);
 
   const openSystemSettings =
@@ -3465,7 +3492,7 @@ function NotificationSettingsDetail({
         <Button
           accessibilityLabel="알림 설정 다시 확인"
           disabled={busy}
-          onPress={inspect}
+          onPress={createNotificationInspectPressHandler(() => inspect())}
           variant="secondary">
           {state.status === 'checking' ? '확인 중...' : '다시 확인'}
         </Button>

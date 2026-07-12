@@ -146,6 +146,7 @@ import {
   saveTokens,
   type AuthSessionGeneration,
 } from './tokenStorage';
+import {discardRefreshTokensAfterCommit, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
 
 type RequestOptions = {
   accessToken?: string;
@@ -159,6 +160,7 @@ type RequestOptions = {
   responseParser?: (value: unknown) => unknown;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
+  onResponseParsed?: (value: unknown) => void;
 };
 
 type ParsedRequestOptions<T> = Omit<RequestOptions, 'responseParser'> & {
@@ -1320,6 +1322,7 @@ export async function apiRequest<T>(
     await assertRequestAccessTokenIsOwned(requestOptions);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     const data = await executeApiRequest<T>(path, requestOptions);
+    requestOptions.onResponseParsed?.(data);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     return data;
   } catch (error) {
@@ -1443,7 +1446,10 @@ async function refreshAndPersistTokens(
   generation: AuthSessionGeneration,
 ) {
   try {
-    const tokens = await refreshAuthToken(refreshToken, generation);
+    const tokens = await trackRefreshForLogout(
+      generation,
+      (onIssued) => refreshAuthToken(refreshToken, generation, onIssued),
+    );
     assertAuthSessionRequestIsAllowed(generation);
     const saved = await saveTokens(tokens, generation);
 
@@ -1452,6 +1458,7 @@ async function refreshAndPersistTokens(
     }
 
     assertAuthSessionRequestIsAllowed(generation);
+    discardRefreshTokensAfterCommit(generation);
 
     return tokens;
   } catch (error) {
@@ -1554,11 +1561,13 @@ function withAuthSessionGeneration(
 export function refreshAuthToken(
   refreshToken: string,
   authSessionGeneration?: AuthSessionGeneration,
+  onIssuedTokens?: (tokens: TokenPair) => void,
 ) {
   return apiRequest<TokenPair>('/api/v1/auth/refresh', {
     ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
     skipAuthRefresh: true,
     responseParser: parseTokenPair,
+    ...(onIssuedTokens ? {onResponseParsed: (value: unknown) => onIssuedTokens(value as TokenPair)} : {}),
     method: 'POST',
     body: {refreshToken},
   });

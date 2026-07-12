@@ -38,4 +38,16 @@ describe('local cleanup restart latch', () => {
     finishSecond();
     await expect(waiting).resolves.toBe(true);
   });
+
+  it('restart-gates a concurrent waiter after durable cleanup rejects', async () => {
+    let rejectCleanup!: (error: Error) => void;
+    const cleanup = new Promise<void>((_, reject) => { rejectCleanup = reject; });
+    trackLocalSessionCleanup(cleanup);
+    const waiting = waitForLocalSessionCleanup(5_000);
+
+    rejectCleanup(new Error('durable tombstone and deletion failed'));
+    await expect(cleanup).rejects.toThrow('durable tombstone');
+    await expect(waiting).resolves.toBe(false);
+    await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+  });
 });

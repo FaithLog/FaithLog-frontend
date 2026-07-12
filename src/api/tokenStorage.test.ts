@@ -205,6 +205,33 @@ describe('native auth token storage', () => {
     )).resolves.toBe(false);
   });
 
+  it('re-tombstones when logout closes during final marker removal', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseMarkerDelete!: () => void;
+    const markerDeleteBlocked = new Promise<void>((resolve) => { releaseMarkerDelete = resolve; });
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      testState.storage.delete(key);
+      if (key === 'faithlog.authInvalidated') await markerDeleteBlocked;
+    });
+
+    const saving = tokenStorage.saveTokens({
+      accessToken: 'final-boundary-access',
+      refreshToken: 'final-boundary-refresh',
+    }, generation);
+    await vi.waitFor(() => expect(secureStoreMocks.deleteItemAsync).toHaveBeenCalledWith(
+      'faithlog.authInvalidated',
+    ));
+    expect(tokenStorage.markAuthSessionClosing(generation)).toBe(true);
+    releaseMarkerDelete();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    await expect(tokenStorage.isAccessTokenOwnedByAuthSession(
+      'final-boundary-access', generation,
+    )).resolves.toBe(false);
+  });
+
   it('keeps fail-closed marker when final token commit marker removal fails', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

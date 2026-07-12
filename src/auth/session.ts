@@ -31,6 +31,7 @@ import type {
 import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {trackLocalSessionCleanup, waitForLocalSessionCleanup} from './localCleanupBarrier';
+import {collectRefreshTokensForLogout} from './refreshLogoutHandoff';
 export {trackLocalSessionCleanup} from './localCleanupBarrier';
 
 export type AuthenticatedSession = {
@@ -115,7 +116,9 @@ export function prepareCurrentSessionLogout(
   userId?: number,
 ): Promise<PreparedLogout> {
   const operation = prepareCurrentSessionLogoutInternal(userId);
-  return trackLocalSessionCleanup(operation);
+  return trackLocalSessionCleanup(operation, {
+    isCancellation: (error) => error instanceof StaleAuthSessionReadError,
+  });
 }
 
 async function prepareCurrentSessionLogoutInternal(
@@ -155,6 +158,15 @@ async function prepareCurrentSessionLogoutInternal(
     throw new StaleAuthSessionReadError(authSession.generation);
   }
 
+  const handedOffTokens = await collectRefreshTokensForLogout(authSession.generation);
+  const remoteAuthSession = handedOffTokens
+    ? {
+        ...authSession,
+        accessToken: handedOffTokens.accessToken,
+        refreshToken: handedOffTokens.refreshToken,
+      }
+    : authSession;
+
   if (fcmPayload.clientInstanceId) {
     try {
       const rotated = await rotateClientInstanceId(fcmPayload.clientInstanceId);
@@ -171,7 +183,7 @@ async function prepareCurrentSessionLogoutInternal(
 
   const remoteLogout = trackRemoteLogout((isCancelled, markSent) =>
     completeRemoteLogout(
-      authSession,
+      remoteAuthSession,
       fcmPayload,
       fcmRegistrationBarrier,
       preparationWarning,
@@ -211,6 +223,7 @@ async function completeRemoteLogout(
         ...fcmPayload,
       });
     } catch (error) {
+      if (isRemoteLogoutOutcomeUnknown(error)) remoteLogoutRestartRequired = true;
       remoteWarning = toRemoteLogoutWarning(error);
     }
   }
@@ -261,6 +274,7 @@ export async function waitForAuthEntryAvailability() {
 
   try {
     await waitForLogoutBarrier(pending.promise);
+    if (remoteLogoutRestartRequired) throw createLogoutCleanupPendingError();
   } catch {
     if (pending.cancelBeforeSend()) {
       if (remoteLogoutInFlight === pending) remoteLogoutInFlight = null;
@@ -269,6 +283,11 @@ export async function waitForAuthEntryAvailability() {
     remoteLogoutRestartRequired = true;
     throw createLogoutCleanupPendingError();
   }
+}
+
+function isRemoteLogoutOutcomeUnknown(error: unknown) {
+  return error instanceof TypeError ||
+    (error instanceof FaithLogApiError && error.detail.kind === 'offline');
 }
 
 function createLogoutCleanupPendingError() {

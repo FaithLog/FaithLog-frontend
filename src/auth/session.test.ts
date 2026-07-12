@@ -41,6 +41,7 @@ vi.mock('../notifications/fcmRegistration', () => ({
 }));
 
 import {
+  FaithLogApiError,
   fetchCurrentUser,
   fetchMyCampuses,
   loginUser,
@@ -63,7 +64,11 @@ import {
 import type {CurrentUser, LoginResponse} from '../api/types';
 import {capturePendingFcmRegistrationBarrier} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
-import {resetLocalCleanupBarrierForTests} from './localCleanupBarrier';
+import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
+import {
+  resetRefreshLogoutHandoffForTests,
+  trackRefreshForLogout,
+} from './refreshLogoutHandoff';
 import {
   loginAndEstablishSession,
   logoutCurrentSession,
@@ -96,6 +101,7 @@ describe('auth session lifecycle', () => {
   beforeEach(() => {
     resetLocalCleanupBarrierForTests();
     resetAuthEntryBarrierForTests();
+    resetRefreshLogoutHandoffForTests();
     vi.clearAllMocks();
     vi.mocked(beginAuthSession).mockResolvedValue(AUTH_GENERATION);
     vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
@@ -145,6 +151,7 @@ describe('auth session lifecycle', () => {
     finishFcm({});
     await expect(pending).rejects.toBeInstanceOf(StaleAuthSessionReadError);
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
+    await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(true);
   });
 
   it('bounds account-deletion cleanup barrier before a new login', async () => {
@@ -171,6 +178,21 @@ describe('auth session lifecycle', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('blocks login and signup after durable local cleanup rejects', async () => {
+    const cleanup = Promise.reject(new Error('durable cleanup failed'));
+    trackLocalSessionCleanup(cleanup);
+    await expect(cleanup).rejects.toThrow('durable cleanup failed');
+
+    await expect(loginAndEstablishSession({
+      email: 'user@example.test', password: 'password',
+    })).rejects.toThrow('앱을 완전히 종료');
+    await expect(signupAfterSessionCleanup({
+      email: 'new@example.test', name: 'new', password: 'password',
+    })).rejects.toThrow('앱을 완전히 종료');
+    expect(loginUser).not.toHaveBeenCalled();
+    expect(signupUser).not.toHaveBeenCalled();
   });
 
   it('cancels a late remote logout before allowing the next login', async () => {
@@ -226,6 +248,62 @@ describe('auth session lifecycle', () => {
       await expect(loginAndEstablishSession({
         email: 'user@example.test', password: 'test-password',
       })).rejects.toThrow('앱을 완전히 종료');
+      expect(loginUser).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hands a refresh issued during logout to the remote revocation request', async () => {
+    let issueTokens!: (tokens: LoginResponse) => void;
+    let rejectRefresh!: (error: Error) => void;
+    const refresh = trackRefreshForLogout(
+      AUTH_GENERATION,
+      (onIssued) => new Promise<never>((_, reject) => {
+        issueTokens = (tokens) => onIssued(tokens);
+        rejectRefresh = reject;
+      }),
+    );
+    void refresh.catch(() => undefined);
+    vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+      generation: AUTH_GENERATION,
+      accessToken: null,
+      refreshToken: null,
+    });
+
+    const preparation = prepareCurrentSessionLogout(CURRENT_USER.id);
+    issueTokens({
+      ...LOGIN_RESPONSE,
+      accessToken: 'issued-during-logout-access',
+      refreshToken: 'issued-during-logout-refresh',
+    });
+    rejectRefresh(new Error('closing gate rejected local persistence'));
+    const prepared = await preparation;
+    await expect(prepared.completeRemoteLogout()).resolves.toEqual({status: 'signedOut'});
+    expect(logoutUser).toHaveBeenCalledWith('issued-during-logout-access', {
+      refreshToken: 'issued-during-logout-refresh',
+    });
+  });
+
+  it('restart-gates a concurrent auth entry when production-like logout timeout settles first', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(logoutUser).mockImplementation(() => new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new FaithLogApiError({
+          kind: 'offline', message: 'request timeout',
+        })), 5_000);
+      }));
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      const remoteLogout = prepared.completeRemoteLogout();
+      await vi.waitFor(() => expect(logoutUser).toHaveBeenCalledOnce());
+      const nextLogin = loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      });
+      const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(remoteLogout).resolves.toMatchObject({status: 'signedOutWithRemoteWarning'});
+      await rejected;
       expect(loginUser).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

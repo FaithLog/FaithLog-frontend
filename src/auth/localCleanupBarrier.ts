@@ -1,8 +1,16 @@
 const cleanupInFlight = new Set<Promise<void>>();
 let restartRequired = false;
 
-export function trackLocalSessionCleanup<T>(operation: Promise<T>) {
-  const barrier = operation.then(() => undefined, () => undefined).finally(() => {
+export function trackLocalSessionCleanup<T>(
+  operation: Promise<T>,
+  options: {isCancellation?: (error: unknown) => boolean} = {},
+) {
+  const barrier = operation.then(
+    () => undefined,
+    (error) => {
+      if (!options.isCancellation?.(error)) restartRequired = true;
+    },
+  ).finally(() => {
     cleanupInFlight.delete(barrier);
   });
   cleanupInFlight.add(barrier);
@@ -31,9 +39,10 @@ export async function waitForLocalSessionCleanup(timeoutMs: number) {
       restartRequired = true;
       return false;
     }
+    if (restartRequired) return false;
   }
 
-  return true;
+  return !restartRequired;
 }
 
 export function resetLocalCleanupBarrierForTests() {
