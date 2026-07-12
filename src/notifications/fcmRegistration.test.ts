@@ -93,6 +93,8 @@ import {
   isAuthSessionGenerationCurrent,
   isAuthSessionRequestAllowed,
   markFcmRemoteCleanupPending,
+  markFcmAccountDeletionClaimCascadeConfirmed,
+  completeFcmAccountDeletionClaim,
   replaceFcmRemoteCleanupObligations,
   saveFcmRegistration,
   saveFcmRegistrationAttempt,
@@ -386,10 +388,12 @@ describe('FCM registration', () => {
     await existing;
 
     const result = await deletion;
-    expect(result).toMatchObject({status: 'completed', value: 'deleted'});
+    expect(result).toEqual({status: 'completed', value: 'deleted'});
     expect(deleteAccount).toHaveBeenCalledOnce();
     expect(deleteAccount).toHaveBeenCalledWith('latest-access');
     expect(logoutUser).not.toHaveBeenCalled();
+    expect(markFcmAccountDeletionClaimCascadeConfirmed).not.toHaveBeenCalled();
+    expect(completeFcmAccountDeletionClaim).not.toHaveBeenCalled();
   });
 
   it('single-flights double account-deletion submission and keeps the generation frozen', async () => {
@@ -683,8 +687,11 @@ describe('FCM registration', () => {
       token: null, tokenId: null,
       state: 'mayHaveSent' as 'mayHaveSent' | 'cleaned',
     };
+    const onObligationReplaced = vi.fn();
 
-    await expect(compensateCapturedFcmOperations([obligation])).resolves.toEqual([obligation]);
+    await expect(compensateCapturedFcmOperations([obligation], {
+      onObligationReplaced,
+    })).resolves.toEqual([obligation]);
     expect(logoutUser).toHaveBeenCalledOnce();
     expect(replaceFcmRemoteCleanupObligations).toHaveBeenCalledTimes(3);
     expect(replaceFcmRemoteCleanupObligations).toHaveBeenNthCalledWith(
@@ -693,6 +700,11 @@ describe('FCM registration', () => {
     expect(replaceFcmRemoteCleanupObligations).toHaveBeenNthCalledWith(
       2, [obligation], [expect.objectContaining({kind: 'clientRetirement'})],
     );
+    const retirement = onObligationReplaced.mock.calls[0]?.[1];
+    expect(onObligationReplaced).toHaveBeenNthCalledWith(
+      1, obligation, expect.objectContaining({kind: 'clientRetirement'}),
+    );
+    expect(onObligationReplaced).toHaveBeenNthCalledWith(2, retirement, null);
     expect(obligation.state).toBe('cleaned');
   });
 

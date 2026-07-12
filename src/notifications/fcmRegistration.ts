@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import {
   clearFcmRegistration,
+  clearFcmRemoteCleanupObligations,
   clearFcmRegistrationAttempt,
   clearFcmRegistrationAttemptAfterRemoteCleanup,
   clearFcmRegistrationAttemptsForClientInstance,
@@ -79,6 +80,10 @@ export type FcmRemoteCleanupObligation = {
 export type FcmCleanupCompensationObserver = {
   onObligationIntroduced?: (obligation: FcmRemoteCleanupObligation) => void;
   onRequestDispatch?: (obligation: FcmRemoteCleanupObligation) => void;
+  onObligationReplaced?: (
+    completed: FcmRemoteCleanupObligation,
+    replacement: FcmRemoteCleanupObligation | null,
+  ) => void;
 };
 
 const pendingFcmRegistrations = new Set<PendingFcmOperation>();
@@ -126,11 +131,13 @@ export function beginAccountDeletionFcmPreflight(generation: AuthSessionGenerati
     join: () => claimedReceipts.then(() => undefined),
     claimForDelete: async () => {
       const receipts = await claimedReceipts;
+      if (receipts.length === 0) return false;
       await claimFcmRemoteCleanupForAccountDeletion(
         receipts,
         receipts.filter((receipt) =>
           receipt.state === 'mayHaveSent' || receipt.state === 'registered'),
       );
+      return true;
     },
     restore: restoreFcmAccountDeletionClaim,
     confirmCascade: markFcmAccountDeletionClaimCascadeConfirmed,
@@ -173,6 +180,7 @@ async function runAccountDeletionWithFcmPreflightExclusive<T>(
   {status: 'completed'; value: T; cleanupWarning?: string} | {status: 'cancelled'}
 > {
   const preflight = beginAccountDeletionFcmPreflight(generation);
+  let claimCreated = false;
   let releaseTransitionBarrier!: () => void;
   let rejectTransitionBarrier!: (error: unknown) => void;
   trackFcmTransitionBarrier(new Promise<void>((resolve, reject) => {
@@ -192,7 +200,7 @@ async function runAccountDeletionWithFcmPreflightExclusive<T>(
   };
   try {
     await preflight.join();
-    await preflight.claimForDelete();
+    claimCreated = await preflight.claimForDelete();
     if (await hasUnclaimedFcmRemoteCleanupPending()) {
       await restoreOrRetainClaim();
       throw new FaithLogApiError({
@@ -228,7 +236,7 @@ async function runAccountDeletionWithFcmPreflightExclusive<T>(
         // result is its desired terminal state. Invalid credentials cannot
         // safely reconcile a teardown gate after restart.
         retainFreezeForAuthTransition = true;
-        await preflight.complete();
+        if (claimCreated) await completeAccountDeletionClaimWithRetry(preflight.complete);
       } else if (isAccountDeletionAuthSessionChangedError(error)) {
         retainFreezeForAuthTransition = true;
         await restoreOrRetainClaim();
@@ -238,9 +246,10 @@ async function runAccountDeletionWithFcmPreflightExclusive<T>(
       throw error;
     }
     completed = true;
+    if (!claimCreated) return {status: 'completed', value};
     try {
-      await preflight.confirmCascade();
-      await preflight.complete();
+      await confirmAccountDeletionCascadeWithRetry(preflight.confirmCascade);
+      await completeAccountDeletionClaimWithRetry(preflight.complete);
       return {status: 'completed', value};
     } catch {
       retainFreezeForAuthTransition = true;
@@ -253,6 +262,27 @@ async function runAccountDeletionWithFcmPreflightExclusive<T>(
   } finally {
     releaseTransitionBarrier();
     if (!completed && !retainFreezeForAuthTransition) preflight.release();
+  }
+}
+
+async function confirmAccountDeletionCascadeWithRetry(confirm: () => Promise<void>) {
+  try {
+    await confirm();
+  } catch {
+    // The storage result can be ambiguous at this boundary. The phase update is
+    // idempotent, so a single retry both verifies an applied write and repairs a
+    // transient failure without weakening persistent-failure fail-closed behavior.
+    await confirm();
+  }
+}
+
+async function completeAccountDeletionClaimWithRetry(complete: () => Promise<void>) {
+  try {
+    await complete();
+  } catch {
+    // Completing an already-completed claim is a no-op, which also makes this a
+    // safe read-after-write equivalent when the first result was ambiguous.
+    await complete();
   }
 }
 
@@ -1187,7 +1217,6 @@ export async function compensateCapturedFcmOperations(
       ]);
       await compensateFcmObligation(obligation, observer);
     }
-    obligation.state = 'cleaned';
     if (
       obligation.kind === 'registration' && obligation.userId &&
       obligation.clientInstanceId && obligation.token
@@ -1198,6 +1227,17 @@ export async function compensateCapturedFcmOperations(
         token: obligation.token,
       });
     }
+    if (obligation.kind === 'registration' || obligation.kind === 'deactivation') {
+      const sessionLogout = obligations.find((candidate) =>
+        candidate.kind === 'clientLogout' && candidate.state !== 'cleaned');
+      if (sessionLogout) {
+        await replaceFcmCleanupReceiptsWithRetry([obligation], [sessionLogout]);
+      } else {
+        await clearFcmCleanupReceiptsWithRetry([obligation]);
+      }
+    }
+    obligation.state = 'cleaned';
+    observer.onObligationReplaced?.(obligation, null);
   }
   return pending;
 }
@@ -1250,6 +1290,7 @@ async function compensateFcmObligation(
       // The remote session revoke is terminal only after its durable receipt
       // has atomically advanced to the local retirement phase.
       obligation.state = 'cleaned';
+      observer.onObligationReplaced?.(obligation, retirement);
       await clearFcmRegistrationAttemptsForClientInstance(clientInstanceId);
       const current = await getStoredClientInstanceId();
       if (current === clientInstanceId) {
@@ -1257,8 +1298,11 @@ async function compensateFcmObligation(
         if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
       }
       await replaceFcmCleanupReceiptsWithRetry([retirement], []);
+      retirement.state = 'cleaned';
+      observer.onObligationReplaced?.(retirement, null);
     } else {
       obligation.state = 'cleaned';
+      observer.onObligationReplaced?.(obligation, null);
     }
     return;
   }
@@ -1302,6 +1346,16 @@ async function replaceFcmCleanupReceiptsWithRetry(
     await replaceFcmRemoteCleanupObligations(completed, replacements);
   } catch {
     await replaceFcmRemoteCleanupObligations(completed, replacements);
+  }
+}
+
+async function clearFcmCleanupReceiptsWithRetry(
+  completed: FcmRemoteCleanupObligation[],
+) {
+  try {
+    await clearFcmRemoteCleanupObligations(completed);
+  } catch {
+    await clearFcmRemoteCleanupObligations(completed);
   }
 }
 

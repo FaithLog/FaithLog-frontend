@@ -1002,7 +1002,17 @@ export async function replaceFcmRemoteCleanupObligations(
       byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
     }
     const next = [...byIdentity.values()];
-    await writeFcmRemoteCleanupState({...state, obligations: next});
+    const claim = state.accountDeletionClaim;
+    await writeFcmRemoteCleanupState({
+      obligations: next,
+      accountDeletionClaim: claim
+        ? {
+            ...claim,
+            cleanupReceipts: claim.cleanupReceipts.filter(
+              (entry) => !removed.has(getFcmRemoteCleanupIdentity(entry))),
+          }
+        : null,
+    });
   });
 }
 

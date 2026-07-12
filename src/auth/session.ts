@@ -87,7 +87,7 @@ export type PreparedLogout = {
 
 type RemoteLogoutFlight = {
   cancelBeforeSend: () => boolean;
-  obligations: FcmRemoteCleanupObligation[];
+  getUnresolvedObligations: () => FcmRemoteCleanupObligation[];
   promise: Promise<LogoutResult>;
 };
 const remoteLogoutFlights = new Set<RemoteLogoutFlight>();
@@ -277,7 +277,12 @@ async function prepareCurrentSessionLogoutInternal(
       '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
   }
 
-  const remoteLogout = trackRemoteLogout((isCancelled, markSent, registerObligation) =>
+  const remoteLogout = trackRemoteLogout((
+    isCancelled,
+    markSent,
+    registerObligation,
+    replaceObligation,
+  ) =>
     completeRemoteLogout(
       remoteAuthSession,
       fcmPayload,
@@ -290,6 +295,7 @@ async function prepareCurrentSessionLogoutInternal(
       isCancelled,
       markSent,
       registerObligation,
+      replaceObligation,
     ), [
       ...initialFcmObligations,
       ...sessionLogoutObligations,
@@ -313,6 +319,10 @@ async function completeRemoteLogout(
   isCancelled: () => boolean,
   markSent: () => void,
   registerObligation: (obligation: FcmRemoteCleanupObligation) => void,
+  replaceObligation: (
+    completed: FcmRemoteCleanupObligation,
+    replacement: FcmRemoteCleanupObligation | null,
+  ) => void,
 ): Promise<LogoutResult> {
   await fcmRegistrationBarrier;
   const fcmObligations = await fcmOperationSettlement;
@@ -350,6 +360,7 @@ async function completeRemoteLogout(
         {
           onObligationIntroduced: registerObligation,
           onRequestDispatch: markSent,
+          onObligationReplaced: replaceObligation,
         },
       );
     } catch {
@@ -408,11 +419,10 @@ async function completeRemoteLogout(
 
   if (accessToken && !remoteLogoutConfirmed) {
     try {
-      markSent();
       await logoutUser(accessToken, {
         ...(refreshToken ? {refreshToken} : {}),
         ...effectiveFcmPayload,
-      });
+      }, markSent);
       remoteLogoutConfirmed = true;
     } catch (error) {
       if (
@@ -432,7 +442,7 @@ async function completeRemoteLogout(
     !sessionLogoutHandledByCompensation &&
     !effectiveFcmPayload.clientInstanceId
   ) {
-    await clearFcmRemoteCleanupObligations(sessionLogoutObligations);
+    await clearFcmCleanupReceiptsWithRetry(sessionLogoutObligations);
   }
 
   if (
@@ -445,14 +455,22 @@ async function completeRemoteLogout(
       effectiveFcmPayload.clientInstanceId,
     );
     try {
-      await replaceFcmRemoteCleanupObligations(
+      await replaceFcmCleanupReceiptsWithRetry(
         sessionLogoutObligations,
         retirementObligation,
       );
+      for (const sessionLogout of sessionLogoutObligations) {
+        sessionLogout.state = 'cleaned';
+        replaceObligation(sessionLogout, retirementObligation[0] ?? null);
+      }
       await clearFcmRegistrationAttemptsForClientInstance(effectiveFcmPayload.clientInstanceId);
       const rotated = await rotateClientInstanceId(effectiveFcmPayload.clientInstanceId);
       if (!rotated) throw new Error('The retired client instance changed unexpectedly.');
-      await replaceFcmRemoteCleanupObligations(retirementObligation, []);
+      await replaceFcmCleanupReceiptsWithRetry(retirementObligation, []);
+      if (retirementObligation[0]) {
+        retirementObligation[0].state = 'cleaned';
+        replaceObligation(retirementObligation[0], null);
+      }
     } catch {
       remoteLogoutRestartRequired = true;
       remoteWarning =
@@ -494,37 +512,81 @@ async function completeRemoteLogout(
   return {status: 'signedOut'};
 }
 
+async function replaceFcmCleanupReceiptsWithRetry(
+  completed: FcmRemoteCleanupObligation[],
+  replacements: FcmRemoteCleanupObligation[],
+) {
+  try {
+    await replaceFcmRemoteCleanupObligations(completed, replacements);
+  } catch {
+    await replaceFcmRemoteCleanupObligations(completed, replacements);
+  }
+}
+
+async function clearFcmCleanupReceiptsWithRetry(
+  completed: FcmRemoteCleanupObligation[],
+) {
+  try {
+    await clearFcmRemoteCleanupObligations(completed);
+  } catch {
+    await clearFcmRemoteCleanupObligations(completed);
+  }
+}
+
 function trackRemoteLogout(
   createOperation: (
     isCancelled: () => boolean,
     markSent: () => void,
     registerObligation: (obligation: FcmRemoteCleanupObligation) => void,
+    replaceObligation: (
+      completed: FcmRemoteCleanupObligation,
+      replacement: FcmRemoteCleanupObligation | null,
+    ) => void,
   ) => Promise<LogoutResult>,
   obligations: FcmRemoteCleanupObligation[],
   hasServerObligations: () => boolean = () => false,
 ) {
   let cancelled = false;
   let sent = false;
-  const trackedObligations = [...obligations];
-  const liveIntroducedObligations = new Set<FcmRemoteCleanupObligation>();
+  const trackedObligations = new Map<string, FcmRemoteCleanupObligation>();
+  const introducedIdentities = new Set<string>();
+  for (const obligation of obligations) {
+    trackedObligations.set(getFcmRemoteCleanupIdentity(obligation), obligation);
+  }
   const flight = {
     cancelBeforeSend: () => {
-      const hasLiveIntroducedObligation = [...liveIntroducedObligations].some(
-        (obligation) => obligation.state === 'mayHaveSent' || obligation.state === 'registered',
-      );
+      const hasLiveIntroducedObligation = [...introducedIdentities].some((identity) => {
+        const obligation = trackedObligations.get(identity);
+        return obligation?.state === 'mayHaveSent' || obligation?.state === 'registered';
+      });
       if (sent || hasServerObligations() || hasLiveIntroducedObligation) return false;
       cancelled = true;
       return true;
     },
-    obligations: trackedObligations,
+    getUnresolvedObligations: () => [...trackedObligations.values()].filter(
+      (obligation) => obligation.state !== 'prepared' && obligation.state !== 'cleaned',
+    ),
     promise: Promise.resolve({status: 'signedOut'} as LogoutResult),
   };
   const tracked = createOperation(
     () => cancelled,
     () => { sent = true; },
     (obligation) => {
-      if (!trackedObligations.includes(obligation)) trackedObligations.push(obligation);
-      liveIntroducedObligations.add(obligation);
+      const identity = getFcmRemoteCleanupIdentity(obligation);
+      trackedObligations.set(identity, obligation);
+      introducedIdentities.add(identity);
+    },
+    (completed, replacement) => {
+      const completedIdentity = getFcmRemoteCleanupIdentity(completed);
+      const wasIntroduced = introducedIdentities.delete(completedIdentity);
+      if (trackedObligations.get(completedIdentity) === completed) {
+        trackedObligations.delete(completedIdentity);
+      }
+      if (replacement) {
+        const replacementIdentity = getFcmRemoteCleanupIdentity(replacement);
+        trackedObligations.set(replacementIdentity, replacement);
+        if (wasIntroduced) introducedIdentities.add(replacementIdentity);
+      }
     },
   ).finally(() => {
     remoteLogoutFlights.delete(flight);
@@ -594,11 +656,21 @@ async function waitForActiveRemoteLogoutFlights(deadline: number) {
       }
       remoteLogoutRestartRequired = true;
       await requireFcmRemoteCleanupRestart(
-        pending.flatMap((flight) => flight.obligations),
+        pending.flatMap((flight) => flight.getUnresolvedObligations()),
       ).catch(() => undefined);
       throw createLogoutCleanupPendingError();
     }
   }
+}
+
+function getFcmRemoteCleanupIdentity(obligation: FcmRemoteCleanupObligation) {
+  return JSON.stringify([
+    obligation.userId,
+    obligation.clientInstanceId,
+    obligation.kind,
+    obligation.token,
+    obligation.kind === 'registration' && obligation.token ? null : obligation.tokenId,
+  ]);
 }
 
 function createClientLogoutObligation(

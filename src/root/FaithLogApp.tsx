@@ -278,15 +278,20 @@ export function applyCompletedAccountDeletionTeardown(
   onWarning: (warning: string) => void,
   generation?: AuthSessionGeneration,
 ) {
-  return beginAccountDeletionTeardown(
+  const teardown = beginAccountDeletionTeardown(
     transitionToPublic,
     clear,
     invalidate,
     async () => undefined,
     generation,
-  ).then((localWarning) => {
+  );
+  // The backend deletion and public transition are already terminal. Surface a
+  // known durable-claim warning immediately instead of waiting for local
+  // SecureStore cleanup, which may remain pending at the OS boundary.
+  if (cleanupWarning) onWarning(cleanupWarning);
+  return teardown.then((localWarning) => {
     const warning = localWarning ?? cleanupWarning;
-    if (warning) onWarning(warning);
+    if (localWarning) onWarning(localWarning);
     return warning;
   });
 }

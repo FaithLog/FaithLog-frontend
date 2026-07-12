@@ -102,6 +102,22 @@ describe('logout UI transition', () => {
     expect(warning).toHaveBeenCalledWith('durable claim remains pending');
   });
 
+  it('shows a known durable-claim warning without waiting for local clear', () => {
+    const invalidate = vi.fn();
+    const events: string[] = [];
+    const never = new Promise<never>(() => {});
+    void applyCompletedAccountDeletionTeardown(
+      'restart required',
+      () => events.push('signedOut'),
+      () => never,
+      invalidate,
+      (warning) => events.push(`warning:${warning}`),
+    );
+
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(events).toEqual(['signedOut', 'warning:restart required']);
+  });
+
   it('registers account-deletion cleanup with the production restart barrier', async () => {
     vi.useFakeTimers();
     try {

@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   failSetOnce: new Set<string>(),
   blockSetOnce: new Map<string, Promise<void>>(),
   failDelete: new Set<string>(),
+  failDeleteOnce: new Set<string>(),
   failGetOnce: new Set<string>(),
 }));
 const api = vi.hoisted(() => ({
@@ -40,6 +41,7 @@ vi.mock('expo-secure-store', () => ({
     state.storage.set(key, value);
   }),
   deleteItemAsync: vi.fn(async (key: string) => {
+    if (state.failDeleteOnce.delete(key)) throw new Error('delete failed once');
     if (state.failDelete.has(key)) throw new Error('delete failed');
     state.storage.delete(key);
   }),
@@ -88,6 +90,7 @@ describe('active remote cleanup ownership', () => {
     state.failSetOnce.clear();
     state.blockSetOnce.clear();
     state.failDelete.clear();
+    state.failDeleteOnce.clear();
     state.failGetOnce.clear();
     vi.clearAllMocks();
     vi.resetModules();
@@ -435,6 +438,116 @@ describe('active remote cleanup ownership', () => {
     })).resolves.toMatchObject({status: 'noCampus'});
   });
 
+  it('retries a fail-once cascade phase write and converges after restart', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    let finishRegistration!: (value: {
+      appVersion: string; clientInstanceId: string; deviceType: 'IOS'; isActive: boolean;
+      lastRefreshedAt: string; lastSeenAt: string; tokenId: number;
+    }) => void;
+    api.register.mockReturnValue(new Promise((resolve) => { finishRegistration = resolve; }));
+    const fcm = await import('../notifications/fcmRegistration');
+    const registration = fcm.registerFcmTokenValue(
+      'old-access', 42, 'old-device-token', generation,
+    );
+    await vi.waitFor(() => expect(api.register).toHaveBeenCalledOnce());
+    const deletion = fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => 'old-access',
+      async () => {
+        state.failSetOnce.add('faithlog.fcmRemoteCleanupPending.v1');
+        state.failDelete.add('faithlog.fcmRemoteCleanupPending.v1');
+        return {deletedAt: '2026-07-13T00:00:00.000Z'};
+      },
+    );
+    finishRegistration({
+      appVersion: '0.1.0-test', clientInstanceId: 'old-client', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+    });
+    await registration;
+    await expect(deletion).resolves.toMatchObject({
+      status: 'completed', cleanupWarning: expect.any(String),
+    });
+    await expect(storage.getFcmAccountDeletionClaim()).resolves.toMatchObject({
+      phase: 'cascadeConfirmed',
+    });
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    state.failDelete.clear();
+    const client = await import('../api/client');
+    api.deactivateCleanup.mockRejectedValue(new client.FaithLogApiError({
+      kind: 'sessionExpired', status: 401, message: 'cascade revoked access',
+    }));
+    api.refreshCleanup.mockRejectedValue(new client.FaithLogApiError({
+      kind: 'sessionExpired', status: 401, message: 'cascade revoked refresh',
+    }));
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    const restartedStorage = await import('../api/tokenStorage');
+    await expect(restartedStorage.getFcmAccountDeletionClaim()).resolves.toBeNull();
+  });
+
+  it('retries a fail-once session-expired claim completion before restart', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    let finishRegistration!: (value: {
+      appVersion: string; clientInstanceId: string; deviceType: 'IOS'; isActive: boolean;
+      lastRefreshedAt: string; lastSeenAt: string; tokenId: number;
+    }) => void;
+    api.register.mockReturnValue(new Promise((resolve) => { finishRegistration = resolve; }));
+    const fcm = await import('../notifications/fcmRegistration');
+    const registration = fcm.registerFcmTokenValue(
+      'old-access', 42, 'old-device-token', generation,
+    );
+    await vi.waitFor(() => expect(api.register).toHaveBeenCalledOnce());
+    const client = await import('../api/client');
+    const deletion = fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => 'old-access',
+      async () => {
+        state.failDeleteOnce.add('faithlog.fcmRemoteCleanupPending.v1');
+        throw new client.FaithLogApiError({
+          kind: 'sessionExpired', status: 401, message: 'delete session expired',
+        });
+      },
+    );
+    finishRegistration({
+      appVersion: '0.1.0-test', clientInstanceId: 'old-client', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+    });
+    await registration;
+    await expect(deletion).rejects.toMatchObject({detail: {kind: 'sessionExpired'}});
+    await expect(storage.getFcmAccountDeletionClaim()).resolves.toBeNull();
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    const restartedSession = await import('./session');
+    await expect(restartedSession.loginAndEstablishSession({
+      email: 'next@example.test', password: 'test-password',
+    })).resolves.toMatchObject({status: 'noCampus'});
+  });
+
   it('keeps a pre-delete account claim fail-closed when old credentials return 401', async () => {
     const storage = await import('../api/tokenStorage');
     const receipt = {
@@ -506,6 +619,75 @@ describe('active remote cleanup ownership', () => {
     expect(api.logout).toHaveBeenCalledOnce();
   });
 
+  it('retries the production explicit logout retirement transition before restart', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    const currentClient = await storage.getOrCreateClientInstanceId();
+    let finishLogout!: () => void;
+    api.logout.mockImplementation((_access, _body, onDispatch) => {
+      (onDispatch as (() => void) | undefined)?.();
+      return new Promise<null>((resolve) => { finishLogout = () => resolve(null); });
+    });
+    const session = await import('./session');
+    const logout = session.logoutCurrentSession(42);
+    await vi.waitFor(() => expect(api.logout).toHaveBeenCalledOnce());
+    state.failSetOnce.add('faithlog.fcmRemoteCleanupPending.v1');
+    finishLogout();
+    await expect(logout).resolves.toEqual({status: 'signedOut'});
+    expect(api.logout).toHaveBeenCalledWith('old-access', {
+      refreshToken: 'old-refresh', clientInstanceId: currentClient,
+    }, expect.any(Function));
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+  });
+
+  it('retries terminal receipt clear for explicit logout without a client id', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    let finishLogout!: () => void;
+    api.logout.mockImplementation((_access, _body, onDispatch) => {
+      (onDispatch as (() => void) | undefined)?.();
+      return new Promise<null>((resolve) => { finishLogout = () => resolve(null); });
+    });
+    const session = await import('./session');
+    const logout = session.logoutCurrentSession(42);
+    await vi.waitFor(() => expect(api.logout).toHaveBeenCalledOnce());
+    state.failDeleteOnce.add('faithlog.fcmRemoteCleanupPending.v1');
+    finishLogout();
+    await expect(logout).resolves.toEqual({status: 'signedOut'});
+    expect(api.logout).toHaveBeenCalledWith('old-access', {
+      refreshToken: 'old-refresh',
+    }, expect.any(Function));
+    await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
+  });
+
   it('re-persists a refresh-introduced logout after its first durable write fails', async () => {
     const storage = await import('../api/tokenStorage');
     const currentClient = await storage.getOrCreateClientInstanceId();
@@ -533,8 +715,20 @@ describe('active remote cleanup ownership', () => {
     expect(api.logout).toHaveBeenCalledWith('cleanup-access', {
       refreshToken: 'cleanup-refresh', clientInstanceId: currentClient,
     });
-    await storage.clearFcmRemoteCleanupObligations(processed);
     await expect(storage.hasFcmRemoteCleanupPending()).resolves.toBe(false);
+
+    const snapshot = new Map(state.storage);
+    vi.resetModules();
+    state.storage = snapshot;
+    const restartedFcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: restartedFcm.capturePendingFcmOperations,
+      compensate: restartedFcm.compensateCapturedFcmOperations,
+    });
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(true);
+    expect(api.logout).toHaveBeenCalledOnce();
   });
 
   it('removes terminal-only identities after mixed account-claim compensation', async () => {
@@ -679,7 +873,9 @@ describe('active remote cleanup ownership', () => {
     await import('../notifications/fcmRegistration');
     const gate = await import('./authGate');
     await expect(gate.bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
-    expect(api.logout).toHaveBeenCalledWith('old-access', {refreshToken: 'old-refresh'});
+    expect(api.logout).toHaveBeenCalledWith(
+      'old-access', {refreshToken: 'old-refresh'}, expect.any(Function),
+    );
     expect(api.refresh).not.toHaveBeenCalled();
   });
 
@@ -731,7 +927,9 @@ describe('active remote cleanup ownership', () => {
       await import('../notifications/fcmRegistration');
       const gate = await import('./authGate');
       await expect(gate.bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
-      expect(api.logout).toHaveBeenCalledWith('old-access', {refreshToken: 'old-refresh'});
+      expect(api.logout).toHaveBeenCalledWith(
+        'old-access', {refreshToken: 'old-refresh'}, expect.any(Function),
+      );
       expect(api.refresh).not.toHaveBeenCalled();
     },
   );

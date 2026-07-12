@@ -627,6 +627,25 @@ describe('native auth token storage', () => {
     await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.not.toContainEqual(logout);
   });
 
+  it('moves a claimed cleanup receipt to generic replacement debt atomically', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const claimed = {
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh', userId: 42,
+      clientInstanceId: 'old-client', kind: 'registration' as const,
+      token: 'old-token', tokenId: 77,
+    };
+    const logout = {
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+    };
+    await tokenStorage.claimFcmRemoteCleanupForAccountDeletion([claimed], [claimed]);
+    await tokenStorage.replaceFcmRemoteCleanupObligations([claimed], [logout]);
+    await expect(tokenStorage.getFcmAccountDeletionClaim()).resolves.toMatchObject({
+      phase: 'cleanupRequired', cleanupReceipts: [],
+    });
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([logout]);
+  });
+
   it.each([
     {userId: 42, clientInstanceId: 'old-client', kind: 'deactivation', token: null, tokenId: null},
     {userId: 42, clientInstanceId: 'old-client', kind: 'registration', token: null, tokenId: null},

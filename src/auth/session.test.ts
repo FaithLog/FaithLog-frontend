@@ -101,7 +101,11 @@ import {
   type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {CurrentUser, LoginResponse} from '../api/types';
-import {capturePendingFcmOperations, compensateCapturedFcmOperations} from '../notifications/fcmRegistration';
+import {
+  capturePendingFcmOperations,
+  compensateCapturedFcmOperations,
+  type FcmRemoteCleanupObligation,
+} from '../notifications/fcmRegistration';
 import {getLogoutFcmDeactivationPayload} from './fcmLogout';
 import {
   clearFcmRemoteCleanupGateIfIdle,
@@ -226,7 +230,7 @@ describe('auth session lifecycle', () => {
     });
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token', clientInstanceId: 'current-client',
-    });
+    }, expect.any(Function));
     expect(rotateClientInstanceId).toHaveBeenCalledWith('current-client');
   });
 
@@ -582,9 +586,12 @@ describe('auth session lifecycle', () => {
     vi.useFakeTimers();
     try {
       let finishRemoteLogout!: () => void;
-      vi.mocked(logoutUser).mockReturnValue(new Promise<null>((resolve) => {
+      vi.mocked(logoutUser).mockImplementation((_access, _body, onDispatch) => {
+        onDispatch?.();
+        return new Promise<null>((resolve) => {
         finishRemoteLogout = () => resolve(null);
-      }));
+        });
+      });
       const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
       const remoteLogout = prepared.completeRemoteLogout();
       await vi.waitFor(() => expect(logoutUser).toHaveBeenCalledOnce());
@@ -606,6 +613,21 @@ describe('auth session lifecycle', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not mark explicit logout sent when it fails before the fetch dispatch callback', async () => {
+    vi.mocked(getStoredClientInstanceId).mockResolvedValueOnce(null);
+    vi.mocked(logoutUser).mockRejectedValueOnce(new Error('URL preparation failed'));
+    const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+    await expect(prepared.completeRemoteLogout()).resolves.toMatchObject({
+      status: 'signedOutWithRemoteWarning',
+    });
+    const dispatch = vi.mocked(logoutUser).mock.calls[0]?.[2];
+    expect(dispatch).toEqual(expect.any(Function));
+    expect(requireFcmRemoteCleanupRestart).not.toHaveBeenCalled();
+    await expect(loginAndEstablishSession({
+      email: 'next@example.test', password: 'test-password',
+    })).resolves.toMatchObject({status: 'noCampus'});
   });
 
   it('retains issued refresh tokens while optional FCM metadata times out auth entry', async () => {
@@ -641,7 +663,7 @@ describe('auth session lifecycle', () => {
       await prepared.completeRemoteLogout();
       expect(logoutUser).toHaveBeenCalledWith('metadata-wait-access', {
         refreshToken: 'metadata-wait-refresh',
-      });
+      }, expect.any(Function));
     } finally {
       vi.useRealTimers();
     }
@@ -750,7 +772,7 @@ describe('auth session lifecycle', () => {
     await expect(prepared.completeRemoteLogout()).resolves.toEqual({status: 'signedOut'});
     expect(logoutUser).toHaveBeenCalledWith('issued-during-logout-access', {
       refreshToken: 'issued-during-logout-refresh',
-    });
+    }, expect.any(Function));
   });
 
   it('claims refresh handoff before a delayed auth read and Map timeout cleanup', async () => {
@@ -784,7 +806,9 @@ describe('auth session lifecycle', () => {
 
       const prepared = await preparation;
       await prepared.completeRemoteLogout();
-      expect(logoutUser).toHaveBeenCalledWith('late-access', {refreshToken: 'late-refresh'});
+      expect(logoutUser).toHaveBeenCalledWith(
+        'late-access', {refreshToken: 'late-refresh'}, expect.any(Function),
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -822,7 +846,9 @@ describe('auth session lifecycle', () => {
       await expect(nextLogin).resolves.toEqual({status: 'noCampus', user: CURRENT_USER});
 
       expect(compensateCapturedFcmOperations).toHaveBeenCalledOnce();
-      expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {});
+      expect(logoutUser).toHaveBeenCalledWith(
+        'captured-old-access', {}, expect.any(Function),
+      );
       expect(vi.mocked(logoutUser).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(loginUser).mock.invocationCallOrder[0]!,
       );
@@ -887,7 +913,7 @@ describe('auth session lifecycle', () => {
     );
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token', clientInstanceId: 'current-C',
-    });
+    }, expect.any(Function));
     expect(rotateClientInstanceId).toHaveBeenCalledWith('current-C');
     expect(vi.mocked(compensateCapturedFcmOperations).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(logoutUser).mock.invocationCallOrder[0]!,
@@ -900,13 +926,13 @@ describe('auth session lifecycle', () => {
   it('restart-gates auth entry while a refresh-introduced cleanup logout is in flight', async () => {
     vi.useFakeTimers();
     try {
-      const captured = {
+      const captured: FcmRemoteCleanupObligation = {
         accessToken: 'expired-access', refreshToken: 'expired-refresh',
         userId: CURRENT_USER.id, clientInstanceId: 'old-client',
         kind: 'registration' as const, token: 'old-token', tokenId: null,
         state: 'mayHaveSent' as const,
       };
-      const introducedLogout = {
+      const introducedLogout: FcmRemoteCleanupObligation = {
         accessToken: 'rotated-access', refreshToken: 'rotated-refresh',
         userId: null, clientInstanceId: null,
         kind: 'clientLogout' as const, token: null, tokenId: null,
@@ -939,6 +965,72 @@ describe('auth session lifecycle', () => {
       expect(requireFcmRemoteCleanupRestart).toHaveBeenCalledWith(
         expect.arrayContaining([introducedLogout]),
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not revive a terminal introduced logout when a later storage step times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const captured: FcmRemoteCleanupObligation = {
+        accessToken: 'expired-access', refreshToken: 'expired-refresh',
+        userId: CURRENT_USER.id, clientInstanceId: 'old-client',
+        kind: 'registration' as const, token: 'old-token', tokenId: null,
+        state: 'mayHaveSent' as const,
+      };
+      const introducedLogout: FcmRemoteCleanupObligation = {
+        accessToken: 'rotated-access', refreshToken: 'rotated-refresh',
+        userId: null, clientInstanceId: null,
+        kind: 'clientLogout' as const, token: null, tokenId: null,
+        state: 'mayHaveSent' as const,
+      };
+      const retirement: FcmRemoteCleanupObligation = {
+        accessToken: 'rotated-access', refreshToken: null,
+        userId: null, clientInstanceId: 'current-client',
+        kind: 'clientRetirement' as const, token: null, tokenId: null,
+        state: 'mayHaveSent' as const,
+      };
+      vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+        barrier: Promise.resolve(), obligations: [captured],
+        settlement: Promise.resolve([captured]), hasPendingOperations: true,
+        hasServerObligations: () => false,
+      });
+      vi.mocked(compensateCapturedFcmOperations).mockImplementationOnce(
+        async (_obligations, observer) => {
+          observer?.onObligationIntroduced?.(introducedLogout);
+          observer?.onRequestDispatch?.(introducedLogout);
+          introducedLogout.state = 'cleaned';
+          observer?.onObligationReplaced?.(introducedLogout, retirement);
+          retirement.state = 'cleaned';
+          observer?.onObligationReplaced?.(retirement, null);
+          captured.state = 'cleaned';
+          observer?.onObligationReplaced?.(captured, null);
+          return [introducedLogout, retirement];
+        },
+      );
+      vi.mocked(clearFcmRemoteCleanupObligations).mockImplementationOnce(
+        () => new Promise<void>(() => {}),
+      );
+
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      void prepared.completeRemoteLogout();
+      await vi.waitFor(() => {
+        expect(compensateCapturedFcmOperations).toHaveBeenCalledOnce();
+      });
+      const nextLogin = loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      });
+      const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(21_000);
+      await rejected;
+
+      expect(loginUser).not.toHaveBeenCalled();
+      expect(requireFcmRemoteCleanupRestart).toHaveBeenCalledWith([]);
+      const persisted = vi.mocked(requireFcmRemoteCleanupRestart).mock.calls.at(-1)?.[0] ?? [];
+      expect(persisted).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({kind: 'clientLogout', accessToken: 'rotated-access'}),
+      ]));
     } finally {
       vi.useRealTimers();
     }
@@ -1013,7 +1105,9 @@ describe('auth session lifecycle', () => {
         finishOperation();
         await remote;
         expect(compensateCapturedFcmOperations).toHaveBeenCalledOnce();
-        expect(logoutUser).toHaveBeenCalledWith('captured-old-access', {});
+        expect(logoutUser).toHaveBeenCalledWith(
+          'captured-old-access', {}, expect.any(Function),
+        );
         expect(rotateClientInstanceId).not.toHaveBeenCalled();
         expect(loginUser).not.toHaveBeenCalled();
       } finally {
@@ -1122,7 +1216,7 @@ describe('auth session lifecycle', () => {
     expect(logoutUser).toHaveBeenCalledWith('late-read-error-access', {
       refreshToken: 'late-read-error-refresh',
       clientInstanceId: 'faithlog-client-1',
-    });
+    }, expect.any(Function));
   });
 
   it('blocks every auth entry while an issued refresh handoff is unconsumed', async () => {
@@ -1216,7 +1310,7 @@ describe('auth session lifecycle', () => {
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token',
       clientInstanceId: 'faithlog-client-1',
-    });
+    }, expect.any(Function));
     expect(vi.mocked(clearTokens).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(rotateClientInstanceId).mock.invocationCallOrder[0]!,
     );
@@ -1300,7 +1394,7 @@ describe('auth session lifecycle', () => {
     });
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token',
-    });
+    }, expect.any(Function));
     expect(clearFcmRemoteCleanupObligations).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({kind: 'clientLogout'})]),
     );
@@ -1322,7 +1416,7 @@ describe('auth session lifecycle', () => {
     expect(logoutUser).toHaveBeenCalledWith('login-access-token', {
       refreshToken: 'login-refresh-token',
       clientInstanceId: 'faithlog-client-1',
-    });
+    }, expect.any(Function));
     expect(replaceFcmRemoteCleanupObligations).toHaveBeenCalledWith(
       [expect.objectContaining({kind: 'clientLogout'})],
       [expect.objectContaining({
