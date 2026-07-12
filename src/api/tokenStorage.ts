@@ -63,7 +63,8 @@ export type StoredFcmRegistrationAttempt = {
 export type StoredFcmRemoteCleanupObligation = {
   accessToken: string;
   refreshToken?: string | null;
-  clientInstanceId: string;
+  userId: number | null;
+  clientInstanceId: string | null;
   kind: 'registration' | 'deactivation' | 'clientLogout';
   token: string | null;
   tokenId: number | null;
@@ -468,17 +469,17 @@ export async function saveFcmRegistration(
       return false;
     }
 
+    await Promise.allSettled([
+      deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
+      deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
+    ]);
+    if (!isAuthSessionRequestAllowed(generation)) return false;
     await deleteStorageItem(FCM_INVALIDATED_KEY);
     if (!isAuthSessionRequestAllowed(generation)) {
       await setStorageItem(FCM_INVALIDATED_KEY, INVALIDATED_VALUE);
       return false;
     }
-    await Promise.allSettled([
-      deleteStorageItem(LEGACY_FCM_TOKEN_KEY),
-      deleteStorageItem(LEGACY_FCM_TOKEN_ID_KEY),
-    ]);
-
-    return isAuthSessionRequestAllowed(generation);
+    return true;
   });
 }
 
@@ -618,6 +619,32 @@ export async function clearFcmRegistrationAttemptsForClientInstance(
   });
 }
 
+export async function clearFcmRegistrationAttemptAfterRemoteCleanup(
+  attempt: StoredFcmRegistrationAttempt,
+) {
+  const normalized = normalizeFcmRegistrationAttempt(attempt);
+  if (!normalized) return;
+  return withSecureStorageLock(async () => {
+    const current = parseStoredFcmRegistrationAttempts(
+      await getStorageItem(FCM_REGISTRATION_ATTEMPTS_KEY),
+    );
+    const remaining = current.filter((entry) =>
+      entry.userId !== normalized.userId ||
+      entry.clientInstanceId !== normalized.clientInstanceId ||
+      entry.token !== normalized.token,
+    );
+    if (remaining.length === current.length) return;
+    if (remaining.length === 0) {
+      await deleteStorageItem(FCM_REGISTRATION_ATTEMPTS_KEY);
+    } else {
+      await setStorageItem(
+        FCM_REGISTRATION_ATTEMPTS_KEY,
+        JSON.stringify({version: 1, entries: remaining}),
+      );
+    }
+  });
+}
+
 export async function markFcmRemoteCleanupPending(
   obligations: StoredFcmRemoteCleanupObligation[] = [],
 ) {
@@ -625,14 +652,12 @@ export async function markFcmRemoteCleanupPending(
     const current = parseStoredFcmRemoteCleanupObligations(
       await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
     );
-    const merged = [...current, ...obligations].filter((entry, index, all) =>
-      all.findIndex((candidate) =>
-        candidate.accessToken === entry.accessToken &&
-        candidate.refreshToken === entry.refreshToken &&
-        candidate.clientInstanceId === entry.clientInstanceId &&
-        candidate.kind === entry.kind &&
-        candidate.token === entry.token &&
-        candidate.tokenId === entry.tokenId) === index);
+    const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
+    for (const entry of [...current, ...obligations]) {
+      const identity = getFcmRemoteCleanupIdentity(entry);
+      byIdentity.set(identity, entry);
+    }
+    const merged = [...byIdentity.values()];
     await setStorageItem(
       FCM_REMOTE_CLEANUP_PENDING_KEY,
       JSON.stringify({version: 1, obligations: merged}),
@@ -642,6 +667,29 @@ export async function markFcmRemoteCleanupPending(
 
 export async function clearFcmRemoteCleanupPending() {
   await withSecureStorageLock(() => deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY));
+}
+
+export async function clearFcmRemoteCleanupObligations(
+  obligations: StoredFcmRemoteCleanupObligation[],
+) {
+  if (obligations.length === 0) return;
+  await withSecureStorageLock(async () => {
+    const current = parseStoredFcmRemoteCleanupObligations(
+      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+    );
+    const cleared = new Set(obligations.map(getFcmRemoteCleanupIdentity));
+    const remaining = current.filter(
+      (entry) => !cleared.has(getFcmRemoteCleanupIdentity(entry)),
+    );
+    if (remaining.length === 0) {
+      await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+    } else {
+      await setStorageItem(
+        FCM_REMOTE_CLEANUP_PENDING_KEY,
+        JSON.stringify({version: 1, obligations: remaining}),
+      );
+    }
+  });
 }
 
 export async function hasFcmRemoteCleanupPending() {
@@ -999,34 +1047,66 @@ function parseStoredFcmRemoteCleanupObligations(
     if (parsed.version !== 1 || !Array.isArray(parsed.obligations)) {
       throw new CorruptFcmPrivacyStateError('remoteCleanup');
     }
-    return parsed.obligations.map((value): StoredFcmRemoteCleanupObligation => {
+    const obligations = parsed.obligations.map((value): StoredFcmRemoteCleanupObligation => {
       if (!value || typeof value !== 'object') {
         throw new CorruptFcmPrivacyStateError('remoteCleanup');
       }
       const entry = value as Record<string, unknown>;
-      if (typeof entry.accessToken !== 'string' || !entry.accessToken ||
+      if (typeof entry.accessToken !== 'string' || !entry.accessToken.trim() ||
           (entry.refreshToken !== undefined && entry.refreshToken !== null &&
-           typeof entry.refreshToken !== 'string') ||
-          typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId ||
+           (typeof entry.refreshToken !== 'string' || !entry.refreshToken.trim())) ||
+          (entry.userId !== null && (!Number.isInteger(entry.userId) || Number(entry.userId) <= 0)) ||
+          (entry.clientInstanceId !== null &&
+           (typeof entry.clientInstanceId !== 'string' || !entry.clientInstanceId.trim())) ||
           (entry.kind !== 'registration' && entry.kind !== 'deactivation' &&
            entry.kind !== 'clientLogout') ||
           (entry.token !== null && typeof entry.token !== 'string') ||
           (entry.tokenId !== null && (!Number.isInteger(entry.tokenId) || Number(entry.tokenId) <= 0))) {
         throw new CorruptFcmPrivacyStateError('remoteCleanup');
       }
+      const kind = entry.kind as StoredFcmRemoteCleanupObligation['kind'];
+      const token = entry.token as string | null;
+      const tokenId = entry.tokenId === null ? null : Number(entry.tokenId);
+      const userId = entry.userId === null ? null : Number(entry.userId);
+      const normalizedClientId = typeof entry.clientInstanceId === 'string'
+        ? entry.clientInstanceId.trim()
+        : null;
+      const validKindShape = kind === 'registration'
+        ? userId !== null && normalizedClientId !== null &&
+          ((typeof token === 'string' && Boolean(token.trim())) || tokenId !== null)
+        : kind === 'deactivation'
+          ? userId !== null && normalizedClientId !== null && token === null && tokenId !== null
+          : userId === null && token === null && tokenId === null;
+      if (!validKindShape) throw new CorruptFcmPrivacyStateError('remoteCleanup');
       return {
-        accessToken: entry.accessToken,
-        ...(typeof entry.refreshToken === 'string' ? {refreshToken: entry.refreshToken} : {}),
-        clientInstanceId: entry.clientInstanceId,
-        kind: entry.kind,
-        token: entry.token as string | null,
-        tokenId: entry.tokenId === null ? null : Number(entry.tokenId),
+        accessToken: entry.accessToken.trim(),
+        ...(typeof entry.refreshToken === 'string' ? {refreshToken: entry.refreshToken.trim()} : {}),
+        userId,
+        clientInstanceId: normalizedClientId,
+        kind,
+        token: typeof token === 'string' ? token.trim() : null,
+        tokenId,
       };
     });
+    const identities = obligations.map(getFcmRemoteCleanupIdentity);
+    if (new Set(identities).size !== identities.length) {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    return obligations;
   } catch (error) {
     if (error instanceof CorruptFcmPrivacyStateError) throw error;
     throw new CorruptFcmPrivacyStateError('remoteCleanup');
   }
+}
+
+function getFcmRemoteCleanupIdentity(entry: StoredFcmRemoteCleanupObligation) {
+  return [
+    entry.userId,
+    entry.clientInstanceId,
+    entry.kind,
+    entry.token,
+    entry.kind === 'registration' && entry.token ? null : entry.tokenId,
+  ].join('|');
 }
 
 function parseJsonRecord(value: string | null): Record<string, unknown> | null {

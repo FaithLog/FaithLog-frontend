@@ -1,10 +1,12 @@
 import {
-  clearFcmRemoteCleanupPending,
+  clearFcmRemoteCleanupObligations,
   getFcmRemoteCleanupObligations,
   markFcmRemoteCleanupPending,
 } from '../api/tokenStorage';
 import type {FcmRemoteCleanupObligation} from '../notifications/fcmRegistration';
 const cleanupInFlight = new Set<Promise<void>>();
+const cleanupByGeneration = new Map<number, Promise<void>>();
+let reconciliationInFlight: Promise<boolean> | null = null;
 let restartRequired = false;
 type CleanupCapture = {
   barrier: Promise<void>;
@@ -27,13 +29,18 @@ export function configureFcmTransitionCleanup(options: {
 }
 
 export function beginFcmTransitionCleanup(generation?: number) {
+  const key = generation ?? -1;
+  const existing = cleanupByGeneration.get(key);
+  if (existing) return existing;
   const captured = captureCleanup(generation);
   if (!captured.hasPendingOperations) return Promise.resolve();
   const operation = (async () => {
     await markFcmRemoteCleanupPending(captured.obligations ?? []);
     await captured.barrier;
     const obligations = await captured.settlement;
+    await markFcmRemoteCleanupPending(obligations);
     await compensateCleanup(obligations);
+    await clearFcmRemoteCleanupObligations(obligations);
   })();
   const tracked = operation.then(
     () => undefined,
@@ -44,11 +51,10 @@ export function beginFcmTransitionCleanup(generation?: number) {
     },
   ).finally(async () => {
     cleanupInFlight.delete(tracked);
-    if (!restartRequired && cleanupInFlight.size === 0) {
-      await clearFcmRemoteCleanupPending();
-    }
+    if (cleanupByGeneration.get(key) === tracked) cleanupByGeneration.delete(key);
   });
   cleanupInFlight.add(tracked);
+  cleanupByGeneration.set(key, tracked);
   void tracked.catch(() => undefined);
   return tracked;
 }
@@ -60,34 +66,28 @@ export async function requireFcmRemoteCleanupRestart(
   await markFcmRemoteCleanupPending(obligations);
 }
 
-export async function clearFcmRemoteCleanupGateIfIdle() {
-  if (!restartRequired && cleanupInFlight.size === 0) {
-    await clearFcmRemoteCleanupPending();
+export async function clearFcmRemoteCleanupGateIfIdle(
+  obligations: FcmRemoteCleanupObligation[] = [],
+) {
+  if (!restartRequired) {
+    await clearFcmRemoteCleanupObligations(obligations);
   }
 }
 
 export async function waitForFcmTransitionCleanup(timeoutMs: number) {
   if (restartRequired) return false;
-  if (cleanupInFlight.size === 0) {
-    const durable = await getFcmRemoteCleanupObligations();
-    if (durable) {
-      if (durable.length === 0) return false;
-      try {
-        await compensateCleanup(durable.map((obligation) => ({
-          ...obligation, state: 'mayHaveSent' as const,
-        })));
-        await clearFcmRemoteCleanupPending();
-      } catch {
-        restartRequired = true;
-        return false;
-      }
-    }
-  }
   const deadline = Date.now() + timeoutMs;
+  if (cleanupInFlight.size === 0) {
+    reconciliationInFlight ??= reconcileDurableCleanup(deadline).finally(() => {
+      reconciliationInFlight = null;
+    });
+    if (!(await reconciliationInFlight)) return false;
+    if (restartRequired) return false;
+  }
   while (cleanupInFlight.size > 0) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
-      await requireFcmRemoteCleanupRestart();
+      await requireFcmRemoteCleanupRestart().catch(() => undefined);
       return false;
     }
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -104,15 +104,51 @@ export async function waitForFcmTransitionCleanup(timeoutMs: number) {
       return false;
     }
     if (!completed) {
-      await requireFcmRemoteCleanupRestart();
+      await requireFcmRemoteCleanupRestart().catch(() => undefined);
       return false;
     }
     if (restartRequired) return false;
   }
-  return !(restartRequired || (await getFcmRemoteCleanupObligations()) !== null);
+  if (restartRequired) return false;
+  return await runBeforeDeadline(
+    getFcmRemoteCleanupObligations(), deadline,
+  ).then((value) => value === null, () => false);
+}
+
+async function reconcileDurableCleanup(deadline: number) {
+  try {
+    const durable = await runBeforeDeadline(getFcmRemoteCleanupObligations(), deadline);
+    if (durable === null) return true;
+    if (durable.length === 0) return false;
+    await runBeforeDeadline(compensateCleanup(durable.map((obligation) => ({
+      ...obligation, state: 'mayHaveSent' as const,
+    }))), deadline);
+    await runBeforeDeadline(clearFcmRemoteCleanupObligations(durable), deadline);
+    return true;
+  } catch {
+    restartRequired = true;
+    return false;
+  }
+}
+
+function runBeforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return Promise.reject(new Error('FCM cleanup deadline exceeded.'));
+  let timeoutId: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error('FCM cleanup deadline exceeded.')),
+        remainingMs,
+      );
+    }),
+  ]).finally(() => clearTimeout(timeoutId!));
 }
 
 export function resetFcmTransitionCleanupForTests() {
   cleanupInFlight.clear();
+  cleanupByGeneration.clear();
+  reconciliationInFlight = null;
   restartRequired = false;
 }

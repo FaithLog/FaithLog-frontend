@@ -7,6 +7,7 @@ const capturePendingFcmOperations = vi.hoisted(() => vi.fn());
 const compensateCapturedFcmOperations = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock('../api/tokenStorage', () => ({
+  clearFcmRemoteCleanupObligations: vi.fn(async () => { state.durableObligations = null; }),
   clearFcmRemoteCleanupPending: vi.fn(async () => { state.durableObligations = null; }),
   discardRefreshTokensForGeneration: vi.fn(),
   getAuthSessionGeneration: vi.fn(() => state.generation),

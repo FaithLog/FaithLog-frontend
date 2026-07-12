@@ -454,11 +454,33 @@ describe('native auth token storage', () => {
     await expect(tokenStorage.getFcmRegistrationAttempts(42, generation)).resolves.toEqual([attempt]);
   });
 
+  it('keeps the FCM tombstone until legacy cleanup has finished', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseLegacyDelete!: () => void;
+    const legacyDeleteBlocked = new Promise<void>((resolve) => { releaseLegacyDelete = resolve; });
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.fcmToken') await legacyDeleteBlocked;
+      testState.storage.delete(key);
+    });
+    const saving = tokenStorage.saveFcmRegistration({
+      token: 'device-token', tokenId: 77, userId: 42, clientInstanceId: 'client-42',
+    }, generation);
+    await vi.waitFor(() => expect(secureStoreMocks.deleteItemAsync).toHaveBeenCalledWith(
+      'faithlog.fcmToken',
+    ));
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseLegacyDelete();
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+  });
+
   it('round-trips the device-level remote cleanup gate across module restart', async () => {
     const tokenStorage = await import('./tokenStorage');
     const obligation = {
       accessToken: 'old-access', clientInstanceId: 'old-client',
-      kind: 'registration' as const, token: 'old-token', tokenId: null,
+      userId: 42, kind: 'registration' as const, token: 'old-token', tokenId: null,
     };
     await tokenStorage.markFcmRemoteCleanupPending([obligation]);
     const restartSnapshot = new Map(testState.storage);
@@ -467,6 +489,38 @@ describe('native auth token storage', () => {
     const restartedStorage = await import('./tokenStorage');
     await expect(restartedStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
     await expect(restartedStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([obligation]);
+  });
+
+  it('clears only completed cleanup identities and preserves concurrent obligations', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const first = {
+      accessToken: 'old-A', refreshToken: 'refresh-A', userId: 42,
+      clientInstanceId: 'client-A', kind: 'registration' as const,
+      token: 'token-A', tokenId: null,
+    };
+    const second = {
+      accessToken: 'old-B', refreshToken: 'refresh-B', userId: 43,
+      clientInstanceId: 'client-B', kind: 'deactivation' as const,
+      token: null, tokenId: 77,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([first]);
+    await tokenStorage.markFcmRemoteCleanupPending([second]);
+    await tokenStorage.clearFcmRemoteCleanupObligations([first]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([second]);
+  });
+
+  it.each([
+    {userId: 42, clientInstanceId: 'old-client', kind: 'deactivation', token: null, tokenId: null},
+    {userId: 42, clientInstanceId: 'old-client', kind: 'registration', token: null, tokenId: null},
+    {userId: null, clientInstanceId: 'old-client', kind: 'clientLogout', token: 'bad', tokenId: null},
+  ])('keeps a corrupt per-kind remote obligation fail-closed: %j', async (invalid) => {
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1,
+      obligations: [{accessToken: 'old-access', ...invalid}],
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([]);
   });
 
   it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {

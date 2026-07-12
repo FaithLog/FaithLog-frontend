@@ -6,6 +6,11 @@ const compensateCapturedFcmOperations = vi.hoisted(() => vi.fn());
 
 vi.mock('../api/tokenStorage', () => ({
   clearFcmRemoteCleanupPending: vi.fn(async () => { state.obligations = null; }),
+  clearFcmRemoteCleanupObligations: vi.fn(async (cleared: unknown[]) => {
+    if (!state.obligations) return;
+    state.obligations = state.obligations.filter((entry) => !cleared.includes(entry));
+    if (state.obligations.length === 0) state.obligations = null;
+  }),
   getFcmRemoteCleanupObligations: vi.fn(async () => state.obligations),
   markFcmRemoteCleanupPending: vi.fn(async (obligations: unknown[] = []) => {
     state.obligations = obligations.length > 0 ? obligations : state.obligations ?? [];
@@ -119,4 +124,45 @@ describe('shared FCM auth-transition cleanup', () => {
       }
     },
   );
+
+  it('bounds durable reconciliation itself and shares it across concurrent auth entries', async () => {
+    vi.useFakeTimers();
+    try {
+      state.obligations = [{
+        accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+        clientInstanceId: null, kind: 'clientLogout', token: null, tokenId: null,
+      }];
+      compensateCapturedFcmOperations.mockReturnValue(new Promise(() => {}));
+      const first = waitForFcmTransitionCleanup(5_000);
+      const second = waitForFcmTransitionCleanup(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(first).resolves.toBe(false);
+      await expect(second).resolves.toBe(false);
+      expect(compensateCapturedFcmOperations).toHaveBeenCalledOnce();
+      expect(state.obligations).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('single-flights duplicate transition cleanup for the same generation', async () => {
+    let finish!: () => void;
+    const barrier = new Promise<void>((resolve) => { finish = resolve; });
+    capturePendingFcmOperations.mockReturnValue({
+      barrier,
+      obligations: [{
+        accessToken: 'old-access', refreshToken: 'old-refresh', userId: 42,
+        clientInstanceId: 'old-client', kind: 'registration', token: 'old-token',
+        tokenId: null, state: 'mayHaveSent',
+      }],
+      settlement: barrier.then(() => []),
+      hasPendingOperations: true,
+    });
+    const first = beginFcmTransitionCleanup(7);
+    const second = beginFcmTransitionCleanup(7);
+    expect(second).toBe(first);
+    expect(capturePendingFcmOperations).toHaveBeenCalledOnce();
+    finish();
+    await first;
+  });
 });

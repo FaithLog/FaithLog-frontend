@@ -33,6 +33,9 @@ vi.mock('./session', () => ({
   refreshAndEstablishSession: vi.fn(),
 }));
 
+const waitForFcmTransitionCleanup = vi.hoisted(() => vi.fn());
+vi.mock('./fcmTransitionCleanup', () => ({waitForFcmTransitionCleanup}));
+
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
 import {
   clearTokens,
@@ -54,6 +57,7 @@ describe('auth bootstrap gate', () => {
       refreshToken: 'expired-refresh-token',
     });
     vi.mocked(clearTokens).mockResolvedValue(true);
+    waitForFcmTransitionCleanup.mockResolvedValue(true);
   });
 
   it('clears the same stored session and shows expiry when refresh is rejected', async () => {
@@ -111,5 +115,12 @@ describe('auth bootstrap gate', () => {
     expect(refreshAndEstablishSession).toHaveBeenCalledWith(
       'expired-refresh-token', AUTH_GENERATION,
     );
+  });
+
+  it('never refreshes a stored session while durable FCM cleanup is unresolved', async () => {
+    waitForFcmTransitionCleanup.mockResolvedValue(false);
+    await expect(bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+    expect(getStoredAuthSession).not.toHaveBeenCalled();
+    expect(refreshAndEstablishSession).not.toHaveBeenCalled();
   });
 });

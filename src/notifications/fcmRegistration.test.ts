@@ -13,6 +13,8 @@ vi.mock('../api/client', () => ({
   },
   registerMyFcmToken: vi.fn(),
   registerMyFcmTokenForCleanup: vi.fn(),
+  refreshAuthTokenForCleanup: vi.fn(),
+  logoutUser: vi.fn(),
 }));
 
 vi.mock('../api/tokenStorage', () => ({
@@ -21,18 +23,21 @@ vi.mock('../api/tokenStorage', () => ({
   },
   clearFcmRegistration: vi.fn(),
   clearFcmRegistrationAttempt: vi.fn(),
+  clearFcmRegistrationAttemptAfterRemoteCleanup: vi.fn(),
   clearFcmOptOut: vi.fn(),
   getAuthSessionGeneration: vi.fn(),
   getOrCreateClientInstanceId: vi.fn(),
   getFcmOptOutState: vi.fn(),
   getFcmRegistrationAttempts: vi.fn(),
   getStoredFcmRegistration: vi.fn(),
+  getStoredAuthSession: vi.fn(),
   isFcmOptedOut: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   isAuthSessionRequestAllowed: vi.fn(),
   saveFcmRegistration: vi.fn(),
   saveFcmRegistrationAttempt: vi.fn(),
   saveFcmOptOut: vi.fn(),
+  markFcmRemoteCleanupPending: vi.fn(),
 }));
 
 vi.mock('./appInfo', () => ({
@@ -54,8 +59,11 @@ vi.mock('./notificationAdapter', () => ({
 import {
   deactivateMyFcmToken,
   deactivateMyFcmTokenForCleanup,
+  FaithLogApiError,
+  logoutUser,
   registerMyFcmToken,
   registerMyFcmTokenForCleanup,
+  refreshAuthTokenForCleanup,
 } from '../api/client';
 import type {FcmTokenRegisterResponse} from '../api/types';
 import {
@@ -68,9 +76,11 @@ import {
   getFcmOptOutState,
   getFcmRegistrationAttempts,
   getStoredFcmRegistration,
+  getStoredAuthSession,
   isFcmOptedOut,
   isAuthSessionGenerationCurrent,
   isAuthSessionRequestAllowed,
+  markFcmRemoteCleanupPending,
   saveFcmRegistration,
   saveFcmRegistrationAttempt,
   saveFcmOptOut,
@@ -107,6 +117,15 @@ describe('FCM registration', () => {
     vi.mocked(isAuthSessionGenerationCurrent).mockReturnValue(true);
     vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(true);
     vi.mocked(saveFcmRegistration).mockResolvedValue(true);
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: AUTH_GENERATION,
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+    });
+    vi.mocked(refreshAuthTokenForCleanup).mockResolvedValue({
+      accessToken: 'cleanup-access-token', refreshToken: 'cleanup-refresh-token',
+      accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 86400, tokenType: 'Bearer',
+    });
     vi.mocked(deactivateMyFcmTokenForCleanup).mockResolvedValue(null);
     vi.mocked(registerMyFcmTokenForCleanup).mockResolvedValue({
       appVersion: '0.1.0-test', clientInstanceId: 'cleanup-client', deviceType: 'IOS',
@@ -225,6 +244,29 @@ describe('FCM registration', () => {
     expect(clearFcmOptOut).not.toHaveBeenCalled();
   });
 
+  it('persists disable intent while an older registration POST is still pending', async () => {
+    let finishRegistration!: (value: FcmTokenRegisterResponse) => void;
+    vi.mocked(registerMyFcmToken).mockReturnValue(new Promise((resolve) => {
+      finishRegistration = resolve;
+    }));
+    const registration = registerFcmTokenValue(
+      'access-token', USER_ID, 'pending-token', AUTH_GENERATION,
+    );
+    await vi.waitFor(() => expect(registerMyFcmToken).toHaveBeenCalledOnce());
+    const disable = deactivateCurrentFcmToken('access-token', USER_ID, AUTH_GENERATION);
+    await vi.waitFor(() => expect(saveFcmOptOut).toHaveBeenCalledWith(
+      USER_ID, 'faithlog-client-1', AUTH_GENERATION,
+      expect.objectContaining({status: 'pending'}),
+    ));
+    finishRegistration({
+      appVersion: '0.1.0-test', clientInstanceId: 'faithlog-client-1', deviceType: 'IOS',
+      isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+      lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 91,
+    });
+    await registration;
+    await disable;
+  });
+
   it('marks a known-token DELETE as server-capable until it settles', async () => {
     let resolveDelete!: () => void;
     vi.mocked(getStoredFcmRegistration).mockResolvedValue({
@@ -282,11 +324,13 @@ describe('FCM registration', () => {
       });
     const obligations = [
       {
-        accessToken: 'old-access', clientInstanceId: 'old-A', kind: 'registration' as const,
+        accessToken: 'old-access', userId: USER_ID,
+        clientInstanceId: 'old-A', kind: 'registration' as const,
         token: 'token-A', tokenId: null, state: 'mayHaveSent' as const,
       },
       {
-        accessToken: 'old-access', clientInstanceId: 'old-B', kind: 'registration' as const,
+        accessToken: 'old-access', userId: USER_ID,
+        clientInstanceId: 'old-B', kind: 'registration' as const,
         token: 'token-B', tokenId: null, state: 'mayHaveSent' as const,
       },
     ];
@@ -301,6 +345,38 @@ describe('FCM registration', () => {
     expect(deactivateMyFcmTokenForCleanup).toHaveBeenNthCalledWith(1, 'old-access', 101);
     expect(deactivateMyFcmTokenForCleanup).toHaveBeenNthCalledWith(2, 'old-access', 102);
     expect(obligations.every((obligation) => String(obligation.state) === 'cleaned')).toBe(true);
+  });
+
+  it('refreshes an expired cleanup credential and durably schedules its rotated session logout', async () => {
+    vi.mocked(registerMyFcmTokenForCleanup)
+      .mockRejectedValueOnce(new FaithLogApiError({
+        kind: 'sessionExpired', status: 401, message: 'expired',
+      } as never))
+      .mockResolvedValueOnce({
+        appVersion: '0.1.0-test', clientInstanceId: 'old-client', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+        lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 101,
+      });
+    const obligations = [{
+      accessToken: 'expired-access', refreshToken: 'old-refresh', userId: USER_ID,
+      clientInstanceId: 'old-client', kind: 'registration' as const,
+      token: 'old-token', tokenId: null, state: 'mayHaveSent' as const,
+    }];
+
+    await compensateCapturedFcmOperations(obligations);
+    expect(refreshAuthTokenForCleanup).toHaveBeenCalledWith('old-refresh');
+    expect(registerMyFcmTokenForCleanup).toHaveBeenLastCalledWith(
+      'cleanup-access-token', expect.objectContaining({token: 'old-token'}),
+    );
+    expect(deactivateMyFcmTokenForCleanup).toHaveBeenCalledWith(
+      'cleanup-access-token', 101,
+    );
+    expect(vi.mocked(markFcmRemoteCleanupPending)).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({kind: 'clientLogout'})]),
+    );
+    expect(logoutUser).toHaveBeenCalledWith('cleanup-access-token', {
+      refreshToken: 'cleanup-refresh-token', clientInstanceId: 'old-client',
+    });
   });
 
   it('retries known-token remote deactivation after restart before confirming opt-out', async () => {
@@ -502,13 +578,12 @@ describe('FCM registration', () => {
       'access-token', USER_ID, AUTH_GENERATION, 'user',
     );
     await Promise.resolve();
-    expect(clearFcmOptOut).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(clearFcmOptOut).toHaveBeenCalledOnce());
     resolveDeactivation();
-    await deactivation;
+    await expect(deactivation).rejects.toThrow('알림 설정이 변경');
     await enable;
-
-    expect(vi.mocked(saveFcmOptOut).mock.invocationCallOrder.at(-1)).toBeLessThan(
-      vi.mocked(clearFcmOptOut).mock.invocationCallOrder[0]!,
+    expect(saveFcmOptOut).not.toHaveBeenCalledWith(
+      USER_ID, expect.anything(), AUTH_GENERATION, {status: 'confirmed'},
     );
   });
 
@@ -587,6 +662,37 @@ describe('FCM registration', () => {
     );
     expect(vi.mocked(clearFcmOptOut).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(registerMyFcmToken).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('cancels an old disable after its internal await when a newer enable wins', async () => {
+    let releaseInternalPendingWrite!: () => void;
+    let saveCalls = 0;
+    vi.mocked(getStoredFcmRegistration).mockResolvedValue({
+      token: 'old-token', tokenId: 77, userId: USER_ID,
+      clientInstanceId: 'faithlog-client-1',
+    });
+    vi.mocked(saveFcmOptOut).mockImplementation(async () => {
+      saveCalls += 1;
+      if (saveCalls === 2) {
+        await new Promise<void>((resolve) => { releaseInternalPendingWrite = resolve; });
+      }
+      return true;
+    });
+    vi.mocked(getDeviceFcmToken).mockResolvedValue({
+      status: 'unavailable', reason: 'permissionUnavailable', message: 'token unavailable',
+    });
+
+    const disable = deactivateCurrentFcmToken('access-token', USER_ID, AUTH_GENERATION);
+    await vi.waitFor(() => expect(saveCalls).toBe(2));
+    const enable = registerCurrentFcmToken('access-token', USER_ID, AUTH_GENERATION, 'user');
+    await vi.waitFor(() => expect(clearFcmOptOut).toHaveBeenCalledOnce());
+    releaseInternalPendingWrite();
+    await expect(disable).rejects.toThrow('알림 설정이 변경');
+    await enable;
+    expect(deactivateMyFcmToken).not.toHaveBeenCalled();
+    expect(saveFcmOptOut).not.toHaveBeenCalledWith(
+      USER_ID, expect.anything(), AUTH_GENERATION, {status: 'confirmed'},
     );
   });
 

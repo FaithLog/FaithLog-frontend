@@ -17,6 +17,7 @@ import {
   isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   markAuthSessionClosing,
+  markFcmRemoteCleanupPending,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
@@ -176,6 +177,9 @@ async function prepareCurrentSessionLogoutInternal(
   }
   const handedOffTokensPromise = collectRefreshTokensForLogout(expectedGeneration);
   const fcmOperations = capturePendingFcmOperations(expectedGeneration);
+  if (fcmOperations.hasPendingOperations) {
+    await markFcmRemoteCleanupPending(fcmOperations.obligations ?? []);
+  }
   let authSession: Awaited<ReturnType<typeof getStoredAuthSession>>;
   let preparationWarning: string | null = null;
 
@@ -330,7 +334,7 @@ async function completeRemoteLogout(
     return {status: 'signedOutWithRemoteWarning', message: remoteWarning};
   }
 
-  await clearFcmRemoteCleanupGateIfIdle();
+  await clearFcmRemoteCleanupGateIfIdle(durableObligations);
 
   return {status: 'signedOut'};
 }
@@ -404,11 +408,12 @@ function createClientLogoutObligation(
   refreshToken: string | null,
   clientInstanceId: string | undefined,
 ): FcmRemoteCleanupObligation[] {
-  return accessToken && clientInstanceId
+  return accessToken
     ? [{
         accessToken,
         refreshToken,
-        clientInstanceId,
+        clientInstanceId: clientInstanceId ?? null,
+        userId: null,
         kind: 'clientLogout',
         token: null,
         tokenId: null,

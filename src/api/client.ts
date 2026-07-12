@@ -1581,6 +1581,16 @@ export function refreshAuthToken(
   });
 }
 
+export function refreshAuthTokenForCleanup(refreshToken: string) {
+  return apiRequest<TokenPair>('/api/v1/auth/refresh', {
+    allowAuthSessionChange: true,
+    skipAuthRefresh: true,
+    responseParser: parseTokenPair,
+    method: 'POST',
+    body: {refreshToken},
+  });
+}
+
 export function signupUser(body: SignupRequest) {
   return apiRequest<SignupResponse>('/api/v1/auth/signup', {
     responseParser: parseSignupResponse,

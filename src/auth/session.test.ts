@@ -27,6 +27,7 @@ vi.mock('../api/tokenStorage', () => ({
   isAuthSessionGenerationCurrent: vi.fn(),
   isAuthSessionRequestAllowed: vi.fn(),
   markAuthSessionClosing: vi.fn(),
+  markFcmRemoteCleanupPending: vi.fn(async () => undefined),
   rotateClientInstanceId: vi.fn(),
   saveSelectedCampusId: vi.fn(),
   saveTokens: vi.fn(),
@@ -74,6 +75,7 @@ import {
   isAuthSessionGenerationCurrent,
   isAuthSessionRequestAllowed,
   markAuthSessionClosing,
+  markFcmRemoteCleanupPending,
   rotateClientInstanceId,
   saveSelectedCampusId,
   saveTokens,
@@ -295,6 +297,25 @@ describe('auth session lifecycle', () => {
     await vi.waitFor(() => expect(getLogoutFcmDeactivationPayload).toHaveBeenCalledOnce());
     expect(vi.mocked(clearTokens).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(getLogoutFcmDeactivationPayload).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('persists captured remote obligations before clearing local auth', async () => {
+    const obligation = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: 42,
+      clientInstanceId: 'old-client', kind: 'registration' as const,
+      token: 'old-token', tokenId: null, state: 'mayHaveSent' as const,
+    };
+    vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+      barrier: Promise.resolve(),
+      settlement: Promise.resolve([obligation]),
+      obligations: [obligation],
+      hasPendingOperations: true,
+    });
+    await prepareCurrentSessionLogout(CURRENT_USER.id);
+    expect(markFcmRemoteCleanupPending).toHaveBeenCalledWith([obligation]);
+    expect(vi.mocked(markFcmRemoteCleanupPending).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(clearTokens).mock.invocationCallOrder[0]!,
     );
   });
 
@@ -618,7 +639,8 @@ describe('auth session lifecycle', () => {
       vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
         barrier: registrationBarrier,
         settlement: registrationBarrier.then(() => [{
-          accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+          accessToken: 'captured-old-access', userId: CURRENT_USER.id,
+          clientInstanceId: 'captured-old-client',
           kind: 'registration' as const, token: 'captured-token', tokenId: null,
           state: 'mayHaveSent' as const,
         }]),
@@ -651,11 +673,13 @@ describe('auth session lifecycle', () => {
   it('cleans captured old clients A/B before current-client logout and auth entry', async () => {
     const obligations = [
       {
-        accessToken: 'old-access', clientInstanceId: 'old-A', kind: 'registration' as const,
+        accessToken: 'old-access', userId: CURRENT_USER.id,
+        clientInstanceId: 'old-A', kind: 'registration' as const,
         token: 'token-A', tokenId: null, state: 'mayHaveSent' as const,
       },
       {
-        accessToken: 'old-access', clientInstanceId: 'old-B', kind: 'deactivation' as const,
+        accessToken: 'old-access', userId: CURRENT_USER.id,
+        clientInstanceId: 'old-B', kind: 'deactivation' as const,
         token: null, tokenId: 202, state: 'mayHaveSent' as const,
       },
     ];
@@ -707,7 +731,8 @@ describe('auth session lifecycle', () => {
         let finishOperation!: () => void;
         const barrier = new Promise<void>((resolve) => { finishOperation = resolve; });
         const obligation = {
-          accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+          accessToken: 'captured-old-access', userId: CURRENT_USER.id,
+          clientInstanceId: 'captured-old-client',
           kind: 'registration' as const, token: 'captured-token', tokenId: null,
           state: 'mayHaveSent' as const,
         };
@@ -745,7 +770,8 @@ describe('auth session lifecycle', () => {
         generation: AUTH_GENERATION, accessToken: null, refreshToken: null,
       });
       const obligation = {
-        accessToken: 'captured-old-access', clientInstanceId: 'captured-old-client',
+        accessToken: 'captured-old-access', userId: CURRENT_USER.id,
+        clientInstanceId: 'captured-old-client',
         kind: 'registration' as const, token: 'captured-token', tokenId: null,
         state: 'mayHaveSent' as const,
       };
