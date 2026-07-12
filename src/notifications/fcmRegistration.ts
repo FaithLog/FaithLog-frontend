@@ -12,7 +12,6 @@ import {
   clearFcmRegistrationAttempt,
   clearFcmRegistrationAttemptAfterRemoteCleanup,
   clearFcmRegistrationAttemptsForClientInstance,
-  clearFcmRemoteCleanupObligations,
   clearFcmOptOut,
   getAuthSessionGeneration,
   getStoredAuthSession,
@@ -20,7 +19,7 @@ import {
   getOrCreateClientInstanceId,
   getFcmOptOutState,
   getFcmRegistrationAttempts,
-  getFcmRemoteCleanupObligations,
+  hasUnclaimedFcmRemoteCleanupPending,
   getStoredFcmRegistration,
   isFcmOptedOut,
   isAuthSessionGenerationCurrent,
@@ -29,6 +28,9 @@ import {
   saveFcmRegistrationAttempt,
   saveFcmOptOut,
   markFcmRemoteCleanupPending,
+  claimFcmRemoteCleanupForAccountDeletion,
+  completeFcmAccountDeletionClaim,
+  restoreFcmAccountDeletionClaim,
   replaceFcmRemoteCleanupObligations,
   rotateClientInstanceId,
   type AuthSessionGeneration,
@@ -57,7 +59,6 @@ type PendingFcmOperation = {
   accessToken: string | undefined;
   refreshToken: string | null | undefined;
   capturedForCleanup: boolean;
-  serverBoundaryCrossed: boolean;
   privacyIntent?: Promise<void>;
   obligations: Set<FcmRemoteCleanupObligation>;
   promise: Promise<unknown>;
@@ -108,13 +109,16 @@ export function beginAccountDeletionFcmPreflight(generation: AuthSessionGenerati
   })();
   return {
     join: () => claimedReceipts.then(() => undefined),
-    clearForDelete: async () => {
-      await clearFcmRemoteCleanupObligations(await claimedReceipts);
-    },
-    restore: async () => {
+    claimForDelete: async () => {
       const receipts = await claimedReceipts;
-      if (receipts.length > 0) await markFcmRemoteCleanupPending(receipts);
+      await claimFcmRemoteCleanupForAccountDeletion(
+        receipts,
+        receipts.filter((receipt) =>
+          receipt.state === 'mayHaveSent' || receipt.state === 'registered'),
+      );
     },
+    restore: restoreFcmAccountDeletionClaim,
+    complete: completeFcmAccountDeletionClaim,
     release: () => {
       if (frozenFcmGenerations.get(generation) === epoch) {
         frozenFcmGenerations.delete(generation);
@@ -139,33 +143,37 @@ export async function runAccountDeletionWithFcmPreflight<T>(
   let retainFreezeForAuthTransition = false;
   try {
     await preflight.join();
-    let accessToken: string | null;
-    try {
-      accessToken = await resolveLatestAccessToken();
-    } catch (error) {
-      if (isAuthSessionRequestAllowed(generation)) {
-        await preflight.clearForDelete();
-      } else {
-        retainFreezeForAuthTransition = true;
-      }
-      throw error;
-    }
-    if (!accessToken || !isAuthSessionRequestAllowed(generation)) {
-      retainFreezeForAuthTransition = true;
-      return {status: 'cancelled'};
-    }
-    await preflight.clearForDelete();
-    if ((await getFcmRemoteCleanupObligations()) !== null) {
+    await preflight.claimForDelete();
+    if (await hasUnclaimedFcmRemoteCleanupPending()) {
+      await preflight.restore();
       throw new FaithLogApiError({
         kind: 'conflict',
         code: 'FCM_CLEANUP_PENDING',
         message: '이전 알림 연결 정리를 먼저 완료해야 합니다.',
       });
     }
+    let accessToken: string | null;
+    try {
+      accessToken = await resolveLatestAccessToken();
+    } catch (error) {
+      try {
+        await preflight.restore();
+      } catch (restoreError) {
+        rejectTransitionBarrier(restoreError);
+        throw restoreError;
+      }
+      retainFreezeForAuthTransition = !isAuthSessionRequestAllowed(generation);
+      throw error;
+    }
+    if (!accessToken || !isAuthSessionRequestAllowed(generation)) {
+      retainFreezeForAuthTransition = true;
+      await preflight.restore();
+      return {status: 'cancelled'};
+    }
     if (!isAuthSessionRequestAllowed(generation)) {
       retainFreezeForAuthTransition = true;
       try {
-        await restoreAccountDeletionReceipts(preflight);
+        await preflight.restore();
       } catch (restoreError) {
         rejectTransitionBarrier(restoreError);
         throw restoreError;
@@ -181,34 +189,26 @@ export async function runAccountDeletionWithFcmPreflight<T>(
         // result is its desired terminal state. Invalid credentials cannot
         // safely reconcile a teardown gate after restart.
         retainFreezeForAuthTransition = true;
+        await preflight.complete();
       } else if (isAccountDeletionAuthSessionChangedError(error)) {
         retainFreezeForAuthTransition = true;
         try {
-          await restoreAccountDeletionReceipts(preflight);
+          await preflight.restore();
         } catch (restoreError) {
           rejectTransitionBarrier(restoreError);
           throw restoreError;
         }
+      } else {
+        await preflight.restore();
       }
       throw error;
     }
+    await preflight.complete();
     completed = true;
     return {status: 'completed', value};
   } finally {
     releaseTransitionBarrier();
     if (!completed && !retainFreezeForAuthTransition) preflight.release();
-  }
-}
-
-async function restoreAccountDeletionReceipts(
-  preflight: ReturnType<typeof beginAccountDeletionFcmPreflight>,
-) {
-  try {
-    await preflight.restore();
-  } catch {
-    // A transient SecureStore failure must not turn a durable cross-account
-    // cleanup debt into a memory-only restart latch.
-    await preflight.restore();
   }
 }
 
@@ -546,7 +546,6 @@ export function registerFcmTokenValue(
     accessToken,
     refreshToken: undefined,
     capturedForCleanup: false,
-    serverBoundaryCrossed: false,
     obligations: new Set(),
     promise: Promise.resolve(),
   };
@@ -603,7 +602,8 @@ export function capturePendingFcmOperations(expectedGeneration?: number): {
     hasPendingOperations: obligations.some((obligation) => obligation.state !== 'prepared'),
     hasPendingContexts: pendingAtCapture.length > 0,
     hasServerObligations: () => pendingAtCapture.some((operation) =>
-      operation.serverBoundaryCrossed),
+      [...operation.obligations].some((obligation) =>
+        obligation.state === 'mayHaveSent' || obligation.state === 'registered')),
   };
 }
 
@@ -677,7 +677,7 @@ async function registerFcmTokenValueInternal(
       : undefined,
   );
   if (obligation) {
-    obligation.state = 'registered';
+    if (obligation.state !== 'prepared') obligation.state = 'registered';
     obligation.tokenId = registration.tokenId;
   }
 
@@ -736,7 +736,7 @@ async function deactivateStaleFcmToken(
       (tokens) => updateFcmOperationCredentials(context, tokens),
       () => markFcmObligationDispatched(context, obligation),
     );
-    obligation.state = 'cleaned';
+    if (obligation.state !== 'prepared') obligation.state = 'cleaned';
   } catch {
     // A stale push token should not block the fresh registration from being used.
   }
@@ -897,11 +897,13 @@ async function deactivateCurrentFcmTokenInternal(
           throw error;
         }
       }
-      deactivationObligation.state = 'cleaned';
+      if (deactivationObligation.state !== 'prepared') {
+        deactivationObligation.state = 'cleaned';
+      }
       performedCleanup = true;
       for (const obligation of context.obligations) {
         if (obligation.kind === 'registration' && obligation.tokenId === target.tokenId) {
-          obligation.state = 'cleaned';
+          if (obligation.state !== 'prepared') obligation.state = 'cleaned';
         }
       }
       await clearFcmRegistration(generation);
@@ -937,7 +939,6 @@ function createPendingFcmOperation(
     accessToken: undefined,
     refreshToken: undefined,
     capturedForCleanup: false,
-    serverBoundaryCrossed: false,
     obligations: new Set(),
     promise: Promise.resolve(),
   };
@@ -984,7 +985,9 @@ async function reconcileFcmRegistrationAttempts(
       (tokens) => updateFcmOperationCredentials(context, tokens),
       () => markFcmObligationDispatched(context, registrationObligation),
     );
-    registrationObligation.state = 'registered';
+    if (registrationObligation.state !== 'prepared') {
+      registrationObligation.state = 'registered';
+    }
     registrationObligation.tokenId = recovered.tokenId;
     if (context.capturedForCleanup) {
       await markFcmRemoteCleanupPending([registrationObligation]);
@@ -1009,8 +1012,8 @@ async function reconcileFcmRegistrationAttempts(
     } catch (error) {
       if (!(error instanceof FaithLogApiError && error.detail.status === 404)) throw error;
     }
-    registrationObligation.state = 'cleaned';
-    deactivationObligation.state = 'cleaned';
+    if (registrationObligation.state !== 'prepared') registrationObligation.state = 'cleaned';
+    if (deactivationObligation.state !== 'prepared') deactivationObligation.state = 'cleaned';
 
     const stored = await getStoredFcmRegistration();
     if (
@@ -1038,10 +1041,9 @@ function addFcmObligation(
 }
 
 function markFcmObligationDispatched(
-  context: PendingFcmOperation,
+  _context: PendingFcmOperation,
   obligation: FcmRemoteCleanupObligation,
 ) {
-  context.serverBoundaryCrossed = true;
   if (obligation.state === 'prepared') obligation.state = 'mayHaveSent';
 }
 

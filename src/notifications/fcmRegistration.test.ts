@@ -43,6 +43,10 @@ vi.mock('../api/tokenStorage', () => ({
   replaceFcmRemoteCleanupObligations: vi.fn(),
   clearFcmRegistrationAttemptsForClientInstance: vi.fn(),
   clearFcmRemoteCleanupObligations: vi.fn(),
+  claimFcmRemoteCleanupForAccountDeletion: vi.fn(),
+  completeFcmAccountDeletionClaim: vi.fn(),
+  restoreFcmAccountDeletionClaim: vi.fn(),
+  hasUnclaimedFcmRemoteCleanupPending: vi.fn(async () => false),
   rotateClientInstanceId: vi.fn(async () => true),
 }));
 
@@ -256,6 +260,12 @@ describe('FCM registration', () => {
           isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
           lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 93,
         };
+      },
+    );
+    vi.mocked(deactivateMyFcmToken).mockImplementation(
+      async (_access, _tokenId, _generation, _onTokens, onDispatch) => {
+        onDispatch?.();
+        return null;
       },
     );
 
@@ -505,6 +515,7 @@ describe('FCM registration', () => {
     await expect(captured.settlement).resolves.toEqual([
       expect.objectContaining({kind: 'deactivation', tokenId: 77, state: 'cleaned'}),
     ]);
+    expect(captured.hasServerObligations?.()).toBe(false);
   });
 
   it('marks attempt recovery POST as server-capable until cleanup settles', async () => {
@@ -516,6 +527,12 @@ describe('FCM registration', () => {
       async (_access, _body, _generation, _onTokens, onDispatch) => {
         onDispatch?.();
         return new Promise((resolve) => { resolveRecovery = resolve; });
+      },
+    );
+    vi.mocked(deactivateMyFcmToken).mockImplementation(
+      async (_access, _tokenId, _generation, _onTokens, onDispatch) => {
+        onDispatch?.();
+        return null;
       },
     );
     const deactivation = deactivateCurrentFcmToken(
@@ -534,6 +551,7 @@ describe('FCM registration', () => {
       expect.objectContaining({kind: 'registration', tokenId: 91, state: 'cleaned'}),
       expect.objectContaining({kind: 'deactivation', tokenId: 91, state: 'cleaned'}),
     ]);
+    expect(captured.hasServerObligations?.()).toBe(false);
   });
 
   it('compensates every distinct old-client registration before auth cleanup', async () => {

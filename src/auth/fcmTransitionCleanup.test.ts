@@ -19,6 +19,9 @@ vi.mock('../api/tokenStorage', () => ({
     if (state.obligations.length === 0) state.obligations = null;
   }),
   getFcmRemoteCleanupObligations: vi.fn(async () => state.obligations),
+  getFcmAccountDeletionClaimCleanupReceipts: vi.fn(async () => null),
+  completeFcmAccountDeletionClaim: vi.fn(async () => undefined),
+  completeFcmAccountDeletionClaimAfterCleanup: vi.fn(async () => undefined),
   markFcmRemoteCleanupPending: vi.fn(async (obligations: unknown[] = []) => {
     state.obligations = obligations.length > 0 ? obligations : state.obligations ?? [];
   }),

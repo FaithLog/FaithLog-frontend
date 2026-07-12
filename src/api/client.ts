@@ -1235,12 +1235,14 @@ async function executeApiRequest<T>(
     },
     ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   };
-  const response = isMockModeEnabled()
+  const mockMode = isMockModeEnabled();
+  const response = mockMode
     ? await executeMockRequest(path, init)
     : await fetchWithTimeout(
         buildApiUrl(path),
         init,
         options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+        options.onRequestDispatch,
       );
   const envelope = await parseEnvelope<T>(
     response,
@@ -1275,7 +1277,12 @@ async function executeApiRequest<T>(
   }
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  onRequestDispatch?: () => void,
+) {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -1284,6 +1291,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }, Math.max(1, timeoutMs));
 
   try {
+    onRequestDispatch?.();
     return await fetch(url, {...init, signal: controller.signal});
   } catch (error) {
     if (timedOut) {
@@ -1324,7 +1332,6 @@ export async function apiRequest<T>(
   try {
     await assertRequestAccessTokenIsOwned(requestOptions);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
-    requestOptions.onRequestDispatch?.();
     const data = await executeApiRequest<T>(path, requestOptions);
     requestOptions.onResponseParsed?.(data);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
@@ -1374,7 +1381,6 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
   assertAuthSessionRequestIsAllowed(generation);
 
   try {
-    options.onRequestDispatch?.();
     const data = await executeApiRequest<T>(path, {
       ...options,
       accessToken: tokens.accessToken,

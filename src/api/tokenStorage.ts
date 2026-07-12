@@ -81,6 +81,16 @@ export type StoredFcmRemoteCleanupObligation = {
   tokenId: number | null;
 };
 
+type StoredFcmAccountDeletionClaim = {
+  claimedIdentities: string[];
+  cleanupReceipts: StoredFcmRemoteCleanupObligation[];
+};
+
+type StoredFcmRemoteCleanupState = {
+  obligations: StoredFcmRemoteCleanupObligation[];
+  accountDeletionClaim: StoredFcmAccountDeletionClaim | null;
+};
+
 export type StoredPrayerSeason = {
   seasonId: number;
   name: string;
@@ -661,19 +671,36 @@ export async function markFcmRemoteCleanupPending(
 ) {
   if (obligations.length === 0) return;
   await withSecureStorageLock(async () => {
-    const current = parseStoredFcmRemoteCleanupObligations(
-      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
-    );
+    const state = await readFcmRemoteCleanupState();
+    const claim = state.accountDeletionClaim;
+    const claimed = new Set(claim?.claimedIdentities ?? []);
     const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
-    for (const entry of [...current, ...obligations]) {
+    for (const entry of state.obligations) {
       const identity = getFcmRemoteCleanupIdentity(entry);
       byIdentity.set(identity, entry);
     }
+    const claimedCleanup = new Map<string, StoredFcmRemoteCleanupObligation>();
+    for (const entry of claim?.cleanupReceipts ?? []) {
+      claimedCleanup.set(getFcmRemoteCleanupIdentity(entry), entry);
+    }
+    for (const entry of obligations) {
+      const identity = getFcmRemoteCleanupIdentity(entry);
+      if (claimed.has(identity)) {
+        const liveState = (entry as StoredFcmRemoteCleanupObligation & {state?: string}).state;
+        if (liveState !== 'prepared' && liveState !== 'cleaned') {
+          claimedCleanup.set(identity, entry);
+        }
+      } else {
+        byIdentity.set(identity, entry);
+      }
+    }
     const merged = [...byIdentity.values()];
-    await setStorageItem(
-      FCM_REMOTE_CLEANUP_PENDING_KEY,
-      JSON.stringify({version: 1, obligations: merged}),
-    );
+    await writeFcmRemoteCleanupState({
+      obligations: merged,
+      accountDeletionClaim: claim
+        ? {...claim, cleanupReceipts: [...claimedCleanup.values()]}
+        : null,
+    });
   });
 }
 
@@ -778,10 +805,9 @@ async function readStoredTokenRecordForTeardown(): Promise<StoredTokenRecord | n
 }
 
 async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord | null) {
-  const current = parseStoredFcmRemoteCleanupObligations(
-    await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
-  );
-  const canonical = current.find((entry) =>
+  const state = await readFcmRemoteCleanupState();
+  const canonical = [...state.obligations, ...(state.accountDeletionClaim?.cleanupReceipts ?? [])]
+    .find((entry) =>
     entry.kind === 'clientLogout' && entry.clientInstanceId === null);
   if (canonical) {
     return {
@@ -804,14 +830,12 @@ async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord | n
   };
   const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
   const identity = getFcmRemoteCleanupIdentity(sessionLogout);
-  const inserted = !current.some((entry) => getFcmRemoteCleanupIdentity(entry) === identity);
-  for (const entry of [...current, sessionLogout]) {
+  const inserted = !state.obligations.some(
+    (entry) => getFcmRemoteCleanupIdentity(entry) === identity);
+  for (const entry of [...state.obligations, sessionLogout]) {
     byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
   }
-  await setStorageItem(
-    FCM_REMOTE_CLEANUP_PENDING_KEY,
-    JSON.stringify({version: 1, obligations: [...byIdentity.values()]}),
-  );
+  await writeFcmRemoteCleanupState({...state, obligations: [...byIdentity.values()]});
   return {
     inserted,
     tokens: {accessToken: record.accessToken, refreshToken: record.refreshToken},
@@ -819,9 +843,7 @@ async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord | n
 }
 
 async function removeStoredSessionLogoutObligation(record: StoredTokenRecord) {
-  const current = parseStoredFcmRemoteCleanupObligations(
-    await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
-  );
+  const state = await readFcmRemoteCleanupState();
   const identity = getFcmRemoteCleanupIdentity({
     accessToken: record.accessToken,
     refreshToken: record.refreshToken,
@@ -831,17 +853,10 @@ async function removeStoredSessionLogoutObligation(record: StoredTokenRecord) {
     token: null,
     tokenId: null,
   });
-  const remaining = current.filter(
+  const remaining = state.obligations.filter(
     (entry) => getFcmRemoteCleanupIdentity(entry) !== identity,
   );
-  if (remaining.length === 0) {
-    await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
-    return;
-  }
-  await setStorageItem(
-    FCM_REMOTE_CLEANUP_PENDING_KEY,
-    JSON.stringify({version: 1, obligations: remaining}),
-  );
+  await writeFcmRemoteCleanupState({...state, obligations: remaining});
 }
 
 export async function clearFcmRemoteCleanupPending() {
@@ -853,21 +868,101 @@ export async function clearFcmRemoteCleanupObligations(
 ) {
   if (obligations.length === 0) return;
   await withSecureStorageLock(async () => {
-    const current = parseStoredFcmRemoteCleanupObligations(
-      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
-    );
+    const state = await readFcmRemoteCleanupState();
     const cleared = new Set(obligations.map(getFcmRemoteCleanupIdentity));
-    const remaining = current.filter(
+    const remaining = state.obligations.filter(
       (entry) => !cleared.has(getFcmRemoteCleanupIdentity(entry)),
     );
-    if (remaining.length === 0) {
-      await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
-    } else {
-      await setStorageItem(
-        FCM_REMOTE_CLEANUP_PENDING_KEY,
-        JSON.stringify({version: 1, obligations: remaining}),
-      );
+    const claim = state.accountDeletionClaim;
+    const remainingClaimedIdentities = claim?.claimedIdentities.filter(
+      (identity) => !cleared.has(identity),
+    ) ?? [];
+    await writeFcmRemoteCleanupState({
+      obligations: remaining,
+      accountDeletionClaim: claim && remainingClaimedIdentities.length > 0
+        ? {
+            claimedIdentities: remainingClaimedIdentities,
+            cleanupReceipts: claim.cleanupReceipts.filter(
+              (entry) => !cleared.has(getFcmRemoteCleanupIdentity(entry))),
+          }
+        : null,
+    });
+  });
+}
+
+export async function claimFcmRemoteCleanupForAccountDeletion(
+  claimedObligations: StoredFcmRemoteCleanupObligation[],
+  cleanupReceipts: StoredFcmRemoteCleanupObligation[],
+) {
+  if (claimedObligations.length === 0) return;
+  await withSecureStorageLock(async () => {
+    const state = await readFcmRemoteCleanupState();
+    if (state.accountDeletionClaim) {
+      throw new Error('An account deletion cleanup claim is already pending.');
     }
+    const claimedIdentities = [...new Set(
+      claimedObligations.map(getFcmRemoteCleanupIdentity),
+    )];
+    const cleanupByIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
+    for (const receipt of cleanupReceipts) {
+      cleanupByIdentity.set(getFcmRemoteCleanupIdentity(receipt), receipt);
+    }
+    const moved = new Set(claimedIdentities);
+    await writeFcmRemoteCleanupState({
+      obligations: state.obligations.filter(
+        (entry) => !moved.has(getFcmRemoteCleanupIdentity(entry))),
+      accountDeletionClaim: {
+        claimedIdentities,
+        cleanupReceipts: [...cleanupByIdentity.values()],
+      },
+    });
+  });
+}
+
+export async function restoreFcmAccountDeletionClaim() {
+  await withSecureStorageLock(async () => {
+    const state = await readFcmRemoteCleanupState();
+    if (!state.accountDeletionClaim) return;
+    const restored = new Map<string, StoredFcmRemoteCleanupObligation>();
+    for (const entry of [
+      ...state.obligations,
+      ...state.accountDeletionClaim.cleanupReceipts,
+    ]) {
+      restored.set(getFcmRemoteCleanupIdentity(entry), entry);
+    }
+    await writeFcmRemoteCleanupState({
+      obligations: [...restored.values()],
+      accountDeletionClaim: null,
+    });
+  });
+}
+
+export async function completeFcmAccountDeletionClaim() {
+  await withSecureStorageLock(async () => {
+    const state = await readFcmRemoteCleanupState();
+    await writeFcmRemoteCleanupState({...state, accountDeletionClaim: null});
+  });
+}
+
+export async function completeFcmAccountDeletionClaimAfterCleanup(
+  processed: StoredFcmRemoteCleanupObligation[],
+) {
+  await withSecureStorageLock(async () => {
+    const state = await readFcmRemoteCleanupState();
+    const completed = new Set(processed.map(getFcmRemoteCleanupIdentity));
+    await writeFcmRemoteCleanupState({
+      obligations: state.obligations.filter(
+        (entry) => !completed.has(getFcmRemoteCleanupIdentity(entry))),
+      accountDeletionClaim: null,
+    });
+  });
+}
+
+export async function hasUnclaimedFcmRemoteCleanupPending() {
+  return withSecureStorageLock(async () => {
+    const value = await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+    if (!value) return false;
+    return parseStoredFcmRemoteCleanupState(value).obligations.length > 0;
   });
 }
 
@@ -876,12 +971,10 @@ export async function replaceFcmRemoteCleanupObligations(
   replacements: StoredFcmRemoteCleanupObligation[],
 ) {
   await withSecureStorageLock(async () => {
-    const current = parseStoredFcmRemoteCleanupObligations(
-      await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
-    );
+    const state = await readFcmRemoteCleanupState();
     const removed = new Set(completed.map(getFcmRemoteCleanupIdentity));
     const byIdentity = new Map<string, StoredFcmRemoteCleanupObligation>();
-    for (const entry of current) {
+    for (const entry of state.obligations) {
       if (!removed.has(getFcmRemoteCleanupIdentity(entry))) {
         byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
       }
@@ -890,19 +983,19 @@ export async function replaceFcmRemoteCleanupObligations(
       byIdentity.set(getFcmRemoteCleanupIdentity(entry), entry);
     }
     const next = [...byIdentity.values()];
-    if (next.length === 0) {
-      await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
-    } else {
-      await setStorageItem(
-        FCM_REMOTE_CLEANUP_PENDING_KEY,
-        JSON.stringify({version: 1, obligations: next}),
-      );
-    }
+    await writeFcmRemoteCleanupState({...state, obligations: next});
   });
 }
 
 export async function hasFcmRemoteCleanupPending() {
-  return (await getFcmRemoteCleanupObligations()) !== null;
+  return withSecureStorageLock(async () => {
+    try {
+      const state = await readFcmRemoteCleanupState();
+      return state.obligations.length > 0 || state.accountDeletionClaim !== null;
+    } catch {
+      return true;
+    }
+  });
 }
 
 export async function getFcmRemoteCleanupObligations() {
@@ -910,15 +1003,22 @@ export async function getFcmRemoteCleanupObligations() {
     const value = await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
     if (!value) return null;
     try {
-      const obligations = parseStoredFcmRemoteCleanupObligations(value);
-      if (obligations.length === 0) {
+      const state = parseStoredFcmRemoteCleanupState(value);
+      if (state.obligations.length === 0 && !state.accountDeletionClaim) {
         await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
         return null;
       }
-      return obligations;
+      return state.obligations.length > 0 ? state.obligations : null;
     } catch {
       return [];
     }
+  });
+}
+
+export async function getFcmAccountDeletionClaimCleanupReceipts() {
+  return withSecureStorageLock(async () => {
+    const state = await readFcmRemoteCleanupState();
+    return state.accountDeletionClaim?.cleanupReceipts ?? null;
   });
 }
 
@@ -1250,6 +1350,80 @@ function normalizeFcmRegistrationAttempt(value: unknown): StoredFcmRegistrationA
     clientInstanceId: attempt.clientInstanceId.trim(),
     token: attempt.token.trim(),
   };
+}
+
+async function readFcmRemoteCleanupState() {
+  return parseStoredFcmRemoteCleanupState(
+    await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
+  );
+}
+
+async function writeFcmRemoteCleanupState(state: StoredFcmRemoteCleanupState) {
+  const claim = state.accountDeletionClaim;
+  if (state.obligations.length === 0 && !claim) {
+    await deleteStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY);
+    return;
+  }
+  await setStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY, JSON.stringify({
+    version: 2,
+    obligations: state.obligations,
+    accountDeletionClaim: claim,
+  }));
+}
+
+function parseStoredFcmRemoteCleanupState(value: string | null): StoredFcmRemoteCleanupState {
+  if (!value) return {obligations: [], accountDeletionClaim: null};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (parsed.version === 1) {
+      return {
+        obligations: parseStoredFcmRemoteCleanupObligations(value),
+        accountDeletionClaim: null,
+      };
+    }
+    if (parsed.version !== 2 || !Array.isArray(parsed.obligations)) {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    const obligations = parseStoredFcmRemoteCleanupObligations(JSON.stringify({
+      version: 1,
+      obligations: parsed.obligations,
+    }));
+    if (parsed.accountDeletionClaim === null) {
+      return {obligations, accountDeletionClaim: null};
+    }
+    if (!parsed.accountDeletionClaim || typeof parsed.accountDeletionClaim !== 'object') {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    const claim = parsed.accountDeletionClaim as Record<string, unknown>;
+    if (!Array.isArray(claim.claimedIdentities) ||
+        claim.claimedIdentities.length === 0 ||
+        !claim.claimedIdentities.every((identity) =>
+          typeof identity === 'string' && Boolean(identity))) {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    const claimedIdentities = claim.claimedIdentities as string[];
+    if (new Set(claimedIdentities).size !== claimedIdentities.length ||
+        !Array.isArray(claim.cleanupReceipts)) {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    const cleanupReceipts = parseStoredFcmRemoteCleanupObligations(JSON.stringify({
+      version: 1,
+      obligations: claim.cleanupReceipts,
+    }));
+    const claimed = new Set(claimedIdentities);
+    if (cleanupReceipts.some(
+      (entry) => !claimed.has(getFcmRemoteCleanupIdentity(entry)),
+    )) {
+      throw new CorruptFcmPrivacyStateError('remoteCleanup');
+    }
+    return {
+      obligations,
+      accountDeletionClaim: {claimedIdentities, cleanupReceipts},
+    };
+  } catch (error) {
+    if (error instanceof CorruptFcmPrivacyStateError) throw error;
+    throw new CorruptFcmPrivacyStateError('remoteCleanup');
+  }
 }
 
 function parseStoredFcmRemoteCleanupObligations(

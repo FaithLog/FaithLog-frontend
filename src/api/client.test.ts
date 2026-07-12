@@ -1040,6 +1040,46 @@ describe('FaithLog API client', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('reports dispatch only at the production fetch boundary', async () => {
+    const onDispatch = vi.fn();
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      expect(onDispatch).toHaveBeenCalledOnce();
+      return jsonResponse(200, envelope({
+        appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-13T00:00:00.000Z',
+        lastSeenAt: '2026-07-13T00:00:00.000Z', tokenId: 77,
+      }));
+    });
+
+    await expect(registerMyFcmToken(
+      'access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      undefined,
+      onDispatch,
+    )).resolves.toMatchObject({tokenId: 77});
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the receipt prepared when URL validation fails before fetch', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:8080';
+    const onDispatch = vi.fn();
+
+    await expect(registerMyFcmToken(
+      'access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      undefined,
+      onDispatch,
+    )).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'CONFIGURATION'});
+      return true;
+    });
+    expect(onDispatch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('retries a same-session stale token with an already rotated stored token', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,

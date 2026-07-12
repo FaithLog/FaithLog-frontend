@@ -1,5 +1,8 @@
 import {
   clearFcmRemoteCleanupObligations,
+  completeFcmAccountDeletionClaim,
+  completeFcmAccountDeletionClaimAfterCleanup,
+  getFcmAccountDeletionClaimCleanupReceipts,
   getFcmRemoteCleanupObligations,
   markFcmRemoteCleanupPending,
 } from '../api/tokenStorage';
@@ -165,6 +168,30 @@ export async function waitForFcmTransitionCleanup(timeoutMs: number) {
 
 async function reconcileDurableCleanup(deadline: number) {
   try {
+    const claimed = await runBeforeDeadline(
+      getFcmAccountDeletionClaimCleanupReceipts(), deadline,
+    );
+    if (claimed !== null) {
+      if (claimed.length === 0) {
+        await runBeforeDeadline(completeFcmAccountDeletionClaim(), deadline);
+      } else {
+        try {
+          const processedClaim = await runBeforeDeadline(
+            compensateCleanup(claimed.map((obligation) => ({
+              ...obligation, state: 'mayHaveSent' as const,
+            }))),
+            deadline,
+          );
+          await runBeforeDeadline(
+            completeFcmAccountDeletionClaimAfterCleanup(processedClaim),
+            deadline,
+          );
+        } catch (error) {
+          if (!isDefinitiveAccountDeletionTerminal(error)) throw error;
+          await runBeforeDeadline(completeFcmAccountDeletionClaim(), deadline);
+        }
+      }
+    }
     const durable = await runBeforeDeadline(getFcmRemoteCleanupObligations(), deadline);
     if (durable === null) return true;
     if (durable.length === 0) return false;
@@ -180,6 +207,12 @@ async function reconcileDurableCleanup(deadline: number) {
     restartRequired = true;
     return false;
   }
+}
+
+function isDefinitiveAccountDeletionTerminal(error: unknown) {
+  if (!error || typeof error !== 'object' || !('detail' in error)) return false;
+  const detail = (error as {detail?: {kind?: unknown; status?: unknown}}).detail;
+  return detail?.kind === 'sessionExpired' || detail?.status === 401;
 }
 
 function runBeforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {

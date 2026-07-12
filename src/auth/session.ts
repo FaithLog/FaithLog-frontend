@@ -312,7 +312,6 @@ async function completeRemoteLogout(
   isCancelled: () => boolean,
   markSent: () => void,
 ): Promise<LogoutResult> {
-  if (hasServerFcmObligations()) markSent();
   await fcmRegistrationBarrier;
   const fcmObligations = await fcmOperationSettlement;
   const preparedFcmObligations = fcmObligations.filter(
@@ -335,7 +334,6 @@ async function completeRemoteLogout(
   );
   const fcmOperationsMayHaveReachedServer = hasServerFcmObligations() ||
     dispatchedFcmObligations.some((obligation) => obligation.state !== 'cleaned');
-  if (fcmOperationsMayHaveReachedServer) markSent();
   if (isCancelled()) {
     return {
       status: 'signedOutWithRemoteWarning',

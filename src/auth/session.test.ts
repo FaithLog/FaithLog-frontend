@@ -533,6 +533,51 @@ describe('auth session lifecycle', () => {
     }
   });
 
+  it('allows safe cancellation after historically dispatched FCM debt becomes cleaned', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishBarrier!: () => void;
+      const barrier = new Promise<void>((resolve) => { finishBarrier = resolve; });
+      const historical = {
+        accessToken: 'old-access', refreshToken: 'old-refresh', userId: CURRENT_USER.id,
+        clientInstanceId: 'old-client', kind: 'deactivation' as const,
+        token: null, tokenId: 77, state: 'mayHaveSent' as
+          'mayHaveSent' | 'cleaned',
+      };
+      const prepared = {
+        accessToken: 'old-access', refreshToken: 'old-refresh', userId: CURRENT_USER.id,
+        clientInstanceId: 'old-client', kind: 'registration' as const,
+        token: 'not-dispatched', tokenId: null, state: 'prepared' as const,
+      };
+      vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
+        barrier,
+        settlement: barrier.then(() => [historical, prepared]),
+        obligations: [historical],
+        hasPendingOperations: true,
+        hasPendingContexts: true,
+        hasServerObligations: () => historical.state === 'mayHaveSent',
+      });
+      const preparedLogout = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      const remote = preparedLogout.completeRemoteLogout();
+      const firstLogin = loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      });
+      historical.state = 'cleaned';
+      const rejected = expect(firstLogin).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(21_000);
+      await rejected;
+
+      await expect(loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      })).resolves.toMatchObject({status: 'noCampus'});
+      finishBarrier();
+      await expect(remote).resolves.toMatchObject({status: 'signedOutWithRemoteWarning'});
+      expect(logoutUser).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('restart-gates auth entry when a remote logout was already sent at timeout', async () => {
     vi.useFakeTimers();
     try {

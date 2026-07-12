@@ -15,6 +15,9 @@ vi.mock('../api/tokenStorage', () => ({
     generation: state.generation, accessToken: null, refreshToken: null,
   })),
   getFcmRemoteCleanupObligations: vi.fn(async () => state.durableObligations),
+  getFcmAccountDeletionClaimCleanupReceipts: vi.fn(async () => null),
+  completeFcmAccountDeletionClaim: vi.fn(async () => undefined),
+  completeFcmAccountDeletionClaimAfterCleanup: vi.fn(async () => undefined),
   isAuthSessionRequestAllowed: vi.fn((generation: number) =>
     state.allowed && generation === state.generation),
   markFcmRemoteCleanupPending: vi.fn(async (obligations: unknown[] = []) => {
