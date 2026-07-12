@@ -30,6 +30,7 @@ import {
   markFcmRemoteCleanupPending,
   claimFcmRemoteCleanupForAccountDeletion,
   completeFcmAccountDeletionClaim,
+  markFcmAccountDeletionClaimCascadeConfirmed,
   restoreFcmAccountDeletionClaim,
   replaceFcmRemoteCleanupObligations,
   rotateClientInstanceId,
@@ -75,10 +76,16 @@ export type FcmRemoteCleanupObligation = {
   state: 'prepared' | 'mayHaveSent' | 'registered' | 'cleaned';
 };
 
+export type FcmCleanupCompensationObserver = {
+  onObligationIntroduced?: (obligation: FcmRemoteCleanupObligation) => void;
+  onRequestDispatch?: (obligation: FcmRemoteCleanupObligation) => void;
+};
+
 const pendingFcmRegistrations = new Set<PendingFcmOperation>();
 let fcmRegistrationQueue: Promise<void> = Promise.resolve();
 let fcmPrivacyIntentQueue: Promise<void> = Promise.resolve();
 const frozenFcmGenerations = new Map<number, number>();
+const accountDeletionInFlight = new Map<number, Promise<unknown>>();
 let nextFcmFreezeEpoch = 1;
 
 function assertFcmEnqueueAllowed(generation: AuthSessionGeneration) {
@@ -92,6 +99,14 @@ function assertFcmEnqueueAllowed(generation: AuthSessionGeneration) {
 }
 
 export function beginAccountDeletionFcmPreflight(generation: AuthSessionGeneration) {
+  if (frozenFcmGenerations.has(generation)) {
+    throw new FaithLogApiError({
+      kind: 'conflict',
+      code: 'FCM_TRANSITION_IN_PROGRESS',
+      message: '계정 전환 정리가 완료될 때까지 다시 시도할 수 없습니다.',
+      authSessionGeneration: generation,
+    });
+  }
   const epoch = nextFcmFreezeEpoch++;
   frozenFcmGenerations.set(generation, epoch);
   const captured = capturePendingFcmOperations(generation);
@@ -118,6 +133,7 @@ export function beginAccountDeletionFcmPreflight(generation: AuthSessionGenerati
       );
     },
     restore: restoreFcmAccountDeletionClaim,
+    confirmCascade: markFcmAccountDeletionClaimCascadeConfirmed,
     complete: completeFcmAccountDeletionClaim,
     release: () => {
       if (frozenFcmGenerations.get(generation) === epoch) {
@@ -131,21 +147,54 @@ export async function runAccountDeletionWithFcmPreflight<T>(
   generation: AuthSessionGeneration,
   resolveLatestAccessToken: () => Promise<string | null>,
   deleteAccount: (accessToken: string) => Promise<T>,
-): Promise<{status: 'completed'; value: T} | {status: 'cancelled'}> {
+): Promise<
+  {status: 'completed'; value: T; cleanupWarning?: string} | {status: 'cancelled'}
+> {
+  const existing = accountDeletionInFlight.get(generation);
+  if (existing) return existing as Promise<
+    {status: 'completed'; value: T; cleanupWarning?: string} | {status: 'cancelled'}
+  >;
+  const operation = runAccountDeletionWithFcmPreflightExclusive(
+    generation, resolveLatestAccessToken, deleteAccount,
+  ).finally(() => {
+    if (accountDeletionInFlight.get(generation) === operation) {
+      accountDeletionInFlight.delete(generation);
+    }
+  });
+  accountDeletionInFlight.set(generation, operation);
+  return operation;
+}
+
+async function runAccountDeletionWithFcmPreflightExclusive<T>(
+  generation: AuthSessionGeneration,
+  resolveLatestAccessToken: () => Promise<string | null>,
+  deleteAccount: (accessToken: string) => Promise<T>,
+): Promise<
+  {status: 'completed'; value: T; cleanupWarning?: string} | {status: 'cancelled'}
+> {
+  const preflight = beginAccountDeletionFcmPreflight(generation);
   let releaseTransitionBarrier!: () => void;
   let rejectTransitionBarrier!: (error: unknown) => void;
   trackFcmTransitionBarrier(new Promise<void>((resolve, reject) => {
     releaseTransitionBarrier = resolve;
     rejectTransitionBarrier = reject;
   }));
-  const preflight = beginAccountDeletionFcmPreflight(generation);
   let completed = false;
   let retainFreezeForAuthTransition = false;
+  const restoreOrRetainClaim = async () => {
+    try {
+      await preflight.restore();
+    } catch (restoreError) {
+      retainFreezeForAuthTransition = true;
+      rejectTransitionBarrier(restoreError);
+      throw restoreError;
+    }
+  };
   try {
     await preflight.join();
     await preflight.claimForDelete();
     if (await hasUnclaimedFcmRemoteCleanupPending()) {
-      await preflight.restore();
+      await restoreOrRetainClaim();
       throw new FaithLogApiError({
         kind: 'conflict',
         code: 'FCM_CLEANUP_PENDING',
@@ -156,28 +205,18 @@ export async function runAccountDeletionWithFcmPreflight<T>(
     try {
       accessToken = await resolveLatestAccessToken();
     } catch (error) {
-      try {
-        await preflight.restore();
-      } catch (restoreError) {
-        rejectTransitionBarrier(restoreError);
-        throw restoreError;
-      }
+      await restoreOrRetainClaim();
       retainFreezeForAuthTransition = !isAuthSessionRequestAllowed(generation);
       throw error;
     }
     if (!accessToken || !isAuthSessionRequestAllowed(generation)) {
       retainFreezeForAuthTransition = true;
-      await preflight.restore();
+      await restoreOrRetainClaim();
       return {status: 'cancelled'};
     }
     if (!isAuthSessionRequestAllowed(generation)) {
       retainFreezeForAuthTransition = true;
-      try {
-        await preflight.restore();
-      } catch (restoreError) {
-        rejectTransitionBarrier(restoreError);
-        throw restoreError;
-      }
+      await restoreOrRetainClaim();
       return {status: 'cancelled'};
     }
     let value: T;
@@ -192,20 +231,25 @@ export async function runAccountDeletionWithFcmPreflight<T>(
         await preflight.complete();
       } else if (isAccountDeletionAuthSessionChangedError(error)) {
         retainFreezeForAuthTransition = true;
-        try {
-          await preflight.restore();
-        } catch (restoreError) {
-          rejectTransitionBarrier(restoreError);
-          throw restoreError;
-        }
+        await restoreOrRetainClaim();
       } else {
-        await preflight.restore();
+        await restoreOrRetainClaim();
       }
       throw error;
     }
-    await preflight.complete();
     completed = true;
-    return {status: 'completed', value};
+    try {
+      await preflight.confirmCascade();
+      await preflight.complete();
+      return {status: 'completed', value};
+    } catch {
+      retainFreezeForAuthTransition = true;
+      return {
+        status: 'completed',
+        value,
+        cleanupWarning: '계정은 삭제됐지만 기기 알림 정리 상태를 저장하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+      };
+    }
   } finally {
     releaseTransitionBarrier();
     if (!completed && !retainFreezeForAuthTransition) preflight.release();
@@ -1078,6 +1122,7 @@ function contextClientInstanceId(context: PendingFcmOperation) {
 
 export async function compensateCapturedFcmOperations(
   obligations: FcmRemoteCleanupObligation[],
+  observer: FcmCleanupCompensationObserver = {},
 ) {
   const logoutCandidates = obligations.filter((obligation) =>
     obligation.kind === 'clientLogout' && obligation.state !== 'cleaned');
@@ -1097,7 +1142,7 @@ export async function compensateCapturedFcmOperations(
     .sort((left, right) => priority(left) - priority(right));
   for (const obligation of pending) {
     try {
-      await compensateFcmObligation(obligation);
+      await compensateFcmObligation(obligation, observer);
     } catch (error) {
       if (!isCleanupCredentialExpired(error) || !obligation.refreshToken) throw error;
       const previousRefreshToken = obligation.refreshToken;
@@ -1130,13 +1175,14 @@ export async function compensateCapturedFcmOperations(
           obligations.push(logoutObligation);
           pending.push(logoutObligation);
           introduced.push(logoutObligation);
+          observer.onObligationIntroduced?.(logoutObligation);
         } else {
           existingLogout.accessToken = refreshed.accessToken;
           existingLogout.refreshToken = refreshed.refreshToken;
         }
       }
       await markFcmRemoteCleanupPending([...sameCredentialObligations, ...introduced]);
-      await compensateFcmObligation(obligation);
+      await compensateFcmObligation(obligation, observer);
     }
     obligation.state = 'cleaned';
     if (
@@ -1153,7 +1199,10 @@ export async function compensateCapturedFcmOperations(
   return pending;
 }
 
-async function compensateFcmObligation(obligation: FcmRemoteCleanupObligation) {
+async function compensateFcmObligation(
+  obligation: FcmRemoteCleanupObligation,
+  observer: FcmCleanupCompensationObserver,
+) {
   if (obligation.kind === 'clientRetirement') {
     if (!obligation.clientInstanceId) throw new Error('Missing FCM client retirement identity.');
     await clearFcmRegistrationAttemptsForClientInstance(obligation.clientInstanceId);
@@ -1169,12 +1218,23 @@ async function compensateFcmObligation(obligation: FcmRemoteCleanupObligation) {
     // the current device client; a legacy client id is only a fallback when
     // device metadata is unavailable.
     const clientInstanceId = await getStoredClientInstanceId() ?? obligation.clientInstanceId;
-    await logoutUser(obligation.accessToken, {
+    const body = {
       ...(obligation.refreshToken ? {refreshToken: obligation.refreshToken} : {}),
       ...(clientInstanceId
         ? {clientInstanceId}
         : {}),
-    });
+    };
+    if (observer.onRequestDispatch) {
+      await logoutUser(obligation.accessToken, body, () => {
+        obligation.state = 'mayHaveSent';
+        observer.onRequestDispatch?.(obligation);
+      });
+    } else {
+      await logoutUser(obligation.accessToken, body);
+    }
+    // The remote session revoke is terminal even if the following local
+    // client-retirement persistence fails. Do not resurrect this credential.
+    obligation.state = 'cleaned';
     if (clientInstanceId) {
       const retirement: FcmRemoteCleanupObligation = {
         accessToken: obligation.accessToken,
@@ -1268,6 +1328,7 @@ export function resetFcmRegistrationCoordinatorForTests() {
   fcmPrivacyIntentQueue = Promise.resolve();
   fcmIntents.clear();
   frozenFcmGenerations.clear();
+  accountDeletionInFlight.clear();
   nextFcmFreezeEpoch = 1;
 }
 

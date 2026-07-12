@@ -277,7 +277,7 @@ async function prepareCurrentSessionLogoutInternal(
       '로컬 세션은 종료했지만 서버 로그아웃 정보는 확인하지 못했습니다.';
   }
 
-  const remoteLogout = trackRemoteLogout((isCancelled, markSent) =>
+  const remoteLogout = trackRemoteLogout((isCancelled, markSent, registerObligation) =>
     completeRemoteLogout(
       remoteAuthSession,
       fcmPayload,
@@ -289,6 +289,7 @@ async function prepareCurrentSessionLogoutInternal(
       preparationWarning,
       isCancelled,
       markSent,
+      registerObligation,
     ), [
       ...initialFcmObligations,
       ...sessionLogoutObligations,
@@ -311,6 +312,7 @@ async function completeRemoteLogout(
   preparationWarning: string | null,
   isCancelled: () => boolean,
   markSent: () => void,
+  registerObligation: (obligation: FcmRemoteCleanupObligation) => void,
 ): Promise<LogoutResult> {
   await fcmRegistrationBarrier;
   const fcmObligations = await fcmOperationSettlement;
@@ -343,10 +345,22 @@ async function completeRemoteLogout(
   let compensatedObligations: FcmRemoteCleanupObligation[] = [];
   if (dispatchedFcmObligations.length > 0) {
     try {
-      compensatedObligations = await compensateCapturedFcmOperations(dispatchedFcmObligations);
+      compensatedObligations = await compensateCapturedFcmOperations(
+        dispatchedFcmObligations,
+        {
+          onObligationIntroduced: registerObligation,
+          onRequestDispatch: markSent,
+        },
+      );
     } catch {
       remoteLogoutRestartRequired = true;
-      await requireFcmRemoteCleanupRestart().catch(() => undefined);
+      const unresolved = dispatchedFcmObligations.filter(
+        (obligation) => obligation.state !== 'cleaned',
+      );
+      await (unresolved.length > 0
+        ? requireFcmRemoteCleanupRestart(unresolved)
+        : requireFcmRemoteCleanupRestart()
+      ).catch(() => undefined);
       return {
         status: 'signedOutWithRemoteWarning',
         message: '이전 알림 연결 정리를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
@@ -484,22 +498,35 @@ function trackRemoteLogout(
   createOperation: (
     isCancelled: () => boolean,
     markSent: () => void,
+    registerObligation: (obligation: FcmRemoteCleanupObligation) => void,
   ) => Promise<LogoutResult>,
   obligations: FcmRemoteCleanupObligation[],
   hasServerObligations: () => boolean = () => false,
 ) {
   let cancelled = false;
   let sent = false;
+  const trackedObligations = [...obligations];
+  const liveIntroducedObligations = new Set<FcmRemoteCleanupObligation>();
   const flight = {
     cancelBeforeSend: () => {
-      if (sent || hasServerObligations()) return false;
+      const hasLiveIntroducedObligation = [...liveIntroducedObligations].some(
+        (obligation) => obligation.state === 'mayHaveSent' || obligation.state === 'registered',
+      );
+      if (sent || hasServerObligations() || hasLiveIntroducedObligation) return false;
       cancelled = true;
       return true;
     },
-    obligations,
+    obligations: trackedObligations,
     promise: Promise.resolve({status: 'signedOut'} as LogoutResult),
   };
-  const tracked = createOperation(() => cancelled, () => { sent = true; }).finally(() => {
+  const tracked = createOperation(
+    () => cancelled,
+    () => { sent = true; },
+    (obligation) => {
+      if (!trackedObligations.includes(obligation)) trackedObligations.push(obligation);
+      liveIntroducedObligations.add(obligation);
+    },
+  ).finally(() => {
     remoteLogoutFlights.delete(flight);
   });
   flight.promise = tracked;

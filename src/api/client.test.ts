@@ -167,10 +167,16 @@ describe('FaithLog API client', () => {
   it('reports an actually-sent logout timeout as an unknown offline outcome', async () => {
     vi.useFakeTimers();
     try {
+      const onRequestDispatch = vi.fn();
       vi.mocked(fetch).mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+        expect(onRequestDispatch).toHaveBeenCalledOnce();
         init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
       }));
-      const logout = logoutUser('captured-access', {refreshToken: 'captured-refresh'});
+      const logout = logoutUser(
+        'captured-access',
+        {refreshToken: 'captured-refresh'},
+        onRequestDispatch,
+      );
       const rejected = expect(logout).rejects.toSatisfy((error) => {
         expectApiError(error, {kind: 'offline', code: 'REQUEST_TIMEOUT'});
         return true;
@@ -178,6 +184,7 @@ describe('FaithLog API client', () => {
       await vi.advanceTimersByTimeAsync(5_000);
       await rejected;
       expect(fetch).toHaveBeenCalledOnce();
+      expect(onRequestDispatch).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }

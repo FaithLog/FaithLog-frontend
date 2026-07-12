@@ -270,6 +270,27 @@ export function attachAccountDeletionCleanupWarning(
   return current.status === 'signedOut' ? {...current, warning} : current;
 }
 
+export function applyCompletedAccountDeletionTeardown(
+  cleanupWarning: string | undefined,
+  transitionToPublic: () => void,
+  clear: () => Promise<unknown>,
+  invalidate: () => void,
+  onWarning: (warning: string) => void,
+  generation?: AuthSessionGeneration,
+) {
+  return beginAccountDeletionTeardown(
+    transitionToPublic,
+    clear,
+    invalidate,
+    async () => undefined,
+    generation,
+  ).then((localWarning) => {
+    const warning = localWarning ?? cleanupWarning;
+    if (warning) onWarning(warning);
+    return warning;
+  });
+}
+
 export function beginProtectedLogoutUiTeardown(
   transitionToSignedOut: () => void,
   invalidate: () => void = invalidatePaymentContextCache,
@@ -3860,6 +3881,7 @@ function AccountDeletionScreen({
   const [confirmText, setConfirmText] = useState('');
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const deletionInFlightRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const canDelete = password.length > 0 && confirmText === ACCOUNT_DELETE_CONFIRM_TEXT && !busy;
 
@@ -3879,10 +3901,11 @@ function AccountDeletionScreen({
   };
 
   const submitDelete = async () => {
-    if (busy || !canDelete) {
+    if (deletionInFlightRef.current || busy || !canDelete) {
       return;
     }
 
+    deletionInFlightRef.current = true;
     const deletionGeneration = getAuthSessionGeneration();
     let shouldResetBusy = true;
     setBusy(true);
@@ -3902,19 +3925,18 @@ function AccountDeletionScreen({
       if (deletion.status === 'cancelled') return;
       setConfirmVisible(false);
       shouldResetBusy = false;
-      void beginAccountDeletionTeardown(
+      void applyCompletedAccountDeletionTeardown(
+        deletion.cleanupWarning,
         () => setAuthState({status: 'signedOut'}),
         () => clearTokens(deletionGeneration),
         invalidatePaymentContextCache,
-        async () => undefined,
-        deletionGeneration,
-      )
-        .then((cleanupWarning) => {
-          if (!cleanupWarning) return;
+        (warning) => {
           setAuthState((current) => attachAccountDeletionCleanupWarning(
-            current, cleanupWarning,
+            current, warning,
           ));
-        });
+        },
+        deletionGeneration,
+      );
     } catch (deleteError) {
       const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
 
@@ -3938,6 +3960,7 @@ function AccountDeletionScreen({
       setError(getAccountDeletionErrorMessage(apiError));
       setConfirmVisible(false);
     } finally {
+      deletionInFlightRef.current = false;
       if (shouldResetBusy) {
         setBusy(false);
       }

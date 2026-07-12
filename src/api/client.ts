@@ -1620,7 +1620,11 @@ export function loginUser(body: LoginRequest) {
   });
 }
 
-export function logoutUser(accessToken: string, body: LogoutRequest) {
+export function logoutUser(
+  accessToken: string,
+  body: LogoutRequest,
+  onRequestDispatch?: RequestOptions['onRequestDispatch'],
+) {
   return apiRequest<null>('/api/v1/auth/logout', {
     accessToken,
     allowAuthSessionChange: true,
@@ -1629,6 +1633,7 @@ export function logoutUser(accessToken: string, body: LogoutRequest) {
     timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body,
+    ...(onRequestDispatch ? {onRequestDispatch} : {}),
   });
 }
 

@@ -399,9 +399,14 @@ describe('active remote cleanup ownership', () => {
       lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
     });
     await registration;
-    await expect(deletion).rejects.toThrow('delete failed');
+    await expect(deletion).resolves.toMatchObject({
+      status: 'completed', cleanupWarning: expect.any(String),
+    });
     expect(JSON.parse(state.storage.get('faithlog.fcmRemoteCleanupPending.v1')!))
-      .toMatchObject({version: 2, accountDeletionClaim: expect.any(Object)});
+      .toMatchObject({
+        version: 2,
+        accountDeletionClaim: {phase: 'cascadeConfirmed'},
+      });
 
     const snapshot = new Map(state.storage);
     vi.resetModules();
@@ -430,15 +435,54 @@ describe('active remote cleanup ownership', () => {
     })).resolves.toMatchObject({status: 'noCampus'});
   });
 
+  it('keeps a pre-delete account claim fail-closed when old credentials return 401', async () => {
+    const storage = await import('../api/tokenStorage');
+    const receipt = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: 42,
+      clientInstanceId: 'old-client', kind: 'deactivation' as const,
+      token: null, tokenId: 77,
+    };
+    await storage.claimFcmRemoteCleanupForAccountDeletion([receipt], [receipt]);
+    const client = await import('../api/client');
+    api.deactivateCleanup.mockRejectedValue(new client.FaithLogApiError({
+      kind: 'sessionExpired', status: 401, message: 'expired before delete',
+    }));
+    api.refreshCleanup.mockRejectedValue(new client.FaithLogApiError({
+      kind: 'sessionExpired', status: 401, message: 'refresh revoked',
+    }));
+    const fcm = await import('../notifications/fcmRegistration');
+    const cleanup = await import('./fcmTransitionCleanup');
+    cleanup.resetFcmTransitionCleanupForTests();
+    cleanup.configureFcmTransitionCleanup({
+      capture: fcm.capturePendingFcmOperations,
+      compensate: fcm.compensateCapturedFcmOperations,
+    });
+
+    await expect(cleanup.waitForFcmTransitionCleanup(5_000)).resolves.toBe(false);
+    await expect(storage.getFcmAccountDeletionClaim()).resolves.toMatchObject({
+      phase: 'cleanupRequired',
+      cleanupReceipts: [expect.objectContaining({tokenId: 77})],
+    });
+    const session = await import('./session');
+    await expect(session.loginAndEstablishSession({
+      email: 'next@example.test', password: 'test-password',
+    })).rejects.toMatchObject({detail: {code: 'LOGOUT_CLEANUP_PENDING'}});
+    expect(api.login).not.toHaveBeenCalled();
+  });
+
   it('removes terminal-only identities after mixed account-claim compensation', async () => {
     state.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
       version: 2,
       obligations: [],
       accountDeletionClaim: {
-        claimedIdentities: [
-          '42|old-A|registration|token-A|',
-          '42|old-B|registration|token-B|',
-        ],
+        phase: 'cleanupRequired',
+        claimedReceipts: [{
+          accessToken: 'old-access', refreshToken: 'old-refresh', userId: 42,
+          clientInstanceId: 'old-A', kind: 'registration', token: 'token-A', tokenId: 101,
+        }, {
+          accessToken: 'old-access', refreshToken: 'old-refresh', userId: 42,
+          clientInstanceId: 'old-B', kind: 'registration', token: 'token-B', tokenId: null,
+        }],
         cleanupReceipts: [{
           accessToken: 'old-access', refreshToken: 'old-refresh', userId: 42,
           clientInstanceId: 'old-A', kind: 'registration', token: 'token-A', tokenId: 101,
@@ -806,6 +850,12 @@ describe('active remote cleanup ownership', () => {
     await expect(deletion).rejects.toThrow(restoreFails ? 'set failed' : 'auth teardown');
     if (restoreFails) {
       if (!waiterBeforeFailure) {
+        await expect(fcm.runAccountDeletionWithFcmPreflight(
+          generation, async () => 'old-access', vi.fn(async () => undefined),
+        )).rejects.toMatchObject({detail: {code: 'FCM_TRANSITION_IN_PROGRESS'}});
+        expect(() => fcm.registerFcmTokenValue(
+          'old-access', 42, 'late-token', generation,
+        )).toThrow('계정 전환 중에는 알림 설정을 변경할 수 없습니다.');
         expect(JSON.parse(state.storage.get('faithlog.fcmRemoteCleanupPending.v1')!))
           .toMatchObject({
             version: 2,

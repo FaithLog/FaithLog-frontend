@@ -2,7 +2,7 @@ import {
   clearFcmRemoteCleanupObligations,
   completeFcmAccountDeletionClaim,
   completeFcmAccountDeletionClaimAfterCleanup,
-  getFcmAccountDeletionClaimCleanupReceipts,
+  getFcmAccountDeletionClaim,
   getFcmRemoteCleanupObligations,
   markFcmRemoteCleanupPending,
 } from '../api/tokenStorage';
@@ -168,16 +168,16 @@ export async function waitForFcmTransitionCleanup(timeoutMs: number) {
 
 async function reconcileDurableCleanup(deadline: number) {
   try {
-    const claimed = await runBeforeDeadline(
-      getFcmAccountDeletionClaimCleanupReceipts(), deadline,
+    const claim = await runBeforeDeadline(
+      getFcmAccountDeletionClaim(), deadline,
     );
-    if (claimed !== null) {
-      if (claimed.length === 0) {
+    if (claim !== null) {
+      if (claim.cleanupReceipts.length === 0) {
         await runBeforeDeadline(completeFcmAccountDeletionClaim(), deadline);
       } else {
         try {
           const processedClaim = await runBeforeDeadline(
-            compensateCleanup(claimed.map((obligation) => ({
+            compensateCleanup(claim.cleanupReceipts.map((obligation) => ({
               ...obligation, state: 'mayHaveSent' as const,
             }))),
             deadline,
@@ -187,7 +187,8 @@ async function reconcileDurableCleanup(deadline: number) {
             deadline,
           );
         } catch (error) {
-          if (!isDefinitiveAccountDeletionTerminal(error)) throw error;
+          if (claim.phase !== 'cascadeConfirmed' ||
+              !isDefinitiveAccountDeletionTerminal(error)) throw error;
           await runBeforeDeadline(completeFcmAccountDeletionClaim(), deadline);
         }
       }

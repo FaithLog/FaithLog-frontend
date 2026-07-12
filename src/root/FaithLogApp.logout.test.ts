@@ -44,7 +44,7 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {applyAuthResultIfCurrent, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
+import {applyAuthResultIfCurrent, applyCompletedAccountDeletionTeardown, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
 import {StaleAuthSessionReadError} from '../api/tokenStorage';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from '../auth/localCleanupBarrier';
 
@@ -87,6 +87,19 @@ describe('logout UI transition', () => {
     void beginAccountDeletionTeardown(transition, () => never, invalidate);
     expect(invalidate).toHaveBeenCalledOnce();
     expect(transition).toHaveBeenCalledOnce();
+  });
+
+  it('applies backend deletion success before a durable-claim cleanup warning', async () => {
+    const invalidate = vi.fn();
+    const transition = vi.fn();
+    const warning = vi.fn();
+    const cleanup = applyCompletedAccountDeletionTeardown(
+      'durable claim remains pending', transition, async () => true, invalidate, warning,
+    );
+    expect(transition).toHaveBeenCalledOnce();
+    expect(invalidate).toHaveBeenCalledOnce();
+    await expect(cleanup).resolves.toBe('durable claim remains pending');
+    expect(warning).toHaveBeenCalledWith('durable claim remains pending');
   });
 
   it('registers account-deletion cleanup with the production restart barrier', async () => {

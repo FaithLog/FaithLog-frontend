@@ -45,6 +45,7 @@ vi.mock('../api/tokenStorage', () => ({
   clearFcmRemoteCleanupObligations: vi.fn(),
   claimFcmRemoteCleanupForAccountDeletion: vi.fn(),
   completeFcmAccountDeletionClaim: vi.fn(),
+  markFcmAccountDeletionClaimCascadeConfirmed: vi.fn(),
   restoreFcmAccountDeletionClaim: vi.fn(),
   hasUnclaimedFcmRemoteCleanupPending: vi.fn(async () => false),
   rotateClientInstanceId: vi.fn(async () => true),
@@ -390,6 +391,33 @@ describe('FCM registration', () => {
     expect(logoutUser).not.toHaveBeenCalled();
   });
 
+  it('single-flights double account-deletion submission and keeps the generation frozen', async () => {
+    let resolvePermission!: (value: 'denied') => void;
+    vi.mocked(requestNotificationPermission).mockReturnValue(new Promise((resolve) => {
+      resolvePermission = resolve;
+    }));
+    const existing = registerCurrentFcmToken(
+      'old-access', USER_ID, AUTH_GENERATION, 'automatic',
+    );
+    const deleteAccount = vi.fn(async () => 'deleted');
+    const first = runAccountDeletionWithFcmPreflight(
+      AUTH_GENERATION, async () => 'latest-access', deleteAccount,
+    );
+    const second = runAccountDeletionWithFcmPreflight(
+      AUTH_GENERATION, async () => 'latest-access', deleteAccount,
+    );
+    expect(() => registerFcmTokenValue(
+      'old-access', USER_ID, 'late-token', AUTH_GENERATION,
+    )).toThrow('계정 전환 중에는 알림 설정을 변경할 수 없습니다.');
+    resolvePermission('denied');
+    await existing;
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      {status: 'completed', value: 'deleted'},
+      {status: 'completed', value: 'deleted'},
+    ]);
+    expect(deleteAccount).toHaveBeenCalledOnce();
+  });
+
   it('routes the production automatic coordinator through persistent opt-out', async () => {
     vi.mocked(getFcmOptOutState).mockResolvedValue({
       clientInstanceId: 'faithlog-client-1', status: 'confirmed', tokenId: null,
@@ -607,7 +635,16 @@ describe('FCM registration', () => {
       token: 'old-token', tokenId: null, state: 'mayHaveSent' as const,
     }];
 
-    await compensateCapturedFcmOperations(obligations);
+    const onObligationIntroduced = vi.fn();
+    const onRequestDispatch = vi.fn();
+    vi.mocked(logoutUser).mockImplementationOnce(async (_accessToken, _body, onDispatch) => {
+      onDispatch?.();
+      return null;
+    });
+    await compensateCapturedFcmOperations(obligations, {
+      onObligationIntroduced,
+      onRequestDispatch,
+    });
     expect(refreshAuthTokenForCleanup).toHaveBeenCalledWith('old-refresh');
     expect(registerMyFcmTokenForCleanup).toHaveBeenLastCalledWith(
       'cleanup-access-token', expect.objectContaining({token: 'old-token'}),
@@ -620,7 +657,13 @@ describe('FCM registration', () => {
     );
     expect(logoutUser).toHaveBeenCalledWith('cleanup-access-token', {
       refreshToken: 'cleanup-refresh-token', clientInstanceId: 'faithlog-client-1',
-    });
+    }, expect.any(Function));
+    expect(onObligationIntroduced).toHaveBeenCalledWith(
+      expect.objectContaining({kind: 'clientLogout', accessToken: 'cleanup-access-token'}),
+    );
+    expect(onRequestDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({kind: 'clientLogout', accessToken: 'cleanup-access-token'}),
+    );
   });
 
   it('refreshes an expired client logout and sends the rotated logout exactly once', async () => {

@@ -584,6 +584,21 @@ describe('native auth token storage', () => {
     await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([second]);
   });
 
+  it('keeps delimiter-containing structured cleanup identities distinct', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const first = {
+      accessToken: 'old-A', userId: 42, clientInstanceId: 'old|registration',
+      kind: 'registration' as const, token: 'token', tokenId: null,
+    };
+    const second = {
+      accessToken: 'old-B', userId: 42, clientInstanceId: 'old',
+      kind: 'registration' as const, token: 'registration|token', tokenId: null,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([first, second]);
+    await tokenStorage.clearFcmRemoteCleanupObligations([first]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([second]);
+  });
+
   it('atomically replaces session logout with retirement while preserving unrelated debt', async () => {
     const tokenStorage = await import('./tokenStorage');
     const logout = {
@@ -620,6 +635,38 @@ describe('native auth token storage', () => {
     testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
       version: 1,
       obligations: [{accessToken: 'old-access', ...invalid}],
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([]);
+  });
+
+  it('rejects an account-deletion claim whose identity is not a structured receipt', async () => {
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 2,
+      obligations: [],
+      accountDeletionClaim: {
+        phase: 'cleanupRequired',
+        claimedReceipts: ['garbage'],
+        cleanupReceipts: [],
+      },
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([]);
+  });
+
+  it('rejects the same cleanup receipt in generic and account-claim provenance', async () => {
+    const receipt = {
+      accessToken: 'old-access', userId: 42, clientInstanceId: 'old-client',
+      kind: 'deactivation', token: null, tokenId: 77,
+    };
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 2,
+      obligations: [receipt],
+      accountDeletionClaim: {
+        phase: 'cleanupRequired', claimedReceipts: [receipt], cleanupReceipts: [receipt],
+      },
     }));
     const tokenStorage = await import('./tokenStorage');
     await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
