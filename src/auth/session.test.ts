@@ -491,14 +491,19 @@ describe('auth session lifecycle', () => {
     }
   });
 
-  it('cancels an obligation-free pre-network context without a restart latch', async () => {
+  it('clears a prepared but undispatched FCM receipt without compensation or restart latch', async () => {
     vi.useFakeTimers();
     try {
       let finishBarrier!: () => void;
       const barrier = new Promise<void>((resolve) => { finishBarrier = resolve; });
+      const preparedObligation = {
+        accessToken: 'old-access', refreshToken: 'old-refresh', userId: CURRENT_USER.id,
+        clientInstanceId: 'old-client', kind: 'registration' as const,
+        token: 'prepared-token', tokenId: null, state: 'prepared' as const,
+      };
       vi.mocked(capturePendingFcmOperations).mockReturnValueOnce({
         barrier,
-        settlement: barrier.then(() => []),
+        settlement: barrier.then(() => [preparedObligation]),
         obligations: [],
         hasPendingOperations: false,
         hasPendingContexts: true,
@@ -521,6 +526,8 @@ describe('auth session lifecycle', () => {
       finishBarrier();
       await expect(remote).resolves.toMatchObject({status: 'signedOutWithRemoteWarning'});
       expect(logoutUser).not.toHaveBeenCalled();
+      expect(compensateCapturedFcmOperations).not.toHaveBeenCalled();
+      expect(clearFcmRemoteCleanupObligations).toHaveBeenCalledWith([preparedObligation]);
     } finally {
       vi.useRealTimers();
     }

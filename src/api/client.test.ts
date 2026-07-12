@@ -304,6 +304,36 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('fails account deletion as sessionExpired when both DELETE and refresh return 401', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access',
+      refreshToken: 'expired-refresh',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_REFRESH_REJECTED', message: 'refresh revoked',
+      })));
+    vi.mocked(startAuthSessionClear).mockReturnValueOnce({
+      cleared: true,
+      previousGeneration: FIRST_AUTH_GENERATION,
+      currentGeneration: 2 as AuthSessionGeneration,
+      completion: Promise.resolve(),
+    });
+
+    await expect(deleteMyAccount('expired-access', {
+      password: 'FaithLog!100047', confirmText: '회원탈퇴',
+    })).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'sessionExpired'});
+      return true;
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
+  });
+
   it('requests poll list with a large page size and unwraps paged content', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(

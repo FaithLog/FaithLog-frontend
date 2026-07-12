@@ -45,14 +45,19 @@ export function beginFcmTransitionCleanup(generation?: number) {
     }
     await captured.barrier;
     const obligations = await captured.settlement;
-    if (obligations.length > 0) {
-      await markFcmRemoteCleanupPending(obligations);
+    const prepared = obligations.filter((obligation) => obligation.state === 'prepared');
+    const dispatched = obligations.filter((obligation) => obligation.state !== 'prepared');
+    if (dispatched.length > 0) {
+      await markFcmRemoteCleanupPending(dispatched);
     }
-    if (obligations.length === 0) {
-      await clearFcmRemoteCleanupObligations(initialObligations);
+    if (prepared.length > 0) {
+      await clearFcmRemoteCleanupObligations(prepared);
+    }
+    if (dispatched.length === 0) {
+      await clearFcmRemoteCleanupObligations([...initialObligations, ...obligations]);
       return;
     }
-    const processed = await compensateCleanup(obligations);
+    const processed = await compensateCleanup(dispatched);
     await clearFcmRemoteCleanupObligations([
       ...initialObligations,
       ...obligations,

@@ -698,10 +698,9 @@ export async function materializeStoredSessionLogoutObligation(
     assertExpectedGeneration(expectedGeneration);
     const record = await readStoredTokenRecordForTeardown();
     assertExpectedGeneration(expectedGeneration);
-    if (!record) return null;
-    await upsertStoredSessionLogoutObligation(record);
+    const durable = await upsertStoredSessionLogoutObligation(record);
     assertExpectedGeneration(expectedGeneration);
-    return {accessToken: record.accessToken, refreshToken: record.refreshToken};
+    return durable.tokens;
   });
 }
 
@@ -732,13 +731,12 @@ export async function prepareDurableStoredSessionTeardown(
       assertExpectedGeneration(expectedGeneration);
       record = await readStoredTokenRecordForTeardown();
       assertExpectedGeneration(expectedGeneration);
-      if (record) insertedSessionLogout = await upsertStoredSessionLogoutObligation(record);
+      const durable = await upsertStoredSessionLogoutObligation(record);
+      insertedSessionLogout = durable.inserted;
       assertExpectedGeneration(expectedGeneration);
       return {
         markerPersisted,
-        tokens: record
-          ? {accessToken: record.accessToken, refreshToken: record.refreshToken}
-          : null,
+        tokens: durable.tokens,
       };
     } catch (cause) {
       if (cause instanceof StaleAuthSessionReadError) {
@@ -779,10 +777,22 @@ async function readStoredTokenRecordForTeardown(): Promise<StoredTokenRecord | n
   };
 }
 
-async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord) {
+async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord | null) {
   const current = parseStoredFcmRemoteCleanupObligations(
     await getStorageItem(FCM_REMOTE_CLEANUP_PENDING_KEY),
   );
+  const canonical = current.find((entry) =>
+    entry.kind === 'clientLogout' && entry.clientInstanceId === null);
+  if (canonical) {
+    return {
+      inserted: false,
+      tokens: {
+        accessToken: canonical.accessToken,
+        refreshToken: canonical.refreshToken ?? null,
+      },
+    };
+  }
+  if (!record) return {inserted: false, tokens: null};
   const sessionLogout: StoredFcmRemoteCleanupObligation = {
     accessToken: record.accessToken,
     refreshToken: record.refreshToken,
@@ -802,7 +812,10 @@ async function upsertStoredSessionLogoutObligation(record: StoredTokenRecord) {
     FCM_REMOTE_CLEANUP_PENDING_KEY,
     JSON.stringify({version: 1, obligations: [...byIdentity.values()]}),
   );
-  return inserted;
+  return {
+    inserted,
+    tokens: {accessToken: record.accessToken, refreshToken: record.refreshToken},
+  };
 }
 
 async function removeStoredSessionLogoutObligation(record: StoredTokenRecord) {

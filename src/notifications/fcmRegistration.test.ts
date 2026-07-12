@@ -240,6 +240,40 @@ describe('FCM registration', () => {
     expect(requestNotificationPermission).not.toHaveBeenCalled();
   });
 
+  it('routes confirmed opt-out attempts through the production automatic wrapper', async () => {
+    const attempt = {
+      userId: USER_ID, clientInstanceId: 'old-client', token: 'cold-unknown-token',
+    };
+    vi.mocked(getFcmOptOutState).mockResolvedValue({
+      clientInstanceId: 'old-client', status: 'confirmed', tokenId: null,
+    });
+    vi.mocked(getFcmRegistrationAttempts).mockResolvedValue([attempt]);
+    vi.mocked(registerMyFcmToken).mockImplementation(
+      async (_access, _body, _generation, _onTokens, onDispatch) => {
+        onDispatch?.();
+        return {
+          appVersion: '0.1.0-test', clientInstanceId: 'old-client', deviceType: 'IOS',
+          isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+          lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 93,
+        };
+      },
+    );
+
+    await expect(ensureAutomaticFcmRegistration(
+      'access-token', USER_ID, AUTH_GENERATION,
+    )).resolves.toMatchObject({status: 'optedOut'});
+
+    expect(registerMyFcmToken).toHaveBeenCalledOnce();
+    expect(registerMyFcmToken).toHaveBeenCalledWith(
+      'access-token', expect.objectContaining({token: 'cold-unknown-token'}),
+      AUTH_GENERATION, expect.any(Function), expect.any(Function),
+    );
+    expect(deactivateMyFcmToken).toHaveBeenCalledWith(
+      'access-token', 93, AUTH_GENERATION, expect.any(Function), expect.any(Function),
+    );
+    expect(requestNotificationPermission).not.toHaveBeenCalled();
+  });
+
   it('freezes new FCM enqueues and joins a context before its first obligation', async () => {
     let resolvePermission!: (value: 'denied') => void;
     vi.mocked(requestNotificationPermission).mockReturnValue(new Promise((resolve) => {
@@ -288,6 +322,35 @@ describe('FCM registration', () => {
     await registration;
     await captured.barrier;
     expect(captured.hasServerObligations?.()).toBe(false);
+  });
+
+  it('exposes a prepared receipt for durable capture before the dispatch hook fires', async () => {
+    let rejectRegistration!: (error: Error) => void;
+    vi.mocked(registerMyFcmToken).mockImplementation(
+      async () => new Promise((_resolve, reject) => { rejectRegistration = reject; }),
+    );
+    const registration = registerFcmTokenValue(
+      'access-token', USER_ID, 'ownership-pending-token', AUTH_GENERATION,
+    );
+    void registration.catch(() => undefined);
+    await vi.waitFor(() => expect(registerMyFcmToken).toHaveBeenCalledOnce());
+
+    const captured = capturePendingFcmOperations(AUTH_GENERATION);
+    expect(captured.obligations).toEqual([
+      expect.objectContaining({
+        token: 'ownership-pending-token', state: 'prepared',
+      }),
+    ]);
+    expect(captured.hasPendingOperations).toBe(false);
+    expect(captured.hasServerObligations?.()).toBe(false);
+    await markFcmRemoteCleanupPending(captured.obligations ?? []);
+    expect(markFcmRemoteCleanupPending).toHaveBeenCalledWith(captured.obligations);
+
+    rejectRegistration(new Error('ownership rejected before dispatch'));
+    await expect(registration).rejects.toThrow('ownership rejected before dispatch');
+    await expect(captured.settlement).resolves.toEqual([
+      expect.objectContaining({state: 'prepared'}),
+    ]);
   });
 
   it('joins FCM work without session compensation and deletes with the latest token', async () => {
@@ -425,9 +488,12 @@ describe('FCM registration', () => {
       token: 'stored-token', tokenId: 77, userId: USER_ID,
       clientInstanceId: 'faithlog-client-1',
     });
-    vi.mocked(deactivateMyFcmToken).mockReturnValue(new Promise((resolve) => {
-      resolveDelete = () => resolve(null);
-    }));
+    vi.mocked(deactivateMyFcmToken).mockImplementation(
+      async (_access, _tokenId, _generation, _onTokens, onDispatch) => {
+        onDispatch?.();
+        return new Promise((resolve) => { resolveDelete = () => resolve(null); });
+      },
+    );
     const deactivation = deactivateCurrentFcmToken(
       'old-access', USER_ID, AUTH_GENERATION,
     );
@@ -446,9 +512,12 @@ describe('FCM registration', () => {
     vi.mocked(getFcmRegistrationAttempts).mockResolvedValue([{
       userId: USER_ID, clientInstanceId: 'old-client', token: 'unknown-token',
     }]);
-    vi.mocked(registerMyFcmToken).mockReturnValue(new Promise((resolve) => {
-      resolveRecovery = resolve;
-    }));
+    vi.mocked(registerMyFcmToken).mockImplementation(
+      async (_access, _body, _generation, _onTokens, onDispatch) => {
+        onDispatch?.();
+        return new Promise((resolve) => { resolveRecovery = resolve; });
+      },
+    );
     const deactivation = deactivateCurrentFcmToken(
       'old-access', USER_ID, AUTH_GENERATION,
     );

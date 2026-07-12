@@ -315,8 +315,26 @@ async function completeRemoteLogout(
   if (hasServerFcmObligations()) markSent();
   await fcmRegistrationBarrier;
   const fcmObligations = await fcmOperationSettlement;
+  const preparedFcmObligations = fcmObligations.filter(
+    (obligation) => obligation.state === 'prepared',
+  );
+  if (preparedFcmObligations.length > 0) {
+    try {
+      await clearFcmRemoteCleanupObligations(preparedFcmObligations);
+    } catch {
+      remoteLogoutRestartRequired = true;
+      await requireFcmRemoteCleanupRestart().catch(() => undefined);
+      return {
+        status: 'signedOutWithRemoteWarning',
+        message: '전송되지 않은 알림 정리 정보를 확인하지 못했습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+      };
+    }
+  }
+  const dispatchedFcmObligations = fcmObligations.filter(
+    (obligation) => obligation.state !== 'prepared',
+  );
   const fcmOperationsMayHaveReachedServer = hasServerFcmObligations() ||
-    fcmObligations.length > 0;
+    dispatchedFcmObligations.some((obligation) => obligation.state !== 'cleaned');
   if (fcmOperationsMayHaveReachedServer) markSent();
   if (isCancelled()) {
     return {
@@ -325,9 +343,9 @@ async function completeRemoteLogout(
     };
   }
   let compensatedObligations: FcmRemoteCleanupObligation[] = [];
-  if (fcmObligations.length > 0) {
+  if (dispatchedFcmObligations.length > 0) {
     try {
-      compensatedObligations = await compensateCapturedFcmOperations(fcmObligations);
+      compensatedObligations = await compensateCapturedFcmOperations(dispatchedFcmObligations);
     } catch {
       remoteLogoutRestartRequired = true;
       await requireFcmRemoteCleanupRestart().catch(() => undefined);

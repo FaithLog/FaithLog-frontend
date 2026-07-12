@@ -71,7 +71,7 @@ export type FcmRemoteCleanupObligation = {
   kind: 'registration' | 'deactivation' | 'clientLogout' | 'clientRetirement';
   token: string | null;
   tokenId: number | null;
-  state: 'mayHaveSent' | 'registered' | 'cleaned';
+  state: 'prepared' | 'mayHaveSent' | 'registered' | 'cleaned';
 };
 
 const pendingFcmRegistrations = new Set<PendingFcmOperation>();
@@ -136,15 +136,25 @@ export async function runAccountDeletionWithFcmPreflight<T>(
   }));
   const preflight = beginAccountDeletionFcmPreflight(generation);
   let completed = false;
-  let receiptsCleared = false;
+  let retainFreezeForAuthTransition = false;
   try {
     await preflight.join();
-    const accessToken = await resolveLatestAccessToken();
+    let accessToken: string | null;
+    try {
+      accessToken = await resolveLatestAccessToken();
+    } catch (error) {
+      if (isAuthSessionRequestAllowed(generation)) {
+        await preflight.clearForDelete();
+      } else {
+        retainFreezeForAuthTransition = true;
+      }
+      throw error;
+    }
     if (!accessToken || !isAuthSessionRequestAllowed(generation)) {
+      retainFreezeForAuthTransition = true;
       return {status: 'cancelled'};
     }
     await preflight.clearForDelete();
-    receiptsCleared = true;
     if ((await getFcmRemoteCleanupObligations()) !== null) {
       throw new FaithLogApiError({
         kind: 'conflict',
@@ -153,27 +163,32 @@ export async function runAccountDeletionWithFcmPreflight<T>(
       });
     }
     if (!isAuthSessionRequestAllowed(generation)) {
+      retainFreezeForAuthTransition = true;
       try {
-        await preflight.restore();
+        await restoreAccountDeletionReceipts(preflight);
       } catch (restoreError) {
         rejectTransitionBarrier(restoreError);
         throw restoreError;
       }
-      receiptsCleared = false;
       return {status: 'cancelled'};
     }
     let value: T;
     try {
       value = await deleteAccount(accessToken);
     } catch (error) {
-      if (isAccountDeletionAuthTeardownError(error)) {
+      if (isAccountDeletionSessionExpiredError(error)) {
+        // The account still exists and the captured registration/deactivation
+        // result is its desired terminal state. Invalid credentials cannot
+        // safely reconcile a teardown gate after restart.
+        retainFreezeForAuthTransition = true;
+      } else if (isAccountDeletionAuthSessionChangedError(error)) {
+        retainFreezeForAuthTransition = true;
         try {
-          await preflight.restore();
+          await restoreAccountDeletionReceipts(preflight);
         } catch (restoreError) {
           rejectTransitionBarrier(restoreError);
           throw restoreError;
         }
-        receiptsCleared = false;
       }
       throw error;
     }
@@ -181,14 +196,28 @@ export async function runAccountDeletionWithFcmPreflight<T>(
     return {status: 'completed', value};
   } finally {
     releaseTransitionBarrier();
-    if (!completed && receiptsCleared) preflight.release();
+    if (!completed && !retainFreezeForAuthTransition) preflight.release();
   }
 }
 
-function isAccountDeletionAuthTeardownError(error: unknown) {
-  return error instanceof FaithLogApiError && (
-    error.detail.kind === 'sessionExpired' || error.detail.code === 'AUTH_SESSION_CHANGED'
-  );
+async function restoreAccountDeletionReceipts(
+  preflight: ReturnType<typeof beginAccountDeletionFcmPreflight>,
+) {
+  try {
+    await preflight.restore();
+  } catch {
+    // A transient SecureStore failure must not turn a durable cross-account
+    // cleanup debt into a memory-only restart latch.
+    await preflight.restore();
+  }
+}
+
+function isAccountDeletionSessionExpiredError(error: unknown) {
+  return error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired';
+}
+
+function isAccountDeletionAuthSessionChangedError(error: unknown) {
+  return error instanceof FaithLogApiError && error.detail.code === 'AUTH_SESSION_CHANGED';
 }
 
 export type FcmRegistrationStatus =
@@ -250,33 +279,8 @@ export async function inspectFcmRegistrationStatus(
     };
   }
 
-  const [permission, stored] = await Promise.all([
-    checkNotificationPermission(),
-    getStoredFcmRegistration(),
-  ]);
-  assertFcmAuthSessionCurrent(generation);
-
-  if (permission !== 'authorized') {
-    return {status: 'permissionPrompt', permission};
-  }
-
   const clientInstanceId = await getOrCreateClientInstanceId();
   assertFcmAuthSessionCurrent(generation);
-  let optOut;
-  try {
-    optOut = await getFcmOptOutState(userId, generation);
-  } catch (error) {
-    if (error instanceof CorruptFcmPrivacyStateError) {
-      return {status: 'optedOutPending', message: '저장된 알림 개인정보 상태를 확인해야 합니다.'};
-    }
-    throw error;
-  }
-  if (optOut) {
-    return optOut.status === 'confirmed'
-      ? {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'}
-      : {status: 'optedOutPending', message: '서버의 알림 연결 해제를 다시 확인해야 합니다.'};
-  }
-
   let unresolvedAttempts: Awaited<ReturnType<typeof getFcmRegistrationAttempts>>;
   try {
     unresolvedAttempts = await getFcmRegistrationAttempts(userId, generation);
@@ -287,6 +291,39 @@ export async function inspectFcmRegistrationStatus(
     throw error;
   }
   assertFcmAuthSessionCurrent(generation);
+  let optOut;
+  try {
+    optOut = await getFcmOptOutState(userId, generation);
+  } catch (error) {
+    if (error instanceof CorruptFcmPrivacyStateError) {
+      return {status: 'optedOutPending', message: '저장된 알림 개인정보 상태를 확인해야 합니다.'};
+    }
+    throw error;
+  }
+  if (optOut && unresolvedAttempts.length === 0) {
+    return optOut.status === 'confirmed'
+      ? {status: 'optedOut', message: '이 기기의 알림 연결을 사용자가 비활성화했습니다.'}
+      : {status: 'optedOutPending', message: '서버의 알림 연결 해제를 다시 확인해야 합니다.'};
+  }
+  if (unresolvedAttempts.length > 0) {
+    await clearFcmRegistration(generation);
+    return {
+      status: 'tokenUnavailable',
+      permission: 'authorized' as const,
+      message: '이전 알림 등록 결과를 먼저 확인해야 합니다.',
+    };
+  }
+
+  const [permission, stored] = await Promise.all([
+    checkNotificationPermission(),
+    getStoredFcmRegistration(),
+  ]);
+  assertFcmAuthSessionCurrent(generation);
+
+  if (permission !== 'authorized') {
+    return {status: 'permissionPrompt', permission};
+  }
+
   if (stored.tokenId && stored.userId === userId) {
     if (stored.clientInstanceId === clientInstanceId && unresolvedAttempts.length === 0) {
       return {status: 'registeredLocal', permission, tokenId: stored.tokenId};
@@ -563,7 +600,7 @@ export function capturePendingFcmOperations(expectedGeneration?: number): {
     barrier,
     settlement,
     obligations,
-    hasPendingOperations: obligations.length > 0,
+    hasPendingOperations: obligations.some((obligation) => obligation.state !== 'prepared'),
     hasPendingContexts: pendingAtCapture.length > 0,
     hasServerObligations: () => pendingAtCapture.some((operation) =>
       operation.serverBoundaryCrossed),
@@ -635,7 +672,9 @@ async function registerFcmTokenValueInternal(
     },
     generation,
     context ? (tokens) => updateFcmOperationCredentials(context, tokens) : undefined,
-    context ? () => { context.serverBoundaryCrossed = true; } : undefined,
+    context && obligation
+      ? () => markFcmObligationDispatched(context, obligation)
+      : undefined,
   );
   if (obligation) {
     obligation.state = 'registered';
@@ -695,7 +734,7 @@ async function deactivateStaleFcmToken(
       previousTokenId,
       generation,
       (tokens) => updateFcmOperationCredentials(context, tokens),
-      () => { context.serverBoundaryCrossed = true; },
+      () => markFcmObligationDispatched(context, obligation),
     );
     obligation.state = 'cleaned';
   } catch {
@@ -848,7 +887,7 @@ async function deactivateCurrentFcmTokenInternal(
           target.tokenId,
           generation,
           (tokens) => updateFcmOperationCredentials(context, tokens),
-          () => { context.serverBoundaryCrossed = true; },
+          () => markFcmObligationDispatched(context, deactivationObligation),
         );
       } catch (error) {
         if (!(error instanceof FaithLogApiError && error.detail.status === 404)) {
@@ -943,7 +982,7 @@ async function reconcileFcmRegistrationAttempts(
       },
       generation,
       (tokens) => updateFcmOperationCredentials(context, tokens),
-      () => { context.serverBoundaryCrossed = true; },
+      () => markFcmObligationDispatched(context, registrationObligation),
     );
     registrationObligation.state = 'registered';
     registrationObligation.tokenId = recovered.tokenId;
@@ -965,7 +1004,7 @@ async function reconcileFcmRegistrationAttempts(
         recovered.tokenId,
         generation,
         (tokens) => updateFcmOperationCredentials(context, tokens),
-        () => { context.serverBoundaryCrossed = true; },
+        () => markFcmObligationDispatched(context, deactivationObligation),
       );
     } catch (error) {
       if (!(error instanceof FaithLogApiError && error.detail.status === 404)) throw error;
@@ -992,10 +1031,18 @@ function addFcmObligation(
     ...obligation,
     accessToken: context.accessToken ?? obligation.accessToken,
     refreshToken: obligation.refreshToken ?? context.refreshToken ?? null,
-    state: 'mayHaveSent',
+    state: 'prepared',
   };
   context.obligations.add(tracked);
   return tracked;
+}
+
+function markFcmObligationDispatched(
+  context: PendingFcmOperation,
+  obligation: FcmRemoteCleanupObligation,
+) {
+  context.serverBoundaryCrossed = true;
+  if (obligation.state === 'prepared') obligation.state = 'mayHaveSent';
 }
 
 async function persistFcmObligationBeforeSend(

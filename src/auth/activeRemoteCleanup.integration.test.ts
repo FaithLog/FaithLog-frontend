@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 }));
 const api = vi.hoisted(() => ({
   deactivateCleanup: vi.fn(),
+  deactivate: vi.fn(),
   fetchCampuses: vi.fn(),
   fetchUser: vi.fn(),
   fcmPayload: vi.fn(),
@@ -38,7 +39,10 @@ vi.mock('expo-secure-store', () => ({
 }));
 vi.mock('react-native', () => ({Platform: {OS: 'ios'}}));
 vi.mock('../api/client', () => ({
-  deactivateMyFcmToken: vi.fn(),
+  deactivateMyFcmToken: (...args: unknown[]) => {
+    (args[4] as (() => void) | undefined)?.();
+    return api.deactivate(...args);
+  },
   deactivateMyFcmTokenForCleanup: api.deactivateCleanup,
   FaithLogApiError: class FaithLogApiError extends Error {
     constructor(readonly detail: {message: string; kind: string; status?: number}) {
@@ -51,7 +55,10 @@ vi.mock('../api/client', () => ({
   logoutUser: api.logout,
   refreshAuthToken: api.refresh,
   refreshAuthTokenForCleanup: vi.fn(),
-  registerMyFcmToken: api.register,
+  registerMyFcmToken: (...args: unknown[]) => {
+    (args[4] as (() => void) | undefined)?.();
+    return api.register(...args);
+  },
   registerMyFcmTokenForCleanup: api.registerCleanup,
   signupUser: api.signup,
   validateRuntimeConfig: vi.fn(),
@@ -77,6 +84,7 @@ describe('active remote cleanup ownership', () => {
     vi.clearAllMocks();
     vi.resetModules();
     api.deactivateCleanup.mockResolvedValue(null);
+    api.deactivate.mockResolvedValue(null);
     api.fcmPayload.mockResolvedValue({});
     api.logout.mockResolvedValue(null);
     api.registerCleanup.mockResolvedValue({
@@ -233,6 +241,25 @@ describe('active remote cleanup ownership', () => {
     await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
   });
 
+  it('releases the same-generation FCM freeze after a raw token resolver error', async () => {
+    const storage = await import('../api/tokenStorage');
+    const generation = await storage.beginAuthSession();
+    await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
+    const fcm = await import('../notifications/fcmRegistration');
+    const deleteAccount = vi.fn(async () => undefined);
+
+    await expect(fcm.runAccountDeletionWithFcmPreflight(
+      generation,
+      async () => { throw new Error('keychain temporarily unavailable'); },
+      deleteAccount,
+    )).rejects.toThrow('keychain temporarily unavailable');
+    expect(deleteAccount).not.toHaveBeenCalled();
+    const laterRegistration = fcm.registerFcmTokenValue(
+      'old-access', 42, 'later-device-token', generation,
+    );
+    await expect(laterRegistration).resolves.toMatchObject({tokenId: 77});
+  });
+
   it('joins an FCM credential rotation and deletes the account with stored A2', async () => {
     const storage = await import('../api/tokenStorage');
     const generation = await storage.beginAuthSession();
@@ -326,6 +353,30 @@ describe('active remote cleanup ownership', () => {
     expect(state.storage.has('faithlog.authTeardownPending')).toBe(false);
     expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
     expect(state.storage.has('faithlog.authTokens.v2')).toBe(false);
+  });
+
+  it('keeps the rotated durable logout credential authoritative over a tombstoned stale record', async () => {
+    state.storage.set('faithlog.authTokens.v2', JSON.stringify({
+      version: 1, accessToken: 'stale-A1', refreshToken: 'stale-R1',
+    }));
+    state.storage.set('faithlog.authInvalidated', '1');
+    state.storage.set('faithlog.authTeardownPending', '1');
+    state.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1,
+      obligations: [{
+        accessToken: 'rotated-A2', refreshToken: 'rotated-R2', userId: null,
+        clientInstanceId: null, kind: 'clientLogout', token: null, tokenId: null,
+      }],
+    }));
+    await import('../notifications/fcmRegistration');
+    const gate = await import('./authGate');
+
+    await expect(gate.bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+    expect(api.logout).toHaveBeenCalledOnce();
+    expect(api.logout).toHaveBeenCalledWith('rotated-A2', {refreshToken: 'rotated-R2'});
+    expect(api.logout).not.toHaveBeenCalledWith('stale-A1', expect.anything());
+    expect(api.refresh).not.toHaveBeenCalled();
+    expect(state.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
   });
 
   it('falls back to a durable receipt when the logout marker write fails once', async () => {
@@ -536,11 +587,11 @@ describe('active remote cleanup ownership', () => {
   });
 
   it.each([
-    {kind: 'sessionExpired', code: undefined, restoreFails: false, waiterBeforeFailure: true},
+    {kind: 'sessionExpired', code: undefined, restoreFails: false, waiterBeforeFailure: false},
     {kind: 'error', code: 'AUTH_SESSION_CHANGED', restoreFails: false, waiterBeforeFailure: true},
-    {kind: 'sessionExpired', code: undefined, restoreFails: true, waiterBeforeFailure: true},
-    {kind: 'sessionExpired', code: undefined, restoreFails: true, waiterBeforeFailure: false},
-  ] as const)('restores claimed receipts before propagating account deletion auth teardown ($code$kind, failure=$restoreFails, waiter=$waiterBeforeFailure)', async ({kind, code, restoreFails, waiterBeforeFailure}) => {
+    {kind: 'error', code: 'AUTH_SESSION_CHANGED', restoreFails: true, waiterBeforeFailure: true},
+    {kind: 'error', code: 'AUTH_SESSION_CHANGED', restoreFails: true, waiterBeforeFailure: false},
+  ] as const)('applies the account deletion auth terminal before releasing login ($code$kind, failure=$restoreFails, waiter=$waiterBeforeFailure)', async ({kind, code, restoreFails, waiterBeforeFailure}) => {
     const storage = await import('../api/tokenStorage');
     const generation = await storage.beginAuthSession();
     await storage.saveTokens({accessToken: 'old-access', refreshToken: 'old-refresh'}, generation);
@@ -593,6 +644,21 @@ describe('active remote cleanup ownership', () => {
       });
       await expect(blockedLogin).rejects.toThrow('앱을 완전히 종료');
       expect(api.login).not.toHaveBeenCalled();
+      return;
+    }
+    if (kind === 'sessionExpired') {
+      await expect(storage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+      const snapshot = new Map(state.storage);
+      snapshot.set('faithlog.authInvalidated', '1');
+      snapshot.delete('faithlog.authTokens.v2');
+      vi.resetModules();
+      state.storage = snapshot;
+      await import('../notifications/fcmRegistration');
+      const restartedSession = await import('./session');
+      await expect(restartedSession.loginAndEstablishSession({
+        email: 'next@example.test', password: 'test-password',
+      })).resolves.toMatchObject({status: 'noCampus'});
+      expect(api.deactivateCleanup).not.toHaveBeenCalled();
       return;
     }
     await expect(nextLogin!).resolves.toMatchObject({status: 'noCampus'});

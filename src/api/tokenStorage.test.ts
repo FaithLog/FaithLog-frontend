@@ -128,6 +128,34 @@ describe('native auth token storage', () => {
     });
   });
 
+  it('does not downgrade a rotated durable logout receipt from a tombstoned token record', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    testState.storage.set('faithlog.authInvalidated', '1');
+    testState.storage.set('faithlog.authTokens.v2', JSON.stringify({
+      version: 1, accessToken: 'stale-A1', refreshToken: 'stale-R1',
+    }));
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1,
+      obligations: [{
+        accessToken: 'rotated-A2', refreshToken: 'rotated-R2', userId: null,
+        clientInstanceId: null, kind: 'clientLogout', token: null, tokenId: null,
+      }],
+    }));
+
+    await expect(tokenStorage.materializeStoredSessionLogoutObligation(generation)).resolves.toEqual({
+      accessToken: 'rotated-A2', refreshToken: 'rotated-R2',
+    });
+    await expect(tokenStorage.prepareDurableStoredSessionTeardown(generation)).resolves.toMatchObject({
+      tokens: {accessToken: 'rotated-A2', refreshToken: 'rotated-R2'},
+    });
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([
+      expect.objectContaining({
+        accessToken: 'rotated-A2', refreshToken: 'rotated-R2', kind: 'clientLogout',
+      }),
+    ]);
+  });
+
   it('does not assign a queued token read to a generation created by logout', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();
