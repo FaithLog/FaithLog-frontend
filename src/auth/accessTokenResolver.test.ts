@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({allowed: true, generation: 1, getStoredAuthSession: vi.fn()}));
 vi.mock('../api/tokenStorage', () => ({
@@ -6,12 +6,32 @@ vi.mock('../api/tokenStorage', () => ({
   getStoredAuthSession: mocks.getStoredAuthSession,
   isAuthSessionRequestAllowed: (generation: number) =>
     mocks.allowed && generation === mocks.generation,
+  startAuthSessionClear: (generation: number) => {
+    if (!mocks.allowed || generation !== mocks.generation) {
+      return {
+        cleared: false, previousGeneration: mocks.generation,
+        currentGeneration: mocks.generation, completion: Promise.resolve(),
+      };
+    }
+    const previousGeneration = mocks.generation;
+    mocks.generation += 1;
+    mocks.allowed = false;
+    return {
+      cleared: true, previousGeneration, currentGeneration: mocks.generation,
+      completion: Promise.resolve(),
+    };
+  },
   StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {},
 }));
 
 import {isAccessTokenResolutionCurrent, resolveCurrentAccessToken} from './accessTokenResolver';
 
 describe('access token resolver lineage', () => {
+  beforeEach(() => {
+    mocks.allowed = true;
+    mocks.generation = 1;
+    vi.clearAllMocks();
+  });
   it('does not invoke missing-token side effects for a fulfilled old null token', async () => {
     let finish!: (value: unknown) => void;
     mocks.getStoredAuthSession.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
@@ -37,6 +57,26 @@ describe('access token resolver lineage', () => {
     });
     const onMissing = vi.fn();
     await expect(resolveCurrentAccessToken(onMissing)).resolves.toBeNull();
+    expect(mocks.generation).toBe(4);
+    expect(mocks.allowed).toBe(false);
     expect(onMissing).toHaveBeenCalledWith(3);
+  });
+
+  it('closes the common request gate before a missing-token callback can yield', async () => {
+    mocks.generation = 4;
+    mocks.getStoredAuthSession.mockResolvedValueOnce({
+      generation: 4, accessToken: null, refreshToken: null,
+    });
+    const mutationFetch = vi.fn();
+    const onMissing = vi.fn(async () => {
+      expect(mocks.allowed).toBe(false);
+    });
+
+    await resolveCurrentAccessToken(onMissing);
+    if (mocks.allowed) mutationFetch();
+
+    expect(onMissing).toHaveBeenCalledOnce();
+    expect(mocks.allowed).toBe(false);
+    expect(mutationFetch).not.toHaveBeenCalled();
   });
 });

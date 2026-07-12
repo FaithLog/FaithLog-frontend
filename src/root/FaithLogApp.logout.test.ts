@@ -118,13 +118,16 @@ describe('logout UI transition', () => {
     expect(signedOut).toHaveBeenCalledOnce();
   });
 
-  it('shows restart recovery copy for a bounded logout barrier timeout', () => {
+  it.each(['login', 'signup'] as const)(
+    'shows restart recovery copy for a bounded logout barrier timeout in %s',
+    (context) => {
     expect(getApiErrorMessage({
       kind: 'conflict',
       code: 'LOGOUT_CLEANUP_PENDING',
       message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
-    }, 'login')).toContain('앱을 완전히 종료');
-  });
+    }, context)).toContain('앱을 완전히 종료');
+    },
+  );
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {
       throw new Error('secure storage unavailable');

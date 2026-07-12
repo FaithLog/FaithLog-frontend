@@ -12,7 +12,6 @@ import {clearTokens} from '../api/tokenStorage';
 import type {ApiError, DevotionDailyCheck, PenaltyRule, WeeklyDevotionSummary} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
-import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
 import {
   Conflict,
   ErrorState,
@@ -948,9 +947,8 @@ function DevotionActionError({error, onRetry}: {error: ApiError; onRetry: () => 
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  return resolveCurrentAccessToken((generation) => {
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
-    void trackLocalSessionCleanup(clearTokens(generation));
   });
 }
 

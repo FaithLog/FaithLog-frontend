@@ -38,7 +38,6 @@ import {
   fetchMyCampuses,
   fetchPrayerWeek,
   joinCampus,
-  signupUser,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {
@@ -71,13 +70,14 @@ import {
   validateSignupForm,
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
-import {isAccessTokenResolutionCurrent, readCurrentAccessToken, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {expireMissingAuthSession, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
   prepareCurrentSessionLogout,
+  signupAfterSessionCleanup,
   type PreparedLogout,
 } from '../auth/session';
 import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
@@ -1356,10 +1356,12 @@ function SignupForm({
 
     setSubmitting(true);
     try {
-      const user = await signupUser(result.payload);
+      const user = await signupAfterSessionCleanup(result.payload);
       onSignupComplete(user.name);
     } catch (error) {
-      if (error instanceof FaithLogApiError && error.detail.kind === 'conflict') {
+      if (error instanceof FaithLogApiError && error.detail.code === 'LOGOUT_CLEANUP_PENDING') {
+        setFormError(getAuthFormErrorMessage(error, 'signup'));
+      } else if (error instanceof FaithLogApiError && error.detail.kind === 'conflict') {
         setFieldErrors((current) => ({
           ...current,
           email: '이미 가입된 이메일입니다.',
@@ -1615,7 +1617,9 @@ async function applyCampusFormError(
 ) {
   if (error instanceof FaithLogApiError) {
     if (error.detail.kind === 'sessionExpired') {
-      await clearTokens(error.detail.authSessionGeneration);
+      if (error.detail.authSessionGeneration !== undefined) {
+        expireMissingAuthSession(error.detail.authSessionGeneration);
+      }
       options.setFormError(null);
       options.onSessionExpired(error.detail.message);
       return;
@@ -2633,6 +2637,7 @@ function UserHomeDashboard({
 
       if (!accessToken) {
         if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration)) return;
+        expireMissingAuthSession(requestGeneration);
         const error: ApiError = {
           kind: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
@@ -3345,12 +3350,15 @@ function NotificationSettingsDetail({
 }) {
   const [state, setState] = useState<NotificationUiState>({status: 'checking'});
 
-  const inspect = async () => {
+  const inspect = async (expectedGeneration = getAuthSessionGeneration()) => {
+    if (!isAuthSessionRequestAllowed(expectedGeneration)) return;
     setState({status: 'checking'});
     try {
-      const generation = getAuthSessionGeneration();
-      setState(await inspectFcmRegistrationStatus(userId, generation));
+      const nextState = await inspectFcmRegistrationStatus(userId, expectedGeneration);
+      if (!isAuthSessionRequestAllowed(expectedGeneration)) return;
+      setState(nextState);
     } catch {
+      if (!isAuthSessionRequestAllowed(expectedGeneration)) return;
       setState({
         status: 'error',
         error: {kind: 'error', message: '알림 설정을 확인하지 못했습니다.'},
@@ -3366,22 +3374,20 @@ function NotificationSettingsDetail({
     const requestGeneration = getAuthSessionGeneration();
     setState({status: 'registering'});
     try {
-      const session = await readCurrentAccessToken();
-      if (!isAccessTokenResolutionCurrent(session)) return;
-
-      if (!session.accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken || !isAuthSessionRequestAllowed(requestGeneration)) return;
 
       const result = await registerCurrentFcmToken(
-        session.accessToken,
+        accessToken,
         userId,
-        session.generation,
+        requestGeneration,
       );
+      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
       setState(result);
     } catch (error) {
       if (!isAuthSessionRequestAllowed(requestGeneration)) return;
@@ -3402,23 +3408,21 @@ function NotificationSettingsDetail({
     const requestGeneration = getAuthSessionGeneration();
     setState({status: 'deactivating'});
     try {
-      const session = await readCurrentAccessToken();
-      if (!isAccessTokenResolutionCurrent(session)) return;
-
-      if (!session.accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken || !isAuthSessionRequestAllowed(requestGeneration)) return;
 
       await deactivateCurrentFcmToken(
-        session.accessToken,
+        accessToken,
         userId,
-        session.generation,
+        requestGeneration,
       );
-      await inspect();
+      if (!isAuthSessionRequestAllowed(requestGeneration)) return;
+      await inspect(requestGeneration);
     } catch (error) {
       if (!isAuthSessionRequestAllowed(requestGeneration)) return;
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
@@ -3837,15 +3841,12 @@ function AccountDeletionScreen({
     setBusy(true);
     setError(null);
     try {
-      const accessToken = await resolveCurrentAccessToken((generation) => {
+      const accessToken = await resolveCurrentAccessToken(() => {
         shouldResetBusy = false;
-        void beginAccountDeletionTeardown(
-          () => setAuthState({
-            status: 'sessionExpired',
-            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-          }),
-          () => clearTokens(generation),
-        );
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
       });
 
       if (!accessToken) {

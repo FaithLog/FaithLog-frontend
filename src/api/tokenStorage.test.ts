@@ -170,6 +170,41 @@ describe('native auth token storage', () => {
     await tokenStorage.clearTokens(generation);
   });
 
+  it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseTokenWrite!: () => void;
+    const tokenWriteBlocked = new Promise<void>((resolve) => { releaseTokenWrite = resolve; });
+    secureStoreMocks.setItemAsync
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value);
+      })
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value);
+        await tokenWriteBlocked;
+      });
+
+    const saving = tokenStorage.saveTokens({
+      accessToken: 'closing-rotated-access',
+      refreshToken: 'closing-rotated-refresh',
+    }, generation);
+    await vi.waitFor(() => expect(
+      testState.storage.get('faithlog.authTokens.v2'),
+    ).toContain('closing-rotated-access'));
+    expect(tokenStorage.markAuthSessionClosing(generation)).toBe(true);
+    releaseTokenWrite();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredTokens(generation)).resolves.toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+    await expect(tokenStorage.isAccessTokenOwnedByAuthSession(
+      'closing-rotated-access', generation,
+    )).resolves.toBe(false);
+  });
+
   it('keeps fail-closed marker when final token commit marker removal fails', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

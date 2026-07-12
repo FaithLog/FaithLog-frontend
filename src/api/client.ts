@@ -1393,6 +1393,7 @@ async function getTokensAfterSingleFlightRefresh(
 ) {
   assertAuthSessionRequestIsAllowed(generation);
   const storedTokens = await getStoredAuthSession(generation);
+  assertAuthSessionRequestIsAllowed(generation);
 
   if (storedTokens.generation !== generation) {
     throw new FaithLogApiError(createAuthSessionChangedError(generation));

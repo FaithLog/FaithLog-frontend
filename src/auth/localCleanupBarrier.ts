@@ -11,19 +11,29 @@ export function trackLocalSessionCleanup<T>(operation: Promise<T>) {
 
 export async function waitForLocalSessionCleanup(timeoutMs: number) {
   if (restartRequired) return false;
-  const cleanup = [...cleanupInFlight];
-  if (cleanup.length === 0) return true;
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<false>((resolve) => {
-    timeoutId = setTimeout(() => resolve(false), timeoutMs);
-  });
-  try {
-    const completed = await Promise.race([Promise.all(cleanup).then(() => true), timeout]);
-    if (!completed) restartRequired = true;
-    return completed;
-  } finally {
-    clearTimeout(timeoutId!);
+  const deadline = Date.now() + timeoutMs;
+
+  while (cleanupInFlight.size > 0) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      restartRequired = true;
+      return false;
+    }
+    const cleanup = [...cleanupInFlight];
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const completed = await Promise.race([
+      Promise.all(cleanup).then(() => true),
+      new Promise<false>((resolve) => {
+        timeoutId = setTimeout(() => resolve(false), remainingMs);
+      }),
+    ]).finally(() => clearTimeout(timeoutId!));
+    if (!completed) {
+      restartRequired = true;
+      return false;
+    }
   }
+
+  return true;
 }
 
 export function resetLocalCleanupBarrierForTests() {

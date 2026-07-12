@@ -14,6 +14,7 @@ vi.mock('../api/client', () => ({
   loginUser: vi.fn(),
   logoutUser: vi.fn(),
   refreshAuthToken: vi.fn(),
+  signupUser: vi.fn(),
 }));
 
 vi.mock('../api/tokenStorage', () => ({
@@ -44,6 +45,7 @@ import {
   fetchMyCampuses,
   loginUser,
   logoutUser,
+  signupUser,
 } from '../api/client';
 import {
   beginAuthSession,
@@ -66,6 +68,8 @@ import {
   loginAndEstablishSession,
   logoutCurrentSession,
   prepareCurrentSessionLogout,
+  resetAuthEntryBarrierForTests,
+  signupAfterSessionCleanup,
   trackLocalSessionCleanup,
 } from './session';
 
@@ -91,6 +95,7 @@ const LOGIN_RESPONSE: LoginResponse = {
 describe('auth session lifecycle', () => {
   beforeEach(() => {
     resetLocalCleanupBarrierForTests();
+    resetAuthEntryBarrierForTests();
     vi.clearAllMocks();
     vi.mocked(beginAuthSession).mockResolvedValue(AUTH_GENERATION);
     vi.mocked(getAuthSessionGeneration).mockReturnValue(AUTH_GENERATION);
@@ -101,6 +106,7 @@ describe('auth session lifecycle', () => {
     vi.mocked(clearTokens).mockResolvedValue(true);
     vi.mocked(rotateClientInstanceId).mockResolvedValue(true);
     vi.mocked(loginUser).mockResolvedValue(LOGIN_RESPONSE);
+    vi.mocked(signupUser).mockResolvedValue(CURRENT_USER);
     vi.mocked(fetchCurrentUser).mockResolvedValue(CURRENT_USER);
     vi.mocked(fetchMyCampuses).mockResolvedValue([]);
     vi.mocked(getStoredAuthSession).mockResolvedValue({
@@ -157,6 +163,11 @@ describe('auth session lifecycle', () => {
         email: 'user@example.test', password: 'password',
       })).rejects.toThrow('앱을 완전히 종료');
       expect(loginUser).not.toHaveBeenCalled();
+
+      await expect(signupAfterSessionCleanup({
+        email: 'new@example.test', name: 'new', password: 'password',
+      })).rejects.toThrow('앱을 완전히 종료');
+      expect(signupUser).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -186,6 +197,36 @@ describe('auth session lifecycle', () => {
         message: '원격 로그아웃 정리가 지연되어 앱 재시작 후 다시 확인해야 합니다.',
       });
       expect(logoutUser).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restart-gates auth entry when a remote logout was already sent at timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishRemoteLogout!: () => void;
+      vi.mocked(logoutUser).mockReturnValue(new Promise<null>((resolve) => {
+        finishRemoteLogout = () => resolve(null);
+      }));
+      const prepared = await prepareCurrentSessionLogout(CURRENT_USER.id);
+      const remoteLogout = prepared.completeRemoteLogout();
+      await vi.waitFor(() => expect(logoutUser).toHaveBeenCalledOnce());
+
+      const nextLogin = loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      });
+      const rejected = expect(nextLogin).rejects.toThrow('앱을 완전히 종료');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(loginUser).not.toHaveBeenCalled();
+
+      finishRemoteLogout();
+      await expect(remoteLogout).resolves.toEqual({status: 'signedOut'});
+      await expect(loginAndEstablishSession({
+        email: 'user@example.test', password: 'test-password',
+      })).rejects.toThrow('앱을 완전히 종료');
+      expect(loginUser).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

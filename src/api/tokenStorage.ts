@@ -230,7 +230,7 @@ export async function saveTokens(
   generation: AuthSessionGeneration = authSessionGeneration,
 ) {
   return withSecureStorageLock(async () => {
-    if (!isAuthSessionGenerationCurrent(generation)) {
+    if (!isAuthSessionRequestAllowed(generation)) {
       return false;
     }
 
@@ -240,10 +240,10 @@ export async function saveTokens(
       refreshToken: tokens.refreshToken,
     };
     await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
-    if (!isAuthSessionGenerationCurrent(generation)) return false;
+    if (!isAuthSessionRequestAllowed(generation)) return false;
     await setStorageItem(AUTH_TOKENS_KEY, JSON.stringify(record));
 
-    if (!isAuthSessionGenerationCurrent(generation)) {
+    if (!isAuthSessionRequestAllowed(generation)) {
       return false;
     }
 
@@ -251,20 +251,18 @@ export async function saveTokens(
       deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
       deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
     ]);
-    if (!isAuthSessionGenerationCurrent(generation)) return false;
+    if (!isAuthSessionRequestAllowed(generation)) return false;
     await deleteStorageItem(AUTH_INVALIDATED_KEY);
 
-    if (!isAuthSessionGenerationCurrent(generation)) {
+    if (!isAuthSessionRequestAllowed(generation)) {
       await setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE);
       return false;
     }
 
-    if (isAuthSessionGenerationCurrent(generation)) {
-      cachedAccessToken = record.accessToken;
-      currentSessionAccessTokens.add(record.accessToken);
-    }
+    cachedAccessToken = record.accessToken;
+    currentSessionAccessTokens.add(record.accessToken);
 
-    return isAuthSessionGenerationCurrent(generation);
+    return isAuthSessionRequestAllowed(generation);
   });
 }
 
