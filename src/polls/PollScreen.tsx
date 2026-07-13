@@ -64,6 +64,7 @@ import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {chunkForVirtualizedRows} from '../utils/listVirtualization';
 import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
 import {PollCommentDraftStore} from './pollCommentDraftStore';
+import {getPollDetailScrollOwner} from './pollScrollOwnership';
 import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
@@ -80,6 +81,7 @@ type Notice = {
 } | null;
 
 type PollScreenProps = {
+  androidContentBottomPadding: number;
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
@@ -124,6 +126,7 @@ const COMMENT_MAX_LENGTH = 500;
 const POLL_RESPONDENTS_PER_ROW = 2;
 
 export function PollScreen({
+  androidContentBottomPadding,
   canOpenAdminMode,
   onOpenAdminMode,
   onOpenNotifications,
@@ -557,16 +560,19 @@ export function PollScreen({
       return <Loading message="투표 상세와 댓글을 불러오고 있어요." />;
     }
 
+    const detailScrollOwner = getPollDetailScrollOwner(detailTab);
+
     return (
       <KeyboardAvoidingView
         behavior="padding"
         enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={16}
         style={styles.keyboardRoot}>
-        {detailTab === 'comments' ? (
+        {detailScrollOwner === 'flatList' ? (
           <CommentsPanel
             actionError={actionError}
             actionState={actionState}
+            androidContentBottomPadding={androidContentBottomPadding}
             comments={detailState.comments}
             draftStore={commentDraftStore}
             currentUserId={state.user.id}
@@ -604,9 +610,10 @@ export function PollScreen({
             onSubmit={editingComment ? submitCommentEdit : submitComment}
             pollId={detailState.detail.id}
           />
-        ) : detailTab === 'results' ? (
+        ) : detailScrollOwner === 'sectionList' ? (
           <ResultsPanel
             actionError={actionError}
+            androidContentBottomPadding={androidContentBottomPadding}
             detail={detailState.detail}
             error={detailState.resultError}
             header={(
@@ -628,7 +635,11 @@ export function PollScreen({
           />
         ) : (
         <ScrollView
-          contentContainerStyle={styles.figmaScreen}
+          contentContainerStyle={[
+            styles.figmaScreen,
+            Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+          ]}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
         <PollDetailHeader
@@ -698,7 +709,11 @@ export function PollScreen({
       keyboardVerticalOffset={16}
       style={styles.keyboardRoot}>
       <ScrollView
-        contentContainerStyle={styles.figmaScreen}
+        contentContainerStyle={[
+          styles.figmaScreen,
+          Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+        ]}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
       <FigmaScreenHeader
@@ -1081,6 +1096,7 @@ function CoffeeCatalogPanel({
 function CommentsPanel({
   actionError,
   actionState,
+  androidContentBottomPadding,
   comments,
   currentUserId,
   draftStore,
@@ -1095,6 +1111,7 @@ function CommentsPanel({
 }: {
   actionError: ApiError | null;
   actionState: ActionState;
+  androidContentBottomPadding: number;
   comments: PollComment[];
   currentUserId: number;
   draftStore: PollCommentDraftStore;
@@ -1122,9 +1139,13 @@ function CommentsPanel({
 
   return (
     <FlatList
-      contentContainerStyle={styles.figmaScreen}
+      contentContainerStyle={[
+        styles.figmaScreen,
+        Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+      ]}
       data={comments}
       initialNumToRender={10}
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       keyboardShouldPersistTaps="handled"
       keyExtractor={(comment) => String(comment.commentId)}
       ListEmptyComponent={(
@@ -1277,6 +1298,7 @@ function CompactActionButton({
 
 function ResultsPanel({
   actionError,
+  androidContentBottomPadding,
   detail,
   error,
   header,
@@ -1284,6 +1306,7 @@ function ResultsPanel({
   results,
 }: {
   actionError: ApiError | null;
+  androidContentBottomPadding: number;
   detail: PollDetail;
   error: ApiError | null;
   header: React.ReactNode;
@@ -1304,8 +1327,13 @@ function ResultsPanel({
   if (!results) {
     return (
       <FlatList
-        contentContainerStyle={styles.figmaVirtualizedScreen}
+        contentContainerStyle={[
+          styles.figmaVirtualizedScreen,
+          Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+        ]}
         data={[]}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={(
           <View style={styles.figmaListEmptySpacing}>
             {error ? (
@@ -1338,8 +1366,13 @@ function ResultsPanel({
 
   return (
     <SectionList
-      contentContainerStyle={styles.figmaVirtualizedScreen}
+      contentContainerStyle={[
+        styles.figmaVirtualizedScreen,
+        Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+      ]}
       initialNumToRender={10}
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      keyboardShouldPersistTaps="handled"
       keyExtractor={(respondentChunk, index) =>
         respondentChunk.length > 0
           ? respondentChunk.map((respondent) => respondent.userId).join('-')
