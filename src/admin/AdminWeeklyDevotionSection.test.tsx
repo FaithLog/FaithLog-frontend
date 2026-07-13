@@ -156,6 +156,72 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
     expect(readText(renderer)).not.toContain('campus-1-weekly.xlsx');
   });
 
+  it('allows the new campus to export while the previous campus export is still pending', async () => {
+    const oldExport = deferred<Awaited<ReturnType<AdminWeeklyDevotionAdapter['exportWeek']>>>();
+    const adapter = createAdapter();
+    adapter.exportWeek
+      .mockReturnValueOnce(oldExport.promise)
+      .mockResolvedValueOnce({
+        bytes: new Uint8Array([80, 75]),
+        fileName: 'campus-2-weekly.xlsx',
+      });
+    const shareExport = vi.fn(async () => 'file:///weekly.xlsx');
+    let activeCampusId = 1;
+    const dependencies = {
+      adapter,
+      getNow: () => new Date(2026, 6, 13, 9),
+      resolveRequest: async (weekStartDate: string) => ({
+        ...REQUEST,
+        campusId: activeCampusId,
+        weekStartDate,
+      }),
+      shareExport,
+    };
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = track(create(
+        <AdminWeeklyDevotionSection
+          campusId={1}
+          dependencies={dependencies}
+          setAuthState={vi.fn()}
+        />,
+      ));
+    });
+    const oldButton = renderer.root.findByProps({
+      accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+    });
+    await act(async () => {
+      void oldButton.props.onPress();
+      await Promise.resolve();
+    });
+    expect(adapter.exportWeek).toHaveBeenCalledOnce();
+
+    activeCampusId = 2;
+    act(() => {
+      renderer.update(
+        <AdminWeeklyDevotionSection
+          campusId={2}
+          dependencies={dependencies}
+          setAuthState={vi.fn()}
+        />,
+      );
+    });
+    const newButton = renderer.root.findByProps({
+      accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+    });
+    expect(newButton.props.disabled).toBe(false);
+    await act(async () => {
+      await newButton.props.onPress();
+    });
+
+    expect(adapter.exportWeek).toHaveBeenCalledTimes(2);
+    expect(shareExport).toHaveBeenCalledOnce();
+    expect(shareExport).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: 'campus-2-weekly.xlsx',
+    }));
+  });
+
   it('hides the previous table immediately when the selected week changes', async () => {
     const nextRequest = deferred<AdminWeeklyDevotionRequest | null>();
     const adapter = createAdapter();

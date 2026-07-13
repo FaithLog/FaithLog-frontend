@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   AppState,
@@ -95,7 +95,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     weekStartDate: initialLatestWeekStartDate,
   });
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
-  const [exporting, setExporting] = useState(false);
+  const [exportingContextKey, setExportingContextKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const runtimeAdapter = useMemo(createRuntimeAdapter, []);
   const adapter = dependencies?.adapter ?? runtimeAdapter;
@@ -108,13 +108,19 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
   const campusIdRef = useRef(campusId);
   const loadOperationRef = useRef(0);
   const exportOperationRef = useRef(0);
-  const exportInFlightRef = useRef<Promise<void> | null>(null);
+  const exportInFlightRef = useRef<{
+    contextKey: string;
+    promise: Promise<void>;
+  } | null>(null);
 
-  if (campusIdRef.current !== campusId) {
+  useLayoutEffect(() => {
+    if (campusIdRef.current === campusId) {
+      return;
+    }
     campusIdRef.current = campusId;
     loadOperationRef.current += 1;
     exportOperationRef.current += 1;
-  }
+  }, [campusId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -344,16 +350,21 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
   };
 
   const exportExcel = () => {
-    if (exportInFlightRef.current) {
-      return exportInFlightRef.current;
-    }
-
     const selectedWeekStartDate = weekStartDateRef.current;
     const selectedCampusId = campusIdRef.current;
+    const selectedContextKey = createViewContextKey(
+      selectedCampusId,
+      getAuthSessionGeneration(),
+      selectedWeekStartDate,
+    );
+    if (exportInFlightRef.current?.contextKey === selectedContextKey) {
+      return exportInFlightRef.current.promise;
+    }
+
     const operationId = ++exportOperationRef.current;
     const operation = (async () => {
       let request: AdminWeeklyDevotionRequest | null = null;
-      setExporting(true);
+      setExportingContextKey(selectedContextKey);
       setFeedback(null);
       try {
         request = await resolveRequest(selectedWeekStartDate);
@@ -450,18 +461,27 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         AccessibilityInfo.announceForAccessibility(message);
       } finally {
         if (mountedRef.current) {
-          setExporting(false);
+          setExportingContextKey((current) =>
+            current === selectedContextKey ? null : current,
+          );
         }
       }
     })();
     const inFlight = operation.finally(() => {
-      if (exportInFlightRef.current === inFlight) {
+      if (exportInFlightRef.current?.promise === inFlight) {
         exportInFlightRef.current = null;
       }
     });
-    exportInFlightRef.current = inFlight;
+    exportInFlightRef.current = {contextKey: selectedContextKey, promise: inFlight};
     return inFlight;
   };
+
+  const selectedContextKey = createViewContextKey(
+    campusId,
+    getAuthSessionGeneration(),
+    weekStartDate,
+  );
+  const exporting = exportingContextKey === selectedContextKey;
 
   return (
     <View style={styles.container}>
@@ -511,11 +531,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         onToggleDetails: (userId) =>
           setExpandedUserId((current) => (current === userId ? null : userId)),
         selectedWeekStartDate: weekStartDate,
-        selectedContextKey: createViewContextKey(
-          campusId,
-          getAuthSessionGeneration(),
-          weekStartDate,
-        ),
+        selectedContextKey,
         state,
       })}
     </View>
