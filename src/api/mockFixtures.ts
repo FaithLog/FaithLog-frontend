@@ -188,7 +188,7 @@ const chargeList: ChargeList = {
         accountHolder: '샘플 캠퍼스',
       },
       source: {
-        sourceType: 'DEVOTION',
+        sourceType: 'DEVOTION_RECORD',
         sourceId: 101,
       },
     },

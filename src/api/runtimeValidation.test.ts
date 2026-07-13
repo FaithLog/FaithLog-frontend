@@ -4,6 +4,7 @@ import {mockDomainFixtures} from './mockFixtures';
 import * as responseParsers from './runtimeValidation';
 import {
   parseAdminDashboardSummary,
+  parseAdminChargeStatusChangeResponse,
   parseAdminNotificationResponse,
   parseCampusDetail,
   parseCampusMembershipSummaries,
@@ -560,6 +561,19 @@ describe('runtime API response validation', () => {
   it('normalizes explicit null or omitted no-content data to null', () => {
     expect(parseNullResponse(null)).toBeNull();
     expect(parseNullResponse(undefined)).toBeNull();
+  });
+
+  it('requires paidAt when an admin charge response reports PAID', () => {
+    const paidResponse = {
+      ...mockDomainFixtures.admin.chargeStatusChange,
+      status: 'PAID',
+      paidAt: '2026-07-13T12:00:00.000Z',
+    };
+
+    expect(parseAdminChargeStatusChangeResponse(paidResponse)).toEqual(paidResponse);
+    expect(() =>
+      parseAdminChargeStatusChangeResponse({...paidResponse, paidAt: null}),
+    ).toThrow(INVALID_RESPONSE);
   });
 
   it('accepts bounded backend-defined open status strings', () => {

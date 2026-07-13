@@ -20,7 +20,8 @@ import type {
   AdminPrayerSeason,
   AdminPrayerSeasonCloseRequest,
   AdminPrayerSeasonCreateRequest,
-  AdminWritableChargeStatus,
+  AdminChargeStatusChangeRequest,
+  AdminChargeStatusTarget,
   AdminChargeStatusChangeResponse,
   CampusCreateRequest,
   CampusCreateResponse,
@@ -540,15 +541,26 @@ function toSafeAdminCampusChargeQuery(params: AdminCampusChargeQueryParams) {
   return query.toString();
 }
 
-function toAdminWritableChargeStatus(value: unknown): AdminWritableChargeStatus {
-  if (value === 'UNPAID' || value === 'WAIVED' || value === 'CANCELED') {
+function toAdminChargeStatusTarget(value: unknown): AdminChargeStatusTarget {
+  if (
+    value === 'UNPAID' ||
+    value === 'PAID' ||
+    value === 'WAIVED' ||
+    value === 'CANCELED'
+  ) {
     return value;
   }
 
   throw new FaithLogApiError({
     kind: 'error',
-    message: '관리자는 PAID로 직접 변경할 수 없습니다.',
+    message: '지원하지 않는 청구 상태입니다.',
   });
+}
+
+export function buildAdminChargeStatusChangeRequest(
+  status: unknown,
+): AdminChargeStatusChangeRequest {
+  return {status: toAdminChargeStatusTarget(status)};
 }
 
 function toRequiredString(value: unknown, label: string) {
@@ -2474,11 +2486,22 @@ export function fetchAdminMemberCharges(
   );
 }
 
-export function changeAdminChargeStatus(
+export async function changeAdminChargeStatus(
   accessToken: string,
   chargeItemId: unknown,
   status: unknown,
 ) {
+  const body = buildAdminChargeStatusChangeRequest(status);
+
+  if (body.status === 'PAID' && !isMockModeEnabled()) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      code: 'API_CONTRACT_PENDING',
+      message:
+        '관리자 납부 완료 API 계약이 아직 REST Docs로 확정되지 않아 요청을 보내지 않았습니다.',
+    });
+  }
+
   return apiRequest<AdminChargeStatusChangeResponse>(
     buildApiPath(
       'admin',
@@ -2488,7 +2511,8 @@ export function changeAdminChargeStatus(
     ),
     {
       accessToken,
-      body: {status: toAdminWritableChargeStatus(status)},
+      body,
+      exposeServerErrorMessage: true,
       responseParser: parseAdminChargeStatusChangeResponse,
       method: 'PATCH',
     },

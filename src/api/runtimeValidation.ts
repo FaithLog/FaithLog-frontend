@@ -1609,9 +1609,14 @@ export function parseAdminMemberChargeList(value: unknown): AdminMemberChargeLis
 export function parseAdminChargeStatusChangeResponse(
   value: unknown,
 ): AdminChargeStatusChangeResponse {
-  return parseSafely(
-    () => parseChargeMutationValue(value) as AdminChargeStatusChangeResponse,
-  );
+  return parseSafely(() => {
+    const record = requireRecord(value);
+    const response = parseChargeMutationValue(record);
+
+    return response.status === 'PAID'
+      ? {...response, paidAt: requireDateTime(record.paidAt)}
+      : response;
+  });
 }
 
 export function parseAdminMissingDevotionMembers(

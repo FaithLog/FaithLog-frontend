@@ -4,6 +4,12 @@ import {
   mockApiErrorFixtures,
   mockDomainFixtures,
 } from './mockFixtures';
+import type {
+  AdminCampusChargeSummary,
+  AdminMemberChargeList,
+  ChargeAmountSummary,
+  ChargeItem,
+} from './types';
 
 type MockScenario =
   | '401'
@@ -25,6 +31,14 @@ const jsonHeaders = {
 
 const missingMockFixture = Symbol('missingMockFixture');
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
+const mockAdminChargeMutations = new Map<
+  number,
+  {paidAt: string | null; status: 'UNPAID' | 'PAID' | 'WAIVED' | 'CANCELED'}
+>();
+
+export function resetMockAdapterStateForTests() {
+  mockAdminChargeMutations.clear();
+}
 
 export async function executeMockRequest(path: string, init: RequestInit): Promise<Response> {
   const scenario = getMockScenario();
@@ -312,17 +326,42 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
   if (route.method === 'POST' && /^\/admin\/campuses\/\d+\/members$/.test(path)) {
     return admin.addedCampusMember;
   }
-  if (route.method === 'GET' && /^\/admin\/campuses\/\d+\/charges$/.test(path)) {
-    return admin.campusCharges;
+  if (
+    route.method === 'GET' &&
+    /^\/admin\/campuses\/\d+\/charges(?:\/my-accounts)?$/.test(path)
+  ) {
+    return applyMockAdminCampusChargeMutations(admin.campusCharges, admin.memberCharges.items);
   }
   if (
     route.method === 'GET' &&
     /^\/admin\/campuses\/\d+\/members\/\d+\/charges$/.test(path)
   ) {
-    return admin.memberCharges;
+    return applyMockAdminMemberChargeMutations(admin.memberCharges);
   }
   if (route.method === 'PATCH' && /^\/admin\/charges\/\d+\/status$/.test(path)) {
-    return admin.chargeStatusChange;
+    const chargeItemId = getPathNumberBeforeSuffix(path, 'status');
+    const request = parseMockJsonBody(body);
+    const status = getMockAdminChargeStatus(request);
+    const charge = admin.memberCharges.items.find((item) => item.id === chargeItemId);
+
+    if (!charge || !chargeItemId || !status) {
+      return missingMockFixture;
+    }
+
+    const paidAt = status === 'PAID' ? '2026-07-13T12:00:00.000Z' : null;
+    mockAdminChargeMutations.set(chargeItemId, {paidAt, status});
+
+    return {
+      id: charge.id,
+      campusId: admin.memberCharges.campusId,
+      userId: admin.memberCharges.userId,
+      paymentCategory: charge.paymentCategory,
+      title: charge.title,
+      reason: charge.reason,
+      amount: charge.amount,
+      status,
+      paidAt,
+    };
   }
   if (route.method === 'GET' && /^\/admin\/campuses\/\d+\/devotions\/missing$/.test(path)) {
     return admin.missingDevotionMembers;
@@ -514,6 +553,91 @@ function getPathNumberBeforeSuffix(path: string, suffix: string) {
   const match = path.match(new RegExp(`/([0-9]+)/${suffix}$`));
 
   return match ? Number(match[1]) : null;
+}
+
+function getMockAdminChargeStatus(value: unknown) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const status = Reflect.get(value, 'status');
+
+  return status === 'UNPAID' ||
+    status === 'PAID' ||
+    status === 'WAIVED' ||
+    status === 'CANCELED'
+    ? status
+    : null;
+}
+
+function applyMockAdminMemberChargeMutations(
+  charges: AdminMemberChargeList,
+): AdminMemberChargeList {
+  const items = charges.items.map((item) => {
+    const mutation = mockAdminChargeMutations.get(item.id);
+
+    return mutation ? {...item, ...mutation} : item;
+  });
+
+  return {
+    ...charges,
+    items,
+    summary: applyMockChargeSummary(charges.summary, charges.items),
+  };
+}
+
+function applyMockAdminCampusChargeMutations(
+  charges: AdminCampusChargeSummary,
+  items: ChargeItem[],
+): AdminCampusChargeSummary {
+  const summary = applyMockChargeSummary(charges.summary, items);
+
+  return {
+    ...charges,
+    summary,
+    members: charges.members.map((member) => ({
+      ...member,
+      ...applyMockChargeSummary(member, items),
+    })),
+  };
+}
+
+function applyMockChargeSummary(
+  summary: ChargeAmountSummary,
+  items: ChargeItem[],
+): ChargeAmountSummary {
+  const next = {...summary};
+
+  for (const item of items) {
+    const mutation = mockAdminChargeMutations.get(item.id);
+
+    if (!mutation || mutation.status === item.status) {
+      continue;
+    }
+
+    const previousKey = getMockSummaryKey(item.status);
+    const nextKey = getMockSummaryKey(mutation.status);
+
+    next[previousKey] = Math.max(0, next[previousKey] - item.amount);
+    next[nextKey] += item.amount;
+  }
+
+  return next;
+}
+
+function getMockSummaryKey(
+  status: ChargeItem['status'],
+): Exclude<keyof ChargeAmountSummary, 'totalAmount'> {
+  switch (status) {
+    case 'UNPAID':
+      return 'unpaidAmount';
+    case 'PAID':
+      return 'paidAmount';
+    case 'WAIVED':
+      return 'waivedAmount';
+    case 'CANCELED':
+      return 'canceledAmount';
+  }
 }
 
 function withoutApiPrefix(pathname: string) {
