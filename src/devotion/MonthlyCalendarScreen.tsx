@@ -33,6 +33,8 @@ import {VersionedAsyncCache} from '../utils/versionedAsyncCache';
 import {
   buildDailyCompletionMap,
   getDailyCompletionCount,
+  getWeeklyDevotionEntryState,
+  isWeeklyDevotionEditable,
   type DailyCompletionCount,
 } from './devotionUtils';
 
@@ -149,7 +151,9 @@ export function MonthlyCalendarScreen({
   }, [campusId, reloadVersion, selectedWeekStart, visibleMonth.month, visibleMonth.year]);
 
   const selectedCheck = formChecks.find((check) => check.recordDate === selectedDate);
-  const locked = loadState.status === 'success' && Boolean(loadState.weekly.submittedAt);
+  const locked =
+    loadState.status === 'success' &&
+    !isWeeklyDevotionEditable(loadState.weekly);
   const selectedDateLabel = formatKoreanDate(selectedDate);
 
   const moveMonth = (direction: -1 | 1) => {
@@ -531,19 +535,11 @@ function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) =
 
 function normalizeWeekChecks(weekly: WeeklyDevotionSummary): DailyFormCheck[] {
   const start = parseDate(weekly.weekStartDate);
+  const recordDates = Array.from({length: 7}, (_, index) =>
+    formatLocalDate(addDays(start, index)),
+  );
 
-  return Array.from({length: 7}, (_, index) => {
-    const recordDate = formatLocalDate(addDays(start, index));
-    const existing = weekly.dailyChecks.find((check) => check.recordDate === recordDate);
-
-    return {
-      id: existing?.id ?? null,
-      recordDate,
-      quietTimeChecked: existing?.quietTimeChecked ?? false,
-      prayerChecked: existing?.prayerChecked ?? false,
-      bibleReadingChecked: existing?.bibleReadingChecked ?? false,
-    };
-  });
+  return getWeeklyDevotionEntryState(weekly, recordDates).dailyChecks;
 }
 
 function getMonthGridCells(year: number, month: number) {

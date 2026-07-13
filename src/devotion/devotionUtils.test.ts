@@ -4,6 +4,7 @@ import type {PenaltyRule, WeeklyDevotionSummary} from '../api/types';
 import {
   buildDailyCompletionMap,
   canRequestWeeklySubmit,
+  getWeeklyDevotionEntryState,
   getDailyCompletionCount,
   summarizeDevotionPenalty,
 } from './devotionUtils';
@@ -162,6 +163,53 @@ describe('devotion utilities', () => {
     expect(canRequestWeeklySubmit({invalidLateMinutes: true, locked: false, saving: false})).toBe(
       false,
     );
+  });
+
+  it('keeps reopened daily checks editable when submittedAt is null', () => {
+    const weekly: WeeklyDevotionSummary = {
+      weeklyRecordId: 41,
+      campusId: 1,
+      campusName: '샘플 캠퍼스',
+      region: '서울',
+      userId: 7,
+      weekStartDate: '2026-07-06',
+      weekEndDate: '2026-07-12',
+      quietTimeCount: 1,
+      prayerCount: 1,
+      bibleReadingCount: 0,
+      saturdayLateMinutes: 0,
+      submittedAt: null,
+      dailyChecks: [
+        {
+          id: 91,
+          recordDate: '2026-07-06',
+          quietTimeChecked: true,
+          prayerChecked: true,
+          bibleReadingChecked: false,
+        },
+      ],
+    };
+
+    const state = getWeeklyDevotionEntryState(weekly, [
+      '2026-07-06',
+      '2026-07-07',
+      '2026-07-08',
+      '2026-07-09',
+      '2026-07-10',
+      '2026-07-11',
+      '2026-07-12',
+    ]);
+
+    expect(state.editable).toBe(true);
+    expect(state.dailyChecks).toHaveLength(7);
+    expect(state.dailyChecks[0]).toEqual(weekly.dailyChecks[0]);
+    expect(state.dailyChecks[1]).toEqual({
+      id: null,
+      recordDate: '2026-07-07',
+      quietTimeChecked: false,
+      prayerChecked: false,
+      bibleReadingChecked: false,
+    });
   });
 });
 
