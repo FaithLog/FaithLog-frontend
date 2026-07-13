@@ -1,21 +1,27 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
+import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {Button, Card, Chip, Eyebrow, Title} from '../components/ui';
 import {formatWon} from '../utils/money';
-import {mealApi} from './mealApi';
+import {mealApi, type MealApi} from './mealApi';
+import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
+import {resolveMealRequestAccess} from './mealRequestLifecycle';
+import type {MealRequestIdentity} from './mealRequestLifecycle';
 import type {MealCharged, MealPollDetail} from './mealTypes';
 import {
   MealErrorState,
+  getCurrentMealRequestError,
   MealLoading,
+  MealRefreshWarning,
   type MealLoadState,
   mealStyles,
-  toMealApiError,
 } from './mealScreenShared';
+import {useMealRequestTracker} from './useMealRequestTracker';
 
 type MealPollDetailScreenProps = {
-  accessToken: string;
+  api?: MealApi;
   campusId: number;
   onBack: () => void;
   onOpenCharge: (pollId: number) => void;
@@ -24,51 +30,103 @@ type MealPollDetailScreenProps = {
 };
 
 export function MealPollDetailScreen({
-  accessToken,
+  api = mealApi,
   campusId,
   onBack,
   onOpenCharge,
   onSessionExpired,
   pollId,
 }: MealPollDetailScreenProps) {
+  const tracker = useMealRequestTracker(`campus:${campusId}/meal-detail:${pollId}`);
+  const closeGate = useRef(createMealMutationGate()).current;
   const [state, setState] = useState<MealLoadState<MealPollDetail>>({status: 'loading'});
   const [closing, setClosing] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState(false);
 
   const load = useCallback(async () => {
     setState({status: 'loading'});
-    try {
-      setState({status: 'success', data: await mealApi.getPollDetail(accessToken, campusId, pollId)});
-    } catch (error) {
-      setState({status: 'error', error: toMealApiError(error, '밥 투표 상세를 불러오지 못했습니다.', onSessionExpired)});
+    const access = await resolveMealRequestAccess(tracker, 'detail', onSessionExpired);
+    if (access.status === 'cancelled') return null;
+    if (access.status === 'error') {
+      const apiError = getCurrentMealRequestError({error: access.error, fallback: '밥 투표 상세를 불러오지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
+      if (apiError) setState({status: 'error', error: apiError});
+      return null;
     }
-  }, [accessToken, campusId, onSessionExpired, pollId]);
+    const {accessToken, identity} = access.request;
+    try {
+      const detail = await api.getPollDetail(accessToken, campusId, pollId);
+      if (!tracker.isSuccessCurrent(identity)) return null;
+      setState({status: 'success', data: detail});
+      setRefreshWarning(false);
+      return detail;
+    } catch (error) {
+      const apiError = getCurrentMealRequestError({error, fallback: '밥 투표 상세를 불러오지 못했습니다.', identity, onSessionExpired, tracker});
+      if (apiError) setState({status: 'error', error: apiError});
+      return null;
+    }
+  }, [api, campusId, onSessionExpired, pollId, tracker]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const closePoll = async () => {
-    if (closing) return;
+    const operationId = beginMealMutation(
+      closeGate,
+      `${campusId}:${pollId}:${getAuthSessionGeneration()}:close`,
+    );
+    if (operationId === null) return;
     setClosing(true);
     setActionError(null);
+    setRefreshWarning(false);
+    let mutationSucceeded = false;
+    let mutationIdentity: MealRequestIdentity | null = null;
     try {
-      await mealApi.closePoll(accessToken, campusId, pollId);
-      const refetched = await mealApi.getPollDetail(accessToken, campusId, pollId);
-      setState({status: 'success', data: refetched});
-      onOpenCharge(refetched.id);
+      const access = await resolveMealRequestAccess(tracker, 'close', onSessionExpired);
+      mutationIdentity = access.status === 'ready' ? access.request.identity : access.identity;
+      if (access.status === 'cancelled') return;
+      if (access.status === 'error') {
+        const apiError = getCurrentMealRequestError({error: access.error, fallback: '밥 투표를 종료하지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
+        if (apiError) setActionError(apiError);
+        return;
+      }
+      const closed = await api.closePoll(access.request.accessToken, campusId, pollId);
+      if (!tracker.isSuccessCurrent(access.request.identity)) return;
+      mutationSucceeded = true;
+      setState({status: 'success', data: closed});
+
+      const refreshAccess = await resolveMealRequestAccess(tracker, 'close-refresh', onSessionExpired);
+      if (refreshAccess.status !== 'ready') {
+        if (tracker.isSuccessCurrent(access.request.identity)) setRefreshWarning(true);
+        return;
+      }
+      try {
+        const refetched = await api.getPollDetail(refreshAccess.request.accessToken, campusId, pollId);
+        if (!tracker.isSuccessCurrent(refreshAccess.request.identity)) return;
+        setState({status: 'success', data: refetched});
+        onOpenCharge(refetched.id);
+      } catch (refreshError) {
+        const currentError = getCurrentMealRequestError({error: refreshError, fallback: '최신 투표 상태를 불러오지 못했습니다.', identity: refreshAccess.request.identity, onSessionExpired, tracker});
+        if (currentError) setRefreshWarning(true);
+      }
     } catch (error) {
-      const apiError = toMealApiError(error, '밥 투표를 종료하지 못했습니다.', onSessionExpired);
+      if (mutationSucceeded) {
+        setRefreshWarning(true);
+        return;
+      }
+      if (mutationIdentity === null) return;
+      const apiError = getCurrentMealRequestError({error, fallback: '밥 투표를 종료하지 못했습니다.', identity: mutationIdentity, onSessionExpired, tracker});
+      if (!apiError) return;
       setActionError(apiError);
       if (apiError.status === 409) {
-        try {
-          setState({status: 'success', data: await mealApi.getPollDetail(accessToken, campusId, pollId)});
-        } catch {
-          // The explicit conflict remains visible if the recovery refetch also fails.
-        }
+        setRefreshWarning(true);
       }
     } finally {
-      setClosing(false);
+      finishMealMutation(closeGate, operationId);
+      if (mutationIdentity === null || tracker.isSuccessCurrent(mutationIdentity)) {
+        setClosing(false);
+      }
     }
   };
 
@@ -92,7 +150,7 @@ export function MealPollDetailScreen({
           <Chip label={detail.status === 'CLOSED' ? '종료' : '진행 중'} tone={detail.status === 'CLOSED' ? 'default' : 'info'} />
         </View>
         <Text style={mealStyles.body}>{detail.description || '설명 없음'}</Text>
-        <Text style={mealStyles.meta}>SINGLE · 응답 {detail.totalResponseCount}명 · 사용자 선택지 추가 {detail.allowUserOptionAdd ? '허용' : '불가'}</Text>
+        <Text style={mealStyles.meta}>한 항목 선택 · 응답 {detail.totalResponseCount}명 · 새 선택지 추가 {detail.allowUserOptionAdd ? '가능' : '불가'}</Text>
       </Card>
 
       {detail.options.map((option) => (
@@ -104,12 +162,13 @@ export function MealPollDetailScreen({
             </View>
             <Chip label={option.charge.chargeStatus === 'CHARGED' ? '청구 완료' : '미청구'} tone={option.charge.chargeStatus === 'CHARGED' ? 'success' : 'warning'} />
           </View>
-          {option.responseCount === 0 ? <Text style={mealStyles.meta}>응답자가 없어 batch 청구에서 제외됩니다.</Text> : null}
+          {option.responseCount === 0 ? <Text style={mealStyles.meta}>선택한 사람이 없어 정산에서 제외됩니다.</Text> : null}
           {option.charge.chargeStatus === 'CHARGED' ? <ChargedSummary charge={option.charge} /> : null}
         </Card>
       ))}
 
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
+      {refreshWarning ? <MealRefreshWarning onRetry={() => void load()} /> : null}
       <View style={mealStyles.actionRow}>
         <Button accessibilityLabel="밥 투표 목록으로 돌아가기" onPress={onBack} variant="secondary">목록</Button>
         {detail.status === 'OPEN' ? (
@@ -118,11 +177,11 @@ export function MealPollDetailScreen({
           </Button>
         ) : null}
         {detail.status === 'CLOSED' && hasChargeableGroup ? (
-          <Button accessibilityLabel="밥 투표 일괄 청구 화면 열기" onPress={() => onOpenCharge(detail.id)}>청구하기</Button>
+          <Button accessibilityLabel="밥 투표 청구 화면 열기" onPress={() => onOpenCharge(detail.id)}>청구하기</Button>
         ) : null}
       </View>
       {detail.status === 'CLOSED' && detail.settlementStatus === 'NOT_CHARGED' ? (
-        <Text style={mealStyles.meta}>투표 종료는 청구를 생성하지 않습니다. 옵션별 금액을 확인한 뒤 별도로 청구해 주세요.</Text>
+        <Text style={mealStyles.meta}>투표를 종료해도 바로 청구되지 않습니다. 항목별 금액을 확인한 뒤 청구해 주세요.</Text>
       ) : null}
     </View>
   );
@@ -137,7 +196,7 @@ function ChargedSummary({charge}: {charge: MealCharged}) {
       {!charge.chargedByMe ? (
         <Text style={mealStyles.meta}>다른 밥 담당자가 청구했습니다. 계좌 정보는 공개되지 않습니다.</Text>
       ) : (
-        <Text style={mealStyles.successText}>내 계좌로 청구한 그룹입니다.</Text>
+        <Text style={mealStyles.successText}>내 계좌로 청구한 항목입니다.</Text>
       )}
     </View>
   );

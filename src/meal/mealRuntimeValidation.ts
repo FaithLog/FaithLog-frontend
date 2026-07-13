@@ -25,6 +25,14 @@ const settlementStatuses = new Set<MealSettlementStatus>(['NOT_CHARGED', 'CHARGE
 const calculationTypes = new Set<MealCalculationType>(['PER_MEMBER', 'GROUP_TOTAL']);
 const chargeStatuses = new Set(['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const);
 
+export class InvalidServerResponseError extends Error {
+  readonly code = 'INVALID_SERVER_RESPONSE';
+
+  constructor() {
+    super(INVALID_RESPONSE_MESSAGE);
+  }
+}
+
 export function parseMyMealDutyAssignment(value: unknown): MealDutyAssignment {
   return parseSafely(() => {
     const duty = parseMealDuty(value, false);
@@ -38,7 +46,11 @@ export function parseMealDutyAssignment(value: unknown): MealDutyAssignment {
 }
 
 export function parseMealPaymentAccounts(value: unknown): MealPaymentAccount[] {
-  return parseSafely(() => requireArray(value).map(parseMealPaymentAccount));
+  return parseSafely(() => {
+    const accounts = requireArray(value).map(parseMealPaymentAccount);
+    requireUniqueNumbers(accounts.map((account) => account.id));
+    return accounts;
+  });
 }
 
 export function parseMealPaymentAccountResponse(value: unknown): MealPaymentAccount {
@@ -48,23 +60,30 @@ export function parseMealPaymentAccountResponse(value: unknown): MealPaymentAcco
 export function parseMealPollList(value: unknown): MealPollList {
   return parseSafely(() => {
     const record = requireRecord(value);
-    return {
+    const list = {
       content: requireArray(record.content).map(parseMealPollSummary),
       page: requireNonNegativeInteger(record.page),
       size: requireNonNegativeInteger(record.size),
       totalElements: requireNonNegativeInteger(record.totalElements),
       totalPages: requireNonNegativeInteger(record.totalPages),
     };
+    requireUniqueNumbers(list.content.map((poll) => poll.id));
+    if (list.content.length > list.size || list.content.length > list.totalElements) {
+      invalidResponse();
+    }
+    return list;
   });
 }
 
 export function parseMealPollDetail(value: unknown): MealPollDetail {
   return parseSafely(() => {
     const record = requireRecord(value);
-    return {
+    const detail: MealPollDetail = {
       ...parseMealPollSummary(record),
       options: requireArray(record.options).map(parseMealPollOption),
     };
+    validateMealPollDetailSemantics(detail);
+    return detail;
   });
 }
 
@@ -87,7 +106,7 @@ export function parseClosedMealPollDetail(value: unknown): MealPollDetail {
 export function parseMealChargeResult(value: unknown): MealChargeResult {
   return parseSafely(() => {
     const record = requireRecord(value);
-    return {
+    const result: MealChargeResult = {
       pollId: requirePositiveId(record.pollId),
       paymentAccountId: requirePositiveId(record.paymentAccountId),
       chargedMemberCount: requireNonNegativeInteger(record.chargedMemberCount),
@@ -97,16 +116,20 @@ export function parseMealChargeResult(value: unknown): MealChargeResult {
       chargedAt: requireDateTime(record.chargedAt),
       groups: requireArray(record.groups).map(parseMealChargeGroupResult),
     };
+    validateMealChargeResultSemantics(result);
+    return result;
   });
 }
 
 export function parseMealSettlement(value: unknown): MealSettlement {
   return parseSafely(() => {
     const record = requireRecord(value);
-    return {
+    const settlement: MealSettlement = {
       accounts: requireArray(record.accounts).map(parseAccountSettlement),
       summary: parseSettlementSummary(record.summary),
     };
+    validateMealSettlementSemantics(settlement);
+    return settlement;
   });
 }
 
@@ -179,13 +202,14 @@ function parseMealPollOption(value: unknown): MealPollOptionDetail {
   const record = requireRecord(value);
   const chargeRecord = requireRecord(record.charge);
   const chargeStatus = chargeRecord.chargeStatus;
+  const responseCount = requireNonNegativeInteger(record.responseCount);
 
   if (chargeStatus !== 'NOT_CHARGED' && chargeStatus !== 'CHARGED') invalidResponse();
 
   return {
     optionId: requirePositiveId(record.optionId),
     content: requireString(record.content),
-    responseCount: requireNonNegativeInteger(record.responseCount),
+    responseCount,
     userAdded: requireBoolean(record.userAdded),
     charge:
       chargeStatus === 'NOT_CHARGED'
@@ -212,6 +236,156 @@ function parseCharged(record: UnknownRecord): MealCharged {
     chargedByMe,
     chargedAt: requireDateTime(record.chargedAt),
   };
+}
+
+function validateMealPollDetailSemantics(detail: MealPollDetail) {
+  requireUniqueNumbers(detail.options.map((option) => option.optionId));
+  const totalResponseCount = safeSum(detail.options.map((option) => option.responseCount));
+  if (totalResponseCount !== detail.totalResponseCount) invalidResponse();
+
+  const respondingOptions = detail.options.filter((option) => option.responseCount > 0);
+  if (detail.settlementStatus === 'CHARGED' && respondingOptions.length === 0) invalidResponse();
+
+  for (const option of respondingOptions) {
+    if (
+      detail.settlementStatus === 'NOT_CHARGED' &&
+      option.charge.chargeStatus !== 'NOT_CHARGED'
+    ) {
+      invalidResponse();
+    }
+    if (
+      detail.settlementStatus === 'CHARGED' &&
+      option.charge.chargeStatus !== 'CHARGED'
+    ) {
+      invalidResponse();
+    }
+    if (option.charge.chargeStatus === 'CHARGED') {
+      if (option.charge.chargedMemberCount !== option.responseCount) invalidResponse();
+      validateMealChargeArithmetic(
+        option.charge.calculationType,
+        option.charge.enteredAmount,
+        option.responseCount,
+        option.charge.amountPerMember,
+        option.charge.requestedTotalAmount,
+        option.charge.actualTotalAmount,
+        option.charge.roundingAdjustment,
+      );
+    }
+  }
+}
+
+function validateMealChargeResultSemantics(result: MealChargeResult) {
+  requireUniqueNumbers(result.groups.map((group) => group.optionId));
+  for (const group of result.groups) {
+    validateMealChargeArithmetic(
+      group.calculationType,
+      group.enteredAmount,
+      group.responseCount,
+      group.amountPerMember,
+      group.requestedTotalAmount,
+      group.actualTotalAmount,
+      group.roundingAdjustment,
+    );
+  }
+  if (safeSum(result.groups.map((group) => group.responseCount)) !== result.chargedMemberCount) {
+    invalidResponse();
+  }
+  if (safeSum(result.groups.map((group) => group.requestedTotalAmount)) !== result.requestedTotalAmount) {
+    invalidResponse();
+  }
+  if (safeSum(result.groups.map((group) => group.actualTotalAmount)) !== result.actualTotalAmount) {
+    invalidResponse();
+  }
+  if (safeSum(result.groups.map((group) => group.roundingAdjustment)) !== result.roundingAdjustment) {
+    invalidResponse();
+  }
+}
+
+function validateMealSettlementSemantics(settlement: MealSettlement) {
+  requireUniqueNumbers(settlement.accounts.map((item) => item.account.id));
+  const chargeIds = settlement.accounts.flatMap((item) => item.charges.map((charge) => charge.chargeId));
+  requireUniqueNumbers(chargeIds);
+
+  for (const item of settlement.accounts) {
+    validateSettlementSummary(item.summary);
+    if (item.summary.chargedMemberCount !== item.charges.length) invalidResponse();
+    if (safeSum(item.charges.map((charge) => charge.amount)) !== item.summary.actualTotalAmount) {
+      invalidResponse();
+    }
+  }
+
+  validateSettlementSummary(settlement.summary);
+  for (const key of [
+    'chargedMemberCount',
+    'requestedTotalAmount',
+    'actualTotalAmount',
+    'roundingAdjustment',
+  ] as const) {
+    if (safeSum(settlement.accounts.map((item) => item.summary[key])) !== settlement.summary[key]) {
+      invalidResponse();
+    }
+  }
+}
+
+function validateSettlementSummary(summary: MealSettlementSummary) {
+  if (safeAdd(summary.requestedTotalAmount, summary.roundingAdjustment) !== summary.actualTotalAmount) {
+    invalidResponse();
+  }
+}
+
+function validateMealChargeArithmetic(
+  calculationType: MealCalculationType,
+  enteredAmount: number,
+  responseCount: number,
+  amountPerMember: number,
+  requestedTotalAmount: number,
+  actualTotalAmount: number,
+  roundingAdjustment: number,
+) {
+  const expectedPerMember = calculationType === 'PER_MEMBER'
+    ? enteredAmount
+    : Math.floor(enteredAmount / responseCount) + (enteredAmount % responseCount === 0 ? 0 : 1);
+  const expectedRequested = calculationType === 'PER_MEMBER'
+    ? safeMultiply(enteredAmount, responseCount)
+    : enteredAmount;
+  const expectedActual = safeMultiply(expectedPerMember, responseCount);
+  const expectedAdjustment = expectedActual - expectedRequested;
+  if (
+    amountPerMember !== expectedPerMember ||
+    requestedTotalAmount !== expectedRequested ||
+    actualTotalAmount !== expectedActual ||
+    roundingAdjustment !== expectedAdjustment
+  ) {
+    invalidResponse();
+  }
+}
+
+function requireUniqueNumbers(values: number[]) {
+  if (new Set(values).size !== values.length) invalidResponse();
+}
+
+function safeSum(values: number[]) {
+  return values.reduce((sum, value) => safeAdd(sum, value), 0);
+}
+
+function safeAdd(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left > Number.MAX_SAFE_INTEGER - right) {
+    return invalidResponse();
+  }
+  return left + right;
+}
+
+function safeMultiply(left: number, right: number) {
+  if (
+    !Number.isSafeInteger(left) ||
+    !Number.isSafeInteger(right) ||
+    left < 0 ||
+    right <= 0 ||
+    left > Math.floor(Number.MAX_SAFE_INTEGER / right)
+  ) {
+    return invalidResponse();
+  }
+  return left * right;
 }
 
 function parseMealChargeGroupResult(value: unknown): MealChargeGroupResult {
@@ -270,7 +444,7 @@ function parseSafely<T>(parse: () => T): T {
 }
 
 function invalidResponse(): never {
-  throw new Error(INVALID_RESPONSE_MESSAGE);
+  throw new InvalidServerResponseError();
 }
 
 function requireRecord(value: unknown): UnknownRecord {

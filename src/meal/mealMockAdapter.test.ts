@@ -3,7 +3,11 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 vi.mock('../api/tokenStorage', () => ({
   clearTokens: vi.fn(),
   getAuthSessionGeneration: vi.fn(() => 0),
-  getStoredAuthSession: vi.fn(),
+  getStoredAuthSession: vi.fn(async () => ({
+    accessToken: 'mock-access-token',
+    refreshToken: 'mock-refresh-token',
+    generation: 0,
+  })),
   getStoredTokens: vi.fn(),
   isAccessTokenOwnedByAuthSession: vi.fn(async () => true),
   isAuthSessionGenerationCurrent: vi.fn(() => true),
@@ -17,7 +21,11 @@ import {
   fetchPollDetail,
   savePollResponse,
 } from '../api/client';
-import {resetMealMockStateForTests} from '../api/mockAdapter';
+import {
+  executeMockRequest,
+  mealMockAccessTokens,
+  resetMealMockStateForTests,
+} from '../api/mockAdapter';
 import {mealApi} from './mealApi';
 
 describe('MEAL mock adapter flow', () => {
@@ -46,11 +54,11 @@ describe('MEAL mock adapter flow', () => {
     const afterAssign = await fetchDutyAssignments('mock-access-token', 1);
 
     expect(assigned).toMatchObject({dutyType: 'MEAL', userId: 9});
-    expect(afterAssign.filter((duty) => duty.dutyType === 'MEAL')).toHaveLength(3);
+    expect(afterAssign.filter((duty) => duty.dutyType === 'MEAL' && duty.isActive)).toHaveLength(3);
 
     await mealApi.revokeDuty('mock-access-token', 1, assigned.assignmentId);
     const afterRevoke = await fetchDutyAssignments('mock-access-token', 1);
-    expect(afterRevoke.filter((duty) => duty.dutyType === 'MEAL')).toHaveLength(2);
+    expect(afterRevoke.filter((duty) => duty.dutyType === 'MEAL' && duty.isActive)).toHaveLength(2);
   });
 
   it('returns only the current duty owner MEAL accounts, including inactive history', async () => {
@@ -77,6 +85,10 @@ describe('MEAL mock adapter flow', () => {
     expect(afterCreate.filter((account) => account.isActive)).toEqual([
       expect.objectContaining({nickname: '저녁 계좌'}),
     ]);
+    await mealApi.deactivatePaymentAccount('mock-access-token', 1, afterCreate[0]?.id ?? 0);
+    await expect(
+      mealApi.deactivatePaymentAccount('mock-access-token', 1, afterCreate[0]?.id ?? 0),
+    ).rejects.toMatchObject({detail: {status: 409}});
   });
 
   it('adds a user MEAL option without auto-selecting it, then allows a separate response', async () => {
@@ -92,10 +104,18 @@ describe('MEAL mock adapter flow', () => {
     await expect(
       addUserPollOption('mock-access-token', 1, 901, {content: '  비빔밥  '}),
     ).rejects.toMatchObject({detail: {status: 409}});
+    await addUserPollOption('mock-access-token', 1, 901, {content: 'Ramen'});
+    await expect(
+      addUserPollOption('mock-access-token', 1, 901, {content: '  ramen  '}),
+    ).rejects.toMatchObject({detail: {status: 409}});
 
     await savePollResponse('mock-access-token', 1, 901, {optionIds: [added.id]});
     const afterResponse = await fetchPollDetail('mock-access-token', 1, 901);
+    const managementDetail = await mealApi.getPollDetail('mock-access-token', 1, 901);
     expect(afterResponse.myResponse?.optionIds).toEqual([added.id]);
+    expect(managementDetail.options.find((option) => option.optionId === added.id)?.responseCount)
+      .toBe(1);
+    expect(managementDetail.totalResponseCount).toBe(6);
 
     await expect(
       addUserPollOption('mock-access-token', 1, 902, {content: '종료 후 추가'}),
@@ -135,6 +155,22 @@ describe('MEAL mock adapter flow', () => {
     await expect(mealApi.closePoll('mock-access-token', 1, 901)).rejects.toMatchObject({
       detail: {status: 409},
     });
+
+    const perOptionAccount = await executeMockRequest(
+      '/api/v1/campuses/1/meal/polls/902/charges',
+      {
+        body: JSON.stringify({
+          paymentAccountId: 10,
+          groups: [
+            {optionId: 9021, paymentAccountId: 10, calculationType: 'GROUP_TOTAL', enteredAmount: 10000},
+            {optionId: 9022, calculationType: 'PER_MEMBER', enteredAmount: 8000},
+          ],
+        }),
+        headers: {Authorization: `Bearer ${mealMockAccessTokens.activeDuty}`},
+        method: 'POST',
+      },
+    );
+    expect(perOptionAccount.status).toBe(400);
 
     const result = await mealApi.createCharges('mock-access-token', 1, 902, {
       paymentAccountId: 10,
@@ -179,5 +215,94 @@ describe('MEAL mock adapter flow', () => {
 
     expect(charge).toMatchObject({chargeStatus: 'CHARGED', chargedByMe: false, paymentAccountId: null});
     expect(detail.options.some((option) => option.charge.chargeStatus === 'NOT_CHARGED')).toBe(false);
+  });
+
+  it('separates non-duty, inactive-duty, and cross-campus authorization', async () => {
+    const unauthorized = await executeMockRequest(
+      '/api/v1/campuses/1/meal/polls?page=0&size=20&sort=endsAt%2Cdesc',
+      {headers: {Authorization: 'Bearer unknown-token'}, method: 'GET'},
+    );
+    expect(unauthorized.status).toBe(401);
+    await expect(
+      mealApi.listPolls(mealMockAccessTokens.nonDutyAdmin, 1),
+    ).rejects.toMatchObject({detail: {status: 403}});
+    await expect(
+      mealApi.listPolls(mealMockAccessTokens.inactiveDuty, 1),
+    ).rejects.toMatchObject({detail: {status: 403}});
+    await expect(
+      mealApi.listPolls(mealMockAccessTokens.activeDuty, 2),
+    ).rejects.toMatchObject({detail: {status: 404}});
+
+    await expect(
+      mealApi.listPolls(mealMockAccessTokens.otherCampusDuty, 2),
+    ).resolves.toMatchObject({content: []});
+    await expect(
+      mealApi.assignDuty(mealMockAccessTokens.otherDuty, 1, {userId: 9}),
+    ).rejects.toMatchObject({detail: {status: 403}});
+  });
+
+  it('never exposes or mutates another duty owner account', async () => {
+    await expect(
+      mealApi.getMyPaymentAccounts(mealMockAccessTokens.otherDuty, 1, true),
+    ).resolves.toEqual([]);
+    await expect(
+      mealApi.deactivatePaymentAccount(mealMockAccessTokens.otherDuty, 1, 10),
+    ).rejects.toMatchObject({detail: {status: 404}});
+  });
+
+  it('rejects cross-campus MEAL option additions', async () => {
+    await expect(
+      addUserPollOption(mealMockAccessTokens.activeDuty, 2, 901, {content: '다른 캠퍼스 메뉴'}),
+    ).rejects.toMatchObject({detail: {status: 404}});
+    await expect(
+      savePollResponse(mealMockAccessTokens.activeDuty, 2, 901, {optionIds: [9011]}),
+    ).rejects.toMatchObject({detail: {status: 404}});
+  });
+
+  it('rejects forbidden create fields and missing duty assignments with distinct statuses', async () => {
+    const forbidden = await executeMockRequest('/api/v1/campuses/1/meal/polls', {
+      body: JSON.stringify({
+        title: '금지 필드 투표',
+        description: '',
+        startsAt: '2027-07-19T03:00:00.000Z',
+        endsAt: '2027-07-20T03:00:00.000Z',
+        options: [{content: '한식'}, {content: '중식'}],
+        allowUserOptionAdd: true,
+      }),
+      headers: {Authorization: `Bearer ${mealMockAccessTokens.activeDuty}`},
+      method: 'POST',
+    });
+    expect(forbidden.status).toBe(400);
+    await expect(
+      mealApi.revokeDuty(mealMockAccessTokens.activeDuty, 1, 99999),
+    ).rejects.toMatchObject({detail: {status: 404}});
+  });
+
+  it('filters settlement and charged account privacy by the requesting duty owner', async () => {
+    const account = await mealApi.createPaymentAccount(mealMockAccessTokens.otherDuty, 1, {
+      nickname: '두 번째 담당자 계좌',
+      bankName: '우리은행',
+      accountNumber: '1002-000-000000',
+      accountHolder: '두 번째 담당자',
+    });
+    await mealApi.createCharges(mealMockAccessTokens.otherDuty, 1, 902, {
+      paymentAccountId: account.id,
+      groups: [
+        {optionId: 9021, calculationType: 'GROUP_TOTAL', enteredAmount: 10000},
+        {optionId: 9022, calculationType: 'PER_MEMBER', enteredAmount: 8000},
+      ],
+    });
+
+    const ownSettlement = await mealApi.getMySettlement(mealMockAccessTokens.otherDuty, 1);
+    const otherSettlement = await mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1);
+    const hiddenDetail = await mealApi.getPollDetail(mealMockAccessTokens.activeDuty, 1, 902);
+
+    expect(ownSettlement.accounts[0]?.account.ownerUserId).toBe(8);
+    expect(otherSettlement.accounts).toEqual([]);
+    expect(hiddenDetail.options[0]?.charge).toMatchObject({
+      chargeStatus: 'CHARGED',
+      chargedByMe: false,
+      paymentAccountId: null,
+    });
   });
 });

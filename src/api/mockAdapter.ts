@@ -31,6 +31,20 @@ type MockRoute = {
   searchParams: URLSearchParams;
 };
 
+type MockMealActor = {
+  adminCampusIds: number[];
+  campusIds: number[];
+  userId: number;
+};
+
+export const mealMockAccessTokens = {
+  activeDuty: 'mock-access-token',
+  otherDuty: 'mock-meal-duty-8-token',
+  nonDutyAdmin: 'mock-non-duty-admin-token',
+  inactiveDuty: 'mock-inactive-meal-token',
+  otherCampusDuty: 'mock-campus-2-meal-token',
+} as const;
+
 const jsonHeaders = {
   'Content-Type': 'application/json',
 };
@@ -64,7 +78,7 @@ export async function executeMockRequest(path: string, init: RequestInit): Promi
   }
 
   const route = toMockRoute(path, init.method);
-  const data = resolveMockData(route, init.body);
+  const data = resolveMockData(route, init.body, getMockMealActor(init.headers));
 
   if (isMockErrorResult(data)) {
     return jsonResponse(data.status, createApiErrorEnvelope(data.code, data.message));
@@ -147,7 +161,11 @@ function toMockRoute(path: string, method = 'GET'): MockRoute {
   };
 }
 
-function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
+function resolveMockData(
+  route: MockRoute,
+  body?: BodyInit | null,
+  mealActor: MockMealActor | null = null,
+): unknown {
   const path = withoutApiPrefix(route.pathname);
   const {admin, auth, billing, campus, devotion, notification, poll, prayer} =
     mockDomainFixtures;
@@ -217,31 +235,49 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     route.method === 'GET' &&
     /^\/campuses\/\d+\/duty-assignments\/me\/meal$/.test(path)
   ) {
-    return mockMealState.duties.find((duty) => duty.userId === 7 && duty.isActive);
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
+    return mockMealState.duties.find(
+      (duty) => duty.campusId === campusId && duty.userId === mealActor?.userId && duty.isActive,
+    ) ?? mockForbidden('MEAL_DUTY_REQUIRED', '활성 밥 담당자만 이용할 수 있습니다.');
   }
   if (
     route.method === 'GET' &&
     /^\/campuses\/\d+\/meal\/payment-accounts\/me$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
     return route.searchParams.get('includeInactive') === 'false'
-      ? mockMealState.accounts.filter((account) => account.isActive)
-      : mockMealState.accounts;
+      ? mockMealState.accounts.filter((account) => account.campusId === campusId && account.ownerUserId === mealActor?.userId && account.isActive)
+      : mockMealState.accounts.filter((account) => account.campusId === campusId && account.ownerUserId === mealActor?.userId);
   }
   if (
     route.method === 'POST' &&
     /^\/campuses\/\d+\/meal\/payment-accounts$/.test(path)
   ) {
-    if (mockMealState.accounts.some((account) => account.isActive)) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
+    if (mockMealState.accounts.some((account) => account.campusId === campusId && account.ownerUserId === mealActor?.userId && account.isActive)) {
       return mockConflict(
         'MEAL_ACTIVE_ACCOUNT_EXISTS',
         '기존 활성 MEAL 계좌를 비활성화한 뒤 새 계좌를 등록해 주세요.',
       );
     }
     const bodyRecord = toRecord(parseMockJsonBody(body));
+    const accountFields = ['nickname', 'bankName', 'accountNumber', 'accountHolder'] as const;
+    if (
+      hasUnexpectedKeys(bodyRecord, accountFields) ||
+      accountFields.some((field) => typeof bodyRecord[field] !== 'string' || !bodyRecord[field].trim())
+    ) {
+      return mockBadRequest('MEAL_ACCOUNT_FIELDS_REQUIRED', '계좌 정보를 모두 입력해 주세요.');
+    }
     const account: MealPaymentAccount = {
       id: Math.max(0, ...mockMealState.accounts.map((item) => item.id)) + 1,
-      campusId: 1,
-      ownerUserId: 7,
+      campusId,
+      ownerUserId: mealActor?.userId ?? 0,
       accountType: 'MEAL',
       nickname: stringField(bodyRecord.nickname, '새 밥 계좌'),
       bankName: stringField(bodyRecord.bankName, '신한은행'),
@@ -258,19 +294,33 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     route.method === 'PATCH' &&
     /^\/campuses\/\d+\/meal\/payment-accounts\/\d+\/deactivate$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
     const accountId = getPathNumberBeforeSuffix(path, 'deactivate');
-    const index = mockMealState.accounts.findIndex((account) => account.id === accountId);
+    const index = mockMealState.accounts.findIndex(
+      (account) => account.id === accountId && account.campusId === campusId && account.ownerUserId === mealActor?.userId,
+    );
     const account = mockMealState.accounts[index];
-    if (!account) return missingMockFixture;
+    if (!account) return mockNotFound('MEAL_ACCOUNT_NOT_FOUND', '계좌를 찾을 수 없습니다.');
+    if (!account.isActive) {
+      return mockConflict('MEAL_ACCOUNT_ALREADY_INACTIVE', '이미 비활성화된 계좌입니다.');
+    }
     const deactivated = {...account, isActive: false, deactivatedAt: new Date().toISOString()};
     mockMealState.accounts[index] = deactivated;
     return deactivated;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/meal\/polls$/.test(path)) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
     const requestedStatus = route.searchParams.get('status');
+    if (requestedStatus && !['SCHEDULED', 'OPEN', 'CLOSED'].includes(requestedStatus)) {
+      return mockBadRequest('MEAL_POLL_STATUS_INVALID', '투표 상태 조건이 올바르지 않습니다.');
+    }
     const filtered = requestedStatus
-      ? mockMealState.polls.filter((poll) => poll.status === requestedStatus)
-      : mockMealState.polls;
+      ? mockMealState.polls.filter((poll) => poll.campusId === campusId && poll.status === requestedStatus)
+      : mockMealState.polls.filter((poll) => poll.campusId === campusId);
     const page = Number(route.searchParams.get('page') ?? 0);
     const size = Number(route.searchParams.get('size') ?? 20);
     const start = page * size;
@@ -283,23 +333,41 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     };
   }
   if (route.method === 'POST' && /^\/campuses\/\d+\/meal\/polls$/.test(path)) {
-    return createMockMealPoll(parseMockJsonBody(body));
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
+    return createMockMealPoll(campusId, parseMockJsonBody(body));
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/meal\/polls\/\d+$/.test(path)) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
     const pollId = getLastPathNumber(path);
-    return mockMealState.details.find((detail) => detail.id === pollId) ?? missingMockFixture;
+    const detail = mockMealState.details.find(
+      (item) => item.id === pollId && item.campusId === campusId,
+    );
+    return detail
+      ? toRequesterMealPollDetail(detail, mealActor?.userId ?? 0)
+      : mockNotFound('MEAL_POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
   }
   if (
     route.method === 'PATCH' &&
     /^\/campuses\/\d+\/meal\/polls\/\d+\/close$/.test(path)
   ) {
-    return closeMockMealPoll(getPathNumberBeforeSuffix(path, 'close'));
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    return denied ?? closeMockMealPoll(campusId, getPathNumberBeforeSuffix(path, 'close'));
   }
   if (
     route.method === 'POST' &&
     /^\/campuses\/\d+\/meal\/polls\/\d+\/charges$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
     return chargeMockMealPoll(
+      campusId,
+      mealActor?.userId ?? 0,
       getPathNumberBeforeSuffix(path, 'charges'),
       parseMockJsonBody(body),
     );
@@ -308,18 +376,30 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     route.method === 'GET' &&
     /^\/campuses\/\d+\/meal\/charges\/my-accounts$/.test(path)
   ) {
-    return mockMealState.settlement;
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
+    return getMockMealSettlement(campusId, mealActor?.userId ?? 0);
   }
   if (route.method === 'GET' && path === '/coffee-brands') return billing.coffeeBrands;
   if (route.method === 'GET' && /^\/coffee-brands\/\d+\/menus$/.test(path)) {
     return billing.coffeeMenus;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls$/.test(path)) {
-    return [...poll.summaries, ...mockMealState.polls.map(toGeneralMealPollSummary)];
+    const campusId = getCampusId(path);
+    const membershipDenied = authorizeCampusMember(mealActor, campusId);
+    if (membershipDenied) return membershipDenied;
+    return [
+      ...poll.summaries,
+      ...mockMealState.polls.filter((item) => item.campusId === campusId).map(toGeneralMealPollSummary),
+    ];
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+$/.test(path)) {
+    const campusId = getCampusId(path);
+    const membershipDenied = authorizeCampusMember(mealActor, campusId);
+    if (membershipDenied) return membershipDenied;
     const pollId = getLastPathNumber(path);
-    const mealDetail = mockMealState.details.find((detail) => detail.id === pollId);
+    const mealDetail = mockMealState.details.find((detail) => detail.id === pollId && detail.campusId === campusId);
 
     return mealDetail
       ? toGeneralMealPollDetail(mealDetail)
@@ -329,13 +409,51 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     route.method === 'PUT' &&
     /^\/campuses\/\d+\/polls\/\d+\/responses\/me$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const membershipDenied = authorizeCampusMember(mealActor, campusId);
+    if (membershipDenied) return membershipDenied;
     const pollId = getPathNumberBeforeSuffix(path, 'responses/me');
-    const mealDetail = mockMealState.details.find((detail) => detail.id === pollId);
+    const mealDetail = mockMealState.details.find(
+      (detail) => detail.id === pollId && detail.campusId === campusId,
+    );
     if (mealDetail && pollId !== null) {
+      if (
+        mealDetail.status !== 'OPEN' ||
+        Date.parse(mealDetail.startsAt) > Date.now() ||
+        Date.parse(mealDetail.endsAt) <= Date.now()
+      ) {
+        return mockConflict('MEAL_POLL_NOT_OPEN', '현재 응답할 수 없는 투표입니다.');
+      }
       const request = toRecord(parseMockJsonBody(body));
       const optionIds = Array.isArray(request.optionIds)
         ? request.optionIds.filter((value): value is number => typeof value === 'number')
         : [];
+      if (
+        optionIds.length !== 1 ||
+        !mealDetail.options.some((option) => option.optionId === optionIds[0])
+      ) {
+        return mockBadRequest('MEAL_POLL_RESPONSE_INVALID', '선택지를 한 개 선택해 주세요.');
+      }
+      const previousOptionIds = mockMealState.responses[pollId]?.optionIds ?? [];
+      const updatedOptions = mealDetail.options.map((option) => ({
+        ...option,
+        responseCount:
+          option.responseCount - (previousOptionIds.includes(option.optionId) ? 1 : 0) +
+          (optionIds.includes(option.optionId) ? 1 : 0),
+      }));
+      const updatedDetail = {
+        ...mealDetail,
+        options: updatedOptions,
+        totalResponseCount: updatedOptions.reduce((sum, option) => sum + option.responseCount, 0),
+      };
+      mockMealState.details = mockMealState.details.map((detail) =>
+        detail.id === pollId && detail.campusId === campusId ? updatedDetail : detail,
+      );
+      mockMealState.polls = mockMealState.polls.map((pollSummary) =>
+        pollSummary.id === pollId && pollSummary.campusId === campusId
+          ? {...pollSummary, totalResponseCount: updatedDetail.totalResponseCount}
+          : pollSummary,
+      );
       mockMealState.responses[pollId] = {
         responseId: 7000 + pollId,
         pollId,
@@ -350,11 +468,19 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     route.method === 'POST' &&
     /^\/campuses\/\d+\/polls\/\d+\/options$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const membershipDenied = authorizeCampusMember(mealActor, campusId);
+    if (membershipDenied) return membershipDenied;
     const pollId = getPathNumberBeforeSuffix(path, 'options');
-    const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId);
+    const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId && detail.campusId === campusId);
     const detail = mockMealState.details[detailIndex];
     if (detail) {
-      if (detail.status !== 'OPEN' || !detail.allowUserOptionAdd) {
+      if (
+        detail.status !== 'OPEN' ||
+        !detail.allowUserOptionAdd ||
+        Date.parse(detail.startsAt) > Date.now() ||
+        Date.parse(detail.endsAt) <= Date.now()
+      ) {
         return mockConflict('MEAL_OPTION_ADD_NOT_ALLOWED', '진행 중이며 사용자 선택지 추가가 허용된 투표만 선택지를 추가할 수 있습니다.');
       }
       const request = toRecord(parseMockJsonBody(body));
@@ -593,23 +719,41 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
   }
   if (route.method === 'GET' && path === '/admin/campuses') return admin.serviceAdminCampuses;
   if (route.method === 'GET' && /^\/admin\/campuses\/\d+\/duty-assignments$/.test(path)) {
-    return [...admin.dutyAssignments, ...mockMealState.duties];
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
+    return [
+      ...admin.dutyAssignments.filter((duty) => duty.campusId === campusId),
+      ...mockMealState.duties.filter((duty) => duty.campusId === campusId),
+    ];
   }
   if (
     route.method === 'POST' &&
     /^\/admin\/campuses\/\d+\/duty-assignments\/meal$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
     const request = toRecord(parseMockJsonBody(body));
-    const userId = typeof request.userId === 'number' ? request.userId : 8;
-    const existing = mockMealState.duties.find((duty) => duty.userId === userId && duty.isActive);
+    if (hasUnexpectedKeys(request, ['userId'])) {
+      return mockBadRequest('MEAL_DUTY_REQUEST_INVALID', '담당자 지정 요청이 올바르지 않습니다.');
+    }
+    if (typeof request.userId !== 'number' || !Number.isSafeInteger(request.userId) || request.userId <= 0) {
+      return mockBadRequest('MEAL_DUTY_USER_INVALID', '지정할 멤버가 올바르지 않습니다.');
+    }
+    const userId = request.userId;
+    const member = getMockMealCampusMember(campusId, userId);
+    if (!member) return mockNotFound('CAMPUS_MEMBER_NOT_FOUND', '캠퍼스 멤버를 찾을 수 없습니다.');
+    const existing = mockMealState.duties.find(
+      (duty) => duty.campusId === campusId && duty.userId === userId && duty.isActive,
+    );
     if (existing) return existing;
-    const member = admin.members.find((item) => item.userId === userId);
     const assignment: MealDutyAssignment = {
       assignmentId: Math.max(1201, ...mockMealState.duties.map((duty) => duty.assignmentId)) + 1,
-      campusId: 1,
+      campusId,
       userId,
-      name: member?.name ?? `멤버 ${userId}`,
-      email: member?.email ?? `member${userId}@example.test`,
+      name: member.name,
+      email: member.email,
       dutyType: 'MEAL',
       isActive: true,
       assignedAt: new Date().toISOString(),
@@ -621,9 +765,21 @@ function resolveMockData(route: MockRoute, body?: BodyInit | null): unknown {
     route.method === 'DELETE' &&
     /^\/admin\/campuses\/\d+\/duty-assignments\/meal\/\d+$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
     const assignmentId = getLastPathNumber(path);
+    const assignment = mockMealState.duties.find(
+      (duty) => duty.assignmentId === assignmentId && duty.campusId === campusId,
+    );
+    if (!assignment) {
+      return mockNotFound('MEAL_DUTY_NOT_FOUND', '밥 담당자 배정을 찾을 수 없습니다.');
+    }
+    if (!assignment.isActive) {
+      return mockConflict('MEAL_DUTY_ALREADY_INACTIVE', '이미 해제된 밥 담당자입니다.');
+    }
     mockMealState.duties = mockMealState.duties.filter(
-      (duty) => duty.assignmentId !== assignmentId,
+      (duty) => duty.assignmentId !== assignmentId || duty.campusId !== campusId,
     );
     return null;
   }
@@ -801,6 +957,7 @@ function createInitialMockMealState(): MockMealState {
       endsAt: '2026-07-05T02:00:00.000Z',
       status: 'CLOSED',
       settlementStatus: 'CHARGED',
+      totalResponseCount: 3,
     }),
   ];
   const details: MealPollDetail[] = polls.map((poll) => ({
@@ -848,6 +1005,8 @@ function createInitialMockMealState(): MockMealState {
     duties: [
       {assignmentId: 1301, campusId: 1, userId: 7, name: '샘플 사용자', email: 'faithlog.user@example.test', dutyType: 'MEAL', isActive: true, assignedAt: '2026-07-01T03:00:00.000Z'},
       {assignmentId: 1302, campusId: 1, userId: 8, name: '두 번째 담당자', email: 'meal.manager@example.test', dutyType: 'MEAL', isActive: true, assignedAt: '2026-07-02T03:00:00.000Z'},
+      {assignmentId: 1303, campusId: 1, userId: 18, name: '이전 담당자', email: 'inactive.meal@example.test', dutyType: 'MEAL', isActive: false, assignedAt: '2026-06-02T03:00:00.000Z'},
+      {assignmentId: 1304, campusId: 2, userId: 17, name: '다른 캠퍼스 담당자', email: 'campus2.meal@example.test', dutyType: 'MEAL', isActive: true, assignedAt: '2026-07-02T03:00:00.000Z'},
     ],
     settlement: {accounts: [], summary: emptySummary},
   };
@@ -888,6 +1047,27 @@ function toGeneralMealPollDetail(detail: MealPollDetail) {
   };
 }
 
+function toRequesterMealPollDetail(detail: MealPollDetail, userId: number): MealPollDetail {
+  return {
+    ...detail,
+    options: detail.options.map((option) => {
+      const charge = option.charge;
+      if (charge.chargeStatus !== 'CHARGED') return option;
+      const chargedByMe = charge.paymentAccountId !== null && mockMealState.accounts.some(
+        (account) => account.id === charge.paymentAccountId && account.ownerUserId === userId,
+      );
+      return {
+        ...option,
+        charge: {
+          ...charge,
+          chargedByMe,
+          paymentAccountId: chargedByMe ? charge.paymentAccountId : null,
+        },
+      };
+    }),
+  };
+}
+
 function mealPollSummary(patch: Partial<MealPollSummary>): MealPollSummary {
   return {
     id: 901,
@@ -906,29 +1086,56 @@ function mealPollSummary(patch: Partial<MealPollSummary>): MealPollSummary {
   };
 }
 
-function createMockMealPoll(body: unknown) {
+function createMockMealPoll(campusId: number, body: unknown) {
   const record = toRecord(body);
-  const options = Array.isArray(record.options) ? record.options : [];
+  if (hasUnexpectedKeys(record, ['title', 'description', 'endsAt', 'options', 'allowUserOptionAdd'])) {
+    return mockBadRequest('MEAL_POLL_FIELDS_FORBIDDEN', '투표 생성 요청에 지원하지 않는 값이 포함되어 있습니다.');
+  }
+  if (
+    typeof record.title !== 'string' ||
+    !record.title.trim() ||
+    (record.description !== undefined && typeof record.description !== 'string') ||
+    typeof record.endsAt !== 'string' ||
+    Number.isNaN(Date.parse(record.endsAt)) ||
+    Date.parse(record.endsAt) <= Date.now() ||
+    typeof record.allowUserOptionAdd !== 'boolean' ||
+    !Array.isArray(record.options)
+  ) {
+    return mockBadRequest('MEAL_POLL_CREATE_INVALID', '투표 생성 정보를 확인해 주세요.');
+  }
+  const options = record.options;
+  if (options.some((item) => hasUnexpectedKeys(toRecord(item), ['content']))) {
+    return mockBadRequest('MEAL_POLL_OPTIONS_INVALID', '선택지 요청이 올바르지 않습니다.');
+  }
+  const contents = options.map((item) => stringField(toRecord(item).content, ''));
+  if (
+    contents.length < 2 ||
+    contents.some((content) => !content) ||
+    new Set(contents.map((content) => content.toLocaleLowerCase())).size !== contents.length
+  ) {
+    return mockBadRequest('MEAL_POLL_OPTIONS_INVALID', '서로 다른 선택지를 두 개 이상 입력해 주세요.');
+  }
   const id = Math.max(...mockMealState.polls.map((poll) => poll.id)) + 1;
   const now = new Date().toISOString();
   const summary = mealPollSummary({
+    campusId,
     id,
-    title: stringField(record.title, '새 밥 투표'),
+    title: record.title.trim(),
     description:
       typeof record.description === 'string' && record.description.trim()
         ? record.description.trim()
         : null,
-    allowUserOptionAdd: record.allowUserOptionAdd === true,
+    allowUserOptionAdd: record.allowUserOptionAdd,
     startsAt: now,
-    endsAt: stringField(record.endsAt, '2026-07-20T03:00:00.000Z'),
+    endsAt: record.endsAt,
     status: 'OPEN',
     totalResponseCount: 0,
   });
   const detail: MealPollDetail = {
     ...summary,
-    options: options.map((item, index) => ({
+    options: contents.map((content, index) => ({
       optionId: id * 10 + index + 1,
-      content: stringField(toRecord(item).content, `선택지 ${index + 1}`),
+      content,
       responseCount: 0,
       userAdded: false,
       charge: {chargeStatus: 'NOT_CHARGED'},
@@ -939,10 +1146,10 @@ function createMockMealPoll(body: unknown) {
   return detail;
 }
 
-function closeMockMealPoll(pollId: number | null) {
-  const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId);
+function closeMockMealPoll(campusId: number, pollId: number | null) {
+  const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId && detail.campusId === campusId);
   const detail = mockMealState.details[detailIndex];
-  if (!detail) return missingMockFixture;
+  if (!detail) return mockNotFound('MEAL_POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
   if (detail.status !== 'OPEN') {
     return mockConflict('MEAL_POLL_ALREADY_CLOSED', '이미 종료된 밥 투표입니다.');
   }
@@ -954,10 +1161,10 @@ function closeMockMealPoll(pollId: number | null) {
   return closed;
 }
 
-function chargeMockMealPoll(pollId: number | null, body: unknown) {
-  const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId);
+function chargeMockMealPoll(campusId: number, userId: number, pollId: number | null, body: unknown) {
+  const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId && detail.campusId === campusId);
   const detail = mockMealState.details[detailIndex];
-  if (!detail || pollId === null) return missingMockFixture;
+  if (!detail || pollId === null) return mockNotFound('MEAL_POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
   if (detail.status !== 'CLOSED') {
     return mockConflict('MEAL_POLL_NOT_CLOSED', '종료된 밥 투표만 청구할 수 있습니다.');
   }
@@ -968,10 +1175,18 @@ function chargeMockMealPoll(pollId: number | null, body: unknown) {
     return mockConflict('MEAL_POLL_ALREADY_CHARGED', '이미 청구된 밥 투표입니다.');
   }
   const request = toRecord(body);
+  if (hasUnexpectedKeys(request, ['paymentAccountId', 'groups'])) {
+    return mockBadRequest('MEAL_CHARGE_REQUEST_INVALID', '청구 요청이 올바르지 않습니다.');
+  }
   const paymentAccountId = request.paymentAccountId;
   if (
     typeof paymentAccountId !== 'number' ||
-    !mockMealState.accounts.some((account) => account.id === paymentAccountId && account.isActive)
+    !mockMealState.accounts.some((account) =>
+      account.id === paymentAccountId &&
+      account.campusId === campusId &&
+      account.ownerUserId === userId &&
+      account.isActive,
+    )
   ) {
     return mockBadRequest('MEAL_PAYMENT_ACCOUNT_INVALID', '본인의 활성 MEAL 계좌를 선택해 주세요.');
   }
@@ -980,6 +1195,7 @@ function chargeMockMealPoll(pollId: number | null, body: unknown) {
     groups.some((rawGroup) => {
       const group = toRecord(rawGroup);
       return (
+        hasUnexpectedKeys(group, ['optionId', 'calculationType', 'enteredAmount']) ||
         (group.calculationType !== 'PER_MEMBER' && group.calculationType !== 'GROUP_TOTAL') ||
         typeof group.enteredAmount !== 'number' ||
         !Number.isSafeInteger(group.enteredAmount) ||
@@ -998,25 +1214,28 @@ function chargeMockMealPoll(pollId: number | null, body: unknown) {
   ) {
     return mockBadRequest('MEAL_CHARGE_GROUPS_INVALID', '응답자가 있는 모든 미청구 옵션을 정확히 한 번 포함해 주세요.');
   }
+  let results: MealChargeGroupResult[];
+  let summary: MealChargeResultSummary;
+  try {
+    results = groups.map((rawGroup) => {
+      const group = toRecord(rawGroup);
+      const optionId = typeof group.optionId === 'number' ? group.optionId : 0;
+      const option = chargeableOptions.find((item) => item.optionId === optionId);
+      if (!option) throw new Error('Unknown option');
+      const calculationType: MealCalculationType = group.calculationType === 'GROUP_TOTAL' ? 'GROUP_TOTAL' : 'PER_MEMBER';
+      const enteredAmount = typeof group.enteredAmount === 'number' ? group.enteredAmount : 0;
+      return {
+        optionId,
+        calculationType,
+        responseCount: option.responseCount,
+        ...calculateMealChargeGroup(calculationType, enteredAmount, option.responseCount),
+      };
+    });
+    summary = summarizeMealChargeGroups(results);
+  } catch {
+    return mockBadRequest('MEAL_CHARGE_AMOUNT_OVERFLOW', '청구 금액이 처리 가능한 범위를 벗어났습니다.');
+  }
   const chargedAt = new Date().toISOString();
-  let chargedMemberCount = 0;
-  let requestedTotalAmount = 0;
-  let actualTotalAmount = 0;
-  let roundingAdjustment = 0;
-  const results: MealChargeGroupResult[] = groups.flatMap((rawGroup) => {
-    const group = toRecord(rawGroup);
-    const optionId = typeof group.optionId === 'number' ? group.optionId : 0;
-    const option = chargeableOptions.find((item) => item.optionId === optionId);
-    if (!option) return [];
-    const calculationType: MealCalculationType = group.calculationType === 'GROUP_TOTAL' ? 'GROUP_TOTAL' : 'PER_MEMBER';
-    const enteredAmount = typeof group.enteredAmount === 'number' ? group.enteredAmount : 0;
-    const calculation = calculateMealChargeGroup(calculationType, enteredAmount, option.responseCount);
-    chargedMemberCount += option.responseCount;
-    requestedTotalAmount += calculation.requestedTotalAmount;
-    actualTotalAmount += calculation.actualTotalAmount;
-    roundingAdjustment += calculation.roundingAdjustment;
-    return [{optionId, calculationType, responseCount: option.responseCount, ...calculation}];
-  });
   const chargedDetail: MealPollDetail = {
     ...detail,
     settlementStatus: 'CHARGED',
@@ -1037,46 +1256,209 @@ function chargeMockMealPoll(pollId: number | null, body: unknown) {
         : option;
     }),
   };
+  const result: MealChargeResult = {
+    pollId,
+    paymentAccountId,
+    ...summary,
+    chargedAt,
+    groups: results,
+  };
+  const activeAccount = mockMealState.accounts.find((account) =>
+    account.id === paymentAccountId && account.campusId === campusId && account.ownerUserId === userId,
+  );
+  if (!activeAccount) return mockBadRequest('MEAL_PAYMENT_ACCOUNT_INVALID', '본인의 활성 MEAL 계좌를 선택해 주세요.');
+  let nextSettlement: MealSettlement;
+  try {
+    nextSettlement = appendMockMealSettlement(
+      mockMealState.settlement,
+      activeAccount,
+      detail,
+      results,
+      summary,
+      chargedAt,
+    );
+  } catch {
+    return mockBadRequest('MEAL_CHARGE_AMOUNT_OVERFLOW', '청구 금액이 처리 가능한 범위를 벗어났습니다.');
+  }
   mockMealState.details[detailIndex] = chargedDetail;
   mockMealState.polls = mockMealState.polls.map((poll) =>
     poll.id === pollId ? {...poll, settlementStatus: 'CHARGED'} : poll,
   );
-  const result: MealChargeResult = {
-    pollId,
-    paymentAccountId,
-    chargedMemberCount,
-    requestedTotalAmount,
-    actualTotalAmount,
-    roundingAdjustment,
-    chargedAt,
-    groups: results,
-  };
-  const activeAccount = mockMealState.accounts.find((account) => account.id === paymentAccountId);
-  if (activeAccount) {
-    const summary = {chargedMemberCount, requestedTotalAmount, actualTotalAmount, roundingAdjustment};
-    mockMealState.settlement = {
-      summary,
-      accounts: [{
-        account: activeAccount,
-        summary,
-        charges: results.map((group, index) => ({
-          chargeId: 5000 + index,
-          pollId,
-          pollTitle: detail.title,
-          optionContent: detail.options.find((option) => option.optionId === group.optionId)?.content ?? '밥 청구',
-          memberName: `응답자 ${index + 1}`,
-          amount: group.amountPerMember,
-          status: 'UNPAID',
-          chargedAt,
-        })),
-      }],
-    };
-  }
+  mockMealState.settlement = nextSettlement;
   return result;
+}
+
+type MealChargeResultSummary = Pick<
+  MealChargeResult,
+  'actualTotalAmount' | 'chargedMemberCount' | 'requestedTotalAmount' | 'roundingAdjustment'
+>;
+
+function summarizeMealChargeGroups(groups: MealChargeGroupResult[]): MealChargeResultSummary {
+  return groups.reduce<MealChargeResultSummary>(
+    (summary, group) => ({
+      chargedMemberCount: safeMockAdd(summary.chargedMemberCount, group.responseCount),
+      requestedTotalAmount: safeMockAdd(summary.requestedTotalAmount, group.requestedTotalAmount),
+      actualTotalAmount: safeMockAdd(summary.actualTotalAmount, group.actualTotalAmount),
+      roundingAdjustment: safeMockAdd(summary.roundingAdjustment, group.roundingAdjustment),
+    }),
+    emptyMealSettlementSummary(),
+  );
+}
+
+function appendMockMealSettlement(
+  settlement: MealSettlement,
+  account: MealPaymentAccount,
+  detail: MealPollDetail,
+  groups: MealChargeGroupResult[],
+  summary: MealChargeResultSummary,
+  chargedAt: string,
+): MealSettlement {
+  const nextChargeId = Math.max(
+    4999,
+    ...settlement.accounts.flatMap((item) => item.charges.map((charge) => charge.chargeId)),
+  ) + 1;
+  let chargeOffset = 0;
+  const charges = groups.flatMap((group, groupIndex) =>
+    Array.from({length: group.responseCount}, (_, memberIndex) => ({
+      chargeId: nextChargeId + chargeOffset++,
+      pollId: detail.id,
+      pollTitle: detail.title,
+      optionContent: detail.options.find((option) => option.optionId === group.optionId)?.content ?? '밥 청구',
+      memberName: `응답자 ${groupIndex + 1}-${memberIndex + 1}`,
+      amount: group.amountPerMember,
+      status: 'UNPAID' as const,
+      chargedAt,
+    })),
+  );
+  const existing = settlement.accounts.find((item) => item.account.id === account.id);
+  const accountSettlement = existing
+    ? {
+        account,
+        charges: [...existing.charges, ...charges],
+        summary: addMealSettlementSummaries(existing.summary, summary),
+      }
+    : {account, charges, summary};
+  const accounts = existing
+    ? settlement.accounts.map((item) => item.account.id === account.id ? accountSettlement : item)
+    : [...settlement.accounts, accountSettlement];
+  return {
+    accounts,
+    summary: accounts.reduce(
+      (total, item) => addMealSettlementSummaries(total, item.summary),
+      emptyMealSettlementSummary(),
+    ),
+  };
+}
+
+function addMealSettlementSummaries(
+  left: MealChargeResultSummary,
+  right: MealChargeResultSummary,
+): MealChargeResultSummary {
+  return {
+    chargedMemberCount: safeMockAdd(left.chargedMemberCount, right.chargedMemberCount),
+    requestedTotalAmount: safeMockAdd(left.requestedTotalAmount, right.requestedTotalAmount),
+    actualTotalAmount: safeMockAdd(left.actualTotalAmount, right.actualTotalAmount),
+    roundingAdjustment: safeMockAdd(left.roundingAdjustment, right.roundingAdjustment),
+  };
+}
+
+function safeMockAdd(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left > Number.MAX_SAFE_INTEGER - right) {
+    throw new Error('Unsafe mock amount');
+  }
+  return left + right;
+}
+
+function getMockMealSettlement(campusId: number, userId: number): MealSettlement {
+  const accounts = mockMealState.settlement.accounts.filter(
+    (item) => item.account.campusId === campusId && item.account.ownerUserId === userId,
+  );
+  return {
+    accounts,
+    summary: accounts.reduce(
+      (summary, item) => addMealSettlementSummaries(summary, item.summary),
+      emptyMealSettlementSummary(),
+    ),
+  };
+}
+
+function getMockMealCampusMember(campusId: number, userId: number) {
+  const members = [
+    {campusId: 1, userId: 7, name: '샘플 사용자', email: 'faithlog.user@example.test'},
+    {campusId: 1, userId: 8, name: '두 번째 담당자', email: 'meal.manager@example.test'},
+    {campusId: 1, userId: 9, name: '캠퍼스 관리자', email: 'campus.admin@example.test'},
+    {campusId: 1, userId: 18, name: '이전 담당자', email: 'inactive.meal@example.test'},
+    {campusId: 2, userId: 17, name: '다른 캠퍼스 담당자', email: 'campus2.meal@example.test'},
+  ];
+  return members.find((member) => member.campusId === campusId && member.userId === userId);
+}
+
+function emptyMealSettlementSummary() {
+  return {
+    chargedMemberCount: 0,
+    requestedTotalAmount: 0,
+    actualTotalAmount: 0,
+    roundingAdjustment: 0,
+  };
+}
+
+function getMockMealActor(headers: HeadersInit | undefined): MockMealActor | null {
+  const authorization = new Headers(headers).get('Authorization') ?? '';
+  const token = authorization.replace(/^Bearer\s+/i, '');
+  const actors: Record<string, MockMealActor> = {
+    [mealMockAccessTokens.activeDuty]: {userId: 7, campusIds: [1], adminCampusIds: [1]},
+    [mealMockAccessTokens.otherDuty]: {userId: 8, campusIds: [1], adminCampusIds: []},
+    [mealMockAccessTokens.nonDutyAdmin]: {userId: 9, campusIds: [1], adminCampusIds: [1]},
+    [mealMockAccessTokens.inactiveDuty]: {userId: 18, campusIds: [1], adminCampusIds: []},
+    [mealMockAccessTokens.otherCampusDuty]: {userId: 17, campusIds: [2], adminCampusIds: []},
+  };
+  return actors[token] ?? null;
+}
+
+function getCampusId(path: string) {
+  const match = /^\/(?:admin\/)?campuses\/(\d+)/.exec(path);
+  return match ? Number(match[1]) : 0;
+}
+
+function authorizeCampusMember(actor: MockMealActor | null, campusId: number) {
+  if (!actor) return mockUnauthorized('AUTH_REQUIRED', '로그인이 필요합니다.');
+  return actor.campusIds.includes(campusId)
+    ? null
+    : mockNotFound('CAMPUS_NOT_FOUND', '캠퍼스를 찾을 수 없습니다.');
+}
+
+function authorizeMealDuty(actor: MockMealActor | null, campusId: number) {
+  const membershipDenied = authorizeCampusMember(actor, campusId);
+  if (membershipDenied) return membershipDenied;
+  return mockMealState.duties.some(
+    (duty) => duty.campusId === campusId && duty.userId === actor?.userId && duty.isActive,
+  )
+    ? null
+    : mockForbidden('MEAL_DUTY_REQUIRED', '활성 밥 담당자만 이용할 수 있습니다.');
+}
+
+function authorizeMealAdmin(actor: MockMealActor | null, campusId: number) {
+  const membershipDenied = authorizeCampusMember(actor, campusId);
+  if (membershipDenied) return membershipDenied;
+  return actor?.adminCampusIds.includes(campusId)
+    ? null
+    : mockForbidden('CAMPUS_ADMIN_REQUIRED', '관리자 권한이 필요합니다.');
 }
 
 function mockBadRequest(code: string, message: string): MockErrorResult {
   return {code, message, mockError: true, status: 400};
+}
+
+function mockUnauthorized(code: string, message: string): MockErrorResult {
+  return {code, message, mockError: true, status: 401};
+}
+
+function mockForbidden(code: string, message: string): MockErrorResult {
+  return {code, message, mockError: true, status: 403};
+}
+
+function mockNotFound(code: string, message: string): MockErrorResult {
+  return {code, message, mockError: true, status: 404};
 }
 
 function mockConflict(code: string, message: string): MockErrorResult {
@@ -1102,6 +1484,10 @@ function toRecord(value: unknown): Record<string, unknown> {
 
 function stringField(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function hasUnexpectedKeys(record: Record<string, unknown>, allowedKeys: readonly string[]) {
+  return Object.keys(record).some((key) => !allowedKeys.includes(key));
 }
 
 function jsonResponse(status: number, body: unknown) {

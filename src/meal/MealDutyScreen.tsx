@@ -3,16 +3,17 @@ import {Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
-import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {Button, Card, Eyebrow, FaithLogHeaderPillButton, FaithLogHeaderTopRow, Title} from '../components/ui';
-import {mealApi} from './mealApi';
+import {mealApi, type MealApi} from './mealApi';
 import {MealAccountScreen} from './MealAccountScreen';
 import {MealPollChargeScreen} from './MealPollChargeScreen';
 import {MealPollCreateScreen} from './MealPollCreateScreen';
 import {MealPollDetailScreen} from './MealPollDetailScreen';
 import {MealPollListScreen} from './MealPollListScreen';
 import {MealSettlementScreen} from './MealSettlementScreen';
-import {MealErrorState, MealLoading, mealStyles, toMealApiError} from './mealScreenShared';
+import {resolveMealRequestAccess} from './mealRequestLifecycle';
+import {getCurrentMealRequestError, MealErrorState, MealLoading, mealStyles} from './mealScreenShared';
+import {useMealRequestTracker} from './useMealRequestTracker';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 type MealRoute =
@@ -25,6 +26,7 @@ type MealRoute =
   | {name: 'settlement'};
 
 type MealDutyScreenProps = {
+  api?: MealApi;
   onBack: () => void;
   setAuthState: (state: AuthGateState) => void;
   state: AuthenticatedState;
@@ -32,10 +34,12 @@ type MealDutyScreenProps = {
 
 type EntryState =
   | {status: 'loading'}
-  | {status: 'success'; accessToken: string}
+  | {status: 'success'; campusId: number}
   | {status: 'error'; error: ApiError};
 
-export function MealDutyScreen({onBack, setAuthState, state}: MealDutyScreenProps) {
+export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: MealDutyScreenProps) {
+  const campusId = state.selectedCampus.campusId;
+  const tracker = useMealRequestTracker(`campus:${campusId}/meal-entry`);
   const [route, setRoute] = useState<MealRoute>({name: 'home'});
   const [entryState, setEntryState] = useState<EntryState>({status: 'loading'});
   const onSessionExpired = useCallback(
@@ -45,31 +49,36 @@ export function MealDutyScreen({onBack, setAuthState, state}: MealDutyScreenProp
 
   useEffect(() => {
     let mounted = true;
+    setRoute({name: 'home'});
+    setEntryState({status: 'loading'});
     const loadDuty = async () => {
+      const access = await resolveMealRequestAccess(tracker, 'entry', onSessionExpired);
+      if (access.status === 'cancelled') return;
+      if (access.status === 'error') {
+        const apiError = getCurrentMealRequestError({error: access.error, fallback: '밥 담당 권한을 확인하지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
+        if (apiError && mounted) setEntryState({status: 'error', error: apiError});
+        return;
+      }
+      const {accessToken, identity} = access.request;
       try {
-        const accessToken = await resolveCurrentAccessToken(() => {
-          setAuthState({status: 'sessionExpired', message: '로그인이 만료되었습니다. 다시 로그인해 주세요.'});
-        });
-        if (!accessToken || !mounted) return;
-        const duty = await mealApi.getMyDuty(accessToken, state.selectedCampus.campusId);
+        const duty = await api.getMyDuty(accessToken, campusId);
+        if (!tracker.isSuccessCurrent(identity) || !mounted) return;
         if (!duty.isActive || duty.userId !== state.user.id) {
           throw new Error('활성 밥 담당자만 밥 정산 관리를 사용할 수 있습니다.');
         }
-        if (mounted) setEntryState({status: 'success', accessToken});
+        setEntryState({status: 'success', campusId});
       } catch (error) {
-        const apiError = toMealApiError(
-          error,
-          '밥 담당 권한을 확인하지 못했습니다.',
-          onSessionExpired,
-        );
-        if (mounted) setEntryState({status: 'error', error: apiError});
+        const apiError = getCurrentMealRequestError({error, fallback: '밥 담당 권한을 확인하지 못했습니다.', identity, onSessionExpired, tracker});
+        if (apiError && mounted) setEntryState({status: 'error', error: apiError});
       }
     };
     void loadDuty();
     return () => {
       mounted = false;
     };
-  }, [onSessionExpired, setAuthState, state.selectedCampus.campusId, state.user.id]);
+  }, [api, campusId, onSessionExpired, state.user.id, tracker]);
+
+  const entryIsCurrent = entryState.status === 'success' && entryState.campusId === campusId;
 
   return (
     <View style={mealStyles.page}>
@@ -79,8 +88,8 @@ export function MealDutyScreen({onBack, setAuthState, state}: MealDutyScreenProp
 
       {entryState.status === 'loading' ? <MealLoading label="밥 담당 권한을 확인하는 중" /> : null}
       {entryState.status === 'error' ? <MealErrorState error={entryState.error} /> : null}
-      {entryState.status === 'success'
-        ? renderRoute(route, entryState.accessToken, state, setRoute, onSessionExpired)
+      {entryIsCurrent
+        ? renderRoute(route, state, setRoute, onSessionExpired, api)
         : null}
     </View>
   );
@@ -88,27 +97,27 @@ export function MealDutyScreen({onBack, setAuthState, state}: MealDutyScreenProp
 
 function renderRoute(
   route: MealRoute,
-  accessToken: string,
   state: AuthenticatedState,
   setRoute: (route: MealRoute) => void,
   onSessionExpired: (message: string) => void,
+  api: MealApi,
 ) {
   const campusId = state.selectedCampus.campusId;
   switch (route.name) {
     case 'home':
       return <MealDutyHome onOpenAccount={() => setRoute({name: 'account'})} onOpenCreate={() => setRoute({name: 'create'})} onOpenPolls={() => setRoute({name: 'polls'})} onOpenSettlement={() => setRoute({name: 'settlement'})} />;
     case 'polls':
-      return <MealPollListScreen accessToken={accessToken} campusId={campusId} onCreate={() => setRoute({name: 'create'})} onOpenDetail={(pollId) => setRoute({name: 'detail', pollId})} onSessionExpired={onSessionExpired} />;
+      return <MealPollListScreen api={api} campusId={campusId} onCreate={() => setRoute({name: 'create'})} onOpenDetail={(pollId) => setRoute({name: 'detail', pollId})} onSessionExpired={onSessionExpired} />;
     case 'create':
-      return <MealPollCreateScreen accessToken={accessToken} campusId={campusId} onCancel={() => setRoute({name: 'home'})} onCreated={(poll) => setRoute({name: 'detail', pollId: poll.id})} onSessionExpired={onSessionExpired} />;
+      return <MealPollCreateScreen api={api} campusId={campusId} onCancel={() => setRoute({name: 'home'})} onCreated={(poll) => setRoute({name: 'detail', pollId: poll.id})} onSessionExpired={onSessionExpired} />;
     case 'detail':
-      return <MealPollDetailScreen accessToken={accessToken} campusId={campusId} onBack={() => setRoute({name: 'polls'})} onOpenCharge={(pollId) => setRoute({name: 'charge', pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
+      return <MealPollDetailScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'polls'})} onOpenCharge={(pollId) => setRoute({name: 'charge', pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
     case 'charge':
-      return <MealPollChargeScreen accessToken={accessToken} campusId={campusId} onBack={() => setRoute({name: 'detail', pollId: route.pollId})} onComplete={() => setRoute({name: 'detail', pollId: route.pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
+      return <MealPollChargeScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'detail', pollId: route.pollId})} onComplete={() => setRoute({name: 'detail', pollId: route.pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
     case 'account':
-      return <MealAccountScreen accessToken={accessToken} campusId={campusId} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
+      return <MealAccountScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
     case 'settlement':
-      return <MealSettlementScreen accessToken={accessToken} campusId={campusId} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
+      return <MealSettlementScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
     default:
       return null;
   }
@@ -128,13 +137,13 @@ function MealDutyHome({
   return (
     <View style={mealStyles.page}>
       <Card>
-        <Eyebrow>ACTIVE MEAL DUTY</Eyebrow>
+        <Eyebrow>밥 정산</Eyebrow>
         <Title>밥 정산 관리</Title>
-        <Text style={mealStyles.body}>관리자 역할과 분리된 밥 담당자 전용 운영 공간입니다.</Text>
+        <Text style={mealStyles.body}>밥 투표를 만들고 마감된 투표의 정산을 진행할 수 있어요.</Text>
       </Card>
       <Card>
         <Title>투표</Title>
-        <Text style={mealStyles.body}>MEAL 관리 목록, 생성, 수동 종료와 일괄 청구를 진행합니다.</Text>
+        <Text style={mealStyles.body}>투표를 만들고 진행 상황과 정산 상태를 확인합니다.</Text>
         <View style={mealStyles.actionRow}>
           <Button accessibilityLabel="밥 투표 관리 목록 열기" onPress={onOpenPolls}>투표 목록</Button>
           <Button accessibilityLabel="새 밥 투표 만들기" onPress={onOpenCreate} variant="secondary">투표 생성</Button>
@@ -142,7 +151,7 @@ function MealDutyHome({
       </Card>
       <Card>
         <Title>계좌와 정산</Title>
-        <Text style={mealStyles.body}>본인 소유 MEAL 계좌와 그 계좌에 연결된 청구만 확인합니다.</Text>
+        <Text style={mealStyles.body}>정산받을 계좌와 입금 내역을 확인합니다.</Text>
         <View style={mealStyles.actionRow}>
           <Button accessibilityLabel="내 밥 계좌 관리 열기" onPress={onOpenAccount}>내 계좌</Button>
           <Button accessibilityLabel="내 밥 정산 내역 열기" onPress={onOpenSettlement} variant="secondary">내 정산</Button>

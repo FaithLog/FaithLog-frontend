@@ -2,18 +2,20 @@ import {useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 
 import {Button, Card, Chip, Empty, Eyebrow, Title} from '../components/ui';
-import {mealApi, type MealPollListQuery} from './mealApi';
+import {mealApi, type MealApi, type MealPollListQuery} from './mealApi';
+import {resolveMealRequestAccess} from './mealRequestLifecycle';
 import type {MealPollList, MealPollStatus, MealPollSummary} from './mealTypes';
 import {
   MealErrorState,
+  getCurrentMealRequestError,
   MealLoading,
   type MealLoadState,
   mealStyles,
-  toMealApiError,
 } from './mealScreenShared';
+import {useMealRequestTracker} from './useMealRequestTracker';
 
 type MealPollListScreenProps = {
-  accessToken: string;
+  api?: MealApi;
   campusId: number;
   onCreate: () => void;
   onOpenDetail: (pollId: number) => void;
@@ -27,25 +29,36 @@ const filters: Array<{label: string; value: MealPollStatus | undefined}> = [
 ];
 
 export function MealPollListScreen({
-  accessToken,
+  api = mealApi,
   campusId,
   onCreate,
   onOpenDetail,
   onSessionExpired,
 }: MealPollListScreenProps) {
+  const tracker = useMealRequestTracker(`campus:${campusId}/meal-polls`);
   const [status, setStatus] = useState<MealPollStatus | undefined>();
   const [state, setState] = useState<MealLoadState<MealPollList>>({status: 'loading'});
 
   const load = useCallback(async () => {
     setState({status: 'loading'});
+    const access = await resolveMealRequestAccess(tracker, 'list', onSessionExpired);
+    if (access.status === 'cancelled') return;
+    if (access.status === 'error') {
+      const apiError = getCurrentMealRequestError({error: access.error, fallback: '밥 투표 목록을 불러오지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
+      if (apiError) setState({status: 'error', error: apiError});
+      return;
+    }
+    const {accessToken, identity} = access.request;
     try {
       const query: MealPollListQuery = {page: 0, size: 20, sort: 'endsAt,desc', ...(status ? {status} : {})};
-      const result = await mealApi.listPolls(accessToken, campusId, query);
+      const result = await api.listPolls(accessToken, campusId, query);
+      if (!tracker.isSuccessCurrent(identity)) return;
       setState(result.content.length === 0 ? {status: 'empty'} : {status: 'success', data: result});
     } catch (error) {
-      setState({status: 'error', error: toMealApiError(error, '밥 투표 목록을 불러오지 못했습니다.', onSessionExpired)});
+      const apiError = getCurrentMealRequestError({error, fallback: '밥 투표 목록을 불러오지 못했습니다.', identity, onSessionExpired, tracker});
+      if (apiError) setState({status: 'error', error: apiError});
     }
-  }, [accessToken, campusId, onSessionExpired, status]);
+  }, [api, campusId, onSessionExpired, status, tracker]);
 
   useEffect(() => {
     void load();
@@ -61,7 +74,7 @@ export function MealPollListScreen({
           </View>
           <Button accessibilityLabel="새 밥 투표 만들기" onPress={onCreate}>새 투표</Button>
         </View>
-        <Text style={mealStyles.body}>일반 사용자 투표 목록과 분리된 담당자 전용 목록입니다. 오래된 종료 투표도 확인할 수 있어요.</Text>
+        <Text style={mealStyles.body}>진행 중인 투표와 지난 투표를 한곳에서 확인할 수 있어요.</Text>
         <View style={mealStyles.actionRow}>
           {filters.map((filter) => (
             <Button

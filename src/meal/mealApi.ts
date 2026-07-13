@@ -34,10 +34,10 @@ type MealRequestOptions<T> = {
   responseParser: (value: unknown) => T;
 };
 
-export type MealRequestDispatcher = (
+export type MealRequestDispatcher = <T>(
   path: string,
-  options: MealRequestOptions<unknown>,
-) => Promise<unknown>;
+  options: MealRequestOptions<T>,
+) => Promise<T>;
 
 type MealApiDependencies = {
   isMockMode?: () => boolean;
@@ -108,13 +108,13 @@ export type MealApi = {
 };
 
 export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
-  const request: MealRequestDispatcher = dependencies.request ?? ((path, options) =>
-    apiRequest(path, options));
+  const request: MealRequestDispatcher = dependencies.request ?? (<T>(path: string, options: MealRequestOptions<T>) =>
+    apiRequest<T>(path, options));
   const isMockMode = dependencies.isMockMode ?? isMockModeEnabled;
 
   const dispatch = async <T>(path: string, options: MealRequestOptions<T>) => {
     requireConfirmedMealContract(isMockMode);
-    return await request(path, options as MealRequestOptions<unknown>) as T;
+    return request(path, options);
   };
 
   return {

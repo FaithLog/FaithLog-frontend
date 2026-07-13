@@ -4203,31 +4203,58 @@ function MealDutyProfileRow({
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
-  const [canManageMeal, setCanManageMeal] = useState(false);
+  const [mealAccess, setMealAccess] = useState<{
+    allowed: boolean;
+    campusId: number;
+    userId: number;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    const requestGeneration = getAuthSessionGeneration();
+    setMealAccess(null);
 
     const loadMealDuty = async () => {
       try {
-        const accessToken = await resolveCurrentAccessToken(() => {
-          setAuthState({
-            status: 'sessionExpired',
-            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-          });
+        const accessToken = await resolveCurrentAccessToken((generation) => {
+          if (mounted && generation === requestGeneration) {
+            setAuthState({
+              status: 'sessionExpired',
+              message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+            });
+          }
         });
         if (!accessToken) return;
 
         const duty = await mealApi.getMyDuty(accessToken, state.selectedCampus.campusId);
+        if (!mounted || !isAuthSessionRequestAllowed(requestGeneration)) return;
         const canManage =
           duty.dutyType === 'MEAL' && duty.isActive && duty.userId === state.user.id;
 
-        if (mounted) setCanManageMeal(canManage);
+        setMealAccess({
+          allowed: canManage,
+          campusId: state.selectedCampus.campusId,
+          userId: state.user.id,
+        });
       } catch (error) {
-        if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
-          setAuthState({status: 'sessionExpired', message: error.detail.message});
+        if (error instanceof StaleAuthSessionReadError || !mounted) return;
+        if (
+          error instanceof FaithLogApiError &&
+          shouldHandleRequestError(
+            error.detail,
+            requestGeneration,
+            getAuthSessionGeneration(),
+          )
+        ) {
+          if (error.detail.kind === 'sessionExpired') {
+            setAuthState({status: 'sessionExpired', message: error.detail.message});
+          }
+          setMealAccess({
+            allowed: false,
+            campusId: state.selectedCampus.campusId,
+            userId: state.user.id,
+          });
         }
-        if (mounted) setCanManageMeal(false);
       }
     };
 
@@ -4237,14 +4264,18 @@ function MealDutyProfileRow({
     };
   }, [setAuthState, state.selectedCampus.campusId, state.user.id]);
 
-  if (!canManageMeal) return null;
+  if (
+    !mealAccess?.allowed ||
+    mealAccess.campusId !== state.selectedCampus.campusId ||
+    mealAccess.userId !== state.user.id
+  ) return null;
 
   return (
     <ProfileActionRow
       actionLabel="관리"
       icon="coins"
       onPress={onOpen}
-      subtitle="밥 투표, 본인 계좌와 일괄 청구 관리"
+      subtitle="밥 투표, 내 계좌와 정산 관리"
       title="밥 정산 관리"
     />
   );

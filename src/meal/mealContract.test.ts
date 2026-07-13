@@ -3,14 +3,18 @@ import {describe, expect, it} from 'vitest';
 import type {ApiError} from '../api/types';
 import {
   beginMealChargeSubmit,
+  buildMealChargeConfirmation,
   buildMealChargeRequest,
   buildMealPollCreateRequest,
   calculateMealChargeGroup,
   createMealChargeSubmitGate,
   finishMealChargeSubmit,
+  formatMealLocalDeadline,
   getMealErrorPresentation,
   notifyMealSessionExpired,
+  parseMealLocalDeadline,
 } from './mealModel';
+import type {MealPollDetail} from './mealTypes';
 
 describe('MEAL product contract', () => {
   it('creates MEAL polls with only the five approved fields and a future endsAt', () => {
@@ -63,6 +67,15 @@ describe('MEAL product contract', () => {
     ).toThrow('선택지');
   });
 
+  it('uses a localized date field contract and rejects impossible calendar dates', () => {
+    const local = new Date(2026, 6, 14, 18, 5);
+    expect(formatMealLocalDeadline(local)).toEqual({date: '2026년 7월 14일', time: '18:05'});
+    expect(parseMealLocalDeadline({date: '2026년 7월 14일', time: '18:05'}))
+      .toBe(local.toISOString());
+    expect(() => parseMealLocalDeadline({date: '2026년 2월 30일', time: '18:05'}))
+      .toThrow('올바른');
+  });
+
   it('uses integer-only PER_MEMBER calculations', () => {
     expect(calculateMealChargeGroup('PER_MEMBER', 8000, 3)).toEqual({
       actualTotalAmount: 24000,
@@ -107,6 +120,52 @@ describe('MEAL product contract', () => {
       ],
     });
     expect(request.groups).not.toContainEqual(expect.objectContaining({optionId: 1003}));
+  });
+
+  it('builds every final-confirmation amount and safe total from the request', () => {
+    const detail: MealPollDetail = {
+      id: 101,
+      campusId: 1,
+      title: '점심',
+      description: null,
+      pollType: 'MEAL',
+      selectionType: 'SINGLE',
+      allowUserOptionAdd: true,
+      startsAt: '2026-07-13T01:00:00.000Z',
+      endsAt: '2026-07-13T02:00:00.000Z',
+      status: 'CLOSED',
+      settlementStatus: 'NOT_CHARGED',
+      totalResponseCount: 3,
+      options: [{
+        optionId: 1001,
+        content: '제육볶음',
+        responseCount: 3,
+        userAdded: false,
+        charge: {chargeStatus: 'NOT_CHARGED'},
+      }],
+    };
+    expect(buildMealChargeConfirmation(detail, {
+      paymentAccountId: 10,
+      groups: [{optionId: 1001, calculationType: 'GROUP_TOTAL', enteredAmount: 10000}],
+    })).toEqual({
+      groups: [{
+        optionId: 1001,
+        content: '제육볶음',
+        responseCount: 3,
+        calculationType: 'GROUP_TOTAL',
+        enteredAmount: 10000,
+        amountPerMember: 3334,
+        requestedTotalAmount: 10000,
+        actualTotalAmount: 10002,
+        roundingAdjustment: 2,
+      }],
+      totals: {
+        chargedMemberCount: 3,
+        requestedTotalAmount: 10000,
+        actualTotalAmount: 10002,
+        roundingAdjustment: 2,
+      },
+    });
   });
 
   it('builds a batch from the eligible NOT_CHARGED option set only', () => {
@@ -167,6 +226,17 @@ describe('MEAL product contract', () => {
     expect(beginMealChargeSubmit(gate)).not.toBeNull();
   });
 
+  it('lets a new poll/session charge identity supersede an old in-flight gate', () => {
+    const gate = createMealChargeSubmitGate();
+    const oldOperation = beginMealChargeSubmit(gate, 'campus:1/poll:101/session:3');
+    expect(beginMealChargeSubmit(gate, 'campus:1/poll:101/session:3')).toBeNull();
+
+    const currentOperation = beginMealChargeSubmit(gate, 'campus:2/poll:202/session:4');
+    expect(currentOperation).not.toBeNull();
+    expect(finishMealChargeSubmit(gate, oldOperation ?? -1)).toBe(false);
+    expect(finishMealChargeSubmit(gate, currentOperation ?? -1)).toBe(true);
+  });
+
   it.each([
     [{kind: 'error', status: 400, message: 'bad'} satisfies ApiError, '입력값'],
     [{kind: 'sessionExpired', status: 401, message: 'expired'} satisfies ApiError, '세션'],
@@ -175,6 +245,20 @@ describe('MEAL product contract', () => {
     [{kind: 'conflict', status: 409, message: 'conflict'} satisfies ApiError, '최신 상태'],
   ])('maps status-specific errors without treating non-401 as auth expiry', (error, phrase) => {
     expect(getMealErrorPresentation(error).message).toContain(phrase);
+  });
+
+  it('shows only typed local validation detail and keeps raw failures sanitized', () => {
+    expect(getMealErrorPresentation({
+      kind: 'error',
+      status: 400,
+      code: 'MEAL_LOCAL_VALIDATION',
+      message: '마감 날짜를 입력해 주세요.',
+    }).message).toBe('마감 날짜를 입력해 주세요.');
+    expect(getMealErrorPresentation({
+      kind: 'error',
+      status: 400,
+      message: 'raw parser stack',
+    }).message).not.toContain('raw parser stack');
   });
 
   it('propagates only 401/sessionExpired errors to the auth gate', () => {

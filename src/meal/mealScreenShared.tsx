@@ -1,10 +1,15 @@
-import {StyleSheet, Text, View} from 'react-native';
+import {StyleSheet, Text} from 'react-native';
 
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
-import {Button, Card, Chip, Loading, Title} from '../components/ui';
+import {Button, Card, Loading, Title} from '../components/ui';
 import {colors, radius, spacing} from '../theme';
-import {getMealErrorPresentation, notifyMealSessionExpired} from './mealModel';
+import {
+  getMealErrorPresentation,
+  MealLocalValidationError,
+  notifyMealSessionExpired,
+} from './mealModel';
+import type {MealRequestIdentity, MealRequestTracker} from './mealRequestLifecycle';
 
 export type MealLoadState<T> =
   | {status: 'loading'}
@@ -14,13 +19,9 @@ export type MealLoadState<T> =
 
 export function MealErrorState({error, onRetry}: {error: ApiError; onRetry?: () => void}) {
   const presentation = getMealErrorPresentation(error);
-  const statusLabel = error.status ? `${error.status}` : error.code ?? 'ERROR';
 
   return (
     <Card>
-      <View style={mealStyles.rowBetween}>
-        <Chip label={statusLabel} tone={error.status === 403 ? 'warning' : 'default'} />
-      </View>
       <Title>{presentation.title}</Title>
       <Text style={mealStyles.body}>{presentation.message}</Text>
       {onRetry && presentation.retryable ? (
@@ -36,23 +37,49 @@ export function MealLoading({label}: {label: string}) {
   return <Loading message={label} />;
 }
 
+export function MealRefreshWarning({onRetry}: {onRetry: () => void}) {
+  return (
+    <Card>
+      <Title>처리는 완료됐어요</Title>
+      <Text style={mealStyles.body}>최신 상태를 불러오지 못했습니다. 다시 불러와 확인해 주세요.</Text>
+      <Button accessibilityLabel="최신 상태 다시 불러오기" onPress={onRetry}>
+        다시 불러오기
+      </Button>
+    </Card>
+  );
+}
+
 export function toMealApiError(
   error: unknown,
   fallback: string,
-  onSessionExpired?: (message: string) => void,
 ): ApiError {
-  let apiError: ApiError;
-
   if (error instanceof FaithLogApiError) {
-    apiError = error.detail;
-  } else if (error instanceof Error && error.message.trim()) {
-    apiError = {kind: 'error', status: 400, message: error.message};
-  } else {
-    apiError = {kind: 'error', message: fallback};
+    return error.detail;
   }
 
-  notifyMealSessionExpired(apiError, onSessionExpired);
+  if (error instanceof MealLocalValidationError) {
+    return {kind: 'error', status: 400, code: error.code, message: error.message};
+  }
 
+  return {kind: 'error', message: fallback};
+}
+
+export function getCurrentMealRequestError({
+  error,
+  fallback,
+  identity,
+  onSessionExpired,
+  tracker,
+}: {
+  error: unknown;
+  fallback: string;
+  identity: MealRequestIdentity;
+  onSessionExpired: (message: string) => void;
+  tracker: MealRequestTracker;
+}) {
+  const apiError = toMealApiError(error, fallback);
+  if (!tracker.shouldApplyError(identity, apiError)) return null;
+  notifyMealSessionExpired(apiError, onSessionExpired);
   return apiError;
 }
 
