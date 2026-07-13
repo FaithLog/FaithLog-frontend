@@ -3,48 +3,65 @@ import {describe, expect, it} from 'vitest';
 import type {PenaltyRule, PenaltyRuleType} from '../api/types';
 import {
   beginPenaltyRuleSave,
-  createPenaltyRuleDraft,
   createPenaltyRuleSaveGate,
+  deriveCurrentActivePenaltyRules,
   finishPenaltyRuleSave,
-  getAvailablePenaltyRuleTypes,
-  getDuplicatePenaltyRuleTypes,
-  isPenaltyRuleCreateTypeUnavailable,
+  hasActivePenaltyRuleType,
   isPenaltyRuleDraftDirty,
   isPenaltyRuleRequestCurrent,
+  isPenaltyRuleSaveOperationCurrent,
   invalidatePenaltyRuleSave,
   startPenaltyRuleCreateFlow,
   startPenaltyRuleEditFlow,
 } from './penaltyRuleFlow';
 
 describe('penalty rule flow', () => {
-  it('offers only rule types that have no campus rule, including inactive rules', () => {
+  it('opens create with every rule type still available after existing rules', () => {
     const rules = [
       penaltyRule({ruleType: 'QUIET_TIME', isActive: false}),
       penaltyRule({id: 2, ruleType: 'SATURDAY_LATE'}),
     ];
 
-    expect(getAvailablePenaltyRuleTypes(rules)).toEqual(['PRAYER', 'BIBLE_READING']);
-    expect(startPenaltyRuleCreateFlow(rules)?.route).toBe('create');
+    const current = deriveCurrentActivePenaltyRules(rules);
+    const flow = startPenaltyRuleCreateFlow();
+
+    expect(current.rules.map((rule) => rule.ruleType)).toEqual(['SATURDAY_LATE']);
+    expect(flow.route).toBe('create');
+    expect(flow.initialDraft.ruleType).toBe('QUIET_TIME');
   });
 
-  it('blocks create entry after every type has been registered', () => {
+  it('keeps create available after every type has an active rule', () => {
     const rules = (
       ['QUIET_TIME', 'PRAYER', 'BIBLE_READING', 'SATURDAY_LATE'] as PenaltyRuleType[]
     ).map((ruleType, index) => penaltyRule({id: index + 1, ruleType}));
 
-    expect(getAvailablePenaltyRuleTypes(rules)).toEqual([]);
-    expect(startPenaltyRuleCreateFlow(rules)).toBeNull();
+    expect(deriveCurrentActivePenaltyRules(rules).rules).toHaveLength(4);
+    expect(startPenaltyRuleCreateFlow().route).toBe('create');
+    expect(hasActivePenaltyRuleType(rules, 'PRAYER')).toBe(true);
   });
 
-  it('reports legacy duplicate types without making them selectable again', () => {
+  it('hides inactive history and keeps only the latest id for duplicate active types', () => {
     const rules = [
-      penaltyRule({id: 1, ruleType: 'PRAYER', isActive: false}),
-      penaltyRule({id: 2, ruleType: 'PRAYER', isActive: true}),
+      penaltyRule({id: 1, ruleType: 'PRAYER', isActive: false, amountPerUnit: 100}),
+      penaltyRule({id: 2, ruleType: 'PRAYER', isActive: true, amountPerUnit: 200}),
+      penaltyRule({id: 7, ruleType: 'PRAYER', isActive: true, amountPerUnit: 700}),
+      penaltyRule({id: 4, ruleType: 'QUIET_TIME', isActive: true}),
     ];
+    const current = deriveCurrentActivePenaltyRules(rules);
 
-    expect(getDuplicatePenaltyRuleTypes(rules)).toEqual(['PRAYER']);
-    expect(getAvailablePenaltyRuleTypes(rules)).not.toContain('PRAYER');
-    expect(getAvailablePenaltyRuleTypes(rules)).toContain('QUIET_TIME');
+    expect(current.duplicateActiveTypes).toEqual(['PRAYER']);
+    expect(current.rules.map((rule) => rule.id)).toEqual([4, 7]);
+    expect(current.rules.find((rule) => rule.ruleType === 'PRAYER')).toMatchObject({
+      amountPerUnit: 700,
+      isActive: true,
+    });
+    expect(hasActivePenaltyRuleType(rules, 'PRAYER')).toBe(true);
+    expect(
+      hasActivePenaltyRuleType(
+        [penaltyRule({ruleType: 'BIBLE_READING', isActive: false})],
+        'BIBLE_READING',
+      ),
+    ).toBe(false);
   });
 
   it('prefills edit content and treats the rule type as fixed', () => {
@@ -54,7 +71,7 @@ describe('penalty rule flow', () => {
       requiredCount: 6,
       baseAmount: 100,
       amountPerUnit: 300,
-      isActive: false,
+      isActive: true,
     });
     const flow = startPenaltyRuleEditFlow(rule);
 
@@ -64,7 +81,6 @@ describe('penalty rule flow', () => {
       amountPerUnit: '300',
       baseAmount: '100',
       calculationType: 'MISSING_COUNT',
-      isActive: false,
       requiredCount: '6',
       ruleId: 42,
       ruleType: 'BIBLE_READING',
@@ -72,25 +88,11 @@ describe('penalty rule flow', () => {
   });
 
   it('detects unsaved edits but not an untouched create draft', () => {
-    const flow = startPenaltyRuleCreateFlow([]);
-    if (!flow || flow.route !== 'create') throw new Error('expected create flow');
+    const flow = startPenaltyRuleCreateFlow();
 
     expect(isPenaltyRuleDraftDirty(flow, flow.initialDraft)).toBe(false);
     expect(
       isPenaltyRuleDraftDirty(flow, {...flow.initialDraft, baseAmount: '1000'}),
-    ).toBe(true);
-  });
-
-  it('marks a preserved create draft unavailable after a concurrent insert', () => {
-    const flow = startPenaltyRuleCreateFlow([]);
-    if (!flow || flow.route !== 'create') throw new Error('expected create flow');
-
-    expect(
-      isPenaltyRuleCreateTypeUnavailable(
-        flow,
-        {...createPenaltyRuleDraft('QUIET_TIME'), baseAmount: '500'},
-        [penaltyRule({ruleType: 'QUIET_TIME'})],
-      ),
     ).toBe(true);
   });
 
@@ -147,6 +149,22 @@ describe('penalty rule flow', () => {
     await expect(oldSave).resolves.toBe(false);
     expect(gate.inFlight).toBe(true);
     expect(finishPenaltyRuleSave(gate, newOperationId ?? -1)).toBe(true);
+  });
+
+  it('rejects an old save response after an A to B to A campus transition', () => {
+    const gate = createPenaltyRuleSaveGate();
+    const campusAOperationId = beginPenaltyRuleSave(gate);
+    if (campusAOperationId === null) throw new Error('expected campus A operation');
+
+    invalidatePenaltyRuleSave(gate);
+    invalidatePenaltyRuleSave(gate);
+    const returnedCampusAOperationId = beginPenaltyRuleSave(gate);
+    if (returnedCampusAOperationId === null) {
+      throw new Error('expected returned campus A operation');
+    }
+
+    expect(isPenaltyRuleSaveOperationCurrent(gate, campusAOperationId)).toBe(false);
+    expect(isPenaltyRuleSaveOperationCurrent(gate, returnedCampusAOperationId)).toBe(true);
   });
 });
 

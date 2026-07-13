@@ -141,15 +141,15 @@ import {formatCompactWon, formatWon} from '../utils/money';
 import {
   beginPenaltyRuleSave,
   createPenaltyRuleSaveGate,
+  deriveCurrentActivePenaltyRules,
   emptyPenaltyRuleDraft,
   finishPenaltyRuleSave,
-  getAvailablePenaltyRuleTypes,
-  getDuplicatePenaltyRuleTypes,
   getPenaltyCalculationType,
   getRequiredCountForRuleType,
-  isPenaltyRuleCreateTypeUnavailable,
+  hasActivePenaltyRuleType,
   isPenaltyRuleDraftDirty,
   isPenaltyRuleRequestCurrent,
+  isPenaltyRuleSaveOperationCurrent,
   invalidatePenaltyRuleSave,
   startPenaltyRuleCreateFlow,
   startPenaltyRuleEditFlow,
@@ -447,11 +447,6 @@ const penaltyRuleTypeOptions: Array<{id: PenaltyRuleType; label: string}> = [
   {id: 'PRAYER', label: '기도'},
   {id: 'BIBLE_READING', label: '성경'},
   {id: 'SATURDAY_LATE', label: '토요지각'},
-];
-
-const penaltyRuleActiveOptions: Array<{id: 'active' | 'inactive'; label: string}> = [
-  {id: 'active', label: '활성'},
-  {id: 'inactive', label: '비활성'},
 ];
 
 const notificationStatusFilters: Array<{id: NotificationSendStatusFilter; label: string}> = [
@@ -1367,14 +1362,12 @@ export function AdminScreen({
     AccessibilityInfo.announceForAccessibility(message);
   };
 
-  const loadPenaltyRules = async ({preserveActionError = false} = {}) => {
+  const loadPenaltyRules = async () => {
     const requestCampusId = campusId;
     const requestGeneration = getAuthSessionGeneration();
     const requestSequence = ++penaltyRuleRequestSequenceRef.current;
     setPenaltyRuleState({status: 'loading'});
-    if (!preserveActionError) {
-      setActionError(null);
-    }
+    setActionError(null);
 
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -1397,8 +1390,17 @@ export function AdminScreen({
       ) {
         return;
       }
+      const currentRules = deriveCurrentActivePenaltyRules(rules);
+      if (currentRules.duplicateActiveTypes.length > 0) {
+        console.warn(
+          '[AdminPenaltyRules] Multiple active rules received; using the latest id per type.',
+          currentRules.duplicateActiveTypes,
+        );
+      }
       setPenaltyRuleState(
-        rules.length === 0 ? {status: 'empty'} : {status: 'success', rules},
+        currentRules.rules.length === 0
+          ? {status: 'empty'}
+          : {status: 'success', rules: currentRules.rules},
       );
     } catch (error) {
       if (
@@ -1428,23 +1430,13 @@ export function AdminScreen({
       return;
     }
 
+    const activeRules = getPenaltyRulesForSelection(penaltyRuleState);
+    const replacingActiveRule =
+      penaltyRuleFlow.route === 'create' &&
+      activeRules !== null &&
+      hasActivePenaltyRuleType(activeRules, penaltyRuleForm.ruleType);
     const operationId = beginPenaltyRuleSave(penaltyRuleSaveGateRef.current);
     if (operationId === null) {
-      return;
-    }
-
-    const currentRules = getPenaltyRulesForSelection(penaltyRuleState);
-    if (
-      currentRules === null ||
-      isPenaltyRuleCreateTypeUnavailable(penaltyRuleFlow, penaltyRuleForm, currentRules)
-    ) {
-      setActionError({
-        code: 'PENALTY_RULE_DUPLICATE',
-        kind: 'conflict',
-        status: 409,
-        message: '다른 관리자가 같은 규칙 항목을 먼저 등록했습니다. 입력값은 유지했으니 목록의 최신 상태를 확인해 주세요.',
-      });
-      finishPenaltyRuleSave(penaltyRuleSaveGateRef.current, operationId);
       return;
     }
 
@@ -1476,13 +1468,17 @@ export function AdminScreen({
             })
           : await updateAdminPenaltyRule(accessToken, editingRuleId, {
               ...requestAmounts,
-              isActive: penaltyRuleForm.isActive,
+              isActive: true,
             });
 
       if (
         !penaltyRuleMountedRef.current ||
         penaltyRuleCampusIdRef.current !== operationCampusId ||
-        !isAuthSessionGenerationCurrent(operationGeneration)
+        !isAuthSessionGenerationCurrent(operationGeneration) ||
+        !isPenaltyRuleSaveOperationCurrent(
+          penaltyRuleSaveGateRef.current,
+          operationId,
+        )
       ) {
         return;
       }
@@ -1494,14 +1490,21 @@ export function AdminScreen({
       if (
         !penaltyRuleMountedRef.current ||
         penaltyRuleCampusIdRef.current !== operationCampusId ||
-        !isAuthSessionGenerationCurrent(operationGeneration)
+        !isAuthSessionGenerationCurrent(operationGeneration) ||
+        !isPenaltyRuleSaveOperationCurrent(
+          penaltyRuleSaveGateRef.current,
+          operationId,
+        )
       ) {
         return;
       }
       setNotice({
-        tone: rule.isActive ? 'success' : 'warning',
+        tone: 'success',
         title: editingRuleId === null ? '벌금 규칙 등록' : '벌금 규칙 수정',
-        message: `${getPenaltyRuleTypeLabel(rule.ruleType)} 규칙을 저장했습니다.`,
+        message:
+          editingRuleId === null && replacingActiveRule
+            ? `${getPenaltyRuleTypeLabel(rule.ruleType)} 새 규칙을 적용했습니다. 기존 규칙은 이력으로 보관됩니다.`
+            : `${getPenaltyRuleTypeLabel(rule.ruleType)} 규칙을 저장했습니다.`,
       });
       AccessibilityInfo.announceForAccessibility(
         `${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙을 저장했고 목록으로 돌아왔습니다.`,
@@ -1511,21 +1514,16 @@ export function AdminScreen({
       if (
         !penaltyRuleMountedRef.current ||
         penaltyRuleCampusIdRef.current !== operationCampusId ||
-        !isAuthSessionGenerationCurrent(operationGeneration)
+        !isAuthSessionGenerationCurrent(operationGeneration) ||
+        !isPenaltyRuleSaveOperationCurrent(
+          penaltyRuleSaveGateRef.current,
+          operationId,
+        )
       ) {
         return;
       }
 
-      if (apiError.kind === 'conflict' && editingRuleId === null) {
-        setActionError({
-          ...apiError,
-          code: 'PENALTY_RULE_DUPLICATE',
-          message: '다른 관리자가 같은 규칙 항목을 먼저 등록했습니다. 입력값은 유지했으니 최신 목록을 확인해 주세요.',
-        });
-        await loadPenaltyRules({preserveActionError: true});
-      } else {
-        setActionError(apiError);
-      }
+      setActionError(apiError);
       void handleAuthError(apiError, setAuthState);
     } finally {
       if (
@@ -1538,25 +1536,20 @@ export function AdminScreen({
   };
 
   const openPenaltyRuleCreate = () => {
-    const rules = getPenaltyRulesForSelection(penaltyRuleState);
-    if (rules === null) {
-      return;
-    }
-
-    const nextFlow = startPenaltyRuleCreateFlow(rules);
-    if (!nextFlow || nextFlow.route !== 'create') {
-      setNotice({
-        tone: 'info',
-        title: '모든 규칙이 등록되었습니다',
-        message: '기존 규칙의 수정 버튼에서 금액과 활성 상태를 변경해 주세요.',
-      });
-      return;
-    }
+    const nextFlow = startPenaltyRuleCreateFlow();
+    const activeRules = getPenaltyRulesForSelection(penaltyRuleState);
+    const replacesInitialRule =
+      activeRules !== null &&
+      hasActivePenaltyRuleType(activeRules, nextFlow.initialDraft.ruleType);
 
     setPenaltyRuleFlow(nextFlow);
     setPenaltyRuleForm(nextFlow.initialDraft);
     setActionError(null);
-    AccessibilityInfo.announceForAccessibility('벌금 규칙 추가 페이지입니다.');
+    AccessibilityInfo.announceForAccessibility(
+      replacesInitialRule
+        ? `벌금 규칙 추가 페이지입니다. 현재 적용 중인 ${getPenaltyRuleTypeLabel(nextFlow.initialDraft.ruleType)} 규칙이 있어 저장하면 새 규칙으로 교체됩니다.`
+        : '벌금 규칙 추가 페이지입니다. 같은 항목에 현재 규칙이 있으면 새 규칙으로 교체되고 기존 규칙은 이력으로 보관됩니다.',
+    );
   };
 
   const editPenaltyRule = (rule: PenaltyRule) => {
@@ -9002,52 +8995,23 @@ function AdminPenaltyRules({
   onSave: () => void;
   state: PenaltyRuleState;
 }) {
-  const registeredRules = getPenaltyRulesForSelection(state);
-  const availableTypes = registeredRules
-    ? getAvailablePenaltyRuleTypes(registeredRules)
-    : [];
-  const availableOptions = penaltyRuleTypeOptions.filter((option) =>
-    availableTypes.includes(option.id),
-  );
+  const activeRules = getPenaltyRulesForSelection(state);
 
   if (flow.route === 'list') {
-    const duplicateTypes = registeredRules
-      ? getDuplicatePenaltyRuleTypes(registeredRules)
-      : [];
-    const allTypesRegistered = registeredRules !== null && availableTypes.length === 0;
-
     return (
       <View style={styles.figmaListStack}>
         <View style={styles.penaltyRuleListHeader}>
           <SettlementSectionHeader
-            description="활성 상태와 금액 계산 방식을 확인하고, 기존 규칙은 수정 페이지에서 변경합니다."
+            description="현재 적용 중인 규칙만 확인하고, 기존 규칙은 수정 페이지에서 변경합니다."
             title="벌금 규칙"
           />
           <AdminCompactButton
-            accessibilityLabel={
-              allTypesRegistered
-                ? '모든 벌금 규칙 항목이 등록되어 규칙 추가 비활성화됨'
-                : '벌금 규칙 추가 페이지 열기'
-            }
-            disabled={busy || registeredRules === null || allTypesRegistered}
+            accessibilityLabel="벌금 규칙 추가 페이지 열기"
+            disabled={busy}
             onPress={onOpenCreate}>
             규칙 추가
           </AdminCompactButton>
         </View>
-        {allTypesRegistered ? (
-          <View style={styles.inlineInfo}>
-            <Text style={styles.inlineInfoText}>
-              등록 가능한 모든 항목이 준비되었습니다. 내용을 바꾸려면 각 규칙의 수정 버튼을 눌러 주세요.
-            </Text>
-          </View>
-        ) : null}
-        {duplicateTypes.length > 0 ? (
-          <View accessibilityRole="alert" style={styles.inlineWarning}>
-            <Text style={styles.inlineWarningText}>
-              서버에 같은 항목의 규칙이 여러 개 있습니다: {duplicateTypes.map(getPenaltyRuleTypeLabel).join(', ')}. 중복된 항목의 재추가는 차단되며, 아직 등록되지 않은 다른 항목은 추가할 수 있습니다. backend 데이터 정리가 필요합니다.
-            </Text>
-          </View>
-        ) : null}
         {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
       </View>
     );
@@ -9055,10 +9019,10 @@ function AdminPenaltyRules({
 
   const lateMinuteRule = isSaturdayLatePenaltyRule(form.ruleType);
   const calculationLabel = lateMinuteRule ? '지각 분 기준' : '미달 횟수 기준';
-  const createTypeUnavailable =
+  const replacesActiveRule =
     flow.route === 'create' &&
-    (registeredRules === null ||
-      isPenaltyRuleCreateTypeUnavailable(flow, form, registeredRules));
+    activeRules !== null &&
+    hasActivePenaltyRuleType(activeRules, form.ruleType);
   const pageTitle = flow.route === 'create' ? '규칙 추가' : '규칙 수정';
 
   return (
@@ -9068,8 +9032,8 @@ function AdminPenaltyRules({
           <Text style={styles.sectionTitle}>{pageTitle}</Text>
           <Text style={styles.settlementSectionDescription}>
             {flow.route === 'create'
-              ? '아직 등록되지 않은 규칙 항목을 선택하고 금액 기준을 입력합니다.'
-              : '규칙 항목은 유지하고 금액 기준과 활성 상태만 수정합니다.'}
+              ? '규칙 항목을 선택하고 새로 적용할 금액 기준을 입력합니다.'
+              : '규칙 항목은 유지하고 현재 적용 중인 금액 기준만 수정합니다.'}
           </Text>
         </View>
         <AdminCompactButton
@@ -9081,13 +9045,13 @@ function AdminPenaltyRules({
         </AdminCompactButton>
       </View>
       <View style={styles.figmaFormCard}>
-        {flow.route === 'create' && !createTypeUnavailable ? (
+        {flow.route === 'create' ? (
           <FigmaSegmentedControl
             accessibilityLabelSuffix="규칙 항목 선택"
             disabled={busy}
-            items={availableOptions}
+            items={penaltyRuleTypeOptions}
             selectedId={form.ruleType}
-            onSelect={(ruleType) =>
+            onSelect={(ruleType) => {
               onChangeForm({
                 ruleType,
                 calculationType: getPenaltyCalculationType(ruleType),
@@ -9095,16 +9059,26 @@ function AdminPenaltyRules({
                   ruleType,
                   form.requiredCount,
                 ),
-              })
-            }
+              });
+              if (
+                activeRules !== null &&
+                hasActivePenaltyRuleType(activeRules, ruleType)
+              ) {
+                AccessibilityInfo.announceForAccessibility(
+                  `${getPenaltyRuleTypeLabel(ruleType)}에는 현재 적용 중인 규칙이 있습니다. 저장하면 새 규칙이 적용되고 기존 규칙은 이력으로 보관됩니다.`,
+                );
+              }
+            }}
           />
         ) : (
           <ListRow label="규칙 항목" value={getPenaltyRuleTypeLabel(form.ruleType)} />
         )}
-        {flow.route === 'create' && createTypeUnavailable ? (
-          <View accessibilityRole="alert" style={styles.inlineWarning}>
-            <Text style={styles.inlineWarningText}>
-              최신 목록에서 이 항목이 이미 등록되었거나 목록을 확인할 수 없습니다. 입력값은 유지되지만 중복 방지를 위해 저장할 수 없습니다.
+        {flow.route === 'create' ? (
+          <View accessibilityLiveRegion="polite" style={styles.inlineInfo}>
+            <Text style={styles.inlineInfoText}>
+              {replacesActiveRule
+                ? '이 항목에는 현재 적용 중인 규칙이 있습니다. 저장하면 새 규칙이 적용되고 기존 규칙은 이력으로 보관됩니다.'
+                : '같은 항목에 현재 적용 중인 규칙이 있으면 새 규칙이 적용되고 기존 규칙은 이력으로 보관됩니다.'}
             </Text>
           </View>
         ) : null}
@@ -9160,20 +9134,11 @@ function AdminPenaltyRules({
             />
           </View>
         </View>
-        {flow.route === 'edit' ? (
-          <FigmaSegmentedControl
-            accessibilityLabelSuffix="규칙 활성 상태 선택"
-            disabled={busy}
-            items={penaltyRuleActiveOptions}
-            selectedId={form.isActive ? 'active' : 'inactive'}
-            onSelect={(value) => onChangeForm({isActive: value === 'active'})}
-          />
-        ) : null}
         {error ? <AdminInlineError error={error} exposeValidationMessage /> : null}
         <View style={styles.actionRow}>
           <Button
             accessibilityLabel="벌금 규칙 저장"
-            disabled={busy || createTypeUnavailable}
+            disabled={busy}
             onPress={onSave}>
             {busy ? '저장 중...' : '규칙 저장'}
           </Button>
@@ -11071,9 +11036,7 @@ function getAdminActionErrorMessage(
         ? error.message
         : '현재 계정으로는 이 작업을 진행할 수 없습니다. 권한이나 서버 정책을 확인해 주세요.';
     case 'conflict':
-      return error.code === 'PENALTY_RULE_DUPLICATE'
-        ? error.message
-        : '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
+      return '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
     case 'offline':
       return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
     case 'sessionExpired':
@@ -12357,13 +12320,11 @@ function getCoffeeCategoryLabel(category: string) {
 }
 
 function getPenaltyRuleSummary(rule: PenaltyRule) {
-  const activeLabel = rule.isActive ? '활성' : '비활성';
-
   if (isSaturdayLatePenaltyRule(rule.ruleType)) {
-    return `${activeLabel} · 지각 분 기준 · 기본 ${formatWon(rule.baseAmount)} + 1분당 ${formatWon(rule.amountPerUnit)}`;
+    return `적용 중 · 지각 분 기준 · 기본 ${formatWon(rule.baseAmount)} + 1분당 ${formatWon(rule.amountPerUnit)}`;
   }
 
-  return `${activeLabel} · 미달 횟수 기준 · 주간 ${rule.requiredCount}회 · 기본 ${formatWon(rule.baseAmount)} + 미달 1회당 ${formatWon(rule.amountPerUnit)}`;
+  return `적용 중 · 미달 횟수 기준 · 주간 ${rule.requiredCount}회 · 기본 ${formatWon(rule.baseAmount)} + 미달 1회당 ${formatWon(rule.amountPerUnit)}`;
 }
 
 function getChargeStatusLabel(status: ChargeStatus) {
@@ -13820,22 +13781,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
-  },
-  inlineWarning: {
-    backgroundColor: colors.warningSoft,
-    borderColor: colors.warning,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  inlineWarningText: {
-    color: adminFigmaTokens.textSecondary,
-    flexShrink: 1,
-    flexWrap: 'wrap',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 19,
   },
   inviteCodeCopyButton: {
     alignItems: 'center',

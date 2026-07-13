@@ -15,6 +15,7 @@ import {
   apiRequest,
   buildApiUrl,
   createAdminPaymentAccount,
+  createAdminPenaltyRule,
   createCoffeeDutyPaymentAccount,
   deleteMyAccount,
   FaithLogApiError,
@@ -29,6 +30,7 @@ import {
   loginUser,
   logoutUser,
   registerMyFcmToken,
+  updateAdminPenaltyRule,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -162,6 +164,66 @@ describe('FaithLog API client', () => {
     expect(buildApiUrl('/api/v1/users/me')).toBe(
       'https://api.faithlog.test/root/api/v1/users/me',
     );
+  });
+
+  it('keeps penalty rule create on the backend replacement contract without isActive', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 11,
+        ruleType: 'PRAYER',
+        calculationType: 'MISSING_COUNT',
+        requiredCount: 5,
+        baseAmount: 0,
+        amountPerUnit: 500,
+        isActive: true,
+      })),
+    );
+
+    await createAdminPenaltyRule('access-token', 2, {
+      ruleType: 'PRAYER',
+      calculationType: 'MISSING_COUNT',
+      requiredCount: 5,
+      baseAmount: 0,
+      amountPerUnit: 500,
+    });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      ruleType: 'PRAYER',
+      calculationType: 'MISSING_COUNT',
+      requiredCount: 5,
+      baseAmount: 0,
+      amountPerUnit: 500,
+    });
+  });
+
+  it('keeps penalty rule updates active while editing current values', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 11,
+        ruleType: 'PRAYER',
+        calculationType: 'MISSING_COUNT',
+        requiredCount: 6,
+        baseAmount: 0,
+        amountPerUnit: 700,
+        isActive: true,
+      })),
+    );
+
+    await updateAdminPenaltyRule('access-token', 11, {
+      requiredCount: 6,
+      baseAmount: 0,
+      amountPerUnit: 700,
+      isActive: true,
+    });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      requiredCount: 6,
+      baseAmount: 0,
+      amountPerUnit: 700,
+      isActive: true,
+    });
   });
 
   it('reports an actually-sent logout timeout as an unknown offline outcome', async () => {
