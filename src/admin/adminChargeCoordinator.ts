@@ -1,12 +1,15 @@
 import type {
+  AdminChargeContractCapabilities,
   AdminChargeStatusChangeResponse,
   AdminChargeStatusTarget,
   ApiError,
+  ChargeItem,
   PaymentCategory,
 } from '../api/types';
 import {
   beginAdminChargeMutation,
   finishAdminChargeMutation,
+  getAdminChargeStatusActions,
   isAdminChargeMutationCurrent,
   shouldExpireAdminChargeSession,
   type AdminChargeMutationGate,
@@ -54,6 +57,31 @@ export function createAdminChargeReadCoordinator(): AdminChargeReadCoordinator {
     summary: {key: null, sequence: 0},
     detail: {key: null, sequence: 0},
   };
+}
+
+export function selectAdminChargeStatusRequest({
+  actionIdle,
+  capabilities,
+  charge,
+  mutationActive,
+  status,
+}: {
+  actionIdle: boolean;
+  capabilities: Pick<AdminChargeContractCapabilities, 'paidStatusEnabled'>;
+  charge: ChargeItem;
+  mutationActive: boolean;
+  status: AdminChargeStatusTarget;
+}) {
+  if (
+    !actionIdle ||
+    mutationActive ||
+    charge.status === status ||
+    !getAdminChargeStatusActions(charge, capabilities).includes(status)
+  ) {
+    return null;
+  }
+
+  return {charge, status};
 }
 
 export function buildAdminChargeSummaryRequestKey({
@@ -186,7 +214,7 @@ export async function runLatestAdminChargeRead<Value>({
 
 export type AdminChargeRefreshResult = {
   detail?: AdminChargeReadResult;
-  kind: 'complete' | 'partial' | 'failed';
+  kind: 'complete' | 'partial' | 'failed' | 'superseded';
   summary: AdminChargeReadResult;
 };
 
@@ -214,10 +242,13 @@ export async function refreshAdminChargeSurfaces(
     ? detailResult.value
     : refreshFailure;
   const attempted = detail === undefined ? [summary] : [summary, detail];
+  const superseded = attempted.some((result) => result.kind === 'stale');
   const failureCount = attempted.filter(
     (result) => result.kind === 'failed' || result.kind === 'aborted',
   ).length;
-  const kind = failureCount === 0
+  const kind = superseded
+    ? 'superseded'
+    : failureCount === 0
     ? 'complete'
     : failureCount === attempted.length
       ? 'failed'
@@ -326,6 +357,10 @@ export async function coordinateAdminChargeStatusMutation({
     onAccepted(response);
     const refreshResult = await refresh();
 
+    if (refreshResult.kind === 'superseded') {
+      return {kind: 'stale'};
+    }
+
     if (!isAdminChargeMutationCurrent(gate, operationId) || !canApplySuccess()) {
       return {kind: 'stale'};
     }
@@ -344,6 +379,10 @@ export async function coordinateAdminChargeStatusMutation({
     if (apiError.status === 409) {
       onConflict();
       const refreshResult = await refresh();
+
+      if (refreshResult.kind === 'superseded') {
+        return {kind: 'stale'};
+      }
 
       if (
         !isAdminChargeMutationCurrent(gate, operationId) ||

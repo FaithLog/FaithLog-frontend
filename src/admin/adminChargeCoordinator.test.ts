@@ -13,6 +13,7 @@ import {
   invalidateAdminChargeRead,
   refreshAdminChargeSurfaces,
   runLatestAdminChargeRead,
+  selectAdminChargeStatusRequest,
 } from './adminChargeCoordinator';
 import {
   createAdminChargeMutationGate,
@@ -169,19 +170,32 @@ describe('admin charge production coordinator', () => {
   it('runs request → sheet confirm → optimistic update → refresh once and blocks a rapid second confirm', async () => {
     const gate = createAdminChargeMutationGate();
     const mutation = deferred<AdminChargeStatusChangeResponse>();
-    const events: string[] = ['button', 'sheet-open'];
+    const events: string[] = [];
+    const sheetTarget = selectAdminChargeStatusRequest({
+      actionIdle: true,
+      capabilities: {paidStatusEnabled: true},
+      charge: targetCharge,
+      mutationActive: false,
+      status: 'CANCELED',
+    });
     const mutate = vi.fn(() => mutation.promise);
     const refreshSummary = vi.fn(async () => ({kind: 'applied'} as const));
     const refreshDetail = vi.fn(async () => ({kind: 'applied'} as const));
     const refresh = () => refreshAdminChargeSurfaces(refreshSummary, refreshDetail);
+    expect(sheetTarget).toEqual({charge: targetCharge, status: 'CANCELED'});
+    if (!sheetTarget) {
+      throw new Error('Expected the production request boundary to open the sheet.');
+    }
+    events.push('sheet-open');
+
     const input = {
       gate,
       expected: {
         campusId: 1,
         userId: 7,
-        chargeItemId: 501,
-        paymentCategory: 'PENALTY' as const,
-        status: 'CANCELED' as const,
+        chargeItemId: sheetTarget.charge.id,
+        paymentCategory: sheetTarget.charge.paymentCategory,
+        status: sheetTarget.status,
       },
       mutate,
       normalizeError,
@@ -209,7 +223,6 @@ describe('admin charge production coordinator', () => {
     expect(refreshSummary).toHaveBeenCalledOnce();
     expect(refreshDetail).toHaveBeenCalledOnce();
     expect(events).toEqual([
-      'button',
       'sheet-open',
       'busy',
       'optimistic',
@@ -434,6 +447,38 @@ describe('admin charge production coordinator', () => {
       error: {status: 409},
       refresh: {kind: 'partial'},
     });
+  });
+
+  it('suppresses the 409 completion outcome when navigation supersedes its refresh', async () => {
+    const onConflict = vi.fn();
+    const outcome = await coordinateAdminChargeStatusMutation({
+      gate: createAdminChargeMutationGate(),
+      expected: {
+        campusId: 1,
+        userId: 7,
+        chargeItemId: 501,
+        paymentCategory: 'PENALTY',
+        status: 'CANCELED',
+      },
+      mutate: async () => {
+        throw {kind: 'conflict', status: 409, message: 'stale'} satisfies ApiError;
+      },
+      normalizeError,
+      canApplySuccess: () => true,
+      canHandleError: () => true,
+      onStart: vi.fn(),
+      onFinish: vi.fn(),
+      onAccepted: vi.fn(),
+      onConflict,
+      onSessionExpired: vi.fn(),
+      refresh: () => refreshAdminChargeSurfaces(
+        async () => ({kind: 'stale'}),
+        async () => ({kind: 'stale'}),
+      ),
+    });
+
+    expect(outcome).toEqual({kind: 'stale'});
+    expect(onConflict).toHaveBeenCalledOnce();
   });
 
   it('discards a late mutation success after campus invalidation', async () => {

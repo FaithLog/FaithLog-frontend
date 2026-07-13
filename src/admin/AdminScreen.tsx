@@ -130,6 +130,7 @@ import {
   invalidateAdminChargeRead,
   refreshAdminChargeSurfaces,
   runLatestAdminChargeRead,
+  selectAdminChargeStatusRequest,
 } from './adminChargeCoordinator';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
@@ -1983,18 +1984,20 @@ export function AdminScreen({
     status: AdminChargeStatusTarget,
   ) => {
     const capabilities = getAdminChargeContractCapabilities();
+    const target = selectAdminChargeStatusRequest({
+      actionIdle: actionState.status === 'idle',
+      capabilities,
+      charge,
+      mutationActive: chargeStatusMutationGateRef.current.activeOperationId !== null,
+      status,
+    });
 
-    if (
-      chargeStatusMutationGateRef.current.activeOperationId !== null ||
-      actionState.status !== 'idle' ||
-      charge.status === status ||
-      !getAdminChargeStatusActions(charge, capabilities).includes(status)
-    ) {
+    if (!target) {
       return;
     }
 
     setActionError(null);
-    setChargeStatusConfirm({charge, status});
+    setChargeStatusConfirm(target);
   };
 
   const confirmChargeStatusChange = async () => {
