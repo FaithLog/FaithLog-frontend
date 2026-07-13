@@ -22,6 +22,7 @@ import type {
   MealPollDetail,
   MealPollSummary,
   MealSettlement,
+  MealSettlementCharge,
 } from '../meal/mealTypes';
 
 type MockScenario =
@@ -236,20 +237,36 @@ function resolveMockData(
     return billing.summary;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/charges\/me$/.test(path)) {
+    const campusId = getCampusId(path);
+    const denied = authorizeCampusMember(mealActor, campusId);
+    if (denied) return denied;
     return getMockMemberChargeList(
       billing.charges,
       mealActor,
-      getCampusId(path),
+      campusId,
       route.searchParams,
+      billing.summary.userId,
     );
   }
   if (route.method === 'PATCH' && /^\/campuses\/\d+\/charges\/me\/\d+\/paid$/.test(path)) {
+    const campusId = getCampusId(path);
+    const denied = authorizeCampusMember(mealActor, campusId);
+    if (denied) return denied;
+    const chargeItemId = getPathNumberBeforeSuffix(path, 'paid');
     const mealPaid = markMockMealChargePaid(
       mealActor,
-      getCampusId(path),
-      getPathNumberBeforeSuffix(path, 'paid'),
+      campusId,
+      chargeItemId,
     );
-    return mealPaid ?? billing.paidCharge;
+    if (mealPaid) return mealPaid;
+    if (
+      mealActor?.userId === billing.summary.userId &&
+      campusId === billing.charges.campusId &&
+      billing.charges.items.some((charge) => charge.id === chargeItemId)
+    ) {
+      return billing.paidCharge;
+    }
+    return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/payment-accounts$/.test(path)) {
     return billing.paymentAccounts;
@@ -1416,32 +1433,32 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
   );
   if (!activeAccount) return mockBadRequest('MEAL_PAYMENT_ACCOUNT_INVALID', '본인의 활성 MEAL 계좌를 선택해 주세요.');
   let nextSettlement: MealSettlement;
+  let chargeMaterialization: ReturnType<typeof materializeMockMealCharges>;
   try {
-    nextSettlement = appendMockMealSettlement(
-      mockMealState.settlement,
+    chargeMaterialization = materializeMockMealCharges(
+      mockMealState.memberCharges,
+      mockMealState.nextChargeItemId,
       activeAccount,
       detail,
       results,
-      summary,
       chargedAt,
+    );
+    nextSettlement = appendMockMealSettlement(
+      mockMealState.settlement,
+      activeAccount,
+      chargeMaterialization.settlementCharges,
+      summary,
     );
   } catch {
     return mockBadRequest('MEAL_CHARGE_AMOUNT_OVERFLOW', '청구 금액이 처리 가능한 범위를 벗어났습니다.');
   }
-  const memberChargeUpdate = appendMockMealMemberCharges(
-    mockMealState.memberCharges,
-    mockMealState.nextChargeItemId,
-    activeAccount,
-    detail,
-    results,
-  );
   mockMealState.details[detailIndex] = chargedDetail;
   mockMealState.polls = mockMealState.polls.map((poll) =>
     poll.id === pollId ? {...poll, settlementStatus: 'CHARGED'} : poll,
   );
   mockMealState.settlement = nextSettlement;
-  mockMealState.memberCharges = memberChargeUpdate.memberCharges;
-  mockMealState.nextChargeItemId = memberChargeUpdate.nextChargeItemId;
+  mockMealState.memberCharges = chargeMaterialization.memberCharges;
+  mockMealState.nextChargeItemId = chargeMaterialization.nextChargeItemId;
   return result;
 }
 
@@ -1450,45 +1467,104 @@ type MealChargeResultSummary = Pick<
   'actualTotalAmount' | 'chargedMemberCount' | 'requestedTotalAmount' | 'roundingAdjustment'
 >;
 
-function appendMockMealMemberCharges(
+function materializeMockMealCharges(
   current: Record<number, ChargeItem[]>,
   nextChargeItemId: number,
   account: MealPaymentAccount,
   detail: MealPollDetail,
   groups: MealChargeGroupResult[],
+  chargedAt: string,
 ) {
   const memberCharges = Object.fromEntries(
     Object.entries(current).map(([userId, charges]) => [userId, [...charges]]),
   ) as Record<number, ChargeItem[]>;
+  const settlementCharges: MealSettlementCharge[] = [];
   let nextId = nextChargeItemId;
 
-  for (const response of Object.values(mockMealState.responses)) {
-    if (response.pollId !== detail.id) continue;
-    const group = groups.find((item) => response.optionIds.includes(item.optionId));
-    if (!group) continue;
+  for (const [groupIndex, group] of groups.entries()) {
     const option = detail.options.find((item) => item.optionId === group.optionId);
-    if (!option) continue;
-    const charge: ChargeItem = {
-      id: nextId++,
-      paymentCategory: 'MEAL',
-      title: detail.title,
-      reason: option.content,
-      amount: group.amountPerMember,
-      status: 'UNPAID',
-      dueDate: null,
-      paidAt: null,
-      account: {
-        paymentAccountId: account.id,
-        bankName: account.bankName,
-        accountNumber: account.accountNumber,
-        accountHolder: account.accountHolder,
-      },
-      source: {sourceType: 'POLL_RESPONSE', sourceId: response.responseId},
-    };
-    memberCharges[response.userId] = [...(memberCharges[response.userId] ?? []), charge];
+    if (!option) throw new Error('Unknown option');
+    const recordedResponses = Object.values(mockMealState.responses).filter(
+      (response) => response.pollId === detail.id && response.optionIds.includes(group.optionId),
+    );
+    if (recordedResponses.length > group.responseCount) throw new Error('Invalid response count');
+
+    for (const response of recordedResponses) {
+      const chargeId = claimNextMockChargeId(nextId);
+      nextId = chargeId + 1;
+      const memberName = getMockMealCampusMember(detail.campusId, response.userId)?.name
+        ?? `사용자 ${response.userId}`;
+      const charge: ChargeItem = {
+        id: chargeId,
+        paymentCategory: 'MEAL',
+        title: detail.title,
+        reason: option.content,
+        amount: group.amountPerMember,
+        status: 'UNPAID',
+        dueDate: null,
+        paidAt: null,
+        account: {
+          paymentAccountId: account.id,
+          bankName: account.bankName,
+          accountNumber: account.accountNumber,
+          accountHolder: account.accountHolder,
+        },
+        source: {sourceType: 'POLL_RESPONSE', sourceId: response.responseId},
+      };
+      memberCharges[response.userId] = [...(memberCharges[response.userId] ?? []), charge];
+      settlementCharges.push(toMockMealSettlementCharge(
+        chargeId,
+        detail,
+        option.content,
+        memberName,
+        group.amountPerMember,
+        chargedAt,
+      ));
+    }
+
+    const unrecordedCount = group.responseCount - recordedResponses.length;
+    for (let index = 0; index < unrecordedCount; index += 1) {
+      const chargeId = claimNextMockChargeId(nextId);
+      nextId = chargeId + 1;
+      settlementCharges.push(toMockMealSettlementCharge(
+        chargeId,
+        detail,
+        option.content,
+        `응답자 ${groupIndex + 1}-${index + 1}`,
+        group.amountPerMember,
+        chargedAt,
+      ));
+    }
   }
 
-  return {memberCharges, nextChargeItemId: nextId};
+  return {memberCharges, nextChargeItemId: nextId, settlementCharges};
+}
+
+function claimNextMockChargeId(value: number) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value === Number.MAX_SAFE_INTEGER) {
+    throw new Error('Unsafe mock charge id');
+  }
+  return value;
+}
+
+function toMockMealSettlementCharge(
+  chargeId: number,
+  detail: MealPollDetail,
+  optionContent: string,
+  memberName: string,
+  amount: number,
+  chargedAt: string,
+): MealSettlementCharge {
+  return {
+    chargeId,
+    pollId: detail.id,
+    pollTitle: detail.title,
+    optionContent,
+    memberName,
+    amount,
+    status: 'UNPAID',
+    chargedAt,
+  };
 }
 
 function summarizeMealChargeGroups(groups: MealChargeGroupResult[]): MealChargeResultSummary {
@@ -1506,28 +1582,9 @@ function summarizeMealChargeGroups(groups: MealChargeGroupResult[]): MealChargeR
 function appendMockMealSettlement(
   settlement: MealSettlement,
   account: MealPaymentAccount,
-  detail: MealPollDetail,
-  groups: MealChargeGroupResult[],
+  charges: MealSettlementCharge[],
   summary: MealChargeResultSummary,
-  chargedAt: string,
 ): MealSettlement {
-  const nextChargeId = Math.max(
-    4999,
-    ...settlement.accounts.flatMap((item) => item.charges.map((charge) => charge.chargeId)),
-  ) + 1;
-  let chargeOffset = 0;
-  const charges = groups.flatMap((group, groupIndex) =>
-    Array.from({length: group.responseCount}, (_, memberIndex) => ({
-      chargeId: nextChargeId + chargeOffset++,
-      pollId: detail.id,
-      pollTitle: detail.title,
-      optionContent: detail.options.find((option) => option.optionId === group.optionId)?.content ?? '밥 청구',
-      memberName: `응답자 ${groupIndex + 1}-${memberIndex + 1}`,
-      amount: group.amountPerMember,
-      status: 'UNPAID' as const,
-      chargedAt,
-    })),
-  );
   const existing = settlement.accounts.find((item) => item.account.id === account.id);
   const accountSettlement = existing
     ? {
@@ -1585,13 +1642,17 @@ function getMockMemberChargeList(
   actor: MockMealActor | null,
   campusId: number,
   searchParams: URLSearchParams,
+  fixtureOwnerUserId: number,
 ): ChargeList {
+  const fixtureItems = actor?.userId === fixtureOwnerUserId && campusId === fixture.campusId
+    ? fixture.items
+    : [];
   const mealCharges = actor?.campusIds.includes(campusId)
     ? mockMealState.memberCharges[actor.userId] ?? []
     : [];
   const requestedCategory = searchParams.get('paymentCategory');
   const requestedStatus = searchParams.get('status');
-  const allItems = [...fixture.items, ...mealCharges].filter((charge) =>
+  const allItems = [...fixtureItems, ...mealCharges].filter((charge) =>
     (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
     (requestedStatus === null || charge.status === requestedStatus),
   );
