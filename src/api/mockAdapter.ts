@@ -45,6 +45,14 @@ type MockMealActor = {
   userId: number;
 };
 
+type MockChargePeriod = {month: number; year: number};
+
+type MockLegacyBillingState = {
+  charges: ChargeList;
+  period: MockChargePeriod;
+  summary: ChargeSummary;
+};
+
 export const mealMockAccessTokens = {
   activeDuty: 'mock-access-token',
   otherDuty: 'mock-meal-duty-8-token',
@@ -230,18 +238,16 @@ function resolveMockData(
     if (denied) return denied;
     const period = parseMockChargeSummaryPeriod(route.searchParams);
     if (isMockErrorResult(period)) return period;
-    return getMockMemberChargeSummary(billing.summary, mealActor, campusId, period);
+    return getMockMemberChargeSummary(mealActor, campusId, period);
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/charges\/me$/.test(path)) {
     const campusId = getCampusId(path);
     const denied = authorizeCampusMember(mealActor, campusId);
     if (denied) return denied;
     return getMockMemberChargeList(
-      billing.charges,
       mealActor,
       campusId,
       route.searchParams,
-      billing.summary.userId,
     );
   }
   if (route.method === 'PATCH' && /^\/campuses\/\d+\/charges\/me\/\d+\/paid$/.test(path)) {
@@ -255,13 +261,6 @@ function resolveMockData(
       chargeItemId,
     );
     if (mealPaid) return mealPaid;
-    if (
-      mealActor?.userId === billing.summary.userId &&
-      campusId === billing.charges.campusId &&
-      billing.charges.items.some((charge) => charge.id === chargeItemId)
-    ) {
-      return billing.paidCharge;
-    }
     return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/payment-accounts$/.test(path)) {
@@ -950,6 +949,7 @@ type MockMealState = {
   accounts: MealPaymentAccount[];
   details: MealPollDetail[];
   duties: MealDutyAssignment[];
+  legacyBilling: MockLegacyBillingState;
   memberChargeIssuedAt: Record<number, string>;
   memberCharges: Record<string, ChargeItem[]>;
   nextChargeItemId: number;
@@ -1045,6 +1045,7 @@ function createInitialMockMealState(): MockMealState {
 
   return {
     accounts,
+    legacyBilling: createInitialMockLegacyBillingState(),
     memberChargeIssuedAt: {},
     memberCharges: {},
     nextChargeItemId: 10_000,
@@ -1058,6 +1059,30 @@ function createInitialMockMealState(): MockMealState {
       {assignmentId: 1304, campusId: 2, userId: 17, name: '다른 캠퍼스 담당자', email: 'campus2.meal@example.test', dutyType: 'MEAL', isActive: true, assignedAt: '2026-07-02T03:00:00.000Z'},
     ],
     settlement: {accounts: [], summary: emptySummary},
+  };
+}
+
+function createInitialMockLegacyBillingState(): MockLegacyBillingState {
+  const {charges, summary} = mockDomainFixtures.billing;
+  return {
+    charges: {
+      ...charges,
+      summary: {...charges.summary},
+      items: charges.items.map((charge) => ({
+        ...charge,
+        ...(charge.account === undefined
+          ? {}
+          : {account: charge.account === null ? null : {...charge.account}}),
+        ...(charge.source === undefined
+          ? {}
+          : {source: charge.source === null ? null : {...charge.source}}),
+      })),
+    },
+    period: {year: 2026, month: 6},
+    summary: {
+      ...summary,
+      monthlyByCategory: summary.monthlyByCategory.map((category) => ({...category})),
+    },
   };
 }
 
@@ -1536,21 +1561,21 @@ function getMockMealSettlement(campusId: number, userId: number): MealSettlement
 }
 
 function getMockMemberChargeList(
-  fixture: ChargeList,
   actor: MockMealActor | null,
   campusId: number,
   searchParams: URLSearchParams,
-  fixtureOwnerUserId: number,
 ): ChargeList {
-  const fixtureItems = actor?.userId === fixtureOwnerUserId && campusId === fixture.campusId
-    ? fixture.items
+  const legacyBilling = mockMealState.legacyBilling;
+  const legacyItems = actor?.userId === legacyBilling.summary.userId &&
+    campusId === legacyBilling.charges.campusId
+    ? legacyBilling.charges.items
     : [];
   const mealCharges = actor?.campusIds.includes(campusId)
     ? mockMealState.memberCharges[mockMealMemberChargeKey(campusId, actor.userId)] ?? []
     : [];
   const requestedCategory = searchParams.get('paymentCategory');
   const requestedStatus = searchParams.get('status');
-  const allItems = [...fixtureItems, ...mealCharges].filter((charge) =>
+  const allItems = [...legacyItems, ...mealCharges].filter((charge) =>
     (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
     (requestedStatus === null || charge.status === requestedStatus),
   );
@@ -1566,7 +1591,7 @@ function getMockMemberChargeList(
   const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
   const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
   const start = page * size;
-  const campusIdentity = getMockChargeCampusIdentity(fixture, campusId);
+  const campusIdentity = getMockChargeCampusIdentity(legacyBilling.charges, campusId);
 
   return {
     ...campusIdentity,
@@ -1576,13 +1601,15 @@ function getMockMemberChargeList(
 }
 
 function getMockMemberChargeSummary(
-  fixture: ChargeSummary,
   actor: MockMealActor | null,
   campusId: number,
-  period: {month: number; year: number},
+  period: MockChargePeriod,
 ): ChargeSummary {
   if (!actor) throw new Error('Authorized mock member required');
-  const ownsFixture = actor.userId === fixture.userId && campusId === fixture.campusId;
+  const legacyBilling = mockMealState.legacyBilling;
+  const ownsLegacy = actor.userId === legacyBilling.summary.userId &&
+    campusId === legacyBilling.summary.campusId;
+  const includesLegacyMonth = ownsLegacy && isSameMockChargePeriod(period, legacyBilling.period);
   const allMemberCharges = mockMealState.memberCharges[
     mockMealMemberChargeKey(campusId, actor.userId)
   ] ?? [];
@@ -1592,8 +1619,8 @@ function getMockMemberChargeSummary(
   ));
   const monthlyByCategory = new Map<PaymentCategory, ChargeSummary['monthlyByCategory'][number]>();
 
-  if (ownsFixture) {
-    for (const category of fixture.monthlyByCategory) {
+  if (includesLegacyMonth) {
+    for (const category of legacyBilling.summary.monthlyByCategory) {
       monthlyByCategory.set(category.paymentCategory, {...category});
     }
   }
@@ -1621,20 +1648,20 @@ function getMockMemberChargeSummary(
   }
 
   const member = getMockMealCampusMember(campusId, actor.userId);
-  const basePaidAmount = ownsFixture ? fixture.monthlyPaidAmount : 0;
-  const baseUnpaidAmount = ownsFixture ? fixture.monthlyUnpaidAmount : 0;
-  const baseTotalAmount = ownsFixture ? fixture.monthlyTotalChargeAmount : 0;
+  const basePaidAmount = includesLegacyMonth ? legacyBilling.summary.monthlyPaidAmount : 0;
+  const baseUnpaidAmount = includesLegacyMonth ? legacyBilling.summary.monthlyUnpaidAmount : 0;
+  const baseTotalAmount = includesLegacyMonth ? legacyBilling.summary.monthlyTotalChargeAmount : 0;
   const dynamicTotalPaidAmount = allMemberCharges.reduce(
     (total, charge) => safeMockAdd(total, charge.status === 'PAID' ? charge.amount : 0),
     0,
   );
-  const campusIdentity = getMockChargeCampusIdentity(fixture, campusId);
+  const campusIdentity = getMockChargeCampusIdentity(legacyBilling.charges, campusId);
   return {
     ...campusIdentity,
     userId: actor.userId,
     name: member?.name ?? `사용자 ${actor.userId}`,
     totalPaidAmount: safeMockAdd(
-      ownsFixture ? fixture.totalPaidAmount : 0,
+      ownsLegacy ? legacyBilling.summary.totalPaidAmount : 0,
       dynamicTotalPaidAmount,
     ),
     monthlyPaidAmount: safeMockAdd(basePaidAmount, dynamicPaidAmount),
@@ -1658,7 +1685,7 @@ function getMockChargeCampusIdentity(
 
 function parseMockChargeSummaryPeriod(
   searchParams: URLSearchParams,
-): {month: number; year: number} | MockErrorResult {
+): MockChargePeriod | MockErrorResult {
   const year = Number(searchParams.get('year'));
   const month = Number(searchParams.get('month'));
   if (
@@ -1676,7 +1703,7 @@ function parseMockChargeSummaryPeriod(
 
 function isMockChargeInPeriod(
   chargedAt: string | undefined,
-  period: {month: number; year: number},
+  period: MockChargePeriod,
 ) {
   if (!chargedAt) return false;
   const date = new Date(chargedAt);
@@ -1685,6 +1712,10 @@ function isMockChargeInPeriod(
     date.getUTCFullYear() === period.year &&
     date.getUTCMonth() + 1 === period.month
   );
+}
+
+function isSameMockChargePeriod(left: MockChargePeriod, right: MockChargePeriod) {
+  return left.year === right.year && left.month === right.month;
 }
 
 function summarizeMockMemberCharges(items: ChargeItem[]) {
@@ -1722,7 +1753,7 @@ function markMockMealChargePaid(
   const charges = mockMealState.memberCharges[memberChargeKey] ?? [];
   const chargeIndex = charges.findIndex((charge) => charge.id === chargeItemId);
   const charge = charges[chargeIndex];
-  if (!charge) return null;
+  if (!charge) return markMockLegacyChargePaid(actor, campusId, chargeItemId);
   if (charge.status !== 'UNPAID') {
     return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
   }
@@ -1742,6 +1773,77 @@ function markMockMealChargePaid(
           : settlementCharge,
       ),
     })),
+  };
+
+  return {
+    id: paidCharge.id,
+    campusId,
+    userId: actor.userId,
+    paymentCategory: paidCharge.paymentCategory,
+    title: paidCharge.title,
+    reason: paidCharge.reason,
+    amount: paidCharge.amount,
+    status: paidCharge.status,
+    paidAt,
+  };
+}
+
+function markMockLegacyChargePaid(
+  actor: MockMealActor,
+  campusId: number,
+  chargeItemId: number,
+): MarkChargePaidResponse | MockErrorResult | null {
+  const legacyBilling = mockMealState.legacyBilling;
+  if (
+    actor.userId !== legacyBilling.summary.userId ||
+    campusId !== legacyBilling.charges.campusId
+  ) {
+    return null;
+  }
+  const chargeIndex = legacyBilling.charges.items.findIndex((charge) => charge.id === chargeItemId);
+  const charge = legacyBilling.charges.items[chargeIndex];
+  if (!charge) return null;
+  if (charge.status !== 'UNPAID') {
+    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
+  }
+  const categoryIndex = legacyBilling.summary.monthlyByCategory.findIndex(
+    (category) => category.paymentCategory === charge.paymentCategory,
+  );
+  const category = legacyBilling.summary.monthlyByCategory[categoryIndex];
+  if (
+    !category ||
+    category.unpaidAmount < charge.amount ||
+    legacyBilling.summary.monthlyUnpaidAmount < charge.amount
+  ) {
+    return mockBadRequest('MOCK_CHARGE_SUMMARY_INVALID', '청구 요약 상태가 올바르지 않습니다.');
+  }
+
+  const paidAt = new Date().toISOString();
+  const paidCharge: ChargeItem = {...charge, status: 'PAID', paidAt};
+  const nextItems = legacyBilling.charges.items.map((item, index) =>
+    index === chargeIndex ? paidCharge : item,
+  );
+  const nextCategory = {
+    ...category,
+    paidAmount: safeMockAdd(category.paidAmount, charge.amount),
+    unpaidAmount: category.unpaidAmount - charge.amount,
+  };
+  mockMealState.legacyBilling = {
+    ...legacyBilling,
+    charges: {
+      ...legacyBilling.charges,
+      items: nextItems,
+      summary: summarizeMockMemberCharges(nextItems),
+    },
+    summary: {
+      ...legacyBilling.summary,
+      totalPaidAmount: safeMockAdd(legacyBilling.summary.totalPaidAmount, charge.amount),
+      monthlyPaidAmount: safeMockAdd(legacyBilling.summary.monthlyPaidAmount, charge.amount),
+      monthlyUnpaidAmount: legacyBilling.summary.monthlyUnpaidAmount - charge.amount,
+      monthlyByCategory: legacyBilling.summary.monthlyByCategory.map((item, index) =>
+        index === categoryIndex ? nextCategory : item,
+      ),
+    },
   };
 
   return {
