@@ -447,7 +447,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         }
         const message =
           apiError.code === 'API_CONTRACT_PENDING'
-            ? 'REST Docs 계약 확정 전에는 Excel을 다운로드할 수 없습니다.'
+            ? '현재 Excel 다운로드를 사용할 수 없습니다.'
             : 'Excel 파일을 저장하거나 공유하지 못했습니다.';
         setFeedback({message, tone: 'error'});
         AccessibilityInfo.announceForAccessibility(message);
@@ -591,13 +591,13 @@ function renderWeeklyState({
           actionLabel="다시 시도"
           message={
             state.error.code === 'API_CONTRACT_PENDING'
-              ? '백엔드 REST Docs 계약이 아직 확정되지 않아 production 조회를 차단했습니다.'
+              ? '현재 이 기능을 사용할 수 없습니다. 잠시 후 다시 확인해 주세요.'
               : '잠시 후 다시 시도해 주세요.'
           }
           onActionPress={onRetry}
           title={
             state.error.code === 'API_CONTRACT_PENDING'
-              ? 'API 계약 확인 중입니다'
+              ? '기능 준비 중입니다'
               : '현황을 불러오지 못했습니다'
           }
         />

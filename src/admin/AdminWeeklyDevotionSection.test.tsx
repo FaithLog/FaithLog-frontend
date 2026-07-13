@@ -41,6 +41,7 @@ vi.mock('../api/tokenStorage', () => ({
 import {AdminWeeklyDevotionSection} from './AdminWeeklyDevotionSection';
 import {FaithLogApiError} from '../api/apiError';
 import {StaleAuthSessionReadError} from '../api/tokenStorage';
+import {AccessibilityInfo} from 'react-native';
 import type {
   AdminWeeklyDevotion,
   AdminWeeklyDevotionAdapter,
@@ -74,7 +75,7 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
 
   it('single-flights download, file write, and share across rapid taps', async () => {
     const adapter = createAdapter();
-    const shareExport = vi.fn(async () => 'file:///weekly.xlsx');
+    const shareExport = vi.fn(async () => undefined);
     let renderer!: ReactTestRenderer;
 
     await act(async () => {
@@ -105,11 +106,84 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
     expect(shareExport).toHaveBeenCalledOnce();
   });
 
+  it('releases the export gate after a request timeout so retry can succeed', async () => {
+    const adapter = createAdapter();
+    adapter.exportWeek
+      .mockRejectedValueOnce(new FaithLogApiError({
+        code: 'REQUEST_TIMEOUT',
+        kind: 'offline',
+        message: 'timeout',
+      }))
+      .mockResolvedValueOnce({
+        bytes: new Uint8Array([80, 75]),
+        fileName: 'weekly.xlsx',
+      });
+    const shareExport = vi.fn(async () => undefined);
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = track(create(
+        <AdminWeeklyDevotionSection
+          campusId={1}
+          dependencies={{
+            adapter,
+            getNow: () => new Date(2026, 6, 13, 9),
+            resolveRequest: async (weekStartDate) => ({...REQUEST, weekStartDate}),
+            shareExport,
+          }}
+          setAuthState={vi.fn()}
+        />,
+      ));
+    });
+
+    const findButton = () => renderer.root.findByProps({
+      accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+    });
+    await act(async () => {
+      await findButton().props.onPress();
+    });
+    expect(findButton().props.disabled).toBe(false);
+    await act(async () => {
+      await findButton().props.onPress();
+    });
+
+    expect(adapter.exportWeek).toHaveBeenCalledTimes(2);
+    expect(shareExport).toHaveBeenCalledOnce();
+  });
+
+  it('never renders or announces internal contract terminology', async () => {
+    const adapter = createAdapter();
+    const pendingError = new FaithLogApiError({
+      code: 'API_CONTRACT_PENDING',
+      kind: 'error',
+      message: 'internal contract detail',
+    });
+    adapter.fetchWeek.mockRejectedValue(pendingError);
+    adapter.exportWeek.mockRejectedValue(pendingError);
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = track(createSection(adapter));
+    });
+    await act(async () => {
+      await renderer.root.findByProps({
+        accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+      }).props.onPress();
+    });
+
+    const internalTerms = /REST Docs|API|production|endpoint|엔드포인트/i;
+    expect(readText(renderer)).not.toMatch(internalTerms);
+    const announcements = vi.mocked(AccessibilityInfo.announceForAccessibility).mock.calls
+      .flatMap((call) => call)
+      .join(' ');
+    expect(announcements).not.toMatch(internalTerms);
+  });
+
   it('drops an export result when the campus changes before sharing', async () => {
     const pendingExport = deferred<Awaited<ReturnType<AdminWeeklyDevotionAdapter['exportWeek']>>>();
     const adapter = createAdapter();
     adapter.exportWeek.mockReturnValueOnce(pendingExport.promise);
-    const shareExport = vi.fn(async () => 'file:///weekly.xlsx');
+    const shareExport = vi.fn(async () => undefined);
     const dependencies = {
       adapter,
       getNow: () => new Date(2026, 6, 13, 9),
@@ -165,7 +239,7 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
         bytes: new Uint8Array([80, 75]),
         fileName: 'campus-2-weekly.xlsx',
       });
-    const shareExport = vi.fn(async () => 'file:///weekly.xlsx');
+    const shareExport = vi.fn(async () => undefined);
     let activeCampusId = 1;
     const dependencies = {
       adapter,
@@ -231,7 +305,7 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
         bytes: new Uint8Array([80, 75]),
         fileName: 'campus-2-weekly.xlsx',
       });
-    const shareExport = vi.fn(async () => 'file:///weekly.xlsx');
+    const shareExport = vi.fn(async () => undefined);
     let activeCampusId = 1;
     const dependencies = {
       adapter,

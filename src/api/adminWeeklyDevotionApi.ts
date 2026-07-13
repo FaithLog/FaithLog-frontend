@@ -1,5 +1,8 @@
 import {FaithLogApiError} from './apiError';
-import {authenticatedTransportRequest} from './client';
+import {
+  authenticatedTransportRequest,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+} from './client';
 import type {ChargeStatus} from './types';
 import type {AuthSessionGeneration} from './tokenStorage';
 
@@ -71,6 +74,7 @@ type TransportOptions = {
   apiBaseUrl: string;
   contractConfirmed: boolean;
   fetchImpl?: FetchImplementation;
+  requestTimeoutMs?: number;
 };
 
 type ProductionAdapterOptions = {
@@ -189,6 +193,7 @@ export function createProvisionalAdminWeeklyDevotionTransport({
   apiBaseUrl,
   contractConfirmed,
   fetchImpl = (input, init) => fetch(input, init),
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 }: TransportOptions): AdminWeeklyDevotionAdapter {
   const assertConfirmed = () => {
     if (!contractConfirmed) {
@@ -201,58 +206,101 @@ export function createProvisionalAdminWeeklyDevotionTransport({
       assertConfirmed();
       return authenticateRequest(request, async (accessToken) => {
         const path = buildProvisionalPath(request, 'export');
-        const response = await fetchImpl(`${normalizeBaseUrl(apiBaseUrl)}${path}`, {
-          headers: {
-            Accept: CONTENT_TYPE,
-            Authorization: `Bearer ${accessToken}`,
+        return requestWithTimeout(
+          fetchImpl,
+          `${normalizeBaseUrl(apiBaseUrl)}${path}`,
+          {
+            headers: {
+              Accept: CONTENT_TYPE,
+              Authorization: `Bearer ${accessToken}`,
+            },
+            method: 'GET',
           },
-          method: 'GET',
-        });
-        assertResponseStatus(response, request.authGeneration);
+          requestTimeoutMs,
+          async (response) => {
+            assertResponseStatus(response, request.authGeneration);
 
-        if (
-          response.headers.get('Content-Type')?.split(';')[0]?.trim() !==
-          CONTENT_TYPE
-        ) {
-          throw invalidServerResponse(response.status);
-        }
+            if (
+              response.headers.get('Content-Type')?.split(';')[0]?.trim() !==
+              CONTENT_TYPE
+            ) {
+              throw invalidServerResponse(response.status);
+            }
 
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.length === 0) {
-          throw invalidServerResponse(response.status);
-        }
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            if (bytes.length === 0) {
+              throw invalidServerResponse(response.status);
+            }
 
-        return {
-          bytes,
-          fileName:
-            getAttachmentFileName(response.headers.get('Content-Disposition')) ??
-            `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
-        };
+            return {
+              bytes,
+              fileName:
+                getAttachmentFileName(response.headers.get('Content-Disposition')) ??
+                `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
+            };
+          },
+        );
       });
     },
     fetchWeek: async (request) => {
       assertConfirmed();
       return authenticateRequest(request, async (accessToken) => {
         const path = buildProvisionalPath(request, 'members');
-        const response = await fetchImpl(`${normalizeBaseUrl(apiBaseUrl)}${path}`, {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${accessToken}`,
+        return requestWithTimeout(
+          fetchImpl,
+          `${normalizeBaseUrl(apiBaseUrl)}${path}`,
+          {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            method: 'GET',
           },
-          method: 'GET',
-        });
-        assertResponseStatus(response, request.authGeneration);
-        let payload: unknown;
-        try {
-          payload = await response.json();
-        } catch {
-          throw invalidServerResponse(response.status);
-        }
-        const data = unwrapPossibleEnvelope(payload);
-        return parseRequestedWeek(data, request.weekStartDate);
+          requestTimeoutMs,
+          async (response) => {
+            assertResponseStatus(response, request.authGeneration);
+            let payload: unknown;
+            try {
+              payload = await response.json();
+            } catch {
+              throw invalidServerResponse(response.status);
+            }
+            const data = unwrapPossibleEnvelope(payload);
+            return parseRequestedWeek(data, request.weekStartDate);
+          },
+        );
       });
     },
   };
+}
+
+async function requestWithTimeout<T>(
+  fetchImpl: FetchImplementation,
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+  parseResponse: (response: Response) => Promise<T>,
+) {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const operation = (async () => {
+    const response = await fetchImpl(input, {...init, signal: controller.signal});
+    return parseResponse(response);
+  })();
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(requestTimeoutError());
+    }, Math.max(1, timeoutMs));
+  });
+
+  try {
+    return await Promise.race([operation, timedOut]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function parseSubmittedMember(value: unknown): AdminWeeklyDevotionSubmittedMember {
@@ -560,6 +608,14 @@ function invalidServerResponse(status?: number) {
     code: 'INVALID_SERVER_RESPONSE',
     message: '서버 응답 형식이 올바르지 않습니다.',
     ...(status === undefined ? {} : {status}),
+  });
+}
+
+function requestTimeoutError() {
+  return new FaithLogApiError({
+    kind: 'offline',
+    code: 'REQUEST_TIMEOUT',
+    message: '요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.',
   });
 }
 

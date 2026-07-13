@@ -5,6 +5,7 @@ import type {
   AdminWeeklyDevotionAdapter,
   AdminWeeklyDevotionRequest,
 } from '../api/adminWeeklyDevotionApi';
+import {FaithLogApiError} from '../api/apiError';
 import {
   AdminWeeklyDevotionCoordinator,
   formatAdminWeekRange,
@@ -62,6 +63,26 @@ describe('AdminWeeklyDevotionCoordinator', () => {
     await coordinator.load(createRequest(WEEK));
 
     expect(adapter.fetchWeek).toHaveBeenCalledTimes(3);
+  });
+
+  it('removes a timed-out in-flight entry so the same week can retry', async () => {
+    const adapter = createAdapter();
+    vi.mocked(adapter.fetchWeek)
+      .mockRejectedValueOnce(new FaithLogApiError({
+        code: 'REQUEST_TIMEOUT',
+        kind: 'offline',
+        message: 'timeout',
+      }))
+      .mockResolvedValueOnce(createWeek(WEEK));
+    const coordinator = new AdminWeeklyDevotionCoordinator(adapter);
+
+    await expect(coordinator.load(createRequest(WEEK))).rejects.toMatchObject({
+      detail: {code: 'REQUEST_TIMEOUT', kind: 'offline'},
+    });
+    await expect(coordinator.load(createRequest(WEEK))).resolves.toMatchObject({
+      weekStartDate: WEEK,
+    });
+    expect(adapter.fetchWeek).toHaveBeenCalledTimes(2);
   });
 
   it('marks a late response stale so it cannot replace the latest selection', async () => {

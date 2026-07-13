@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('./client', () => ({
+  DEFAULT_REQUEST_TIMEOUT_MS: 15_000,
   authenticatedTransportRequest: vi.fn(
     async <T,>({
       accessToken,
@@ -212,15 +213,134 @@ describe('admin weekly devotion adapters', () => {
   it('fails closed before calling a provisional production endpoint', async () => {
     const fetchImpl = vi.fn(async (_input: string, _init?: RequestInit) => new Response());
     const adapter = createProductionAdminWeeklyDevotionAdapter({fetchImpl});
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
 
-    expect(ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS).toBe('pending');
-    await expect(adapter.fetchWeek(REQUEST)).rejects.toSatisfy(isContractPending);
-    await expect(adapter.exportWeek(REQUEST)).rejects.toSatisfy(isContractPending);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    try {
+      expect(ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS).toBe('pending');
+      await expect(adapter.fetchWeek(REQUEST)).rejects.toSatisfy(isContractPending);
+      await expect(adapter.exportWeek(REQUEST)).rejects.toSatisfy(isContractPending);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });
 
 describe('confirmed provisional binary transport', () => {
+  it.each(['members', 'export'] as const)(
+    'times out a pending %s request as retryable offline state',
+    async (operation) => {
+      vi.useFakeTimers();
+      try {
+        const fetchImpl = vi.fn(
+          async (_input: string, _init?: RequestInit) =>
+            new Promise<Response>(() => undefined),
+        );
+        const transport = createProvisionalAdminWeeklyDevotionTransport({
+          apiBaseUrl: 'https://api.example.test',
+          contractConfirmed: true,
+          fetchImpl,
+          requestTimeoutMs: 1_000,
+        });
+        const result = operation === 'members'
+          ? transport.fetchWeek(REQUEST)
+          : transport.exportWeek(REQUEST);
+        const rejection = expect(result).rejects.toSatisfy((error: unknown) => {
+          expect(error).toBeInstanceOf(FaithLogApiError);
+          expect((error as FaithLogApiError).detail).toMatchObject({
+            code: 'REQUEST_TIMEOUT',
+            kind: 'offline',
+          });
+          return true;
+        });
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await rejection;
+        expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+        expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+    1_000,
+  );
+
+  it('applies a fresh timeout to the authenticated retry attempt', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(authenticatedTransportRequest).mockImplementationOnce(
+        async <T,>({execute}: {execute: (accessToken: string) => Promise<T>}) => {
+          await expect(execute('expired-token')).rejects.toBeInstanceOf(FaithLogApiError);
+          return execute('refreshed-token');
+        },
+      );
+      const fetchImpl = vi.fn(async (_input: string, _init?: RequestInit) => {
+        if (fetchImpl.mock.calls.length === 1) {
+          return new Response(null, {status: 401});
+        }
+        return new Promise<Response>(() => undefined);
+      });
+      const transport = createProvisionalAdminWeeklyDevotionTransport({
+        apiBaseUrl: 'https://api.example.test',
+        contractConfirmed: true,
+        fetchImpl,
+        requestTimeoutMs: 1_000,
+      });
+      const result = transport.exportWeek(REQUEST);
+      const rejection = expect(result).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(FaithLogApiError);
+        expect((error as FaithLogApiError).detail).toMatchObject({
+          code: 'REQUEST_TIMEOUT',
+          kind: 'offline',
+        });
+        return true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await rejection;
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(fetchImpl.mock.calls[1]?.[1]?.headers).toMatchObject({
+        Authorization: 'Bearer refreshed-token',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 1_000);
+
+  it('keeps the timeout active while the XLSX response body is still pending', async () => {
+    vi.useFakeTimers();
+    try {
+      const response = new Response(null, {
+        headers: {'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},
+        status: 200,
+      });
+      vi.spyOn(response, 'arrayBuffer').mockImplementation(
+        async () => new Promise<ArrayBuffer>(() => undefined),
+      );
+      const transport = createProvisionalAdminWeeklyDevotionTransport({
+        apiBaseUrl: 'https://api.example.test',
+        contractConfirmed: true,
+        fetchImpl: vi.fn(async () => response),
+        requestTimeoutMs: 1_000,
+      });
+      const result = transport.exportWeek(REQUEST);
+      const rejection = expect(result).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(FaithLogApiError);
+        expect((error as FaithLogApiError).detail).toMatchObject({
+          code: 'REQUEST_TIMEOUT',
+          kind: 'offline',
+        });
+        return true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 1_000);
+
   it('uses the exact export URL and Authorization while returning raw bytes', async () => {
     const bytes = new Uint8Array([80, 75, 3, 4]);
     const fetchImpl = vi.fn(async (_input: string, _init?: RequestInit) =>

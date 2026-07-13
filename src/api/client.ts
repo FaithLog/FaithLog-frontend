@@ -191,7 +191,7 @@ type AuthRefreshFlight = {
   refreshToken: string;
 };
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const LOGOUT_REQUEST_TIMEOUT_MS = 5_000;
 const SUPPORTED_APP_ENVIRONMENTS = new Set(['local', 'development', 'preview', 'production']);
 const MOCK_ALLOWED_APP_ENVIRONMENTS = new Set(['local', 'development']);
