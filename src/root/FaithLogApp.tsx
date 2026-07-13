@@ -124,6 +124,8 @@ import {getShellScrollOwner} from '../navigation/shellScrollOwnership';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
+import {MealDutyScreen} from '../meal/MealDutyScreen';
+import {mealApi} from '../meal/mealApi';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -1788,7 +1790,7 @@ function AuthenticatedShell({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<
-    'accountDeletion' | 'coffee' | 'main' | 'notifications'
+    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications'
   >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
@@ -2327,6 +2329,7 @@ function AuthenticatedShell({
             onOpenAdminMode={openAdminMode}
             onOpenAccountDeletion={() => setProfileView('accountDeletion')}
             onOpenCoffeeDuty={() => setProfileView('coffee')}
+            onOpenMealDuty={() => setProfileView('meal')}
             onOpenNotifications={() => setProfileView('notifications')}
             profileView={profileView}
             setAuthState={setAuthState}
@@ -3690,6 +3693,7 @@ function ProfileScreen({
   onOpenAccountDeletion,
   onOpenAdminMode,
   onOpenCoffeeDuty,
+  onOpenMealDuty,
   onOpenNotifications,
   profileView,
   setAuthState,
@@ -3704,8 +3708,9 @@ function ProfileScreen({
   onOpenAccountDeletion: () => void;
   onOpenAdminMode: () => void;
   onOpenCoffeeDuty: () => void;
+  onOpenMealDuty: () => void;
   onOpenNotifications: () => void;
-  profileView: 'accountDeletion' | 'coffee' | 'main' | 'notifications';
+  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications';
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -3749,6 +3754,16 @@ function ProfileScreen({
         onBack={onBackToProfile}
         onOpenAdminMode={onOpenAdminMode}
         onOpenNotifications={onOpenNotifications}
+        setAuthState={setAuthState}
+        state={state}
+      />
+    );
+  }
+
+  if (profileView === 'meal') {
+    return (
+      <MealDutyScreen
+        onBack={onBackToProfile}
         setAuthState={setAuthState}
         state={state}
       />
@@ -3816,6 +3831,11 @@ function ProfileScreen({
       <View style={styles.profileRowList}>
         <CoffeeDutyProfileRow
           onOpen={onOpenCoffeeDuty}
+          setAuthState={setAuthState}
+          state={state}
+        />
+        <MealDutyProfileRow
+          onOpen={onOpenMealDuty}
           setAuthState={setAuthState}
           state={state}
         />
@@ -4170,6 +4190,62 @@ function CoffeeDutyProfileRow({
       onPress={onOpen}
       subtitle="커피 주문 투표 생성과 커피 정산 확인"
       title="커피 정산 관리"
+    />
+  );
+}
+
+function MealDutyProfileRow({
+  onOpen,
+  setAuthState,
+  state,
+}: {
+  onOpen: () => void;
+  setAuthState: SetAuthState;
+  state: Extract<AuthGateState, {status: 'authenticated'}>;
+}) {
+  const [canManageMeal, setCanManageMeal] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadMealDuty = async () => {
+      try {
+        const accessToken = await resolveCurrentAccessToken(() => {
+          setAuthState({
+            status: 'sessionExpired',
+            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          });
+        });
+        if (!accessToken) return;
+
+        const duty = await mealApi.getMyDuty(accessToken, state.selectedCampus.campusId);
+        const canManage =
+          duty.dutyType === 'MEAL' && duty.isActive && duty.userId === state.user.id;
+
+        if (mounted) setCanManageMeal(canManage);
+      } catch (error) {
+        if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: error.detail.message});
+        }
+        if (mounted) setCanManageMeal(false);
+      }
+    };
+
+    void loadMealDuty();
+    return () => {
+      mounted = false;
+    };
+  }, [setAuthState, state.selectedCampus.campusId, state.user.id]);
+
+  if (!canManageMeal) return null;
+
+  return (
+    <ProfileActionRow
+      actionLabel="관리"
+      icon="coins"
+      onPress={onOpen}
+      subtitle="밥 투표, 본인 계좌와 일괄 청구 관리"
+      title="밥 정산 관리"
     />
   );
 }
