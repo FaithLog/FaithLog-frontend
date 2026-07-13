@@ -190,13 +190,19 @@ describe('MEAL mock adapter flow', () => {
       optionIds: [secondOptionId],
     });
     await mealApi.closePoll(mealMockAccessTokens.activeDuty, 1, poll.id);
-    await mealApi.createCharges(mealMockAccessTokens.activeDuty, 1, poll.id, {
-      paymentAccountId: 10,
-      groups: [
-        {optionId: firstOptionId, calculationType: 'PER_MEMBER', enteredAmount: 7000},
-        {optionId: secondOptionId, calculationType: 'PER_MEMBER', enteredAmount: 8000},
-      ],
-    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-14T03:00:00.000Z'));
+    try {
+      await mealApi.createCharges(mealMockAccessTokens.activeDuty, 1, poll.id, {
+        paymentAccountId: 10,
+        groups: [
+          {optionId: firstOptionId, calculationType: 'PER_MEMBER', enteredAmount: 7000},
+          {optionId: secondOptionId, calculationType: 'PER_MEMBER', enteredAmount: 8000},
+        ],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
 
     const beforePaid = await fetchMyCharges(mealMockAccessTokens.otherDuty, 1, {
       paymentCategory: 'MEAL',
@@ -216,6 +222,10 @@ describe('MEAL mock adapter flow', () => {
       1,
       {year: 2026, month: 7},
     );
+    const [previousMonthSummary, nextMonthSummary] = await Promise.all([
+      fetchChargeSummary(mealMockAccessTokens.otherDuty, 1, {year: 2026, month: 6}),
+      fetchChargeSummary(mealMockAccessTokens.otherDuty, 1, {year: 2026, month: 8}),
+    ]);
 
     expect(beforePaid.items).toHaveLength(1);
     expect(charge).toMatchObject({
@@ -244,6 +254,20 @@ describe('MEAL mock adapter flow', () => {
         {paymentCategory: 'MEAL', paidAmount: 0, unpaidAmount: 8000, totalAmount: 8000},
       ],
     });
+    expect(previousMonthSummary).toMatchObject({
+      userId: 8,
+      monthlyPaidAmount: 0,
+      monthlyUnpaidAmount: 0,
+      monthlyTotalChargeAmount: 0,
+      monthlyByCategory: [],
+    });
+    expect(nextMonthSummary).toMatchObject({
+      userId: 8,
+      monthlyPaidAmount: 0,
+      monthlyUnpaidAmount: 0,
+      monthlyTotalChargeAmount: 0,
+      monthlyByCategory: [],
+    });
 
     await expect(
       markMyChargePaid(mealMockAccessTokens.activeDuty, 1, charge?.id ?? 0),
@@ -268,6 +292,11 @@ describe('MEAL mock adapter flow', () => {
       1,
       {year: 2026, month: 7},
     );
+    const previousMonthAfterPaid = await fetchChargeSummary(
+      mealMockAccessTokens.otherDuty,
+      1,
+      {year: 2026, month: 6},
+    );
 
     expect(paid).toMatchObject({
       id: charge?.id,
@@ -289,6 +318,14 @@ describe('MEAL mock adapter flow', () => {
         {paymentCategory: 'MEAL', paidAmount: 8000, unpaidAmount: 0, totalAmount: 8000},
       ],
     });
+    expect(previousMonthAfterPaid).toMatchObject({
+      userId: 8,
+      totalPaidAmount: 8000,
+      monthlyPaidAmount: 0,
+      monthlyUnpaidAmount: 0,
+      monthlyTotalChargeAmount: 0,
+      monthlyByCategory: [],
+    });
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -300,11 +337,41 @@ describe('MEAL mock adapter flow', () => {
       1,
       {year: 2026, month: 7},
     );
+    const otherCampusCharges = await fetchMyCharges(
+      mealMockAccessTokens.otherCampusDuty,
+      2,
+      {},
+    );
+    const otherCampusSummary = await fetchChargeSummary(
+      mealMockAccessTokens.otherCampusDuty,
+      2,
+      {year: 2026, month: 7},
+    );
 
+    expect(ownerCharges).toMatchObject({campusId: 1, campusName: '샘플 캠퍼스', region: '서울'});
     expect(ownerCharges.items).toContainEqual(expect.objectContaining({id: 501}));
     expect(otherCharges.items).not.toContainEqual(expect.objectContaining({id: 501}));
     expect(otherSummary).toMatchObject({
       userId: 8,
+      totalPaidAmount: 0,
+      monthlyPaidAmount: 0,
+      monthlyUnpaidAmount: 0,
+      monthlyTotalChargeAmount: 0,
+      monthlyByCategory: [],
+    });
+    expect(otherCampusCharges).toMatchObject({
+      campusId: 2,
+      campusName: '캠퍼스 2',
+      region: '지역 정보 없음',
+      summary: {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+      items: [],
+    });
+    expect(otherCampusSummary).toMatchObject({
+      campusId: 2,
+      campusName: '캠퍼스 2',
+      region: '지역 정보 없음',
+      userId: 17,
+      name: '다른 캠퍼스 담당자',
       totalPaidAmount: 0,
       monthlyPaidAmount: 0,
       monthlyUnpaidAmount: 0,
@@ -319,6 +386,13 @@ describe('MEAL mock adapter flow', () => {
       '/api/v1/campuses/1/charges/me/summary?year=2026&month=7',
       {method: 'GET'},
     );
+    const invalidSummaryMonth = await executeMockRequest(
+      '/api/v1/campuses/1/charges/me/summary?year=2026&month=13',
+      {
+        headers: {Authorization: `Bearer ${mealMockAccessTokens.activeDuty}`},
+        method: 'GET',
+      },
+    );
     const crossCampusSummary = await executeMockRequest(
       '/api/v1/campuses/2/charges/me/summary?year=2026&month=7',
       {
@@ -331,6 +405,7 @@ describe('MEAL mock adapter flow', () => {
     });
     expect(unauthenticatedList.status).toBe(401);
     expect(unauthenticatedSummary.status).toBe(401);
+    expect(invalidSummaryMonth.status).toBe(400);
     expect(crossCampusSummary.status).toBe(404);
     expect(unauthenticatedPaid.status).toBe(401);
 
