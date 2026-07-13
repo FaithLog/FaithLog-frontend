@@ -33,6 +33,23 @@ export function finishMealMutation(gate: MealMutationGate, operationId: number) 
   return true;
 }
 
+export function finishMealMutationForScope<T>({
+  currentScope,
+  gate,
+  mounted,
+  operationId,
+  operationScope,
+}: {
+  currentScope: T;
+  gate: MealMutationGate;
+  mounted: boolean;
+  operationId: number;
+  operationScope: T;
+}) {
+  const operationFinished = finishMealMutation(gate, operationId);
+  return operationFinished && mounted && currentScope === operationScope;
+}
+
 export function invalidateMealMutationGate(gate: MealMutationGate) {
   gate.operationId += 1;
   gate.inFlight = false;

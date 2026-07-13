@@ -215,6 +215,7 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
           campusId: expectedCampusId,
           page: expectedPage,
           size: expectedSize,
+          ...(query.status ? {status: query.status} : {}),
         })),
       );
     },

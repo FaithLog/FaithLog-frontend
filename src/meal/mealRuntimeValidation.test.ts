@@ -7,6 +7,7 @@ import {
   parseMealPaymentAccounts,
   parseMealPollDetail,
   parseMealPollList,
+  parseMealPollListForContext,
   parseMealSettlement,
   parseMyMealDutyAssignment,
 } from './mealRuntimeValidation';
@@ -82,6 +83,39 @@ describe('MEAL runtime validation', () => {
     );
     expect(() => parseMealPollList({content: [{...poll, pollType: 'COFFEE'}], page: 0, size: 20, totalElements: 1, totalPages: 1})).toThrow('Invalid API response');
     expect(() => parseMealPollList({content: [{...poll, selectionType: 'MULTIPLE'}], page: 0, size: 20, totalElements: 1, totalPages: 1})).toThrow('Invalid API response');
+  });
+
+  it('binds management list content to the requested status', () => {
+    const poll = mealPollSummary({status: 'OPEN'});
+
+    expect(() => parseMealPollListForContext(
+      {content: [poll], page: 0, size: 20, totalElements: 1, totalPages: 1},
+      {campusId: 1, page: 0, size: 20, status: 'CLOSED'},
+    )).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
+  });
+
+  it.each([
+    ['inconsistent total page count', {content: [mealPollSummary()], page: 0, size: 20, totalElements: 100, totalPages: 1}],
+    ['non-empty elements with zero pages', {content: [mealPollSummary()], page: 0, size: 20, totalElements: 1, totalPages: 0}],
+    ['empty list with a nonzero total page count', {content: [], page: 0, size: 20, totalElements: 0, totalPages: 1}],
+    ['out-of-bounds page', {content: [], page: 1, size: 20, totalElements: 1, totalPages: 1}],
+    ['sparse first page', {content: [mealPollSummary()], page: 0, size: 20, totalElements: 2, totalPages: 1}],
+  ])('rejects malformed pagination metadata: %s', (_label, payload) => {
+    expect(() => parseMealPollList(payload)).toThrowError(
+      expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}),
+    );
+  });
+
+  it('accepts canonical empty and partially filled last pages', () => {
+    expect(parseMealPollList({content: [], page: 0, size: 20, totalElements: 0, totalPages: 0}))
+      .toMatchObject({page: 0, totalElements: 0, totalPages: 0});
+    expect(parseMealPollList({
+      content: [mealPollSummary({id: 121})],
+      page: 1,
+      size: 20,
+      totalElements: 21,
+      totalPages: 2,
+    })).toMatchObject({page: 1, totalElements: 21, totalPages: 2});
   });
 
   it('rejects leaked account identifiers when another duty owner charged the poll', () => {
@@ -314,5 +348,23 @@ function mealDetail(charge: Record<string, unknown>): MutableMealDetailFixture {
         charge: {paymentAccountId: null, ...charge},
       },
     ],
+  };
+}
+
+function mealPollSummary(patch: Record<string, unknown> = {}) {
+  return {
+    id: 101,
+    campusId: 1,
+    title: '점심',
+    description: null,
+    pollType: 'MEAL',
+    selectionType: 'SINGLE',
+    allowUserOptionAdd: true,
+    startsAt: '2026-07-13T01:00:00.000Z',
+    endsAt: '2026-07-13T02:00:00.000Z',
+    status: 'CLOSED',
+    settlementStatus: 'NOT_CHARGED',
+    totalResponseCount: 3,
+    ...patch,
   };
 }

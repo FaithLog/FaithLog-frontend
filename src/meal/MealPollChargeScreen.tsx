@@ -236,10 +236,14 @@ export function MealPollChargeScreen({
         api.getMySettlement(access.request.accessToken, campusId, currentUserId),
       ]);
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
+      if (detail.settlementStatus !== 'CHARGED') {
+        setRefreshWarning(true);
+        return;
+      }
       setState((current) => current.status === 'success'
         ? {status: 'success', accounts: current.accounts, detail}
         : current);
-      if (detail.settlementStatus === 'CHARGED') setTerminalReceipt({source: 'reconciled'});
+      setTerminalReceipt({source: 'reconciled'});
       setRefreshWarning(false);
       onComplete();
     } catch (error) {

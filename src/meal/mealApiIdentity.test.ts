@@ -80,6 +80,19 @@ describe('MEAL request context identity', () => {
     });
   });
 
+  it('rejects management list items outside the requested status filter', async () => {
+    const {api} = harness([{
+      content: [mealPoll({status: 'OPEN'})],
+      page: 0,
+      size: 20,
+      totalElements: 1,
+      totalPages: 1,
+    }]);
+
+    await expect(api.listPolls('token', 1, {page: 0, size: 20, status: 'CLOSED'}))
+      .rejects.toMatchObject({code: 'INVALID_SERVER_RESPONSE'});
+  });
+
   it('rejects an admin assignment response that does not match campus, user, and active duty', async () => {
     const {api} = harness([
       {assignmentId: 9, campusId: 2, dutyType: 'MEAL', isActive: true, userId: 8, name: '담당자', email: 'meal@example.test'},

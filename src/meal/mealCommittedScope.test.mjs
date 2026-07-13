@@ -13,7 +13,11 @@ vi.mock('../auth/accessTokenResolver', () => ({
   readCurrentAccessToken: vi.fn(),
 }));
 
-import {beginMealMutation, createMealMutationGate} from './mealMutationFlow';
+import {
+  beginMealMutation,
+  createMealMutationGate,
+  finishMealMutationForScope,
+} from './mealMutationFlow';
 import {useCommittedMealMutationScope} from './useCommittedMealMutationScope';
 import {useMealRequestTracker} from './useMealRequestTracker';
 
@@ -115,5 +119,40 @@ describe('committed MEAL scope boundaries', () => {
     expect(gate.operationId).not.toBe(operationId);
     expect(gate.inFlight).toBe(false);
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a newer admin A operation busy when an old A finally returns after committed A to B to A', async () => {
+    const gate = createMealMutationGate();
+    const reset = vi.fn();
+    let committedScopeRef;
+
+    function Harness({campusId}) {
+      committedScopeRef = useCommittedMealMutationScope(campusId, gate, reset);
+      return React.createElement('admin-scope', {campusId});
+    }
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(Harness, {campusId: 1}));
+    });
+    const oldAOperation = beginMealMutation(gate, 'campus:1/session:3');
+
+    await act(async () => {
+      renderer.update(React.createElement(Harness, {campusId: 2}));
+    });
+    await act(async () => {
+      renderer.update(React.createElement(Harness, {campusId: 1}));
+    });
+    const newerAOperation = beginMealMutation(gate, 'campus:1/session:3');
+
+    expect(finishMealMutationForScope({
+      currentScope: committedScopeRef.current,
+      gate,
+      mounted: true,
+      operationId: oldAOperation,
+      operationScope: 1,
+    })).toBe(false);
+    expect(gate).toMatchObject({inFlight: true, operationId: newerAOperation});
+    expect(reset).toHaveBeenCalledTimes(2);
   });
 });

@@ -125,7 +125,7 @@ import {mealApi} from '../meal/mealApi';
 import {
   beginMealMutation,
   createMealMutationGate,
-  finishMealMutation,
+  finishMealMutationForScope,
 } from '../meal/mealMutationFlow';
 import {useCommittedMealMutationScope} from '../meal/useCommittedMealMutationScope';
 import {
@@ -2459,8 +2459,13 @@ export function AdminScreen({
         void handleAuthError(apiError, setAuthState);
       }
     } finally {
-      finishMealMutation(gate, operationId);
-      if (penaltyRuleMountedRef.current && mealDutyCampusIdRef.current === operationCampusId) {
+      if (finishMealMutationForScope({
+        currentScope: mealDutyCampusIdRef.current,
+        gate,
+        mounted: penaltyRuleMountedRef.current,
+        operationId,
+        operationScope: operationCampusId,
+      })) {
         setActionState({status: 'idle'});
       }
     }
@@ -2527,8 +2532,13 @@ export function AdminScreen({
         void handleAuthError(apiError, setAuthState);
       }
     } finally {
-      finishMealMutation(gate, operationId);
-      if (penaltyRuleMountedRef.current && mealDutyCampusIdRef.current === operationCampusId) {
+      if (finishMealMutationForScope({
+        currentScope: mealDutyCampusIdRef.current,
+        gate,
+        mounted: penaltyRuleMountedRef.current,
+        operationId,
+        operationScope: operationCampusId,
+      })) {
         setActionState({status: 'idle'});
       }
     }

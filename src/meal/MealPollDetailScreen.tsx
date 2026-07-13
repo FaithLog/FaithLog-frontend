@@ -37,35 +37,49 @@ export function MealPollDetailScreen({
   onSessionExpired,
   pollId,
 }: MealPollDetailScreenProps) {
-  const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/meal-detail:${pollId}`);
+  const requestScope = `campus:${campusId}/meal-detail:${pollId}`;
+  const {scopeIsCommitted, tracker} = useMealRequestTracker(requestScope);
   const closeGate = useRef(createMealMutationGate()).current;
+  const closedTerminalScopeRef = useRef<string | null>(null);
   const [state, setState] = useState<MealLoadState<MealPollDetail>>({status: 'loading'});
   const [closing, setClosing] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
 
   const load = useCallback(async () => {
-    setState({status: 'loading'});
+    const preserveClosedTerminal = closedTerminalScopeRef.current === requestScope;
+    if (!preserveClosedTerminal) setState({status: 'loading'});
     const access = await resolveMealRequestAccess(tracker, 'detail', onSessionExpired);
     if (access.status === 'cancelled') return null;
     if (access.status === 'error') {
       const apiError = getCurrentMealRequestError({error: access.error, fallback: '밥 투표 상세를 불러오지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
-      if (apiError) setState({status: 'error', error: apiError});
+      if (apiError) {
+        if (preserveClosedTerminal) setRefreshWarning(true);
+        else setState({status: 'error', error: apiError});
+      }
       return null;
     }
     const {accessToken, identity} = access.request;
     try {
       const detail = await api.getPollDetail(accessToken, campusId, pollId);
       if (!tracker.isSuccessCurrent(identity)) return null;
+      if (preserveClosedTerminal && detail.status !== 'CLOSED') {
+        setRefreshWarning(true);
+        return null;
+      }
+      if (detail.status === 'CLOSED') closedTerminalScopeRef.current = requestScope;
       setState({status: 'success', data: detail});
       setRefreshWarning(false);
       return detail;
     } catch (error) {
       const apiError = getCurrentMealRequestError({error, fallback: '밥 투표 상세를 불러오지 못했습니다.', identity, onSessionExpired, tracker});
-      if (apiError) setState({status: 'error', error: apiError});
+      if (apiError) {
+        if (preserveClosedTerminal) setRefreshWarning(true);
+        else setState({status: 'error', error: apiError});
+      }
       return null;
     }
-  }, [api, campusId, onSessionExpired, pollId, tracker]);
+  }, [api, campusId, onSessionExpired, pollId, requestScope, tracker]);
 
   useEffect(() => {
     void load();
@@ -96,6 +110,7 @@ export function MealPollDetailScreen({
       const closed = await api.closePoll(access.request.accessToken, campusId, pollId);
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
       mutationSucceeded = true;
+      closedTerminalScopeRef.current = requestScope;
       setState({status: 'success', data: closed});
 
       const refreshAccess = await resolveMealRequestAccess(tracker, 'close-refresh', onSessionExpired);
@@ -106,7 +121,13 @@ export function MealPollDetailScreen({
       try {
         const refetched = await api.getPollDetail(refreshAccess.request.accessToken, campusId, pollId);
         if (!tracker.isSuccessCurrent(refreshAccess.request.identity)) return;
+        if (refetched.status !== 'CLOSED') {
+          setRefreshWarning(true);
+          return;
+        }
+        closedTerminalScopeRef.current = requestScope;
         setState({status: 'success', data: refetched});
+        setRefreshWarning(false);
         onOpenCharge(refetched.id);
       } catch (refreshError) {
         const currentError = getCurrentMealRequestError({error: refreshError, fallback: '최신 투표 상태를 불러오지 못했습니다.', identity: refreshAccess.request.identity, onSessionExpired, tracker});
@@ -140,6 +161,7 @@ export function MealPollDetailScreen({
     try {
       const detail = await api.getPollDetail(access.request.accessToken, campusId, pollId);
       if (!tracker.isSuccessCurrent(access.request.identity) || detail.status !== 'CLOSED') return false;
+      closedTerminalScopeRef.current = requestScope;
       setState({status: 'success', data: detail});
       setActionError(null);
       setRefreshWarning(false);

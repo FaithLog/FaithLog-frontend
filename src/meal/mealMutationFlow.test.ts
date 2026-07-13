@@ -4,6 +4,8 @@ import {
   beginMealMutation,
   createMealMutationGate,
   finishMealMutation,
+  finishMealMutationForScope,
+  invalidateMealMutationGate,
   runMealMutation,
 } from './mealMutationFlow';
 
@@ -57,5 +59,31 @@ describe('MEAL mutation flow', () => {
     expect(currentOperation).not.toBeNull();
     expect(finishMealMutation(gate, oldOperation ?? -1)).toBe(false);
     expect(finishMealMutation(gate, currentOperation ?? -1)).toBe(true);
+  });
+
+  it('does not let an old A operation reset a newer A operation after an A to B to A transition', () => {
+    const gate = createMealMutationGate();
+    const oldAOperation = beginMealMutation(gate, 'campus:1/session:3');
+    expect(oldAOperation).not.toBeNull();
+
+    invalidateMealMutationGate(gate);
+    const newerAOperation = beginMealMutation(gate, 'campus:1/session:3');
+    expect(newerAOperation).not.toBeNull();
+
+    expect(finishMealMutationForScope({
+      currentScope: 1,
+      gate,
+      mounted: true,
+      operationId: oldAOperation ?? -1,
+      operationScope: 1,
+    })).toBe(false);
+    expect(gate).toMatchObject({inFlight: true, operationId: newerAOperation});
+    expect(finishMealMutationForScope({
+      currentScope: 1,
+      gate,
+      mounted: true,
+      operationId: newerAOperation ?? -1,
+      operationScope: 1,
+    })).toBe(true);
   });
 });

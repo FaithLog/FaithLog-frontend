@@ -123,7 +123,21 @@ export function parseMealPollList(value: unknown): MealPollList {
       totalPages: requireNonNegativeInteger(record.totalPages),
     };
     requireUniqueNumbers(list.content.map((poll) => poll.id));
-    if (list.content.length > list.size || list.content.length > list.totalElements) {
+    if (list.size === 0) invalidResponse();
+    const expectedTotalPages = list.totalElements === 0
+      ? 0
+      : Math.ceil(list.totalElements / list.size);
+    if (list.totalPages !== expectedTotalPages) invalidResponse();
+    if (list.totalElements === 0) {
+      if (list.page !== 0 || list.content.length !== 0) invalidResponse();
+      return list;
+    }
+    if (list.page >= list.totalPages || list.page > Math.floor(Number.MAX_SAFE_INTEGER / list.size)) {
+      invalidResponse();
+    }
+    const pageOffset = list.page * list.size;
+    const expectedContentLength = Math.min(list.size, list.totalElements - pageOffset);
+    if (expectedContentLength <= 0 || list.content.length !== expectedContentLength) {
       invalidResponse();
     }
     return list;
@@ -132,14 +146,16 @@ export function parseMealPollList(value: unknown): MealPollList {
 
 export function parseMealPollListForContext(
   value: unknown,
-  context: {campusId: number; page: number; size: number},
+  context: {campusId: number; page: number; size: number; status?: MealPollStatus},
 ): MealPollList {
   return parseSafely(() => {
     const list = parseMealPollList(value);
     if (
       list.page !== context.page ||
       list.size !== context.size ||
-      list.content.some((poll) => poll.campusId !== context.campusId)
+      list.content.some((poll) =>
+        poll.campusId !== context.campusId ||
+        (context.status !== undefined && poll.status !== context.status))
     ) {
       invalidResponse();
     }

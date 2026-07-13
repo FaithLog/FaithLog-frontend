@@ -357,6 +357,33 @@ describe('MEAL component behavior', () => {
     expect(api.closePoll).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps CLOSED terminal state when close refresh returns a stale OPEN success', async () => {
+    const open = mealDetail({status: 'OPEN'});
+    const closed = mealDetail({status: 'CLOSED'});
+    const onOpenCharge = vi.fn();
+    const api = createApi({
+      closePoll: vi.fn().mockResolvedValue(closed),
+      getPollDetail: vi.fn().mockResolvedValue(open),
+    });
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealPollDetailScreen, {...detailProps(api), onOpenCharge}));
+      await settle();
+    });
+    await press(renderer, '밥 투표 수동 종료');
+
+    expect(api.closePoll).toHaveBeenCalledTimes(1);
+    expect(onOpenCharge).not.toHaveBeenCalled();
+    expect(rendered(renderer)).toContain('처리는 완료됐어요');
+    expect(() => findByLabel(renderer, '밥 투표 수동 종료')).toThrow();
+    expect(findByLabel(renderer, '밥 투표 청구 화면 열기')).toBeDefined();
+
+    await press(renderer, '최신 상태 다시 불러오기');
+    expect(api.closePoll).toHaveBeenCalledTimes(1);
+    expect(onOpenCharge).not.toHaveBeenCalled();
+    expect(() => findByLabel(renderer, '밥 투표 수동 종료')).toThrow();
+  });
+
   it('shows full charge confirmation and keeps success terminal when refetch warns', async () => {
     const detail = mealDetail({status: 'CLOSED'});
     const chargeRequest = deferred();
@@ -411,6 +438,45 @@ describe('MEAL component behavior', () => {
     expect(() => findByLabel(renderer, '밥 청구 최종 확인 열기')).toThrow();
     await press(renderer, '최신 상태 다시 불러오기');
     expect(api.createCharges).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps charge terminal state when refresh returns a stale NOT_CHARGED success', async () => {
+    const onComplete = vi.fn();
+    const staleDetail = mealDetail({status: 'CLOSED', settlementStatus: 'NOT_CHARGED'});
+    const api = createApi({
+      createCharges: vi.fn().mockResolvedValue(chargeResult()),
+      getMyPaymentAccounts: vi.fn().mockResolvedValue([mealAccount()]),
+      getMySettlement: vi.fn().mockResolvedValue({
+        accounts: [],
+        summary: {
+          chargedMemberCount: 0,
+          requestedTotalAmount: 0,
+          actualTotalAmount: 0,
+          roundingAdjustment: 0,
+        },
+      }),
+      getPollDetail: vi.fn().mockResolvedValue(staleDetail),
+      listPolls: vi.fn().mockResolvedValue(pollList([mealPoll()])),
+    });
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealPollChargeScreen, {...chargeProps(api), onComplete}));
+      await settle();
+    });
+    await change(renderer, '제육볶음 청구 금액', '10000');
+    await press(renderer, '밥 청구 최종 확인 열기');
+    await press(renderer, '최종 청구 실행');
+
+    expect(api.createCharges).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(rendered(renderer)).toContain('청구가 완료된 투표입니다');
+    expect(rendered(renderer)).toContain('처리는 완료됐어요');
+    expect(() => findByLabel(renderer, '밥 청구 최종 확인 열기')).toThrow();
+
+    await press(renderer, '최신 상태 다시 불러오기');
+    expect(api.createCharges).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(() => findByLabel(renderer, '밥 청구 최종 확인 열기')).toThrow();
   });
 
   it('reconciles charge 409 to a terminal CHARGED detail without resubmitting', async () => {
