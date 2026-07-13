@@ -121,6 +121,7 @@ const RESPONSE_ERROR_CODES = new Set([
   'POLL_RESPONSE_INVALID_SELECTION_COUNT',
 ]);
 const COMMENT_MAX_LENGTH = 500;
+const POLL_RESPONDENTS_PER_ROW = 2;
 
 export function PollScreen({
   canOpenAdminMode,
@@ -1295,7 +1296,7 @@ function ResultsPanel({
     .map((option) => ({
       data: results.anonymous || option.respondents.length === 0
         ? [[]]
-        : chunkForVirtualizedRows(option.respondents, 3),
+        : chunkForVirtualizedRows(option.respondents, POLL_RESPONDENTS_PER_ROW),
       key: String(option.id),
       option,
     })) ?? [], [results]);
