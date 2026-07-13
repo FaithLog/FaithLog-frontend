@@ -202,6 +202,14 @@ describe('MEAL mock adapter flow', () => {
       status: 'UNPAID',
     });
     const charge = beforePaid.items[0];
+    const ownerSettlementBeforePaid = await mealApi.getMySettlement(
+      mealMockAccessTokens.activeDuty,
+      1,
+      7,
+    );
+    const ownerChargeBeforePaid = ownerSettlementBeforePaid.accounts[0]?.charges.find(
+      (item) => item.memberName === '두 번째 담당자' && item.amount === 8000,
+    );
 
     expect(beforePaid.items).toHaveLength(1);
     expect(charge).toMatchObject({
@@ -214,6 +222,15 @@ describe('MEAL mock adapter flow', () => {
     });
     expect(charge?.source?.sourceId).toBeGreaterThan(0);
     expect(charge?.account).toMatchObject({paymentAccountId: 10});
+    expect(ownerChargeBeforePaid).toMatchObject({
+      chargeId: charge?.id,
+      memberName: '두 번째 담당자',
+      status: 'UNPAID',
+    });
+
+    await expect(
+      markMyChargePaid(mealMockAccessTokens.activeDuty, 1, charge?.id ?? 0),
+    ).rejects.toMatchObject({detail: {status: 404}});
 
     const paid = await markMyChargePaid(
       mealMockAccessTokens.otherDuty,
@@ -224,6 +241,11 @@ describe('MEAL mock adapter flow', () => {
       paymentCategory: 'MEAL',
       status: 'PAID',
     });
+    const ownerSettlementAfterPaid = await mealApi.getMySettlement(
+      mealMockAccessTokens.activeDuty,
+      1,
+      7,
+    );
 
     expect(paid).toMatchObject({
       id: charge?.id,
@@ -232,7 +254,34 @@ describe('MEAL mock adapter flow', () => {
       userId: 8,
     });
     expect(afterPaid.items).toContainEqual(expect.objectContaining({id: charge?.id, status: 'PAID'}));
+    expect(ownerSettlementAfterPaid.accounts[0]?.charges).toContainEqual(
+      expect.objectContaining({chargeId: charge?.id, memberName: '두 번째 담당자', status: 'PAID'}),
+    );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('isolates member charge lists and rejects unauthenticated or non-owned payment attempts', async () => {
+    const ownerCharges = await fetchMyCharges(mealMockAccessTokens.activeDuty, 1, {});
+    const otherCharges = await fetchMyCharges(mealMockAccessTokens.otherDuty, 1, {});
+
+    expect(ownerCharges.items).toContainEqual(expect.objectContaining({id: 501}));
+    expect(otherCharges.items).not.toContainEqual(expect.objectContaining({id: 501}));
+
+    const unauthenticatedList = await executeMockRequest('/api/v1/campuses/1/charges/me', {
+      method: 'GET',
+    });
+    const unauthenticatedPaid = await executeMockRequest('/api/v1/campuses/1/charges/me/501/paid', {
+      method: 'PATCH',
+    });
+    expect(unauthenticatedList.status).toBe(401);
+    expect(unauthenticatedPaid.status).toBe(401);
+
+    await expect(
+      markMyChargePaid(mealMockAccessTokens.otherDuty, 1, 501),
+    ).rejects.toMatchObject({detail: {status: 404}});
+    await expect(
+      markMyChargePaid(mealMockAccessTokens.otherDuty, 1, 999_999),
+    ).rejects.toMatchObject({detail: {status: 404}});
   });
 
   it('keeps old CLOSED polls in the separate management list', async () => {
