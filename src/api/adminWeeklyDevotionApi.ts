@@ -147,14 +147,14 @@ export function parseAdminWeeklyDevotion(value: unknown): AdminWeeklyDevotion {
 export function createMockAdminWeeklyDevotionAdapter(): AdminWeeklyDevotionAdapter {
   return {
     exportWeek: async (request) => {
-      resolveMockScenario();
+      resolveMockScenario(request.authGeneration);
       return {
         bytes: new Uint8Array([80, 75, 3, 4]),
         fileName: `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
       };
     },
     fetchWeek: async (request) => {
-      const scenario = resolveMockScenario();
+      const scenario = resolveMockScenario(request.authGeneration);
       const value =
         scenario === 'empty'
           ? createEmptyMockWeek(request.weekStartDate)
@@ -357,7 +357,7 @@ function createDailyChecks(
   }));
 }
 
-function resolveMockScenario() {
+function resolveMockScenario(authGeneration: number) {
   const scenario =
     process.env.EXPO_PUBLIC_ADMIN_WEEKLY_DEVOTION_MOCK_SCENARIO?.trim().toLowerCase() ||
     'success';
@@ -367,6 +367,7 @@ function resolveMockScenario() {
   }
   if (scenario === '401') {
     throw new FaithLogApiError({
+      authSessionGeneration: authGeneration,
       kind: 'sessionExpired',
       code: 'AUTH_SESSION_EXPIRED',
       message: '세션이 만료되었습니다.',
@@ -375,6 +376,7 @@ function resolveMockScenario() {
   }
   if (scenario === '403') {
     throw new FaithLogApiError({
+      authSessionGeneration: authGeneration,
       kind: 'permissionDenied',
       code: 'AUTH_FORBIDDEN',
       message: '주차별 현황을 볼 권한이 없습니다.',

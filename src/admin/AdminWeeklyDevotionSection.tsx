@@ -15,6 +15,7 @@ import {
   type AdminWeeklyDevotion,
   type AdminWeeklyDevotionAdapter,
   type AdminWeeklyDevotionDailyCheck,
+  type AdminWeeklyDevotionPenalty,
   type AdminWeeklyDevotionRequest,
   type AdminWeeklyDevotionSubmittedMember,
 } from '../api/adminWeeklyDevotionApi';
@@ -244,7 +245,7 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
         <View style={styles.weekNavigator}>
           <WeekMoveButton
             accessibilityLabel="이전 주 주차별 현황 조회"
-            disabled={state.status === 'loading'}
+            disabled={exporting}
             direction="previous"
             onPress={() => moveWeek(-1)}
           />
@@ -258,7 +259,7 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
           </View>
           <WeekMoveButton
             accessibilityLabel="다음 주 주차별 현황 조회"
-            disabled={state.status === 'loading'}
+            disabled={exporting}
             direction="next"
             onPress={() => moveWeek(1)}
           />
@@ -411,7 +412,7 @@ function WeeklySuccess({
                     />
                   </Pressable>
                   {expandedUserId === member.userId ? (
-                    <DailyDetails member={member} />
+                    <DailyDetails member={member} weekStartDate={data.weekStartDate} />
                   ) : null}
                 </View>
               ))}
@@ -487,9 +488,15 @@ function TableText({
   );
 }
 
-function DailyDetails({member}: {member: AdminWeeklyDevotionSubmittedMember}) {
+function DailyDetails({
+  member,
+  weekStartDate,
+}: {
+  member: AdminWeeklyDevotionSubmittedMember;
+  weekStartDate: string;
+}) {
   const checksByDate = new Map(member.dailyChecks.map((check) => [check.recordDate, check]));
-  const monday = new Date(`${member.dailyChecks[0]?.recordDate ?? ''}T12:00:00`);
+  const monday = new Date(`${weekStartDate}T12:00:00`);
 
   return (
     <View accessibilityLabel={`${member.name} 일별 상세`} style={styles.dailyDetails}>
@@ -628,11 +635,7 @@ function normalizeError(error: unknown): FaithLogApiError['detail'] {
   return {kind: 'error', message: '주차별 경건 현황을 처리하지 못했습니다.'};
 }
 
-function formatPenaltyStatus(status: AdminWeeklyDevotionSubmittedMember['penalty'] extends infer P
-  ? P extends {status: infer S}
-    ? S | null
-    : null
-  : null) {
+function formatPenaltyStatus(status: AdminWeeklyDevotionPenalty['status'] | null) {
   switch (status) {
     case 'UNPAID':
       return '미납';

@@ -96,6 +96,44 @@ describe('admin weekly devotion adapters', () => {
     });
   });
 
+  it('provides separate success and empty mock data states', async () => {
+    const mock = createMockAdminWeeklyDevotionAdapter();
+
+    await expect(mock.fetchWeek(REQUEST)).resolves.toMatchObject({
+      activeMemberCount: 3,
+      missingCount: 1,
+      submittedCount: 2,
+    });
+    process.env.EXPO_PUBLIC_ADMIN_WEEKLY_DEVOTION_MOCK_SCENARIO = 'empty';
+    await expect(mock.fetchWeek(REQUEST)).resolves.toMatchObject({
+      activeMemberCount: 0,
+      missingMembers: [],
+      submittedMembers: [],
+    });
+  });
+
+  it.each([
+    ['401', 'sessionExpired', 401],
+    ['403', 'permissionDenied', 403],
+    ['offline', 'offline', undefined],
+    ['error', 'error', 500],
+  ] as const)('provides a distinct %s mock state', async (scenario, kind, status) => {
+    process.env.EXPO_PUBLIC_ADMIN_WEEKLY_DEVOTION_MOCK_SCENARIO = scenario;
+    const mock = createMockAdminWeeklyDevotionAdapter();
+
+    await expect(mock.fetchWeek(REQUEST)).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(FaithLogApiError);
+      expect((error as FaithLogApiError).detail).toMatchObject({
+        kind,
+        ...(status === undefined ? {} : {status}),
+        ...((scenario === '401' || scenario === '403')
+          ? {authSessionGeneration: REQUEST.authGeneration}
+          : {}),
+      });
+      return true;
+    });
+  });
+
   it('fails closed before calling a provisional production endpoint', async () => {
     const fetchImpl = vi.fn(async (_input: string, _init?: RequestInit) => new Response());
     const adapter = createProductionAdminWeeklyDevotionAdapter({fetchImpl});

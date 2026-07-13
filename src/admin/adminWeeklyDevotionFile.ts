@@ -1,6 +1,3 @@
-import {File, Paths} from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
-
 import type {AdminWeeklyDevotionExport} from '../api/adminWeeklyDevotionApi';
 
 const EXCEL_MIME_TYPE =
@@ -10,6 +7,11 @@ export async function saveAndShareAdminWeeklyDevotionExport({
   bytes,
   fileName,
 }: AdminWeeklyDevotionExport) {
+  const [{File, Paths}, Sharing] = await Promise.all([
+    import('expo-file-system'),
+    import('expo-sharing'),
+  ]);
+
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error('이 기기에서는 파일 공유를 사용할 수 없습니다.');
   }
