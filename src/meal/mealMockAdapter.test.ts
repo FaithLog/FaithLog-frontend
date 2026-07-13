@@ -417,6 +417,74 @@ describe('MEAL mock adapter flow', () => {
     ).rejects.toMatchObject({detail: {status: 404}});
   });
 
+  it('scopes and mutates the legacy owner charge within its explicit fixture month', async () => {
+    const [juneBefore, julyBefore, augustBefore] = await Promise.all([
+      fetchChargeSummary(mealMockAccessTokens.activeDuty, 1, {year: 2026, month: 6}),
+      fetchChargeSummary(mealMockAccessTokens.activeDuty, 1, {year: 2026, month: 7}),
+      fetchChargeSummary(mealMockAccessTokens.activeDuty, 1, {year: 2026, month: 8}),
+    ]);
+
+    expect(juneBefore).toMatchObject({
+      totalPaidAmount: 12000,
+      monthlyPaidAmount: 12000,
+      monthlyUnpaidAmount: 6000,
+      monthlyTotalChargeAmount: 18000,
+      monthlyByCategory: [
+        {paymentCategory: 'PENALTY', paidAmount: 9000, unpaidAmount: 3000, totalAmount: 12000},
+      ],
+    });
+    for (const outsideFixtureMonth of [julyBefore, augustBefore]) {
+      expect(outsideFixtureMonth).toMatchObject({
+        totalPaidAmount: 12000,
+        monthlyPaidAmount: 0,
+        monthlyUnpaidAmount: 0,
+        monthlyTotalChargeAmount: 0,
+        monthlyByCategory: [],
+      });
+    }
+
+    const paid = await markMyChargePaid(mealMockAccessTokens.activeDuty, 1, 501);
+    const [listAfterPaid, juneAfterPaid, julyAfterPaid] = await Promise.all([
+      fetchMyCharges(mealMockAccessTokens.activeDuty, 1, {}),
+      fetchChargeSummary(mealMockAccessTokens.activeDuty, 1, {year: 2026, month: 6}),
+      fetchChargeSummary(mealMockAccessTokens.activeDuty, 1, {year: 2026, month: 7}),
+    ]);
+
+    expect(paid).toMatchObject({id: 501, userId: 7, status: 'PAID', amount: 3000});
+    expect(listAfterPaid.items).toContainEqual(expect.objectContaining({id: 501, status: 'PAID'}));
+    expect(juneAfterPaid).toMatchObject({
+      totalPaidAmount: 15000,
+      monthlyPaidAmount: 15000,
+      monthlyUnpaidAmount: 3000,
+      monthlyTotalChargeAmount: 18000,
+      monthlyByCategory: [
+        {paymentCategory: 'PENALTY', paidAmount: 12000, unpaidAmount: 0, totalAmount: 12000},
+      ],
+    });
+    expect(julyAfterPaid).toMatchObject({
+      totalPaidAmount: 15000,
+      monthlyPaidAmount: 0,
+      monthlyUnpaidAmount: 0,
+      monthlyTotalChargeAmount: 0,
+      monthlyByCategory: [],
+    });
+    await expect(
+      markMyChargePaid(mealMockAccessTokens.activeDuty, 1, 501),
+    ).rejects.toMatchObject({detail: {status: 409}});
+
+    resetMealMockStateForTests();
+    const [listAfterReset, juneAfterReset] = await Promise.all([
+      fetchMyCharges(mealMockAccessTokens.activeDuty, 1, {}),
+      fetchChargeSummary(mealMockAccessTokens.activeDuty, 1, {year: 2026, month: 6}),
+    ]);
+    expect(listAfterReset.items).toContainEqual(expect.objectContaining({id: 501, status: 'UNPAID'}));
+    expect(juneAfterReset).toMatchObject({
+      totalPaidAmount: 12000,
+      monthlyPaidAmount: 12000,
+      monthlyUnpaidAmount: 6000,
+    });
+  });
+
   it('keeps old CLOSED polls in the separate management list', async () => {
     const list = await mealApi.listPolls('mock-access-token', 1, {
       page: 0,
