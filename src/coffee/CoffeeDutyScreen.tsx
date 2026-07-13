@@ -1,5 +1,6 @@
-import {useEffect, useMemo, useState} from 'react';
+import {memo, useEffect, useMemo, useState} from 'react';
 import {
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -857,17 +858,18 @@ function CoffeePollCreator({
                 </View>
               ))
             )}
-            <CoffeeMenuPickerModal
-              menus={state.menus}
-              onClose={() => setMenuPickerVisible(false)}
-              onRefresh={onRefresh}
-              onSelectMenu={(menuId) => {
-                onToggleMenu(menuId);
-                setMenuPickerVisible(false);
-              }}
-              selectedMenuIds={selectedMenuIds}
-              visible={menuPickerVisible}
-            />
+            {menuPickerVisible ? (
+              <CoffeeMenuPickerModal
+                menus={state.menus}
+                onClose={() => setMenuPickerVisible(false)}
+                onRefresh={onRefresh}
+                onSelectMenu={(menuId) => {
+                  onToggleMenu(menuId);
+                  setMenuPickerVisible(false);
+                }}
+                selectedMenuIds={selectedMenuIds}
+              />
+            ) : null}
           </View>
         )}
       </Card>
@@ -1032,21 +1034,19 @@ function CoffeeMenuPickerModal({
   onRefresh,
   onSelectMenu,
   selectedMenuIds,
-  visible,
 }: {
   menus: CoffeeMenu[];
   onClose: () => void;
   onRefresh: () => void;
   onSelectMenu: (menuId: number) => void;
   selectedMenuIds: number[];
-  visible: boolean;
 }) {
   return (
     <Modal
       animationType="slide"
       onRequestClose={onClose}
       transparent={true}
-      visible={visible}>
+      visible>
       <View style={styles.modalScrim}>
         <View style={styles.menuSheet}>
           <View style={styles.menuSheetHeader}>
@@ -1076,51 +1076,65 @@ function CoffeeMenuPickerModal({
               </Pressable>
             </View>
           ) : (
-            <ScrollView
+            <FlatList
               contentContainerStyle={styles.menuSheetScrollContent}
-              style={styles.menuSheetScroll}>
-              {menus.map((menu) => {
-                const added = selectedMenuIds.includes(menu.id);
-
-                return (
-                  <Pressable
-                    accessibilityLabel={`${menu.name} 메뉴 ${added ? '추가됨' : '추가'}`}
-                    accessibilityRole="button"
-                    disabled={added}
-                    key={menu.id}
-                    onPress={() => onSelectMenu(menu.id)}
-                    style={({pressed}) => [
-                      styles.coffeeMenuRow,
-                      added ? styles.coffeeMenuRowAdded : null,
-                      pressed ? styles.pressed : null,
-                    ]}>
-                    <View style={styles.headerText}>
-                      <Text style={styles.selectTitle}>{menu.name}</Text>
-                      <Text style={styles.selectMeta}>{formatWon(menu.priceAmount)}</Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.pollCreateSelectPill,
-                        added ? styles.pollCreateSelectPillAdded : null,
-                      ]}>
-                      <Text
-                        style={[
-                          styles.pollCreateSelectPillText,
-                          added ? styles.pollCreateSelectPillTextAdded : null,
-                        ]}>
-                        {added ? '추가됨' : '추가'}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+              data={menus}
+              initialNumToRender={12}
+              keyExtractor={(menu) => String(menu.id)}
+              maxToRenderPerBatch={12}
+              renderItem={({item}) => (
+                <CoffeeMenuPickerRow
+                  added={selectedMenuIds.includes(item.id)}
+                  menu={item}
+                  onSelect={onSelectMenu}
+                />
+              )}
+              style={styles.menuSheetScroll}
+              windowSize={7}
+            />
           )}
         </View>
       </View>
     </Modal>
   );
 }
+
+const CoffeeMenuPickerRow = memo(function CoffeeMenuPickerRow({
+  added,
+  menu,
+  onSelect,
+}: {
+  added: boolean;
+  menu: CoffeeMenu;
+  onSelect: (menuId: number) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${menu.name} 메뉴 ${added ? '추가됨' : '추가'}`}
+      accessibilityRole="button"
+      disabled={added}
+      onPress={() => onSelect(menu.id)}
+      style={({pressed}) => [
+        styles.coffeeMenuRow,
+        added ? styles.coffeeMenuRowAdded : null,
+        pressed ? styles.pressed : null,
+      ]}>
+      <View style={styles.headerText}>
+        <Text style={styles.selectTitle}>{menu.name}</Text>
+        <Text style={styles.selectMeta}>{formatWon(menu.priceAmount)}</Text>
+      </View>
+      <View style={[styles.pollCreateSelectPill, added ? styles.pollCreateSelectPillAdded : null]}>
+        <Text
+          style={[
+            styles.pollCreateSelectPillText,
+            added ? styles.pollCreateSelectPillTextAdded : null,
+          ]}>
+          {added ? '추가됨' : '추가'}
+        </Text>
+      </View>
+    </Pressable>
+  );
+});
 
 function CoffeeDateTimePickerModal({
   onApply,

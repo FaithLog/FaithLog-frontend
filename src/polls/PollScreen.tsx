@@ -1,5 +1,6 @@
-import {useEffect, useRef, useState} from 'react';
+import {memo, useEffect, useRef, useState} from 'react';
 import {
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -133,7 +134,6 @@ export function PollScreen({
   const [detailTab, setDetailTab] = useState<DetailTab>('response');
   const [listTab, setListTab] = useState<PollListTab>('active');
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
-  const [commentContent, setCommentContent] = useState('');
   const [editingComment, setEditingComment] = useState<PollComment | null>(null);
   const [optionAddVisible, setOptionAddVisible] = useState(false);
   const [optionAddContent, setOptionAddContent] = useState('');
@@ -238,7 +238,6 @@ export function PollScreen({
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     detailEpoch.current += 1;
     currentPollId.current = poll.id;
-    setCommentContent('');
     setEditingComment(null);
     setActionState(null);
     setActionError(null);
@@ -254,7 +253,6 @@ export function PollScreen({
     setDetailState({status: 'idle'});
     setActionError(null);
     setEditingComment(null);
-    setCommentContent('');
     setActionState(null);
     void loadPolls();
   };
@@ -399,12 +397,12 @@ export function PollScreen({
     }
   };
 
-  const submitComment = async () => {
+  const submitComment = async (draft: string) => {
     if (!activeDetail || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
-    const content = commentContent.trim().slice(0, COMMENT_MAX_LENGTH);
+    const content = draft.trim().slice(0, COMMENT_MAX_LENGTH);
 
     if (!content) {
       setActionError({kind: 'error', message: '댓글 내용을 입력해 주세요.'});
@@ -427,7 +425,6 @@ export function PollScreen({
 
       const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
-      setCommentContent('');
       setDetailState((current) => current.status === 'success' &&
         current.detail.id === mutationPollId && created.pollId === mutationPollId
         ? {...current, comments: [...current.comments, created]}
@@ -442,12 +439,12 @@ export function PollScreen({
     }
   };
 
-  const submitCommentEdit = async () => {
+  const submitCommentEdit = async (draft: string) => {
     if (!activeDetail || !editingComment || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
-    const content = commentContent.trim().slice(0, COMMENT_MAX_LENGTH);
+    const content = draft.trim().slice(0, COMMENT_MAX_LENGTH);
 
     if (!content) {
       setActionError({kind: 'error', message: '수정할 댓글 내용을 입력해 주세요.'});
@@ -473,7 +470,6 @@ export function PollScreen({
       });
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setEditingComment(null);
-      setCommentContent('');
       setDetailState((current) => current.status === 'success' &&
         current.detail.id === mutationPollId && updated.pollId === mutationPollId
         ? {...current, comments: current.comments.map((item) =>
@@ -556,6 +552,40 @@ export function PollScreen({
         enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={16}
         style={styles.keyboardRoot}>
+        {detailTab === 'comments' ? (
+          <CommentsPanel
+            actionError={actionError}
+            actionState={actionState}
+            comments={detailState.comments}
+            currentUserId={state.user.id}
+            editingComment={editingComment}
+            header={(
+              <>
+                <PollDetailHeader
+                  canOpenAdminMode={canOpenAdminMode}
+                  campusLabel={state.selectedCampus.campusName}
+                  contextLabel={`${state.user.name}님`}
+                  detail={detailState.detail}
+                  onBack={closeDetail}
+                  onOpenAdminMode={onOpenAdminMode}
+                  onOpenNotifications={onOpenNotifications}
+                />
+                <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+              </>
+            )}
+            isOpen={isPollActionable(detailState.detail)}
+            onCancelEdit={() => {
+              setEditingComment(null);
+              setActionError(null);
+            }}
+            onDelete={removeComment}
+            onEdit={(comment) => {
+              setEditingComment(comment);
+              setActionError(null);
+            }}
+            onSubmit={editingComment ? submitCommentEdit : submitComment}
+          />
+        ) : (
         <ScrollView
           contentContainerStyle={styles.figmaScreen}
           keyboardShouldPersistTaps="handled"
@@ -584,29 +614,6 @@ export function PollScreen({
             selectedOptionIds={selectedOptionIds}
           />
         ) : null}
-        {detailTab === 'comments' ? (
-          <CommentsPanel
-            actionState={actionState}
-            commentContent={commentContent}
-            comments={detailState.comments}
-            currentUserId={state.user.id}
-            editingComment={editingComment}
-            isOpen={isPollActionable(detailState.detail)}
-            onCancelEdit={() => {
-              setEditingComment(null);
-              setCommentContent('');
-              setActionError(null);
-            }}
-            onChangeComment={(value) => setCommentContent(value.slice(0, COMMENT_MAX_LENGTH))}
-            onDelete={removeComment}
-            onEdit={(comment) => {
-              setEditingComment(comment);
-              setCommentContent(comment.content.slice(0, COMMENT_MAX_LENGTH));
-              setActionError(null);
-            }}
-            onSubmit={editingComment ? submitCommentEdit : submitComment}
-          />
-        ) : null}
         {detailTab === 'results' ? (
           <ResultsPanel
             detail={detailState.detail}
@@ -631,6 +638,7 @@ export function PollScreen({
           visible={optionAddVisible}
         />
         </ScrollView>
+        )}
       </KeyboardAvoidingView>
     );
   }
@@ -1038,51 +1046,74 @@ function CoffeeCatalogPanel({
 }
 
 function CommentsPanel({
+  actionError,
   actionState,
-  commentContent,
   comments,
   currentUserId,
   editingComment,
+  header,
   isOpen,
   onCancelEdit,
-  onChangeComment,
   onDelete,
   onEdit,
   onSubmit,
 }: {
+  actionError: ApiError | null;
   actionState: ActionState;
-  commentContent: string;
   comments: PollComment[];
   currentUserId: number;
   editingComment: PollComment | null;
+  header: React.ReactNode;
   isOpen: boolean;
   onCancelEdit: () => void;
-  onChangeComment: (value: string) => void;
   onDelete: (comment: PollComment) => void;
   onEdit: (comment: PollComment) => void;
-  onSubmit: () => void;
+  onSubmit: (content: string) => void;
 }) {
   const submitting = actionState?.kind === 'comment' || actionState?.kind === 'edit';
+  const [draft, setDraft] = useState(editingComment?.content.slice(0, COMMENT_MAX_LENGTH) ?? '');
+  const wasSubmitting = useRef(false);
+
+  useEffect(() => {
+    setDraft(editingComment?.content.slice(0, COMMENT_MAX_LENGTH) ?? '');
+  }, [editingComment?.commentId]);
+
+  useEffect(() => {
+    if (wasSubmitting.current && !submitting && !actionError) setDraft('');
+    wasSubmitting.current = submitting;
+  }, [actionError, submitting]);
 
   return (
-    <>
-      <View style={styles.figmaCommentCard}>
+    <FlatList
+      contentContainerStyle={styles.figmaScreen}
+      data={comments}
+      initialNumToRender={10}
+      keyboardShouldPersistTaps="handled"
+      keyExtractor={(comment) => String(comment.commentId)}
+      ListEmptyComponent={(
+        <Empty title="아직 댓글이 없어요" message="첫 댓글을 남겨 투표 맥락을 공유해 주세요." />
+      )}
+      ListHeaderComponent={(
+        <>
+          {header}
+          {actionError ? <ActionErrorCard error={actionError} /> : null}
+          <View style={styles.figmaCommentCard}>
         <Text style={styles.figmaSectionTitle}>{editingComment ? '댓글 수정' : '댓글'}</Text>
         <TextInput
           accessibilityLabel={editingComment ? '수정할 댓글 내용 입력' : '댓글 내용 입력'}
           editable={isOpen && !submitting}
           multiline
-          onChangeText={onChangeComment}
+          onChangeText={(value) => setDraft(value.slice(0, COMMENT_MAX_LENGTH))}
           placeholder="댓글을 입력해 주세요"
           placeholderTextColor={colors.subtleText}
           style={styles.multiInput}
-          value={commentContent}
+          value={draft}
         />
         <View style={styles.commentActionRow}>
           <CompactActionButton
             accessibilityLabel={editingComment ? '댓글 수정 저장' : '댓글 등록'}
             disabled={!isOpen || submitting}
-            onPress={onSubmit}
+            onPress={() => onSubmit(draft)}
             tone="primary">
             {submitting ? '저장 중...' : editingComment ? '수정 저장' : '댓글 등록'}
           </CompactActionButton>
@@ -1090,23 +1121,55 @@ function CommentsPanel({
             <CompactActionButton
               accessibilityLabel="댓글 수정 취소"
               disabled={submitting}
-              onPress={onCancelEdit}
+              onPress={() => {
+                setDraft('');
+                onCancelEdit();
+              }}
               tone="secondary">
               취소
             </CompactActionButton>
           ) : null}
         </View>
-      </View>
-      {comments.length === 0 ? (
-        <Empty title="아직 댓글이 없어요" message="첫 댓글을 남겨 투표 맥락을 공유해 주세요." />
-      ) : (
-        comments.map((comment) => {
-          const canEdit = isOpen && !comment.deleted && comment.userId === currentUserId;
-          const deleting =
-            actionState?.kind === 'delete' && actionState.id === comment.commentId;
+          </View>
+        </>
+      )}
+      maxToRenderPerBatch={10}
+      renderItem={({item: comment}) => (
+        <PollCommentRow
+          actionState={actionState}
+          comment={comment}
+          currentUserId={currentUserId}
+          isOpen={isOpen}
+          onDelete={onDelete}
+          onEdit={onEdit}
+        />
+      )}
+      showsVerticalScrollIndicator={false}
+      windowSize={7}
+    />
+  );
+}
 
-          return (
-            <View key={comment.commentId} style={styles.figmaCommentCard}>
+const PollCommentRow = memo(function PollCommentRow({
+  actionState,
+  comment,
+  currentUserId,
+  isOpen,
+  onDelete,
+  onEdit,
+}: {
+  actionState: ActionState;
+  comment: PollComment;
+  currentUserId: number;
+  isOpen: boolean;
+  onDelete: (comment: PollComment) => void;
+  onEdit: (comment: PollComment) => void;
+}) {
+  const canEdit = isOpen && !comment.deleted && comment.userId === currentUserId;
+  const deleting = actionState?.kind === 'delete' && actionState.id === comment.commentId;
+
+  return (
+    <View style={styles.figmaCommentCard}>
               <View style={styles.commentHeader}>
                 <View style={styles.commentAuthorBlock}>
                   <Text style={styles.commentAuthor}>{comment.name}</Text>
@@ -1134,13 +1197,9 @@ function CommentsPanel({
                 ) : null}
               </View>
               <Body>{comment.content}</Body>
-            </View>
-          );
-        })
-      )}
-    </>
+    </View>
   );
-}
+});
 
 function CompactActionButton({
   accessibilityLabel,
