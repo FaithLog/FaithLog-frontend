@@ -47,6 +47,18 @@ export type AdminChargeRequestFilters = {
   userId: string;
 };
 
+type AdminChargeDetailIdentity = {
+  userId: number;
+};
+
+export type AdminChargeViewIdentity<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity = AdminChargeDetailIdentity,
+> = {
+  detail: Detail | null;
+  filters: Filters;
+};
+
 type AdminChargeRequestKeyInput = {
   campusId: number;
   filters: AdminChargeRequestFilters;
@@ -57,6 +69,44 @@ export function createAdminChargeReadCoordinator(): AdminChargeReadCoordinator {
   return {
     summary: {key: null, sequence: 0},
     detail: {key: null, sequence: 0},
+  };
+}
+
+export function createAdminChargeViewIdentity<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity = AdminChargeDetailIdentity,
+>(filters: Filters): AdminChargeViewIdentity<Filters, Detail> {
+  return {detail: null, filters};
+}
+
+export function setAdminChargeViewFilters<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity,
+>(
+  identity: AdminChargeViewIdentity<Filters, Detail>,
+  filters: Filters,
+) {
+  identity.filters = filters;
+  identity.detail = null;
+}
+
+export function setAdminChargeViewDetail<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity,
+>(
+  identity: AdminChargeViewIdentity<Filters, Detail>,
+  detail: Detail | null,
+) {
+  identity.detail = detail;
+}
+
+export function getAdminChargeRefreshIdentity<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity,
+>(identity: AdminChargeViewIdentity<Filters, Detail>) {
+  return {
+    detail: identity.detail,
+    filters: identity.filters,
   };
 }
 
@@ -174,6 +224,49 @@ export function buildAdminChargeDetailRequestKey({
     filters.status,
     filters.userId,
   ]);
+}
+
+export function isAdminChargeSummaryRequestKeyCurrent<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity,
+>({
+  campusId,
+  generation,
+  identity,
+  key,
+}: {
+  campusId: number;
+  generation: number;
+  identity: AdminChargeViewIdentity<Filters, Detail>;
+  key: string;
+}) {
+  return key === buildAdminChargeSummaryRequestKey({
+    campusId,
+    filters: identity.filters,
+    generation,
+  });
+}
+
+export function isAdminChargeDetailRequestKeyCurrent<
+  Filters extends AdminChargeRequestFilters,
+  Detail extends AdminChargeDetailIdentity,
+>({
+  campusId,
+  generation,
+  identity,
+  key,
+}: {
+  campusId: number;
+  generation: number;
+  identity: AdminChargeViewIdentity<Filters, Detail>;
+  key: string;
+}) {
+  return identity.detail !== null && key === buildAdminChargeDetailRequestKey({
+    campusId,
+    filters: identity.filters,
+    generation,
+    memberUserId: identity.detail.userId,
+  });
 }
 
 export function invalidateAdminChargeRead(
