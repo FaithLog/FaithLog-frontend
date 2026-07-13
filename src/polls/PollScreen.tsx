@@ -64,7 +64,11 @@ import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {chunkForVirtualizedRows} from '../utils/listVirtualization';
 import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
 import {PollCommentDraftStore} from './pollCommentDraftStore';
-import {getPollDetailScrollOwner} from './pollScrollOwnership';
+import {
+  getPollDetailScrollOwner,
+  getPollEarlyStateScrollContract,
+  type PollEarlyState,
+} from './pollScrollOwnership';
 import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
@@ -547,17 +551,25 @@ export function PollScreen({
   if (selectedPollId !== null) {
     if (detailState.status === 'error') {
       return (
-        <>
+        <PollStateScroller
+          androidContentBottomPadding={androidContentBottomPadding}
+          state="detailError">
           <Button accessibilityLabel="투표 목록으로 돌아가기" onPress={closeDetail} variant="ghost">
             목록으로
           </Button>
           <PollErrorState error={detailState.error} onRetry={() => loadDetail(selectedPollId)} />
-        </>
+        </PollStateScroller>
       );
     }
 
     if (detailState.status !== 'success') {
-      return <Loading message="투표 상세와 댓글을 불러오고 있어요." />;
+      return (
+        <PollStateScroller
+          androidContentBottomPadding={androidContentBottomPadding}
+          state="detailLoading">
+          <Loading message="투표 상세와 댓글을 불러오고 있어요." />
+        </PollStateScroller>
+      );
     }
 
     const detailScrollOwner = getPollDetailScrollOwner(detailTab);
@@ -688,11 +700,23 @@ export function PollScreen({
   }
 
   if (listState.status === 'error') {
-    return <PollErrorState error={listState.error} onRetry={loadPolls} />;
+    return (
+      <PollStateScroller
+        androidContentBottomPadding={androidContentBottomPadding}
+        state="listError">
+        <PollErrorState error={listState.error} onRetry={loadPolls} />
+      </PollStateScroller>
+    );
   }
 
   if (listState.status !== 'success') {
-    return <Loading message="투표 목록을 불러오고 있어요." />;
+    return (
+      <PollStateScroller
+        androidContentBottomPadding={androidContentBottomPadding}
+        state="listLoading">
+        <Loading message="투표 목록을 불러오고 있어요." />
+      </PollStateScroller>
+    );
   }
 
   const pollGroups = getUserPollListGroups(listState.polls);
@@ -796,6 +820,37 @@ export function PollScreen({
       )}
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function PollStateScroller({
+  androidContentBottomPadding,
+  children,
+  state,
+}: {
+  androidContentBottomPadding: number;
+  children: React.ReactNode;
+  state: PollEarlyState;
+}) {
+  const platform = Platform.OS === 'android' || Platform.OS === 'ios' ? Platform.OS : 'other';
+  const contract = getPollEarlyStateScrollContract(
+    state,
+    platform,
+    androidContentBottomPadding,
+  );
+
+  return (
+    <ScrollView
+      contentContainerStyle={{
+        gap: contract.contentGap,
+        paddingBottom: contract.contentBottomPadding,
+        paddingTop: contract.contentTopPadding,
+      }}
+      keyboardDismissMode={contract.keyboardDismissMode}
+      keyboardShouldPersistTaps={contract.keyboardShouldPersistTaps}
+      showsVerticalScrollIndicator={false}>
+      {children}
+    </ScrollView>
   );
 }
 
