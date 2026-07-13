@@ -9,6 +9,8 @@ import type {
   AdminMemberChargeList,
   ChargeAmountSummary,
   ChargeItem,
+  ChargeList,
+  MarkChargePaidResponse,
 } from './types';
 import {calculateMealChargeGroup} from '../meal/mealModel';
 import type {
@@ -21,7 +23,6 @@ import type {
   MealPollSummary,
   MealSettlement,
 } from '../meal/mealTypes';
-import type {ChargeItem, ChargeList, MarkChargePaidResponse} from './types';
 
 type MockScenario =
   | '401'
@@ -1676,7 +1677,7 @@ function markMockMealChargePaid(
     userId: actor.userId,
     paymentCategory: paidCharge.paymentCategory,
     title: paidCharge.title,
-    reason: paidCharge.reason,
+    ...(paidCharge.reason === undefined ? {} : {reason: paidCharge.reason}),
     amount: paidCharge.amount,
     status: paidCharge.status,
     paidAt,
