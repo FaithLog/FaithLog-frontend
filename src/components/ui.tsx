@@ -346,6 +346,7 @@ export function IconButton({
 export function TextField({
   accessibilityLabel,
   autoCapitalize = 'none',
+  editable = true,
   error,
   helper,
   keyboardType = 'default',
@@ -360,6 +361,7 @@ export function TextField({
 }: {
   accessibilityLabel?: string | undefined;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  editable?: boolean;
   error?: string | undefined;
   helper?: string | undefined;
   keyboardType?: KeyboardTypeOptions;
@@ -379,7 +381,9 @@ export function TextField({
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityState={{disabled: !editable}}
         autoCapitalize={autoCapitalize}
+        editable={editable}
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         onSubmitEditing={onSubmitEditing}
@@ -387,7 +391,11 @@ export function TextField({
         placeholderTextColor={colors.subtleText}
         returnKeyType={returnKeyType}
         secureTextEntry={secureTextEntry}
-        style={[styles.textField, error ? styles.textFieldError : null]}
+        style={[
+          styles.textField,
+          error ? styles.textFieldError : null,
+          !editable ? styles.disabled : null,
+        ]}
         textContentType={textContentType}
         value={value}
       />

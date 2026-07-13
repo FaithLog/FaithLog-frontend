@@ -1,7 +1,9 @@
 import {memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
+  BackHandler,
   FlatList,
   Modal,
   Platform,
@@ -67,6 +69,8 @@ import {prayerApi} from '../api/prayerApi';
 import {
   clearStoredPrayerSeason,
   clearTokens,
+  getAuthSessionGeneration,
+  isAuthSessionGenerationCurrent,
   saveStoredPrayerSeason,
 } from '../api/tokenStorage';
 import type {
@@ -94,7 +98,6 @@ import type {
   DutyAssignment,
   PaymentAccount,
   PaymentCategory,
-  PenaltyCalculationType,
   PenaltyRule,
   PenaltyRuleType,
   PollComment,
@@ -135,6 +138,24 @@ import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {formatCompactWon, formatWon} from '../utils/money';
+import {
+  beginPenaltyRuleSave,
+  createPenaltyRuleSaveGate,
+  emptyPenaltyRuleDraft,
+  finishPenaltyRuleSave,
+  getAvailablePenaltyRuleTypes,
+  getDuplicatePenaltyRuleTypes,
+  getPenaltyCalculationType,
+  getRequiredCountForRuleType,
+  isPenaltyRuleCreateTypeUnavailable,
+  isPenaltyRuleDraftDirty,
+  isPenaltyRuleRequestCurrent,
+  invalidatePenaltyRuleSave,
+  startPenaltyRuleCreateFlow,
+  startPenaltyRuleEditFlow,
+  type PenaltyRuleDraft,
+  type PenaltyRuleFlow,
+} from './penaltyRuleFlow';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -330,16 +351,6 @@ type PenaltyRuleState =
   | {status: 'empty'}
   | {status: 'error'; error: ApiError};
 
-type PenaltyRuleForm = {
-  amountPerUnit: string;
-  baseAmount: string;
-  calculationType: PenaltyCalculationType;
-  isActive: boolean;
-  requiredCount: string;
-  ruleId: number | null;
-  ruleType: PenaltyRuleType;
-};
-
 type AdminPrayerState =
   | {status: 'idle'}
   | {status: 'loading'}
@@ -519,16 +530,6 @@ const emptyPaymentAccountForm: PaymentAccountForm = {
   nickname: '',
 };
 
-const emptyPenaltyRuleForm: PenaltyRuleForm = {
-  amountPerUnit: '',
-  baseAmount: '',
-  calculationType: 'MISSING_COUNT',
-  isActive: true,
-  requiredCount: '',
-  ruleId: null,
-  ruleType: 'QUIET_TIME',
-};
-
 const emptyPrayerSeasonForm: PrayerSeasonForm = {
   endDate: '',
   name: '',
@@ -646,8 +647,14 @@ export function AdminScreen({
   const [penaltyRuleState, setPenaltyRuleState] = useState<PenaltyRuleState>({
     status: 'idle',
   });
+  const [penaltyRuleFlow, setPenaltyRuleFlow] = useState<PenaltyRuleFlow>({route: 'list'});
   const [penaltyRuleForm, setPenaltyRuleForm] =
-    useState<PenaltyRuleForm>(emptyPenaltyRuleForm);
+    useState<PenaltyRuleDraft>(emptyPenaltyRuleDraft);
+  const penaltyRuleCampusIdRef = useRef(campusId);
+  const penaltyRuleMountedRef = useRef(true);
+  const penaltyRuleRequestSequenceRef = useRef(0);
+  const penaltyRuleSaveGateRef = useRef(createPenaltyRuleSaveGate());
+  penaltyRuleCampusIdRef.current = campusId;
   const [prayerState, setPrayerState] = useState<AdminPrayerState>({status: 'idle'});
   const [assignablePrayerMembersState, setAssignablePrayerMembersState] =
     useState<AssignablePrayerMembersState>({status: 'idle'});
@@ -664,6 +671,45 @@ export function AdminScreen({
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
+
+  const resetPenaltyRuleFlow = useCallback(() => {
+    setPenaltyRuleFlow({route: 'list'});
+    setPenaltyRuleForm(emptyPenaltyRuleDraft);
+    setActionError(null);
+  }, []);
+
+  const returnToPenaltyRuleList = useCallback(() => {
+    resetPenaltyRuleFlow();
+    AccessibilityInfo.announceForAccessibility('벌금 규칙 목록으로 돌아왔습니다.');
+  }, [resetPenaltyRuleFlow]);
+
+  const requestPenaltyRuleFlowExit = useCallback(
+    (onDiscard = returnToPenaltyRuleList) => {
+      if (penaltyRuleFlow.route === 'list') {
+        onDiscard();
+        return;
+      }
+
+      if (actionState.status === 'savingPenaltyRule') {
+        return;
+      }
+
+      if (!isPenaltyRuleDraftDirty(penaltyRuleFlow, penaltyRuleForm)) {
+        onDiscard();
+        return;
+      }
+
+      Alert.alert(
+        '변경사항을 버릴까요?',
+        '저장하지 않은 규칙 내용이 있습니다. 나가면 입력한 내용이 사라집니다.',
+        [
+          {text: '계속 작성', style: 'cancel'},
+          {text: '변경사항 버리기', style: 'destructive', onPress: onDiscard},
+        ],
+      );
+    },
+    [actionState.status, penaltyRuleFlow, penaltyRuleForm, returnToPenaltyRuleList],
+  );
 
   const syncPrayerSeason = (season: Pick<AdminPrayerSeason, 'name' | 'seasonId' | 'startDate'>) => {
     setPrayerSeasonForm((current) => ({
@@ -821,6 +867,17 @@ export function AdminScreen({
   };
 
   useEffect(() => {
+    penaltyRuleMountedRef.current = true;
+
+    return () => {
+      penaltyRuleMountedRef.current = false;
+      penaltyRuleRequestSequenceRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    penaltyRuleRequestSequenceRef.current += 1;
+    invalidatePenaltyRuleSave(penaltyRuleSaveGateRef.current);
     setSelectedMemberId(null);
     setMemberSection('list');
     setDevotionSection('missing');
@@ -846,7 +903,12 @@ export function AdminScreen({
     setPaymentAccountDeleteTarget(null);
     setAccountCopyFeedback(null);
     setPenaltyRuleState({status: 'idle'});
-    setPenaltyRuleForm(emptyPenaltyRuleForm);
+    setPenaltyRuleFlow({route: 'list'});
+    setPenaltyRuleForm(emptyPenaltyRuleDraft);
+    setActionState((current) =>
+      current.status === 'savingPenaltyRule' ? {status: 'idle'} : current,
+    );
+    setActionError(null);
     setPrayerState({status: 'idle'});
     setAssignablePrayerMembersState({status: 'idle'});
     setPrayerSeasonForm({...emptyPrayerSeasonForm, startDate: getWeekStartDate(new Date())});
@@ -858,6 +920,19 @@ export function AdminScreen({
     void loadAdmin();
     void loadInviteCode();
   }, [campusId]);
+
+  useEffect(() => {
+    if (penaltyRuleFlow.route === 'list') {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      requestPenaltyRuleFlowExit();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [penaltyRuleFlow.route, requestPenaltyRuleFlowExit]);
 
   useEffect(() => {
     if (
@@ -1292,9 +1367,14 @@ export function AdminScreen({
     AccessibilityInfo.announceForAccessibility(message);
   };
 
-  const loadPenaltyRules = async () => {
+  const loadPenaltyRules = async ({preserveActionError = false} = {}) => {
+    const requestCampusId = campusId;
+    const requestGeneration = getAuthSessionGeneration();
+    const requestSequence = ++penaltyRuleRequestSequenceRef.current;
     setPenaltyRuleState({status: 'loading'});
-    setActionError(null);
+    if (!preserveActionError) {
+      setActionError(null);
+    }
 
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -1304,10 +1384,36 @@ export function AdminScreen({
       }
 
       const rules = await fetchPenaltyRules(accessToken, campusId);
+      if (
+        !isPenaltyRuleRequestCurrent({
+          currentCampusId: penaltyRuleCampusIdRef.current,
+          currentGeneration: getAuthSessionGeneration(),
+          currentSequence: penaltyRuleRequestSequenceRef.current,
+          mounted: penaltyRuleMountedRef.current,
+          requestCampusId,
+          requestGeneration,
+          requestSequence,
+        })
+      ) {
+        return;
+      }
       setPenaltyRuleState(
         rules.length === 0 ? {status: 'empty'} : {status: 'success', rules},
       );
     } catch (error) {
+      if (
+        !isPenaltyRuleRequestCurrent({
+          currentCampusId: penaltyRuleCampusIdRef.current,
+          currentGeneration: getAuthSessionGeneration(),
+          currentSequence: penaltyRuleRequestSequenceRef.current,
+          mounted: penaltyRuleMountedRef.current,
+          requestCampusId,
+          requestGeneration,
+          requestSequence,
+        })
+      ) {
+        return;
+      }
       const apiError = toApiError(error, '벌금 규칙을 불러오지 못했습니다.');
       setPenaltyRuleState({status: 'error', error: apiError});
       void handleAuthError(apiError, setAuthState);
@@ -1315,11 +1421,36 @@ export function AdminScreen({
   };
 
   const savePenaltyRule = async () => {
-    if (actionState.status !== 'idle') {
+    if (
+      actionState.status !== 'idle' ||
+      penaltyRuleFlow.route === 'list'
+    ) {
       return;
     }
 
-    const editingRuleId = penaltyRuleForm.ruleId;
+    const operationId = beginPenaltyRuleSave(penaltyRuleSaveGateRef.current);
+    if (operationId === null) {
+      return;
+    }
+
+    const currentRules = getPenaltyRulesForSelection(penaltyRuleState);
+    if (
+      currentRules === null ||
+      isPenaltyRuleCreateTypeUnavailable(penaltyRuleFlow, penaltyRuleForm, currentRules)
+    ) {
+      setActionError({
+        code: 'PENALTY_RULE_DUPLICATE',
+        kind: 'conflict',
+        status: 409,
+        message: '다른 관리자가 같은 규칙 항목을 먼저 등록했습니다. 입력값은 유지했으니 목록의 최신 상태를 확인해 주세요.',
+      });
+      finishPenaltyRuleSave(penaltyRuleSaveGateRef.current, operationId);
+      return;
+    }
+
+    const editingRuleId = penaltyRuleFlow.route === 'edit' ? penaltyRuleFlow.ruleId : null;
+    const operationCampusId = campusId;
+    const operationGeneration = getAuthSessionGeneration();
     setActionState({status: 'savingPenaltyRule', ruleId: editingRuleId});
     setActionError(null);
 
@@ -1340,7 +1471,7 @@ export function AdminScreen({
         editingRuleId === null
           ? await createAdminPenaltyRule(accessToken, campusId, {
               ruleType: penaltyRuleForm.ruleType,
-              calculationType: getPenaltyCalculationTypeForRule(penaltyRuleForm.ruleType),
+              calculationType: getPenaltyCalculationType(penaltyRuleForm.ruleType),
               ...requestAmounts,
             })
           : await updateAdminPenaltyRule(accessToken, editingRuleId, {
@@ -1348,33 +1479,94 @@ export function AdminScreen({
               isActive: penaltyRuleForm.isActive,
             });
 
-      setPenaltyRuleForm(emptyPenaltyRuleForm);
-      setPenaltyRuleState({status: 'idle'});
+      if (
+        !penaltyRuleMountedRef.current ||
+        penaltyRuleCampusIdRef.current !== operationCampusId ||
+        !isAuthSessionGenerationCurrent(operationGeneration)
+      ) {
+        return;
+      }
+
+      setPenaltyRuleFlow({route: 'list'});
+      setPenaltyRuleForm(emptyPenaltyRuleDraft);
+      await loadPenaltyRules();
+
+      if (
+        !penaltyRuleMountedRef.current ||
+        penaltyRuleCampusIdRef.current !== operationCampusId ||
+        !isAuthSessionGenerationCurrent(operationGeneration)
+      ) {
+        return;
+      }
       setNotice({
         tone: rule.isActive ? 'success' : 'warning',
         title: editingRuleId === null ? '벌금 규칙 등록' : '벌금 규칙 수정',
         message: `${getPenaltyRuleTypeLabel(rule.ruleType)} 규칙을 저장했습니다.`,
       });
+      AccessibilityInfo.announceForAccessibility(
+        `${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙을 저장했고 목록으로 돌아왔습니다.`,
+      );
     } catch (error) {
       const apiError = toApiError(error, '벌금 규칙을 저장하지 못했습니다.');
-      setActionError(apiError);
+      if (
+        !penaltyRuleMountedRef.current ||
+        penaltyRuleCampusIdRef.current !== operationCampusId ||
+        !isAuthSessionGenerationCurrent(operationGeneration)
+      ) {
+        return;
+      }
+
+      if (apiError.kind === 'conflict' && editingRuleId === null) {
+        setActionError({
+          ...apiError,
+          code: 'PENALTY_RULE_DUPLICATE',
+          message: '다른 관리자가 같은 규칙 항목을 먼저 등록했습니다. 입력값은 유지했으니 최신 목록을 확인해 주세요.',
+        });
+        await loadPenaltyRules({preserveActionError: true});
+      } else {
+        setActionError(apiError);
+      }
       void handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState({status: 'idle'});
+      if (
+        penaltyRuleMountedRef.current &&
+        finishPenaltyRuleSave(penaltyRuleSaveGateRef.current, operationId)
+      ) {
+        setActionState({status: 'idle'});
+      }
     }
   };
 
-  const editPenaltyRule = (rule: PenaltyRule) => {
-    setPenaltyRuleForm({
-      amountPerUnit: String(rule.amountPerUnit),
-      baseAmount: String(rule.baseAmount),
-      calculationType: rule.calculationType,
-      isActive: rule.isActive,
-      requiredCount: String(rule.requiredCount),
-      ruleId: rule.id,
-      ruleType: rule.ruleType,
-    });
+  const openPenaltyRuleCreate = () => {
+    const rules = getPenaltyRulesForSelection(penaltyRuleState);
+    if (rules === null) {
+      return;
+    }
+
+    const nextFlow = startPenaltyRuleCreateFlow(rules);
+    if (!nextFlow || nextFlow.route !== 'create') {
+      setNotice({
+        tone: 'info',
+        title: '모든 규칙이 등록되었습니다',
+        message: '기존 규칙의 수정 버튼에서 금액과 활성 상태를 변경해 주세요.',
+      });
+      return;
+    }
+
+    setPenaltyRuleFlow(nextFlow);
+    setPenaltyRuleForm(nextFlow.initialDraft);
     setActionError(null);
+    AccessibilityInfo.announceForAccessibility('벌금 규칙 추가 페이지입니다.');
+  };
+
+  const editPenaltyRule = (rule: PenaltyRule) => {
+    const nextFlow = startPenaltyRuleEditFlow(rule);
+    setPenaltyRuleFlow(nextFlow);
+    setPenaltyRuleForm(nextFlow.initialDraft);
+    setActionError(null);
+    AccessibilityInfo.announceForAccessibility(
+      `${getPenaltyRuleTypeLabel(rule.ruleType)} 벌금 규칙 수정 페이지입니다.`,
+    );
   };
 
   const loadPrayerBoard = async () => {
@@ -2177,9 +2369,19 @@ export function AdminScreen({
   };
 
   const selectAdminTab = (nextTab: AdminTab) => {
-    setSelectedMemberId(null);
-    setActionError(null);
-    setTab(nextTab);
+    const changeTab = () => {
+      resetPenaltyRuleFlow();
+      setSelectedMemberId(null);
+      setActionError(null);
+      setTab(nextTab);
+    };
+
+    if (penaltyRuleFlow.route !== 'list') {
+      requestPenaltyRuleFlowExit(changeTab);
+      return;
+    }
+
+    changeTab();
   };
 
   const openMemberRoles = () => {
@@ -2285,9 +2487,15 @@ export function AdminScreen({
       <AdminShellHeader
         activeTab={tab}
         campusLabel={getCampusLabel(state)}
-        onOpenUserMode={onBackToUserMode}
+        onOpenUserMode={() => requestPenaltyRuleFlowExit(onBackToUserMode)}
       />
-      {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
+      {actionError && !(
+        tab === 'settlement' &&
+        settlementSection === 'penaltyRules' &&
+        penaltyRuleFlow.route !== 'list'
+      ) ? (
+        <AdminInlineError error={actionError} exposeValidationMessage />
+      ) : null}
       {selectedMember ? (
         <AdminMemberDetail
           actionState={actionState}
@@ -2429,7 +2637,9 @@ export function AdminScreen({
             currentUserId={state.user.id}
             knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
             notificationState={notificationState}
-            onCancelPenaltyRuleEdit={() => setPenaltyRuleForm(emptyPenaltyRuleForm)}
+            penaltyRuleError={actionError}
+            penaltyRuleFlow={penaltyRuleFlow}
+            onBackPenaltyRule={() => requestPenaltyRuleFlowExit()}
             onChangePaymentAccountForm={(patch) =>
               setPaymentAccountForm((current) => ({...current, ...patch}))
             }
@@ -2437,15 +2647,26 @@ export function AdminScreen({
             setPenaltyRuleForm((current) => ({...current, ...patch}))
           }
           onChangeSection={(section) => {
-            setSettlementSection(section);
-            setSelectedPaymentAccount(null);
-            setActionError(null);
+            const changeSection = () => {
+              resetPenaltyRuleFlow();
+              setSettlementSection(section);
+              setSelectedPaymentAccount(null);
+              setActionError(null);
+            };
+
+            if (penaltyRuleFlow.route !== 'list') {
+              requestPenaltyRuleFlowExit(changeSection);
+              return;
+            }
+
+            changeSection();
           }}
           onBackToSummary={() => setChargeDetailState({status: 'idle'})}
           onBlockedPaid={setPaidBlockedTarget}
           onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
+          onOpenPenaltyRuleCreate={openPenaltyRuleCreate}
           onOpenChargeReminderConfirm={(paymentCategory) =>
             void openChargeReminderConfirm(paymentCategory)
           }
@@ -7865,8 +8086,10 @@ function AdminSettlement({
   filters,
   knownOwnedCoffeeAccountIds,
   notificationState,
+  penaltyRuleError,
+  penaltyRuleFlow,
   onActivatePaymentAccount,
-  onCancelPenaltyRuleEdit,
+  onBackPenaltyRule,
   onChangePaymentAccountForm,
   onChangePenaltyRuleForm,
   onChangeSection,
@@ -7874,6 +8097,7 @@ function AdminSettlement({
   onBlockedPaid,
   onCopyPaymentAccount,
   onEditPenaltyRule,
+  onOpenPenaltyRuleCreate,
   onOpenChargeReminderConfirm,
   onOpenMemberCharges,
   onRequestDeletePaymentAccount,
@@ -7905,15 +8129,18 @@ function AdminSettlement({
   filters: AdminChargeFilters;
   knownOwnedCoffeeAccountIds: Set<number>;
   notificationState: NotificationSendState;
+  penaltyRuleError: ApiError | null;
+  penaltyRuleFlow: PenaltyRuleFlow;
   onActivatePaymentAccount: (account: PaymentAccount) => void;
-  onCancelPenaltyRuleEdit: () => void;
+  onBackPenaltyRule: () => void;
   onChangePaymentAccountForm: (patch: Partial<PaymentAccountForm>) => void;
-  onChangePenaltyRuleForm: (patch: Partial<PenaltyRuleForm>) => void;
+  onChangePenaltyRuleForm: (patch: Partial<PenaltyRuleDraft>) => void;
   onChangeSection: (section: AdminSettlementSection) => void;
   onBackToSummary: () => void;
   onBlockedPaid: (charge: ChargeItem) => void;
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
+  onOpenPenaltyRuleCreate: () => void;
   onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
@@ -7935,7 +8162,7 @@ function AdminSettlement({
   paymentAccountCopyFeedback: AccountCopyFeedback;
   paymentAccountCopyOpacity: Animated.Value;
   paymentAccountState: PaymentAccountState;
-  penaltyRuleForm: PenaltyRuleForm;
+  penaltyRuleForm: PenaltyRuleDraft;
   penaltyRuleState: PenaltyRuleState;
   section: AdminSettlementSection;
   selectedPaymentAccount: PaymentAccount | null;
@@ -7943,11 +8170,12 @@ function AdminSettlement({
 }) {
   const busy = actionState.status !== 'idle';
   const chargeDetailOpen = section === 'charges' && detailState.status !== 'idle';
+  const penaltyRuleFormOpen = section === 'penaltyRules' && penaltyRuleFlow.route !== 'list';
   const sectionHint = getSettlementSectionHint(section);
 
   return (
     <>
-      {chargeDetailOpen ? null : (
+      {chargeDetailOpen || penaltyRuleFormOpen ? null : (
         <View style={styles.settlementTabBlock}>
           <FigmaSegmentedControl
             items={settlementSections}
@@ -7998,10 +8226,13 @@ function AdminSettlement({
       ) : (
         <AdminPenaltyRules
           busy={busy}
+          error={penaltyRuleError}
+          flow={penaltyRuleFlow}
           form={penaltyRuleForm}
-          onCancelEdit={onCancelPenaltyRuleEdit}
+          onBack={onBackPenaltyRule}
           onChangeForm={onChangePenaltyRuleForm}
           onEdit={onEditPenaltyRule}
+          onOpenCreate={onOpenPenaltyRuleCreate}
           onRetry={onRetryPenaltyRules}
           onSave={onSavePenaltyRule}
           state={penaltyRuleState}
@@ -8748,49 +8979,119 @@ function PaymentAccountListItem({
 
 function AdminPenaltyRules({
   busy,
+  error,
+  flow,
   form,
-  onCancelEdit,
+  onBack,
   onChangeForm,
   onEdit,
+  onOpenCreate,
   onRetry,
   onSave,
   state,
 }: {
   busy: boolean;
-  form: PenaltyRuleForm;
-  onCancelEdit: () => void;
-  onChangeForm: (patch: Partial<PenaltyRuleForm>) => void;
+  error: ApiError | null;
+  flow: PenaltyRuleFlow;
+  form: PenaltyRuleDraft;
+  onBack: () => void;
+  onChangeForm: (patch: Partial<PenaltyRuleDraft>) => void;
   onEdit: (rule: PenaltyRule) => void;
+  onOpenCreate: () => void;
   onRetry: () => void;
   onSave: () => void;
   state: PenaltyRuleState;
 }) {
+  const registeredRules = getPenaltyRulesForSelection(state);
+  const availableTypes = registeredRules
+    ? getAvailablePenaltyRuleTypes(registeredRules)
+    : [];
+  const availableOptions = penaltyRuleTypeOptions.filter((option) =>
+    availableTypes.includes(option.id),
+  );
+
+  if (flow.route === 'list') {
+    const duplicateTypes = registeredRules
+      ? getDuplicatePenaltyRuleTypes(registeredRules)
+      : [];
+    const allTypesRegistered = registeredRules !== null && availableTypes.length === 0;
+
+    return (
+      <View style={styles.figmaListStack}>
+        <View style={styles.penaltyRuleListHeader}>
+          <SettlementSectionHeader
+            description="활성 상태와 금액 계산 방식을 확인하고, 기존 규칙은 수정 페이지에서 변경합니다."
+            title="벌금 규칙"
+          />
+          <AdminCompactButton
+            accessibilityLabel={
+              allTypesRegistered
+                ? '모든 벌금 규칙 항목이 등록되어 규칙 추가 비활성화됨'
+                : '벌금 규칙 추가 페이지 열기'
+            }
+            disabled={busy || registeredRules === null || allTypesRegistered}
+            onPress={onOpenCreate}>
+            규칙 추가
+          </AdminCompactButton>
+        </View>
+        {allTypesRegistered ? (
+          <View style={styles.inlineInfo}>
+            <Text style={styles.inlineInfoText}>
+              등록 가능한 모든 항목이 준비되었습니다. 내용을 바꾸려면 각 규칙의 수정 버튼을 눌러 주세요.
+            </Text>
+          </View>
+        ) : null}
+        {duplicateTypes.length > 0 ? (
+          <View accessibilityRole="alert" style={styles.inlineWarning}>
+            <Text style={styles.inlineWarningText}>
+              서버에 같은 항목의 규칙이 여러 개 있습니다: {duplicateTypes.map(getPenaltyRuleTypeLabel).join(', ')}. 중복된 항목의 재추가는 차단되며, 아직 등록되지 않은 다른 항목은 추가할 수 있습니다. backend 데이터 정리가 필요합니다.
+            </Text>
+          </View>
+        ) : null}
+        {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
+      </View>
+    );
+  }
+
   const lateMinuteRule = isSaturdayLatePenaltyRule(form.ruleType);
   const calculationLabel = lateMinuteRule ? '지각 분 기준' : '미달 횟수 기준';
+  const createTypeUnavailable =
+    flow.route === 'create' &&
+    (registeredRules === null ||
+      isPenaltyRuleCreateTypeUnavailable(flow, form, registeredRules));
+  const pageTitle = flow.route === 'create' ? '규칙 추가' : '규칙 수정';
 
   return (
     <>
-      <View style={styles.figmaListStack}>
-        <SettlementSectionHeader
-          description="활성 벌금 기준과 금액 계산 방식을 확인합니다."
-          title="벌금 규칙"
-        />
-        {renderPenaltyRuleList({busy, onEdit, onRetry, state})}
+      <View accessibilityRole="header" style={styles.accountSubpageHeader}>
+        <View style={styles.headerText}>
+          <Text style={styles.sectionTitle}>{pageTitle}</Text>
+          <Text style={styles.settlementSectionDescription}>
+            {flow.route === 'create'
+              ? '아직 등록되지 않은 규칙 항목을 선택하고 금액 기준을 입력합니다.'
+              : '규칙 항목은 유지하고 금액 기준과 활성 상태만 수정합니다.'}
+          </Text>
+        </View>
+        <AdminCompactButton
+          accessibilityLabel={`${pageTitle} 페이지에서 규칙 목록으로 돌아가기`}
+          disabled={busy}
+          onPress={onBack}
+          variant="secondary">
+          뒤로
+        </AdminCompactButton>
       </View>
-      <SettlementSectionHeader
-        description="새 규칙을 등록하거나 선택한 규칙의 금액 기준을 수정합니다."
-        title={form.ruleId === null ? '규칙 등록' : '규칙 수정'}
-      />
       <View style={styles.figmaFormCard}>
-        {form.ruleId === null ? (
+        {flow.route === 'create' && !createTypeUnavailable ? (
           <FigmaSegmentedControl
-            items={penaltyRuleTypeOptions}
+            accessibilityLabelSuffix="규칙 항목 선택"
+            disabled={busy}
+            items={availableOptions}
             selectedId={form.ruleType}
             onSelect={(ruleType) =>
               onChangeForm({
                 ruleType,
-                calculationType: getPenaltyCalculationTypeForRule(ruleType),
-                requiredCount: getPenaltyRequiredCountForRuleSelection(
+                calculationType: getPenaltyCalculationType(ruleType),
+                requiredCount: getRequiredCountForRuleType(
                   ruleType,
                   form.requiredCount,
                 ),
@@ -8798,8 +9099,15 @@ function AdminPenaltyRules({
             }
           />
         ) : (
-          <ListRow label="규칙 타입" value={getPenaltyRuleTypeLabel(form.ruleType)} />
+          <ListRow label="규칙 항목" value={getPenaltyRuleTypeLabel(form.ruleType)} />
         )}
+        {flow.route === 'create' && createTypeUnavailable ? (
+          <View accessibilityRole="alert" style={styles.inlineWarning}>
+            <Text style={styles.inlineWarningText}>
+              최신 목록에서 이 항목이 이미 등록되었거나 목록을 확인할 수 없습니다. 입력값은 유지되지만 중복 방지를 위해 저장할 수 없습니다.
+            </Text>
+          </View>
+        ) : null}
         <PenaltyRuleModeSummary
           calculationLabel={calculationLabel}
           lateMinuteRule={lateMinuteRule}
@@ -8810,6 +9118,7 @@ function AdminPenaltyRules({
             <View style={styles.filterField}>
               <TextField
                 accessibilityLabel="벌금 규칙 주간 필수 횟수"
+                editable={!busy}
                 helper="QT, 기도, 성경의 주간 기준 횟수입니다."
                 keyboardType="number-pad"
                 label="주간 필수 횟수"
@@ -8824,6 +9133,7 @@ function AdminPenaltyRules({
           <View style={styles.filterField}>
             <TextField
               accessibilityLabel="벌금 규칙 기본 금액"
+              editable={!busy}
               keyboardType="number-pad"
               label="기본 금액"
               onChangeText={(baseAmount) =>
@@ -8838,6 +9148,7 @@ function AdminPenaltyRules({
               accessibilityLabel={
                 lateMinuteRule ? '벌금 규칙 1분당 금액' : '벌금 규칙 미달 1회당 금액'
               }
+              editable={!busy}
               helper={lateMinuteRule ? '토요지각 1분마다 추가되는 금액입니다.' : undefined}
               keyboardType="number-pad"
               label={lateMinuteRule ? '1분당 금액' : '미달 1회당 금액'}
@@ -8849,29 +9160,30 @@ function AdminPenaltyRules({
             />
           </View>
         </View>
-        {form.ruleId !== null ? (
+        {flow.route === 'edit' ? (
           <FigmaSegmentedControl
+            accessibilityLabelSuffix="규칙 활성 상태 선택"
+            disabled={busy}
             items={penaltyRuleActiveOptions}
             selectedId={form.isActive ? 'active' : 'inactive'}
             onSelect={(value) => onChangeForm({isActive: value === 'active'})}
           />
         ) : null}
+        {error ? <AdminInlineError error={error} exposeValidationMessage /> : null}
         <View style={styles.actionRow}>
           <Button
             accessibilityLabel="벌금 규칙 저장"
-            disabled={busy}
+            disabled={busy || createTypeUnavailable}
             onPress={onSave}>
             {busy ? '저장 중...' : '규칙 저장'}
           </Button>
-          {form.ruleId !== null ? (
-            <Button
-              accessibilityLabel="벌금 규칙 수정 취소"
-              disabled={busy}
-              onPress={onCancelEdit}
-              variant="secondary">
-              취소
-            </Button>
-          ) : null}
+          <Button
+            accessibilityLabel={`${pageTitle} 취소하고 규칙 목록으로 돌아가기`}
+            disabled={busy}
+            onPress={onBack}
+            variant="secondary">
+            취소
+          </Button>
         </View>
       </View>
     </>
@@ -10583,10 +10895,14 @@ function SegmentedControl<T extends string>({
 }
 
 function FigmaSegmentedControl<T extends string>({
+  accessibilityLabelSuffix = '필터 선택',
+  disabled = false,
   items,
   onSelect,
   selectedId,
 }: {
+  accessibilityLabelSuffix?: string;
+  disabled?: boolean;
   items: Array<{id: T; label: string}>;
   onSelect: (id: T) => void;
   selectedId: T;
@@ -10598,14 +10914,16 @@ function FigmaSegmentedControl<T extends string>({
 
         return (
           <Pressable
-            accessibilityLabel={`${item.label} 필터 선택`}
+            accessibilityLabel={`${item.label} ${accessibilityLabelSuffix}`}
             accessibilityRole="button"
-            accessibilityState={{selected: active}}
+            accessibilityState={{disabled, selected: active}}
+            disabled={disabled}
             key={item.id}
             onPress={() => onSelect(item.id)}
             style={({pressed}) => [
               styles.figmaSegment,
               active ? styles.figmaSegmentActive : null,
+              disabled ? styles.figmaSegmentDisabled : null,
               pressed ? styles.pressed : null,
             ]}>
             <Text style={[styles.figmaSegmentText, active ? styles.figmaSegmentTextActive : null]}>
@@ -10753,7 +11071,9 @@ function getAdminActionErrorMessage(
         ? error.message
         : '현재 계정으로는 이 작업을 진행할 수 없습니다. 권한이나 서버 정책을 확인해 주세요.';
     case 'conflict':
-      return '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
+      return error.code === 'PENALTY_RULE_DUPLICATE'
+        ? error.message
+        : '최신 상태와 충돌했습니다. 다시 불러온 뒤 시도해 주세요.';
     case 'offline':
       return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
     case 'sessionExpired':
@@ -11975,19 +12295,19 @@ function getPenaltyRuleTypeLabel(ruleType: PenaltyRuleType) {
   }
 }
 
-function getPenaltyCalculationTypeForRule(ruleType: PenaltyRuleType): PenaltyCalculationType {
-  return isSaturdayLatePenaltyRule(ruleType) ? 'LATE_MINUTE' : 'MISSING_COUNT';
-}
-
-function getPenaltyRequiredCountForRuleSelection(
-  ruleType: PenaltyRuleType,
-  currentRequiredCount: string,
-) {
-  if (isSaturdayLatePenaltyRule(ruleType)) {
-    return '0';
+function getPenaltyRulesForSelection(state: PenaltyRuleState) {
+  switch (state.status) {
+    case 'success':
+      return state.rules;
+    case 'empty':
+      return [];
+    case 'idle':
+    case 'loading':
+    case 'error':
+      return null;
+    default:
+      return assertNever(state);
   }
-
-  return currentRequiredCount === '0' ? '' : currentRequiredCount;
 }
 
 function isSaturdayLatePenaltyRule(ruleType: PenaltyRuleType) {
@@ -13195,6 +13515,9 @@ const styles = StyleSheet.create({
   figmaSegmentActive: {
     backgroundColor: adminFigmaTokens.surface,
   },
+  figmaSegmentDisabled: {
+    opacity: 0.55,
+  },
   figmaSegmented: {
     backgroundColor: adminFigmaTokens.borderSoft,
     borderRadius: 16,
@@ -13497,6 +13820,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
+  },
+  inlineWarning: {
+    backgroundColor: colors.warningSoft,
+    borderColor: colors.warning,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  inlineWarningText: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
   },
   inviteCodeCopyButton: {
     alignItems: 'center',
@@ -14370,6 +14709,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 160,
+  },
+  penaltyRuleListHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    justifyContent: 'space-between',
   },
   pressed: {
     opacity: 0.72,
