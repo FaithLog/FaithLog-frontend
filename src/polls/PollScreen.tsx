@@ -1,4 +1,4 @@
-import {memo, useEffect, useRef, useState} from 'react';
+import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -60,7 +61,9 @@ import {
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
+import {chunkForVirtualizedRows} from '../utils/listVirtualization';
 import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
+import {PollCommentDraftStore} from './pollCommentDraftStore';
 import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
@@ -142,6 +145,7 @@ export function PollScreen({
   const currentPollId = useRef<number | null>(selectedPollId);
   const detailEpoch = useRef(0);
   const screenMounted = useRef(true);
+  const commentDraftStore = useRef(new PollCommentDraftStore()).current;
   currentPollId.current = selectedPollId;
 
   const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
@@ -238,6 +242,7 @@ export function PollScreen({
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     detailEpoch.current += 1;
     currentPollId.current = poll.id;
+    commentDraftStore.open(poll.id);
     setEditingComment(null);
     setActionState(null);
     setActionError(null);
@@ -247,6 +252,7 @@ export function PollScreen({
   };
 
   const closeDetail = () => {
+    if (currentPollId.current !== null) commentDraftStore.close(currentPollId.current);
     detailEpoch.current += 1;
     currentPollId.current = null;
     setSelectedPollId(null);
@@ -425,11 +431,13 @@ export function PollScreen({
 
       const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+      commentDraftStore.settle(mutationPollId, 'success');
       setDetailState((current) => current.status === 'success' &&
         current.detail.id === mutationPollId && created.pollId === mutationPollId
         ? {...current, comments: [...current.comments, created]}
         : current);
     } catch (error) {
+      commentDraftStore.settle(mutationPollId, 'failure');
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
       if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
@@ -469,6 +477,7 @@ export function PollScreen({
         content,
       });
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+      commentDraftStore.settle(mutationPollId, 'success');
       setEditingComment(null);
       setDetailState((current) => current.status === 'success' &&
         current.detail.id === mutationPollId && updated.pollId === mutationPollId
@@ -476,6 +485,7 @@ export function PollScreen({
           item.commentId === updated.commentId ? updated : item)}
         : current);
     } catch (error) {
+      commentDraftStore.settle(mutationPollId, 'failure');
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
       if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
@@ -557,6 +567,7 @@ export function PollScreen({
             actionError={actionError}
             actionState={actionState}
             comments={detailState.comments}
+            draftStore={commentDraftStore}
             currentUserId={state.user.id}
             editingComment={editingComment}
             header={(
@@ -575,15 +586,44 @@ export function PollScreen({
             )}
             isOpen={isPollActionable(detailState.detail)}
             onCancelEdit={() => {
+              commentDraftStore.cancel(detailState.detail.id);
               setEditingComment(null);
               setActionError(null);
             }}
             onDelete={removeComment}
             onEdit={(comment) => {
+              commentDraftStore.beginEdit(
+                detailState.detail.id,
+                comment.commentId,
+                comment.content.slice(0, COMMENT_MAX_LENGTH),
+              );
               setEditingComment(comment);
               setActionError(null);
             }}
             onSubmit={editingComment ? submitCommentEdit : submitComment}
+            pollId={detailState.detail.id}
+          />
+        ) : detailTab === 'results' ? (
+          <ResultsPanel
+            actionError={actionError}
+            detail={detailState.detail}
+            error={detailState.resultError}
+            header={(
+              <>
+                <PollDetailHeader
+                  canOpenAdminMode={canOpenAdminMode}
+                  campusLabel={state.selectedCampus.campusName}
+                  contextLabel={`${state.user.name}님`}
+                  detail={detailState.detail}
+                  onBack={closeDetail}
+                  onOpenAdminMode={onOpenAdminMode}
+                  onOpenNotifications={onOpenNotifications}
+                />
+                <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+              </>
+            )}
+            onRetry={() => loadDetail(detailState.detail.id, 'results')}
+            results={detailState.results}
           />
         ) : (
         <ScrollView
@@ -612,14 +652,6 @@ export function PollScreen({
             onToggleOption={toggleOption}
             results={detailState.results}
             selectedOptionIds={selectedOptionIds}
-          />
-        ) : null}
-        {detailTab === 'results' ? (
-          <ResultsPanel
-            detail={detailState.detail}
-            error={detailState.resultError}
-            onRetry={() => loadDetail(detailState.detail.id, 'results')}
-            results={detailState.results}
           />
         ) : null}
         <UserOptionAddSheet
@@ -1050,6 +1082,7 @@ function CommentsPanel({
   actionState,
   comments,
   currentUserId,
+  draftStore,
   editingComment,
   header,
   isOpen,
@@ -1057,11 +1090,13 @@ function CommentsPanel({
   onDelete,
   onEdit,
   onSubmit,
+  pollId,
 }: {
   actionError: ApiError | null;
   actionState: ActionState;
   comments: PollComment[];
   currentUserId: number;
+  draftStore: PollCommentDraftStore;
   editingComment: PollComment | null;
   header: React.ReactNode;
   isOpen: boolean;
@@ -1069,13 +1104,14 @@ function CommentsPanel({
   onDelete: (comment: PollComment) => void;
   onEdit: (comment: PollComment) => void;
   onSubmit: (content: string) => void;
+  pollId: number;
 }) {
   const submitting = actionState?.kind === 'comment' || actionState?.kind === 'edit';
-  const [draft, setDraft] = useState(editingComment?.content.slice(0, COMMENT_MAX_LENGTH) ?? '');
+  const [draft, setDraft] = useState(() => draftStore.get(pollId).content);
   const wasSubmitting = useRef(false);
 
   useEffect(() => {
-    setDraft(editingComment?.content.slice(0, COMMENT_MAX_LENGTH) ?? '');
+    setDraft(draftStore.get(pollId).content);
   }, [editingComment?.commentId]);
 
   useEffect(() => {
@@ -1103,7 +1139,11 @@ function CommentsPanel({
           accessibilityLabel={editingComment ? '수정할 댓글 내용 입력' : '댓글 내용 입력'}
           editable={isOpen && !submitting}
           multiline
-          onChangeText={(value) => setDraft(value.slice(0, COMMENT_MAX_LENGTH))}
+          onChangeText={(value) => {
+            const next = value.slice(0, COMMENT_MAX_LENGTH);
+            draftStore.update(pollId, next);
+            setDraft(next);
+          }}
           placeholder="댓글을 입력해 주세요"
           placeholderTextColor={colors.subtleText}
           style={styles.multiInput}
@@ -1235,28 +1275,49 @@ function CompactActionButton({
 }
 
 function ResultsPanel({
+  actionError,
   detail,
   error,
+  header,
   onRetry,
   results,
 }: {
+  actionError: ApiError | null;
   detail: PollDetail;
   error: ApiError | null;
+  header: React.ReactNode;
   onRetry: () => void;
   results: PollResults | null;
 }) {
-  if (!results) {
-    if (error) {
-      return <PollErrorState error={error} onRetry={onRetry} />;
-    }
+  const sections = useMemo(() => results?.optionResults
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((option) => ({
+      data: results.anonymous || option.respondents.length === 0
+        ? [[]]
+        : chunkForVirtualizedRows(option.respondents, 3),
+      key: String(option.id),
+      option,
+    })) ?? [], [results]);
 
+  if (!results) {
     return (
-      <ErrorState
-        title="결과를 불러오지 못했습니다"
-        message="응답과 댓글은 사용할 수 있지만 결과 API 응답을 확인하지 못했습니다."
-        actionLabel="다시 불러오기"
-        actionAccessibilityLabel="투표 결과 다시 불러오기"
-        onActionPress={onRetry}
+      <FlatList
+        contentContainerStyle={styles.figmaScreen}
+        data={[]}
+        ListEmptyComponent={error ? (
+          <PollErrorState error={error} onRetry={onRetry} />
+        ) : (
+          <ErrorState
+            title="결과를 불러오지 못했습니다"
+            message="응답과 댓글은 사용할 수 있지만 결과 API 응답을 확인하지 못했습니다."
+            actionLabel="다시 불러오기"
+            actionAccessibilityLabel="투표 결과 다시 불러오기"
+            onActionPress={onRetry}
+          />
+        )}
+        ListHeaderComponent={<>{header}{actionError ? <ActionErrorCard error={actionError} /> : null}</>}
+        renderItem={null}
       />
     );
   }
@@ -1266,7 +1327,18 @@ function ResultsPanel({
     .map((option) => option.content);
 
   return (
-    <>
+    <SectionList
+      contentContainerStyle={styles.figmaScreen}
+      initialNumToRender={10}
+      keyExtractor={(respondentChunk, index) =>
+        respondentChunk.length > 0
+          ? respondentChunk.map((respondent) => respondent.userId).join('-')
+          : `empty-${index}`
+      }
+      ListHeaderComponent={(
+        <>
+          {header}
+          {actionError ? <ActionErrorCard error={actionError} /> : null}
       <View style={styles.figmaCommentCard}>
         <Text style={styles.figmaHeroTitle}>{`${results.targetMemberCount}명 중 ${results.respondedCount}명 응답`}</Text>
         <View style={styles.chipRow}>
@@ -1280,40 +1352,66 @@ function ResultsPanel({
         </Body>
       </View>
       <Text style={styles.figmaSectionTitle}>선택지별 명단</Text>
-      {results.optionResults
-        .slice()
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((option) => (
-          <View key={option.id} style={styles.figmaOptionResultCard}>
+        </>
+      )}
+      maxToRenderPerBatch={10}
+      renderItem={({item: respondentChunk, section}) => (
+        <View style={styles.figmaOptionRespondentBody}>
+          {results.anonymous ? (
+            <Body>익명 투표라 응답자 명단은 공개되지 않습니다.</Body>
+          ) : respondentChunk.length === 0 ? (
+            <Body>아직 이 선택지에 응답한 사람이 없습니다.</Body>
+          ) : (
+            <View style={styles.respondentGrid}>
+              {respondentChunk.map((respondent) => (
+                <MemoizedPollRespondent
+                  key={`${section.option.id}-${respondent.userId}`}
+                  respondent={respondent}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+      renderSectionHeader={({section}) => (
+          <View style={styles.figmaOptionResultHeader}>
             <View style={styles.headerRow}>
               <Text numberOfLines={2} style={styles.resultOptionTitle}>
-                {option.content}
+                {section.option.content}
               </Text>
-              <Chip label={`${option.responseCount}명`} tone={option.responseCount > 0 ? 'info' : 'default'} />
+              <Chip
+                label={`${section.option.responseCount}명`}
+                tone={section.option.responseCount > 0 ? 'info' : 'default'}
+              />
             </View>
-            {results.anonymous ? (
-              <Body>익명 투표라 응답자 명단은 공개되지 않습니다.</Body>
-            ) : option.respondents.length === 0 ? (
-              <Body>아직 이 선택지에 응답한 사람이 없습니다.</Body>
-            ) : (
-              <View style={styles.respondentGrid}>
-                {option.respondents.map((respondent) => (
-                  <View key={`${option.id}-${respondent.userId}`} style={styles.respondent}>
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{respondent.name.slice(0, 1)}</Text>
-                    </View>
-                    <Text numberOfLines={1} style={styles.respondentName}>
-                      {respondent.name}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
-        ))}
-    </>
+      )}
+      sections={sections}
+      showsVerticalScrollIndicator={false}
+      stickySectionHeadersEnabled={false}
+      windowSize={7}
+    />
   );
 }
+
+type PollRespondent = NonNullable<PollResults['optionResults'][number]>['respondents'][number];
+
+const MemoizedPollRespondent = memo(function MemoizedPollRespondent({
+  respondent,
+}: {
+  respondent: PollRespondent;
+}) {
+  return (
+    <View style={styles.respondent}>
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>{respondent.name.slice(0, 1)}</Text>
+      </View>
+      <Text numberOfLines={1} style={styles.respondentName}>
+        {respondent.name}
+      </Text>
+    </View>
+  );
+});
 
 function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary}) {
   const respondedOrClosed = poll.responded || poll.status !== 'OPEN';
@@ -2292,6 +2390,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   figmaOptionResultCard: {
+    backgroundColor: pollColors.card,
+    borderRadius: 18,
+    gap: 10,
+    padding: 18,
+  },
+  figmaOptionRespondentBody: {
+    backgroundColor: pollColors.card,
+    borderRadius: 18,
+    gap: 10,
+    padding: 18,
+  },
+  figmaOptionResultHeader: {
     backgroundColor: pollColors.card,
     borderRadius: 18,
     gap: 10,

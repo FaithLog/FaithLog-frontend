@@ -80,15 +80,29 @@ export const IconexIcon = memo(function IconexIcon({
   strokeWidth = 1.5,
   style,
 }: IconexIconProps) {
+  const svgProps = getIconAstRenderProps(name, color, strokeWidth, size);
+
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no"
       style={[styles.icon, {height: size, width: size}, style]}>
-      <SvgAst ast={getIconAst(name, color, strokeWidth)} height={size} width={size} />
+      <SvgAst {...svgProps} />
     </View>
   );
 });
+
+export function getIconAstRenderProps(
+  name: IconexIconName,
+  color: string,
+  strokeWidth: number,
+  size: number,
+) {
+  return {
+    ast: getIconAst(name, color, strokeWidth),
+    override: {height: size, width: size},
+  };
+}
 
 const iconAstCache = new Map<string, JsxAST>();
 

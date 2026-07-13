@@ -35,7 +35,7 @@ export function useAndroidShellLayoutInsets() {
 
 type StoreListener = () => void;
 
-function createAndroidShellLayoutStore() {
+export function createAndroidShellLayoutStore() {
   let snapshot = getAndroidShellLayoutInsets();
   let cleanup: (() => void) | null = null;
   let keyboardVisible = false;

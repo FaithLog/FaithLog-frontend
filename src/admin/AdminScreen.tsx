@@ -1,7 +1,8 @@
-import {useEffect, useRef, useState} from 'react';
+import {memo, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   Animated,
+  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -2243,6 +2244,29 @@ export function AdminScreen({
   const selectedMember = selectedMemberId
     ? loadState.members.find((member) => member.membershipId === selectedMemberId) ?? null
     : null;
+
+  if (!selectedMember && tab === 'members' && memberSection === 'list') {
+    return (
+      <AdminMemberListRoute
+        actionError={actionError}
+        bottomInset={androidShellInsets.bottomNavInset}
+        campusLabel={getCampusLabel(state)}
+        contentBottomPadding={androidShellInsets.shellContentBottomPadding}
+        filter={memberFilter}
+        inviteCodeCopyState={inviteCodeCopyState}
+        inviteCodeState={inviteCodeState}
+        memberSearch={memberSearch}
+        members={loadState.members}
+        onChangeMemberSearch={setMemberSearch}
+        onChangeSection={setMemberSection}
+        onCopyInviteCode={copyInviteCode}
+        onOpenUserMode={onBackToUserMode}
+        onSelectFilter={setMemberFilter}
+        onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
+        onSelectTab={selectAdminTab}
+      />
+    );
+  }
 
   return (
     <View style={styles.adminModeFrame}>
@@ -9446,6 +9470,136 @@ function AdminMembers({
   );
 }
 
+function AdminMemberListRoute({
+  actionError,
+  bottomInset,
+  campusLabel,
+  contentBottomPadding,
+  filter,
+  inviteCodeCopyState,
+  inviteCodeState,
+  memberSearch,
+  members,
+  onChangeMemberSearch,
+  onChangeSection,
+  onCopyInviteCode,
+  onOpenUserMode,
+  onSelectFilter,
+  onSelectMember,
+  onSelectTab,
+}: {
+  actionError: ApiError | null;
+  bottomInset: number;
+  campusLabel: string;
+  contentBottomPadding: number;
+  filter: MemberFilter;
+  inviteCodeCopyState: InviteCodeCopyState;
+  inviteCodeState: InviteCodeState;
+  memberSearch: string;
+  members: AdminCampusMember[];
+  onChangeMemberSearch: (value: string) => void;
+  onChangeSection: (section: AdminMemberSection) => void;
+  onCopyInviteCode: (inviteCode: string) => void;
+  onOpenUserMode: () => void;
+  onSelectFilter: (filter: MemberFilter) => void;
+  onSelectMember: (member: AdminCampusMember) => void;
+  onSelectTab: (tab: AdminTab) => void;
+}) {
+  const deferredSearch = useDeferredValue(memberSearch);
+  const filteredMembers = useMemo(() => {
+    const keyword = deferredSearch.trim().toLowerCase();
+    return filterMembers(members, filter).filter((member) =>
+      keyword
+        ? `${member.name} ${member.email} ${member.campusRole}`.toLowerCase().includes(keyword)
+        : true,
+    );
+  }, [deferredSearch, filter, members]);
+
+  return (
+    <View style={styles.adminModeFrame}>
+      <FlatList
+        contentContainerStyle={[
+          styles.adminModeContent,
+          Platform.OS === 'android' ? {paddingBottom: contentBottomPadding} : null,
+        ]}
+        data={filteredMembers}
+        initialNumToRender={12}
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(member) => String(member.membershipId)}
+        ListEmptyComponent={(
+          <View style={styles.virtualizedMemberListBody}>
+            <Empty title="조건에 맞는 멤버가 없습니다" message="다른 역할 필터를 선택해 주세요." />
+          </View>
+        )}
+        ListFooterComponent={<View style={styles.virtualizedMemberListFooter} />}
+        ListHeaderComponent={(
+          <>
+            <AdminShellHeader
+              activeTab="members"
+              campusLabel={campusLabel}
+              onOpenUserMode={onOpenUserMode}
+            />
+            {actionError ? <AdminInlineError error={actionError} exposeValidationMessage /> : null}
+            <AdminSubpageSwitcher
+              accessibilityLabelPrefix="관리자 멤버 하위 페이지"
+              items={adminMemberSections}
+              onSelect={onChangeSection}
+              selectedId="list"
+              subtitle="목록, 권한, 커피 담당자를 분리해서 봅니다."
+              title="멤버 관리"
+            />
+            <InviteCodeCopyRow
+              copyState={inviteCodeCopyState}
+              inviteCodeState={inviteCodeState}
+              onCopy={onCopyInviteCode}
+            />
+            <View style={styles.virtualizedMemberListHeader}>
+              <View style={styles.headerRow}>
+                <View style={styles.headerText}>
+                  <Eyebrow>멤버 관리</Eyebrow>
+                  <Title>멤버 목록</Title>
+                </View>
+              </View>
+              <TextField
+                accessibilityLabel="관리자 멤버 검색"
+                label="검색"
+                onChangeText={onChangeMemberSearch}
+                placeholder="이름 또는 이메일"
+                value={memberSearch}
+              />
+              <SegmentedControl
+                items={memberFilters}
+                selectedId={filter}
+                onSelect={onSelectFilter}
+              />
+            </View>
+          </>
+        )}
+        maxToRenderPerBatch={12}
+        renderItem={({item}) => (
+          <View style={styles.virtualizedMemberListBody}>
+            <MemoizedMemberRow member={item} onSelect={onSelectMember} />
+          </View>
+        )}
+        showsVerticalScrollIndicator={false}
+        style={styles.adminModeScroll}
+        windowSize={7}
+      />
+      <AdminBottomNav activeTab="members" bottomInset={bottomInset} onSelectTab={onSelectTab} />
+    </View>
+  );
+}
+
+const MemoizedMemberRow = memo(function MemoizedMemberRow({
+  member,
+  onSelect,
+}: {
+  member: AdminCampusMember;
+  onSelect: (member: AdminCampusMember) => void;
+}) {
+  return <MemberRow member={member} onPress={() => onSelect(member)} />;
+});
+
 function AdminCoffeeDutyManagement({
   actionState,
   coffeeDuty,
@@ -13417,6 +13571,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.gap,
     padding: 14,
+  },
+  virtualizedMemberListBody: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.card,
+    paddingTop: spacing.gap,
+  },
+  virtualizedMemberListFooter: {
+    backgroundColor: colors.surface,
+    borderBottomLeftRadius: radius.card,
+    borderBottomRightRadius: radius.card,
+    height: spacing.card,
+  },
+  virtualizedMemberListHeader: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+    gap: spacing.gap,
+    marginTop: spacing.gap,
+    padding: spacing.card,
+    paddingBottom: 0,
   },
   metric: {
     backgroundColor: colors.neutralSoft,
