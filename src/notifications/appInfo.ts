@@ -1,1 +1,3 @@
-export const APP_VERSION = '0.1.0';
+import appConfig from '../../app.json';
+
+export const APP_VERSION = appConfig.expo.version;

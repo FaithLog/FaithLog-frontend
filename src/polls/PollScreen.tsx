@@ -1,10 +1,12 @@
-import {useEffect, useRef, useState} from 'react';
+import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -59,7 +61,14 @@ import {
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
+import {chunkForVirtualizedRows} from '../utils/listVirtualization';
 import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
+import {PollCommentDraftStore} from './pollCommentDraftStore';
+import {
+  getPollDetailScrollOwner,
+  getPollEarlyStateScrollContract,
+  type PollEarlyState,
+} from './pollScrollOwnership';
 import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
@@ -76,6 +85,7 @@ type Notice = {
 } | null;
 
 type PollScreenProps = {
+  androidContentBottomPadding: number;
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
@@ -117,8 +127,10 @@ const RESPONSE_ERROR_CODES = new Set([
   'POLL_RESPONSE_INVALID_SELECTION_COUNT',
 ]);
 const COMMENT_MAX_LENGTH = 500;
+const POLL_RESPONDENTS_PER_ROW = 2;
 
 export function PollScreen({
+  androidContentBottomPadding,
   canOpenAdminMode,
   onOpenAdminMode,
   onOpenNotifications,
@@ -133,7 +145,6 @@ export function PollScreen({
   const [detailTab, setDetailTab] = useState<DetailTab>('response');
   const [listTab, setListTab] = useState<PollListTab>('active');
   const [selectedOptionIds, setSelectedOptionIds] = useState<number[]>([]);
-  const [commentContent, setCommentContent] = useState('');
   const [editingComment, setEditingComment] = useState<PollComment | null>(null);
   const [optionAddVisible, setOptionAddVisible] = useState(false);
   const [optionAddContent, setOptionAddContent] = useState('');
@@ -142,6 +153,7 @@ export function PollScreen({
   const currentPollId = useRef<number | null>(selectedPollId);
   const detailEpoch = useRef(0);
   const screenMounted = useRef(true);
+  const commentDraftStore = useRef(new PollCommentDraftStore()).current;
   currentPollId.current = selectedPollId;
 
   const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
@@ -238,7 +250,7 @@ export function PollScreen({
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     detailEpoch.current += 1;
     currentPollId.current = poll.id;
-    setCommentContent('');
+    commentDraftStore.open(poll.id);
     setEditingComment(null);
     setActionState(null);
     setActionError(null);
@@ -248,13 +260,13 @@ export function PollScreen({
   };
 
   const closeDetail = () => {
+    if (currentPollId.current !== null) commentDraftStore.close(currentPollId.current);
     detailEpoch.current += 1;
     currentPollId.current = null;
     setSelectedPollId(null);
     setDetailState({status: 'idle'});
     setActionError(null);
     setEditingComment(null);
-    setCommentContent('');
     setActionState(null);
     void loadPolls();
   };
@@ -399,12 +411,12 @@ export function PollScreen({
     }
   };
 
-  const submitComment = async () => {
+  const submitComment = async (draft: string) => {
     if (!activeDetail || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
-    const content = commentContent.trim().slice(0, COMMENT_MAX_LENGTH);
+    const content = draft.trim().slice(0, COMMENT_MAX_LENGTH);
 
     if (!content) {
       setActionError({kind: 'error', message: '댓글 내용을 입력해 주세요.'});
@@ -427,12 +439,13 @@ export function PollScreen({
 
       const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
-      setCommentContent('');
+      commentDraftStore.settle(mutationPollId, 'success');
       setDetailState((current) => current.status === 'success' &&
         current.detail.id === mutationPollId && created.pollId === mutationPollId
         ? {...current, comments: [...current.comments, created]}
         : current);
     } catch (error) {
+      commentDraftStore.settle(mutationPollId, 'failure');
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
       if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
@@ -442,12 +455,12 @@ export function PollScreen({
     }
   };
 
-  const submitCommentEdit = async () => {
+  const submitCommentEdit = async (draft: string) => {
     if (!activeDetail || !editingComment || actionState || !isPollActionable(activeDetail)) {
       return;
     }
 
-    const content = commentContent.trim().slice(0, COMMENT_MAX_LENGTH);
+    const content = draft.trim().slice(0, COMMENT_MAX_LENGTH);
 
     if (!content) {
       setActionError({kind: 'error', message: '수정할 댓글 내용을 입력해 주세요.'});
@@ -472,14 +485,15 @@ export function PollScreen({
         content,
       });
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+      commentDraftStore.settle(mutationPollId, 'success');
       setEditingComment(null);
-      setCommentContent('');
       setDetailState((current) => current.status === 'success' &&
         current.detail.id === mutationPollId && updated.pollId === mutationPollId
         ? {...current, comments: current.comments.map((item) =>
           item.commentId === updated.commentId ? updated : item)}
         : current);
     } catch (error) {
+      commentDraftStore.settle(mutationPollId, 'failure');
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
       if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
@@ -537,18 +551,28 @@ export function PollScreen({
   if (selectedPollId !== null) {
     if (detailState.status === 'error') {
       return (
-        <>
+        <PollStateScroller
+          androidContentBottomPadding={androidContentBottomPadding}
+          state="detailError">
           <Button accessibilityLabel="투표 목록으로 돌아가기" onPress={closeDetail} variant="ghost">
             목록으로
           </Button>
           <PollErrorState error={detailState.error} onRetry={() => loadDetail(selectedPollId)} />
-        </>
+        </PollStateScroller>
       );
     }
 
     if (detailState.status !== 'success') {
-      return <Loading message="투표 상세와 댓글을 불러오고 있어요." />;
+      return (
+        <PollStateScroller
+          androidContentBottomPadding={androidContentBottomPadding}
+          state="detailLoading">
+          <Loading message="투표 상세와 댓글을 불러오고 있어요." />
+        </PollStateScroller>
+      );
     }
+
+    const detailScrollOwner = getPollDetailScrollOwner(detailTab);
 
     return (
       <KeyboardAvoidingView
@@ -556,8 +580,78 @@ export function PollScreen({
         enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={16}
         style={styles.keyboardRoot}>
+        {detailScrollOwner === 'flatList' ? (
+          <CommentsPanel
+            actionError={actionError}
+            actionState={actionState}
+            androidContentBottomPadding={androidContentBottomPadding}
+            comments={detailState.comments}
+            draftStore={commentDraftStore}
+            currentUserId={state.user.id}
+            editingComment={editingComment}
+            header={(
+              <>
+                <PollDetailHeader
+                  canOpenAdminMode={canOpenAdminMode}
+                  campusLabel={state.selectedCampus.campusName}
+                  contextLabel={`${state.user.name}님`}
+                  detail={detailState.detail}
+                  onBack={closeDetail}
+                  onOpenAdminMode={onOpenAdminMode}
+                  onOpenNotifications={onOpenNotifications}
+                />
+                <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+              </>
+            )}
+            isOpen={isPollActionable(detailState.detail)}
+            onCancelEdit={() => {
+              commentDraftStore.cancel(detailState.detail.id);
+              setEditingComment(null);
+              setActionError(null);
+            }}
+            onDelete={removeComment}
+            onEdit={(comment) => {
+              commentDraftStore.beginEdit(
+                detailState.detail.id,
+                comment.commentId,
+                comment.content.slice(0, COMMENT_MAX_LENGTH),
+              );
+              setEditingComment(comment);
+              setActionError(null);
+            }}
+            onSubmit={editingComment ? submitCommentEdit : submitComment}
+            pollId={detailState.detail.id}
+          />
+        ) : detailScrollOwner === 'sectionList' ? (
+          <ResultsPanel
+            actionError={actionError}
+            androidContentBottomPadding={androidContentBottomPadding}
+            detail={detailState.detail}
+            error={detailState.resultError}
+            header={(
+              <>
+                <PollDetailHeader
+                  canOpenAdminMode={canOpenAdminMode}
+                  campusLabel={state.selectedCampus.campusName}
+                  contextLabel={`${state.user.name}님`}
+                  detail={detailState.detail}
+                  onBack={closeDetail}
+                  onOpenAdminMode={onOpenAdminMode}
+                  onOpenNotifications={onOpenNotifications}
+                />
+                <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+              </>
+            )}
+            onRetry={() => loadDetail(detailState.detail.id, 'results')}
+            results={detailState.results}
+          />
+        ) : (
         <ScrollView
-          contentContainerStyle={styles.figmaScreen}
+          contentContainerStyle={[
+            styles.figmaScreen,
+            Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+          ]}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
         <PollDetailHeader
@@ -584,37 +678,6 @@ export function PollScreen({
             selectedOptionIds={selectedOptionIds}
           />
         ) : null}
-        {detailTab === 'comments' ? (
-          <CommentsPanel
-            actionState={actionState}
-            commentContent={commentContent}
-            comments={detailState.comments}
-            currentUserId={state.user.id}
-            editingComment={editingComment}
-            isOpen={isPollActionable(detailState.detail)}
-            onCancelEdit={() => {
-              setEditingComment(null);
-              setCommentContent('');
-              setActionError(null);
-            }}
-            onChangeComment={(value) => setCommentContent(value.slice(0, COMMENT_MAX_LENGTH))}
-            onDelete={removeComment}
-            onEdit={(comment) => {
-              setEditingComment(comment);
-              setCommentContent(comment.content.slice(0, COMMENT_MAX_LENGTH));
-              setActionError(null);
-            }}
-            onSubmit={editingComment ? submitCommentEdit : submitComment}
-          />
-        ) : null}
-        {detailTab === 'results' ? (
-          <ResultsPanel
-            detail={detailState.detail}
-            error={detailState.resultError}
-            onRetry={() => loadDetail(detailState.detail.id, 'results')}
-            results={detailState.results}
-          />
-        ) : null}
         <UserOptionAddSheet
           actionState={actionState}
           coffeeCatalog={detailState.coffeeCatalog}
@@ -631,16 +694,29 @@ export function PollScreen({
           visible={optionAddVisible}
         />
         </ScrollView>
+        )}
       </KeyboardAvoidingView>
     );
   }
 
   if (listState.status === 'error') {
-    return <PollErrorState error={listState.error} onRetry={loadPolls} />;
+    return (
+      <PollStateScroller
+        androidContentBottomPadding={androidContentBottomPadding}
+        state="listError">
+        <PollErrorState error={listState.error} onRetry={loadPolls} />
+      </PollStateScroller>
+    );
   }
 
   if (listState.status !== 'success') {
-    return <Loading message="투표 목록을 불러오고 있어요." />;
+    return (
+      <PollStateScroller
+        androidContentBottomPadding={androidContentBottomPadding}
+        state="listLoading">
+        <Loading message="투표 목록을 불러오고 있어요." />
+      </PollStateScroller>
+    );
   }
 
   const pollGroups = getUserPollListGroups(listState.polls);
@@ -657,7 +733,11 @@ export function PollScreen({
       keyboardVerticalOffset={16}
       style={styles.keyboardRoot}>
       <ScrollView
-        contentContainerStyle={styles.figmaScreen}
+        contentContainerStyle={[
+          styles.figmaScreen,
+          Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+        ]}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
       <FigmaScreenHeader
@@ -740,6 +820,37 @@ export function PollScreen({
       )}
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function PollStateScroller({
+  androidContentBottomPadding,
+  children,
+  state,
+}: {
+  androidContentBottomPadding: number;
+  children: React.ReactNode;
+  state: PollEarlyState;
+}) {
+  const platform = Platform.OS === 'android' || Platform.OS === 'ios' ? Platform.OS : 'other';
+  const contract = getPollEarlyStateScrollContract(
+    state,
+    platform,
+    androidContentBottomPadding,
+  );
+
+  return (
+    <ScrollView
+      contentContainerStyle={{
+        gap: contract.contentGap,
+        paddingBottom: contract.contentBottomPadding,
+        paddingTop: contract.contentTopPadding,
+      }}
+      keyboardDismissMode={contract.keyboardDismissMode}
+      keyboardShouldPersistTaps={contract.keyboardShouldPersistTaps}
+      showsVerticalScrollIndicator={false}>
+      {children}
+    </ScrollView>
   );
 }
 
@@ -1038,51 +1149,88 @@ function CoffeeCatalogPanel({
 }
 
 function CommentsPanel({
+  actionError,
   actionState,
-  commentContent,
+  androidContentBottomPadding,
   comments,
   currentUserId,
+  draftStore,
   editingComment,
+  header,
   isOpen,
   onCancelEdit,
-  onChangeComment,
   onDelete,
   onEdit,
   onSubmit,
+  pollId,
 }: {
+  actionError: ApiError | null;
   actionState: ActionState;
-  commentContent: string;
+  androidContentBottomPadding: number;
   comments: PollComment[];
   currentUserId: number;
+  draftStore: PollCommentDraftStore;
   editingComment: PollComment | null;
+  header: React.ReactNode;
   isOpen: boolean;
   onCancelEdit: () => void;
-  onChangeComment: (value: string) => void;
   onDelete: (comment: PollComment) => void;
   onEdit: (comment: PollComment) => void;
-  onSubmit: () => void;
+  onSubmit: (content: string) => void;
+  pollId: number;
 }) {
   const submitting = actionState?.kind === 'comment' || actionState?.kind === 'edit';
+  const [draft, setDraft] = useState(() => draftStore.get(pollId).content);
+  const wasSubmitting = useRef(false);
+
+  useEffect(() => {
+    setDraft(draftStore.get(pollId).content);
+  }, [editingComment?.commentId]);
+
+  useEffect(() => {
+    if (wasSubmitting.current && !submitting && !actionError) setDraft('');
+    wasSubmitting.current = submitting;
+  }, [actionError, submitting]);
 
   return (
-    <>
-      <View style={styles.figmaCommentCard}>
+    <FlatList
+      contentContainerStyle={[
+        styles.figmaScreen,
+        Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+      ]}
+      data={comments}
+      initialNumToRender={10}
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      keyboardShouldPersistTaps="handled"
+      keyExtractor={(comment) => String(comment.commentId)}
+      ListEmptyComponent={(
+        <Empty title="아직 댓글이 없어요" message="첫 댓글을 남겨 투표 맥락을 공유해 주세요." />
+      )}
+      ListHeaderComponent={(
+        <View style={styles.figmaListHeader}>
+          {header}
+          {actionError ? <ActionErrorCard error={actionError} /> : null}
+          <View style={styles.figmaCommentCard}>
         <Text style={styles.figmaSectionTitle}>{editingComment ? '댓글 수정' : '댓글'}</Text>
         <TextInput
           accessibilityLabel={editingComment ? '수정할 댓글 내용 입력' : '댓글 내용 입력'}
           editable={isOpen && !submitting}
           multiline
-          onChangeText={onChangeComment}
+          onChangeText={(value) => {
+            const next = value.slice(0, COMMENT_MAX_LENGTH);
+            draftStore.update(pollId, next);
+            setDraft(next);
+          }}
           placeholder="댓글을 입력해 주세요"
           placeholderTextColor={colors.subtleText}
           style={styles.multiInput}
-          value={commentContent}
+          value={draft}
         />
         <View style={styles.commentActionRow}>
           <CompactActionButton
             accessibilityLabel={editingComment ? '댓글 수정 저장' : '댓글 등록'}
             disabled={!isOpen || submitting}
-            onPress={onSubmit}
+            onPress={() => onSubmit(draft)}
             tone="primary">
             {submitting ? '저장 중...' : editingComment ? '수정 저장' : '댓글 등록'}
           </CompactActionButton>
@@ -1090,23 +1238,55 @@ function CommentsPanel({
             <CompactActionButton
               accessibilityLabel="댓글 수정 취소"
               disabled={submitting}
-              onPress={onCancelEdit}
+              onPress={() => {
+                setDraft('');
+                onCancelEdit();
+              }}
               tone="secondary">
               취소
             </CompactActionButton>
           ) : null}
         </View>
-      </View>
-      {comments.length === 0 ? (
-        <Empty title="아직 댓글이 없어요" message="첫 댓글을 남겨 투표 맥락을 공유해 주세요." />
-      ) : (
-        comments.map((comment) => {
-          const canEdit = isOpen && !comment.deleted && comment.userId === currentUserId;
-          const deleting =
-            actionState?.kind === 'delete' && actionState.id === comment.commentId;
+          </View>
+        </View>
+      )}
+      maxToRenderPerBatch={10}
+      renderItem={({item: comment}) => (
+        <PollCommentRow
+          actionState={actionState}
+          comment={comment}
+          currentUserId={currentUserId}
+          isOpen={isOpen}
+          onDelete={onDelete}
+          onEdit={onEdit}
+        />
+      )}
+      showsVerticalScrollIndicator={false}
+      windowSize={7}
+    />
+  );
+}
 
-          return (
-            <View key={comment.commentId} style={styles.figmaCommentCard}>
+const PollCommentRow = memo(function PollCommentRow({
+  actionState,
+  comment,
+  currentUserId,
+  isOpen,
+  onDelete,
+  onEdit,
+}: {
+  actionState: ActionState;
+  comment: PollComment;
+  currentUserId: number;
+  isOpen: boolean;
+  onDelete: (comment: PollComment) => void;
+  onEdit: (comment: PollComment) => void;
+}) {
+  const canEdit = isOpen && !comment.deleted && comment.userId === currentUserId;
+  const deleting = actionState?.kind === 'delete' && actionState.id === comment.commentId;
+
+  return (
+    <View style={styles.figmaCommentCard}>
               <View style={styles.commentHeader}>
                 <View style={styles.commentAuthorBlock}>
                   <Text style={styles.commentAuthor}>{comment.name}</Text>
@@ -1134,13 +1314,9 @@ function CommentsPanel({
                 ) : null}
               </View>
               <Body>{comment.content}</Body>
-            </View>
-          );
-        })
-      )}
-    </>
+    </View>
   );
-}
+});
 
 function CompactActionButton({
   accessibilityLabel,
@@ -1176,28 +1352,65 @@ function CompactActionButton({
 }
 
 function ResultsPanel({
+  actionError,
+  androidContentBottomPadding,
   detail,
   error,
+  header,
   onRetry,
   results,
 }: {
+  actionError: ApiError | null;
+  androidContentBottomPadding: number;
   detail: PollDetail;
   error: ApiError | null;
+  header: React.ReactNode;
   onRetry: () => void;
   results: PollResults | null;
 }) {
-  if (!results) {
-    if (error) {
-      return <PollErrorState error={error} onRetry={onRetry} />;
-    }
+  const sections = useMemo(() => results?.optionResults
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((option) => ({
+      data: results.anonymous || option.respondents.length === 0
+        ? [[]]
+        : chunkForVirtualizedRows(option.respondents, POLL_RESPONDENTS_PER_ROW),
+      key: String(option.id),
+      option,
+    })) ?? [], [results]);
 
+  if (!results) {
     return (
-      <ErrorState
-        title="결과를 불러오지 못했습니다"
-        message="응답과 댓글은 사용할 수 있지만 결과 API 응답을 확인하지 못했습니다."
-        actionLabel="다시 불러오기"
-        actionAccessibilityLabel="투표 결과 다시 불러오기"
-        onActionPress={onRetry}
+      <FlatList
+        contentContainerStyle={[
+          styles.figmaVirtualizedScreen,
+          Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+        ]}
+        data={[]}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={(
+          <View style={styles.figmaListEmptySpacing}>
+            {error ? (
+              <PollErrorState error={error} onRetry={onRetry} />
+            ) : (
+              <ErrorState
+                title="결과를 불러오지 못했습니다"
+                message="응답과 댓글은 사용할 수 있지만 결과 API 응답을 확인하지 못했습니다."
+                actionLabel="다시 불러오기"
+                actionAccessibilityLabel="투표 결과 다시 불러오기"
+                onActionPress={onRetry}
+              />
+            )}
+          </View>
+        )}
+        ListHeaderComponent={(
+          <View style={styles.figmaListHeader}>
+            {header}
+            {actionError ? <ActionErrorCard error={actionError} /> : null}
+          </View>
+        )}
+        renderItem={null}
       />
     );
   }
@@ -1207,54 +1420,101 @@ function ResultsPanel({
     .map((option) => option.content);
 
   return (
-    <>
-      <View style={styles.figmaCommentCard}>
-        <Text style={styles.figmaHeroTitle}>{`${results.targetMemberCount}명 중 ${results.respondedCount}명 응답`}</Text>
-        <View style={styles.chipRow}>
-          <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
-          <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
+    <SectionList
+      contentContainerStyle={[
+        styles.figmaVirtualizedScreen,
+        Platform.OS === 'android' ? {paddingBottom: androidContentBottomPadding} : null,
+      ]}
+      initialNumToRender={10}
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      keyboardShouldPersistTaps="handled"
+      keyExtractor={(respondentChunk, index) =>
+        respondentChunk.length > 0
+          ? respondentChunk.map((respondent) => respondent.userId).join('-')
+          : `empty-${index}`
+      }
+      ListHeaderComponent={(
+        <View style={styles.figmaListHeader}>
+          {header}
+          {actionError ? <ActionErrorCard error={actionError} /> : null}
+          <View style={styles.figmaCommentCard}>
+            <Text style={styles.figmaHeroTitle}>{`${results.targetMemberCount}명 중 ${results.respondedCount}명 응답`}</Text>
+            <View style={styles.chipRow}>
+              <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
+              <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
+            </View>
+            <Body>
+              {detail.myResponse
+                ? `내 응답은 ${mySelectedLabels.join(', ') || '선택지 없음'}으로 저장됐어요.`
+                : '아직 저장된 내 응답이 없습니다.'}
+            </Body>
+          </View>
+          <Text style={styles.figmaSectionTitle}>선택지별 명단</Text>
         </View>
-        <Body>
-          {detail.myResponse
-            ? `내 응답은 ${mySelectedLabels.join(', ') || '선택지 없음'}으로 저장됐어요.`
-            : '아직 저장된 내 응답이 없습니다.'}
-        </Body>
-      </View>
-      <Text style={styles.figmaSectionTitle}>선택지별 명단</Text>
-      {results.optionResults
-        .slice()
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((option) => (
-          <View key={option.id} style={styles.figmaOptionResultCard}>
+      )}
+      maxToRenderPerBatch={10}
+      renderItem={({index, item: respondentChunk, section}) => (
+        <View
+          style={[
+            styles.figmaOptionRespondentBody,
+            index > 0 ? styles.figmaOptionRespondentBodyContinuation : null,
+            index === section.data.length - 1 ? styles.figmaOptionRespondentBodyLast : null,
+          ]}>
+          {results.anonymous ? (
+            <Body>익명 투표라 응답자 명단은 공개되지 않습니다.</Body>
+          ) : respondentChunk.length === 0 ? (
+            <Body>아직 이 선택지에 응답한 사람이 없습니다.</Body>
+          ) : (
+            <View style={styles.respondentGrid}>
+              {respondentChunk.map((respondent) => (
+                <MemoizedPollRespondent
+                  key={`${section.option.id}-${respondent.userId}`}
+                  respondent={respondent}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+      renderSectionHeader={({section}) => (
+          <View style={styles.figmaOptionResultHeader}>
             <View style={styles.headerRow}>
               <Text numberOfLines={2} style={styles.resultOptionTitle}>
-                {option.content}
+                {section.option.content}
               </Text>
-              <Chip label={`${option.responseCount}명`} tone={option.responseCount > 0 ? 'info' : 'default'} />
+              <Chip
+                label={`${section.option.responseCount}명`}
+                tone={section.option.responseCount > 0 ? 'info' : 'default'}
+              />
             </View>
-            {results.anonymous ? (
-              <Body>익명 투표라 응답자 명단은 공개되지 않습니다.</Body>
-            ) : option.respondents.length === 0 ? (
-              <Body>아직 이 선택지에 응답한 사람이 없습니다.</Body>
-            ) : (
-              <View style={styles.respondentGrid}>
-                {option.respondents.map((respondent) => (
-                  <View key={`${option.id}-${respondent.userId}`} style={styles.respondent}>
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{respondent.name.slice(0, 1)}</Text>
-                    </View>
-                    <Text numberOfLines={1} style={styles.respondentName}>
-                      {respondent.name}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
-        ))}
-    </>
+      )}
+      sections={sections}
+      showsVerticalScrollIndicator={false}
+      stickySectionHeadersEnabled={false}
+      windowSize={7}
+    />
   );
 }
+
+type PollRespondent = NonNullable<PollResults['optionResults'][number]>['respondents'][number];
+
+const MemoizedPollRespondent = memo(function MemoizedPollRespondent({
+  respondent,
+}: {
+  respondent: PollRespondent;
+}) {
+  return (
+    <View style={styles.respondent}>
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>{respondent.name.slice(0, 1)}</Text>
+      </View>
+      <Text numberOfLines={1} style={styles.respondentName}>
+        {respondent.name}
+      </Text>
+    </View>
+  );
+});
 
 function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary}) {
   const respondedOrClosed = poll.responded || poll.status !== 'OPEN';
@@ -2232,11 +2492,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
-  figmaOptionResultCard: {
+  figmaOptionRespondentBody: {
     backgroundColor: pollColors.card,
-    borderRadius: 18,
     gap: 10,
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  figmaOptionRespondentBodyContinuation: {
+    paddingTop: 0,
+  },
+  figmaOptionRespondentBodyLast: {
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    paddingBottom: 18,
+  },
+  figmaOptionResultHeader: {
+    backgroundColor: pollColors.card,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    gap: 10,
+    marginTop: 20,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+  },
+  figmaListEmptySpacing: {
+    marginTop: 20,
+  },
+  figmaListHeader: {
+    gap: 20,
   },
   figmaPollButton: {
     alignItems: 'center',
@@ -2291,6 +2574,10 @@ const styles = StyleSheet.create({
   },
   figmaScreen: {
     gap: 20,
+    paddingBottom: 96,
+    paddingTop: 2,
+  },
+  figmaVirtualizedScreen: {
     paddingBottom: 96,
     paddingTop: 2,
   },

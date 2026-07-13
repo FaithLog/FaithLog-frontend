@@ -120,6 +120,7 @@ import {
   USER_BOTTOM_NAV_ROUTES,
 } from '../navigation/shellRoutes';
 import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
+import {getShellScrollOwner} from '../navigation/shellScrollOwnership';
 import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
@@ -2145,6 +2146,12 @@ function AuthenticatedShell({
     };
   }, [entryTarget, selectedCampusDetail, setAuthState, state.selectedCampus.campusId]);
 
+  const authenticatedEntryTargetActive =
+    entryTarget === 'inviteCode' ||
+    (entryTarget === 'campusCreate' && canCreateCampus) ||
+    ((entryTarget === 'campusSelect' || entryTarget === 'campusDetail') && canManageCampuses);
+  const shellScrollOwner = getShellScrollOwner(route, authenticatedEntryTargetActive);
+
   return (
     <View style={styles.shell}>
       {isAdminRoute ? (
@@ -2164,6 +2171,18 @@ function AuthenticatedShell({
             state={state}
           />
         )
+      ) : shellScrollOwner === 'route' ? (
+        <View style={styles.pollRouteHost}>
+          <PollScreen
+            androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
+            canOpenAdminMode={adminModeRoutes.length > 0}
+            onOpenAdminMode={openAdminMode}
+            onOpenNotifications={openNotificationSettings}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+            state={state}
+          />
+        </View>
       ) : (
         <ScrollView
           contentContainerStyle={[
@@ -2287,15 +2306,6 @@ function AuthenticatedShell({
             setNotice={setNotice}
             state={state}
           />
-        ) : route === 'polls' ? (
-          <PollScreen
-            canOpenAdminMode={adminModeRoutes.length > 0}
-            onOpenAdminMode={openAdminMode}
-            onOpenNotifications={openNotificationSettings}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
         ) : route === 'prayers' ? (
           <PrayerScreen
             canOpenAdminMode={adminModeRoutes.length > 0}
@@ -2322,21 +2332,8 @@ function AuthenticatedShell({
             setAuthState={setAuthState}
             state={state}
           />
-        ) : route === 'campusAdmin' ? (
-          <AdminScreen
-            onBackToUserMode={returnToUserMode}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
-        ) : route === 'serviceAdmin' ? (
-          <ServiceAdminScreen
-            onBackToUserMode={returnToUserMode}
-            onLogoutPress={openLogoutConfirm}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
+        ) : route === 'polls' ? (
+          null
         ) : (
           <RoutePlaceholder
             activeCampusCount={state.activeCampuses.length}
@@ -4870,6 +4867,10 @@ const styles = StyleSheet.create({
   },
   shellContentKeyboardOpen: {
     paddingBottom: spacing.bottomSafe + 96,
+  },
+  pollRouteHost: {
+    flex: 1,
+    minHeight: 0,
   },
   bottomNavFrame: {
     flexShrink: 0,
