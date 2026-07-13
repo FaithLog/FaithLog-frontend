@@ -172,7 +172,7 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
     });
 
     const internalTerms = /REST Docs|API|production|endpoint|엔드포인트/i;
-    expect(readText(renderer)).not.toMatch(internalTerms);
+    expect(readVisibleAndAccessibleStrings(renderer)).not.toMatch(internalTerms);
     const announcements = vi.mocked(AccessibilityInfo.announceForAccessibility).mock.calls
       .flatMap((call) => call)
       .join(' ');
@@ -752,6 +752,24 @@ function readText(renderer: ReactTestRenderer) {
     .findAll((node) => String(node.type) === 'Text')
     .flatMap((node) => node.children)
     .join(' ');
+}
+
+function readVisibleAndAccessibleStrings(renderer: ReactTestRenderer) {
+  const stringPropNames = [
+    'accessibilityHint',
+    'accessibilityLabel',
+    'actionAccessibilityLabel',
+    'actionLabel',
+    'message',
+    'title',
+    'tooltip',
+  ] as const;
+  const propStrings = renderer.root.findAll(() => true).flatMap((node) =>
+    stringPropNames.map((name) => node.props[name]).filter(
+      (value): value is string => typeof value === 'string',
+    ),
+  );
+  return [readText(renderer), ...propStrings].join(' ');
 }
 
 function deferred<T>() {
