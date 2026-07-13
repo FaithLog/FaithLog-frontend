@@ -62,7 +62,7 @@ describe('MEAL mock adapter flow', () => {
   });
 
   it('returns only the current duty owner MEAL accounts, including inactive history', async () => {
-    const accounts = await mealApi.getMyPaymentAccounts('mock-access-token', 1, true);
+    const accounts = await mealApi.getMyPaymentAccounts('mock-access-token', 1, 7, true);
 
     expect(accounts).toHaveLength(2);
     expect(accounts.every((account) => account.ownerUserId === 7)).toBe(true);
@@ -76,18 +76,18 @@ describe('MEAL mock adapter flow', () => {
       accountHolder: '샘플 사용자',
     };
     await expect(
-      mealApi.createPaymentAccount('mock-access-token', 1, newAccount),
+      mealApi.createPaymentAccount('mock-access-token', 1, 7, newAccount),
     ).rejects.toMatchObject({detail: {status: 409}});
 
-    await mealApi.deactivatePaymentAccount('mock-access-token', 1, 10);
-    await mealApi.createPaymentAccount('mock-access-token', 1, newAccount);
-    const afterCreate = await mealApi.getMyPaymentAccounts('mock-access-token', 1, true);
+    await mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, 10);
+    await mealApi.createPaymentAccount('mock-access-token', 1, 7, newAccount);
+    const afterCreate = await mealApi.getMyPaymentAccounts('mock-access-token', 1, 7, true);
     expect(afterCreate.filter((account) => account.isActive)).toEqual([
       expect.objectContaining({nickname: '저녁 계좌'}),
     ]);
-    await mealApi.deactivatePaymentAccount('mock-access-token', 1, afterCreate[0]?.id ?? 0);
+    await mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, afterCreate[0]?.id ?? 0);
     await expect(
-      mealApi.deactivatePaymentAccount('mock-access-token', 1, afterCreate[0]?.id ?? 0),
+      mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, afterCreate[0]?.id ?? 0),
     ).rejects.toMatchObject({detail: {status: 409}});
   });
 
@@ -131,6 +131,43 @@ describe('MEAL mock adapter flow', () => {
     await expect(
       addUserPollOption('mock-access-token', 1, noUserOptions.id, {content: '일식'}),
     ).rejects.toMatchObject({detail: {status: 409}});
+  });
+
+  it('stores MEAL responses independently for each poll and user', async () => {
+    const before = await mealApi.getPollDetail(mealMockAccessTokens.activeDuty, 1, 901);
+    const firstOptionId = before.options[0]?.optionId ?? 0;
+    const secondOptionId = before.options[1]?.optionId ?? 0;
+    const firstCount = before.options[0]?.responseCount ?? 0;
+    const secondCount = before.options[1]?.responseCount ?? 0;
+
+    await savePollResponse(mealMockAccessTokens.activeDuty, 1, 901, {
+      optionIds: [firstOptionId],
+    });
+    await savePollResponse(mealMockAccessTokens.otherDuty, 1, 901, {
+      optionIds: [secondOptionId],
+    });
+
+    const actorADetail = await fetchPollDetail(mealMockAccessTokens.activeDuty, 1, 901);
+    const actorBDetail = await fetchPollDetail(mealMockAccessTokens.otherDuty, 1, 901);
+    const management = await mealApi.getPollDetail(mealMockAccessTokens.activeDuty, 1, 901);
+
+    expect(actorADetail.responded).toBe(true);
+    expect(actorADetail.myResponse?.optionIds).toEqual([firstOptionId]);
+    expect(actorBDetail.responded).toBe(true);
+    expect(actorBDetail.myResponse?.optionIds).toEqual([secondOptionId]);
+    expect(management.options[0]?.responseCount).toBe(firstCount + 1);
+    expect(management.options[1]?.responseCount).toBe(secondCount + 1);
+    expect(management.totalResponseCount).toBe(before.totalResponseCount + 2);
+
+    await mealApi.closePoll(mealMockAccessTokens.activeDuty, 1, 901);
+    const result = await mealApi.createCharges(mealMockAccessTokens.activeDuty, 1, 901, {
+      paymentAccountId: 10,
+      groups: [
+        {optionId: firstOptionId, calculationType: 'PER_MEMBER', enteredAmount: 100},
+        {optionId: secondOptionId, calculationType: 'PER_MEMBER', enteredAmount: 100},
+      ],
+    });
+    expect(result.chargedMemberCount).toBe(before.totalResponseCount + 2);
   });
 
   it('keeps old CLOSED polls in the separate management list', async () => {
@@ -180,7 +217,7 @@ describe('MEAL mock adapter flow', () => {
       ],
     });
     const detail = await mealApi.getPollDetail('mock-access-token', 1, 902);
-    const settlement = await mealApi.getMySettlement('mock-access-token', 1);
+    const settlement = await mealApi.getMySettlement('mock-access-token', 1, 7);
 
     expect(result).toMatchObject({
       paymentAccountId: 10,
@@ -243,10 +280,10 @@ describe('MEAL mock adapter flow', () => {
 
   it('never exposes or mutates another duty owner account', async () => {
     await expect(
-      mealApi.getMyPaymentAccounts(mealMockAccessTokens.otherDuty, 1, true),
+      mealApi.getMyPaymentAccounts(mealMockAccessTokens.otherDuty, 1, 8, true),
     ).resolves.toEqual([]);
     await expect(
-      mealApi.deactivatePaymentAccount(mealMockAccessTokens.otherDuty, 1, 10),
+      mealApi.deactivatePaymentAccount(mealMockAccessTokens.otherDuty, 1, 8, 10),
     ).rejects.toMatchObject({detail: {status: 404}});
   });
 
@@ -279,7 +316,7 @@ describe('MEAL mock adapter flow', () => {
   });
 
   it('filters settlement and charged account privacy by the requesting duty owner', async () => {
-    const account = await mealApi.createPaymentAccount(mealMockAccessTokens.otherDuty, 1, {
+    const account = await mealApi.createPaymentAccount(mealMockAccessTokens.otherDuty, 1, 8, {
       nickname: '두 번째 담당자 계좌',
       bankName: '우리은행',
       accountNumber: '1002-000-000000',
@@ -293,8 +330,8 @@ describe('MEAL mock adapter flow', () => {
       ],
     });
 
-    const ownSettlement = await mealApi.getMySettlement(mealMockAccessTokens.otherDuty, 1);
-    const otherSettlement = await mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1);
+    const ownSettlement = await mealApi.getMySettlement(mealMockAccessTokens.otherDuty, 1, 8);
+    const otherSettlement = await mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1, 7);
     const hiddenDetail = await mealApi.getPollDetail(mealMockAccessTokens.activeDuty, 1, 902);
 
     expect(ownSettlement.accounts[0]?.account.ownerUserId).toBe(8);

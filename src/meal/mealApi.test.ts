@@ -54,8 +54,8 @@ describe('typed provisional MEAL API', () => {
     ]);
     const api = createMealApi({isMockMode: () => true, request});
 
-    await api.getMyPaymentAccounts('token', 4, true);
-    await api.getMySettlement('token', 4);
+    await api.getMyPaymentAccounts('token', 4, 7, true);
+    await api.getMySettlement('token', 4, 7);
 
     expect(spy.mock.calls[0]?.[0]).toBe(
       '/api/v1/campuses/4/meal/payment-accounts/me?includeInactive=true',

@@ -127,6 +127,7 @@ import {
   createMealMutationGate,
   finishMealMutation,
 } from '../meal/mealMutationFlow';
+import {useCommittedMealMutationScope} from '../meal/useCommittedMealMutationScope';
 import {
   Body,
   Button,
@@ -664,9 +665,7 @@ export function AdminScreen({
   const penaltyRuleRequestSequenceRef = useRef(0);
   const penaltyRuleSaveGateRef = useRef(createPenaltyRuleSaveGate());
   const mealDutyMutationGateRef = useRef(createMealMutationGate());
-  const mealDutyCampusIdRef = useRef(campusId);
   penaltyRuleCampusIdRef.current = campusId;
-  mealDutyCampusIdRef.current = campusId;
   const [prayerState, setPrayerState] = useState<AdminPrayerState>({status: 'idle'});
   const [assignablePrayerMembersState, setAssignablePrayerMembersState] =
     useState<AssignablePrayerMembersState>({status: 'idle'});
@@ -683,6 +682,18 @@ export function AdminScreen({
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
+  const resetMealDutyActionForCampusChange = useCallback(() => {
+    setActionState((current) =>
+      current.status === 'assigningMeal' || current.status === 'revokingMeal'
+        ? {status: 'idle'}
+        : current,
+    );
+  }, []);
+  const mealDutyCampusIdRef = useCommittedMealMutationScope(
+    campusId,
+    mealDutyMutationGateRef.current,
+    resetMealDutyActionForCampusChange,
+  );
 
   const resetPenaltyRuleFlow = useCallback(() => {
     setPenaltyRuleFlow({route: 'list'});

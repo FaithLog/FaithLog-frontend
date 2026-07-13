@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {Text, View} from 'react-native';
+import {Modal, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
@@ -21,12 +21,13 @@ import {useMealRequestTracker} from './useMealRequestTracker';
 type MealAccountScreenProps = {
   api?: MealApi;
   campusId: number;
+  currentUserId: number;
   onBack: () => void;
   onSessionExpired: (message: string) => void;
 };
 
-export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExpired}: MealAccountScreenProps) {
-  const tracker = useMealRequestTracker(`campus:${campusId}/meal-accounts`);
+export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBack, onSessionExpired}: MealAccountScreenProps) {
+  const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-accounts`);
   const mutationGate = useRef(createMealMutationGate()).current;
   const [state, setState] = useState<MealLoadState<MealPaymentAccount[]>>({status: 'loading'});
   const [nickname, setNickname] = useState('');
@@ -36,6 +37,7 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
+  const [deactivationTarget, setDeactivationTarget] = useState<MealPaymentAccount | null>(null);
 
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setState({status: 'loading'});
@@ -47,7 +49,7 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
       return false;
     }
     try {
-      const accounts = await api.getMyPaymentAccounts(access.request.accessToken, campusId, true);
+      const accounts = await api.getMyPaymentAccounts(access.request.accessToken, campusId, currentUserId, true);
       if (!tracker.isSuccessCurrent(access.request.identity)) return false;
       setState(accounts.length === 0 ? {status: 'empty'} : {status: 'success', data: accounts});
       setRefreshWarning(false);
@@ -57,11 +59,13 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
       if (apiError && showLoading) setState({status: 'error', error: apiError});
       return false;
     }
-  }, [api, campusId, onSessionExpired, tracker]);
+  }, [api, campusId, currentUserId, onSessionExpired, tracker]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  if (!scopeIsCommitted) return <MealLoading label="내 밥 계좌 화면을 전환하는 중" />;
 
   const create = async () => {
     const operationId = beginMealMutation(
@@ -82,7 +86,7 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
         if (apiError) setActionError(apiError);
         return;
       }
-      const created = await api.createPaymentAccount(access.request.accessToken, campusId, {
+      const created = await api.createPaymentAccount(access.request.accessToken, campusId, currentUserId, {
         nickname,
         bankName,
         accountNumber,
@@ -126,7 +130,7 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
         if (apiError) setActionError(apiError);
         return;
       }
-      const deactivated = await api.deactivatePaymentAccount(access.request.accessToken, campusId, accountId);
+      const deactivated = await api.deactivatePaymentAccount(access.request.accessToken, campusId, currentUserId, accountId);
       if (!tracker.isSuccessCurrent(identity)) return;
       setState((current) => current.status === 'success'
         ? {status: 'success', data: current.data.map((account) => account.id === accountId ? deactivated : account)}
@@ -140,6 +144,13 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
       finishMealMutation(mutationGate, operationId);
       if (identity === null || tracker.isSuccessCurrent(identity)) setSaving(false);
     }
+  };
+
+  const confirmDeactivate = () => {
+    const target = deactivationTarget;
+    if (!target) return;
+    setDeactivationTarget(null);
+    void deactivate(target.id);
   };
 
   return (
@@ -164,7 +175,7 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
             <Chip label={account.isActive ? '활성' : '비활성'} tone={account.isActive ? 'success' : 'default'} />
           </View>
           {account.isActive ? (
-            <Button accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={saving} onPress={() => void deactivate(account.id)} variant="danger">비활성화</Button>
+            <Button accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={saving} onPress={() => setDeactivationTarget(account)} variant="danger">비활성화</Button>
           ) : null}
         </Card>
       )) : null}
@@ -180,6 +191,26 @@ export function MealAccountScreen({api = mealApi, campusId, onBack, onSessionExp
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void load(false)} /> : null}
       <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setDeactivationTarget(null)}
+        transparent
+        visible={deactivationTarget !== null}>
+        <View style={mealStyles.sheetBackdrop}>
+          <View style={mealStyles.sheet}>
+            <View accessible accessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 비활성화 안내`}>
+              <Eyebrow>계좌 비활성화</Eyebrow>
+              <Title>이 계좌를 비활성화할까요?</Title>
+              <Text style={mealStyles.body}>비활성화하면 앞으로 이 계좌로 새 청구를 만들 수 없으며 되돌릴 수 없습니다.</Text>
+            </View>
+            <View style={mealStyles.actionRow}>
+              <Button accessibilityLabel="계좌 비활성화 취소" disabled={saving} onPress={() => setDeactivationTarget(null)} variant="secondary">취소</Button>
+              <Button accessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 비활성화 확인`} disabled={saving} onPress={confirmDeactivate} variant="danger">비활성화</Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

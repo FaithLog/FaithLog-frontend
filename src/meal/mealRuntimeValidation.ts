@@ -41,8 +41,36 @@ export function parseMyMealDutyAssignment(value: unknown): MealDutyAssignment {
   });
 }
 
+export function parseMyMealDutyAssignmentForContext(
+  value: unknown,
+  context: {campusId: number; userId: number},
+): MealDutyAssignment {
+  return parseSafely(() => {
+    const duty = parseMyMealDutyAssignment(value);
+    if (duty.campusId !== context.campusId || duty.userId !== context.userId) invalidResponse();
+    return duty;
+  });
+}
+
 export function parseMealDutyAssignment(value: unknown): MealDutyAssignment {
   return parseSafely(() => parseMealDuty(value, true));
+}
+
+export function parseMealDutyAssignmentForContext(
+  value: unknown,
+  context: {campusId: number; userId: number},
+): MealDutyAssignment {
+  return parseSafely(() => {
+    const duty = parseMealDutyAssignment(value);
+    if (
+      duty.campusId !== context.campusId ||
+      duty.userId !== context.userId ||
+      !duty.isActive
+    ) {
+      invalidResponse();
+    }
+    return duty;
+  });
 }
 
 export function parseMealPaymentAccounts(value: unknown): MealPaymentAccount[] {
@@ -53,8 +81,35 @@ export function parseMealPaymentAccounts(value: unknown): MealPaymentAccount[] {
   });
 }
 
+export function parseMealPaymentAccountsForContext(
+  value: unknown,
+  context: {campusId: number; ownerUserId: number},
+): MealPaymentAccount[] {
+  return parseSafely(() => {
+    const accounts = parseMealPaymentAccounts(value);
+    if (accounts.some((account) => !isOwnedAccount(account, context))) invalidResponse();
+    return accounts;
+  });
+}
+
 export function parseMealPaymentAccountResponse(value: unknown): MealPaymentAccount {
   return parseSafely(() => parseMealPaymentAccount(value));
+}
+
+export function parseMealPaymentAccountForContext(
+  value: unknown,
+  context: {accountId?: number; campusId: number; ownerUserId: number},
+): MealPaymentAccount {
+  return parseSafely(() => {
+    const account = parseMealPaymentAccountResponse(value);
+    if (
+      !isOwnedAccount(account, context) ||
+      (context.accountId !== undefined && account.id !== context.accountId)
+    ) {
+      invalidResponse();
+    }
+    return account;
+  });
 }
 
 export function parseMealPollList(value: unknown): MealPollList {
@@ -75,6 +130,23 @@ export function parseMealPollList(value: unknown): MealPollList {
   });
 }
 
+export function parseMealPollListForContext(
+  value: unknown,
+  context: {campusId: number; page: number; size: number},
+): MealPollList {
+  return parseSafely(() => {
+    const list = parseMealPollList(value);
+    if (
+      list.page !== context.page ||
+      list.size !== context.size ||
+      list.content.some((poll) => poll.campusId !== context.campusId)
+    ) {
+      invalidResponse();
+    }
+    return list;
+  });
+}
+
 export function parseMealPollDetail(value: unknown): MealPollDetail {
   return parseSafely(() => {
     const record = requireRecord(value);
@@ -87,6 +159,17 @@ export function parseMealPollDetail(value: unknown): MealPollDetail {
   });
 }
 
+export function parseMealPollDetailForContext(
+  value: unknown,
+  context: {campusId: number; pollId: number},
+): MealPollDetail {
+  return parseSafely(() => {
+    const detail = parseMealPollDetail(value);
+    if (detail.campusId !== context.campusId || detail.id !== context.pollId) invalidResponse();
+    return detail;
+  });
+}
+
 export function parseCreatedMealPollDetail(value: unknown): MealPollDetail {
   return parseSafely(() => {
     const detail = parseMealPollDetail(value);
@@ -95,10 +178,32 @@ export function parseCreatedMealPollDetail(value: unknown): MealPollDetail {
   });
 }
 
+export function parseCreatedMealPollDetailForContext(
+  value: unknown,
+  context: {campusId: number},
+): MealPollDetail {
+  return parseSafely(() => {
+    const detail = parseCreatedMealPollDetail(value);
+    if (detail.campusId !== context.campusId) invalidResponse();
+    return detail;
+  });
+}
+
 export function parseClosedMealPollDetail(value: unknown): MealPollDetail {
   return parseSafely(() => {
     const detail = parseMealPollDetail(value);
     if (detail.status !== 'CLOSED') invalidResponse();
+    return detail;
+  });
+}
+
+export function parseClosedMealPollDetailForContext(
+  value: unknown,
+  context: {campusId: number; pollId: number},
+): MealPollDetail {
+  return parseSafely(() => {
+    const detail = parseClosedMealPollDetail(value);
+    if (detail.campusId !== context.campusId || detail.id !== context.pollId) invalidResponse();
     return detail;
   });
 }
@@ -121,6 +226,38 @@ export function parseMealChargeResult(value: unknown): MealChargeResult {
   });
 }
 
+export function parseMealChargeResultForContext(
+  value: unknown,
+  context: {
+    groups: Array<{calculationType: MealCalculationType; enteredAmount: number; optionId: number}>;
+    paymentAccountId: number;
+    pollId: number;
+  },
+): MealChargeResult {
+  return parseSafely(() => {
+    const result = parseMealChargeResult(value);
+    if (
+      result.pollId !== context.pollId ||
+      result.paymentAccountId !== context.paymentAccountId ||
+      result.groups.length !== context.groups.length
+    ) {
+      invalidResponse();
+    }
+    const requestedGroups = new Map(context.groups.map((group) => [group.optionId, group]));
+    for (const group of result.groups) {
+      const requested = requestedGroups.get(group.optionId);
+      if (
+        !requested ||
+        group.calculationType !== requested.calculationType ||
+        group.enteredAmount !== requested.enteredAmount
+      ) {
+        invalidResponse();
+      }
+    }
+    return result;
+  });
+}
+
 export function parseMealSettlement(value: unknown): MealSettlement {
   return parseSafely(() => {
     const record = requireRecord(value);
@@ -129,6 +266,19 @@ export function parseMealSettlement(value: unknown): MealSettlement {
       summary: parseSettlementSummary(record.summary),
     };
     validateMealSettlementSemantics(settlement);
+    return settlement;
+  });
+}
+
+export function parseMealSettlementForContext(
+  value: unknown,
+  context: {campusId: number; ownerUserId: number},
+): MealSettlement {
+  return parseSafely(() => {
+    const settlement = parseMealSettlement(value);
+    if (settlement.accounts.some((item) => !isOwnedAccount(item.account, context))) {
+      invalidResponse();
+    }
     return settlement;
   });
 }
@@ -176,6 +326,13 @@ function parseMealPaymentAccount(value: unknown): MealPaymentAccount {
     createdAt: requireDateTime(record.createdAt),
     deactivatedAt: requireNullableDateTime(record.deactivatedAt),
   };
+}
+
+function isOwnedAccount(
+  account: MealPaymentAccount,
+  context: {campusId: number; ownerUserId: number},
+) {
+  return account.campusId === context.campusId && account.ownerUserId === context.ownerUserId;
 }
 
 function parseMealPollSummary(value: unknown): MealPollSummary {
@@ -304,6 +461,7 @@ function validateMealChargeResultSemantics(result: MealChargeResult) {
 function validateMealSettlementSemantics(settlement: MealSettlement) {
   requireUniqueNumbers(settlement.accounts.map((item) => item.account.id));
   const chargeIds = settlement.accounts.flatMap((item) => item.charges.map((charge) => charge.chargeId));
+  if (chargeIds.length > 1000) invalidResponse();
   requireUniqueNumbers(chargeIds);
 
   for (const item of settlement.accounts) {

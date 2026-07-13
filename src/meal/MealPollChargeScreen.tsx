@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {Modal, Text, View} from 'react-native';
+import {Modal, ScrollView, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
@@ -19,6 +19,7 @@ import {
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
 import type {
   MealCalculationType,
+  MealChargeResult,
   MealChargeGroupRequest,
   MealPaymentAccount,
   MealPollDetail,
@@ -29,6 +30,7 @@ import {useMealRequestTracker} from './useMealRequestTracker';
 type MealPollChargeScreenProps = {
   api?: MealApi;
   campusId: number;
+  currentUserId: number;
   onBack: () => void;
   onComplete: () => void;
   onSessionExpired: (message: string) => void;
@@ -46,15 +48,20 @@ type ChargeLoadState =
   | {status: 'success'; accounts: MealPaymentAccount[]; detail: MealPollDetail}
   | {status: 'error'; error: ApiError};
 
+type ChargeTerminalReceipt =
+  | {source: 'mutation'; result: MealChargeResult}
+  | {source: 'reconciled'};
+
 export function MealPollChargeScreen({
   api = mealApi,
   campusId,
+  currentUserId,
   onBack,
   onComplete,
   onSessionExpired,
   pollId,
 }: MealPollChargeScreenProps) {
-  const tracker = useMealRequestTracker(`campus:${campusId}/meal-charge:${pollId}`);
+  const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-charge:${pollId}`);
   const [state, setState] = useState<ChargeLoadState>({status: 'loading'});
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<ChargeDraft[]>([]);
@@ -62,6 +69,7 @@ export function MealPollChargeScreen({
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
+  const [terminalReceipt, setTerminalReceipt] = useState<ChargeTerminalReceipt | null>(null);
   const submitGate = useRef(createMealChargeSubmitGate()).current;
 
   const load = useCallback(async () => {
@@ -77,7 +85,7 @@ export function MealPollChargeScreen({
     try {
       const [detail, accounts] = await Promise.all([
         api.getPollDetail(accessToken, campusId, pollId),
-        api.getMyPaymentAccounts(accessToken, campusId, true),
+        api.getMyPaymentAccounts(accessToken, campusId, currentUserId, true),
       ]);
       if (!tracker.isSuccessCurrent(identity)) return;
       const activeAccounts = accounts.filter((account) => account.isActive);
@@ -88,16 +96,19 @@ export function MealPollChargeScreen({
           .map((option) => ({optionId: option.optionId, calculationType: 'PER_MEMBER', enteredAmount: ''})),
       );
       setState({status: 'success', accounts: activeAccounts, detail});
+      setTerminalReceipt(detail.settlementStatus === 'CHARGED' ? {source: 'reconciled'} : null);
       setRefreshWarning(false);
     } catch (error) {
       const apiError = getCurrentMealRequestError({error, fallback: '밥 청구 정보를 불러오지 못했습니다.', identity, onSessionExpired, tracker});
       if (apiError) setState({status: 'error', error: apiError});
     }
-  }, [api, campusId, onSessionExpired, pollId, tracker]);
+  }, [api, campusId, currentUserId, onSessionExpired, pollId, tracker]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  if (!scopeIsCommitted) return <MealLoading label="밥 청구 화면을 전환하는 중" />;
 
   const updateDraft = (optionId: number, patch: Partial<ChargeDraft>) => {
     setDrafts((current) => current.map((draft) => draft.optionId === optionId ? {...draft, ...patch} : draft));
@@ -122,6 +133,7 @@ export function MealPollChargeScreen({
   };
 
   const openConfirmation = () => {
+    if (terminalReceipt) return;
     try {
       getRequest();
       setActionError(null);
@@ -132,6 +144,7 @@ export function MealPollChargeScreen({
   };
 
   const submit = async () => {
+    if (terminalReceipt) return;
     const operationId = beginMealChargeSubmit(
       submitGate,
       `${campusId}:${pollId}:${getAuthSessionGeneration()}:charge`,
@@ -152,9 +165,10 @@ export function MealPollChargeScreen({
         if (apiError) setActionError(apiError);
         return;
       }
-      await api.createCharges(access.request.accessToken, campusId, pollId, request);
+      const result = await api.createCharges(access.request.accessToken, campusId, pollId, request);
       if (!tracker.isSuccessCurrent(identity)) return;
       mutationSucceeded = true;
+      setTerminalReceipt({source: 'mutation', result});
       setConfirmationVisible(false);
       await refreshAfterCharge();
     } catch (error) {
@@ -170,13 +184,39 @@ export function MealPollChargeScreen({
       const apiError = getCurrentMealRequestError({error, fallback: '밥 청구를 완료하지 못했습니다.', identity, onSessionExpired, tracker});
       if (!apiError) return;
       setConfirmationVisible(false);
-      setActionError(apiError);
       if (apiError.status === 409) {
+        const reconciled = await reconcileChargedPoll();
+        if (reconciled) return;
         setRefreshWarning(true);
       }
+      setActionError(apiError);
     } finally {
       finishMealChargeSubmit(submitGate, operationId);
       if (identity === null || tracker.isSuccessCurrent(identity)) setSubmitting(false);
+    }
+  };
+
+  const reconcileChargedPoll = async () => {
+    const access = await resolveMealRequestAccess(tracker, 'charge-reconcile', onSessionExpired);
+    if (access.status !== 'ready') return false;
+    try {
+      const detail = await api.getPollDetail(access.request.accessToken, campusId, pollId);
+      if (
+        !tracker.isSuccessCurrent(access.request.identity) ||
+        detail.settlementStatus !== 'CHARGED'
+      ) {
+        return false;
+      }
+      setState((current) => current.status === 'success'
+        ? {status: 'success', accounts: current.accounts, detail}
+        : current);
+      setTerminalReceipt({source: 'reconciled'});
+      setActionError(null);
+      setRefreshWarning(false);
+      return true;
+    } catch (error) {
+      getCurrentMealRequestError({error, fallback: '최신 정산 상태를 불러오지 못했습니다.', identity: access.request.identity, onSessionExpired, tracker});
+      return false;
     }
   };
 
@@ -190,12 +230,16 @@ export function MealPollChargeScreen({
       return;
     }
     try {
-      await Promise.all([
+      const [detail] = await Promise.all([
         api.getPollDetail(access.request.accessToken, campusId, pollId),
         api.listPolls(access.request.accessToken, campusId, {page: 0, size: 20, sort: 'endsAt,desc'}),
-        api.getMySettlement(access.request.accessToken, campusId),
+        api.getMySettlement(access.request.accessToken, campusId, currentUserId),
       ]);
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
+      setState((current) => current.status === 'success'
+        ? {status: 'success', accounts: current.accounts, detail}
+        : current);
+      if (detail.settlementStatus === 'CHARGED') setTerminalReceipt({source: 'reconciled'});
       setRefreshWarning(false);
       onComplete();
     } catch (error) {
@@ -207,7 +251,7 @@ export function MealPollChargeScreen({
   if (state.status === 'loading') return <MealLoading label="밥 청구 정보를 불러오는 중" />;
   if (state.status === 'error') return <MealErrorState error={state.error} onRetry={load} />;
 
-  const chargeableOptions = state.detail.options.filter(
+  const chargeableOptions = terminalReceipt ? [] : state.detail.options.filter(
     (option) => option.responseCount > 0 && option.charge.chargeStatus === 'NOT_CHARGED',
   );
 
@@ -218,6 +262,14 @@ export function MealPollChargeScreen({
         <Title>{state.detail.title}</Title>
         <Text style={mealStyles.body}>입금받을 계좌를 고르고 메뉴별 금액을 입력해 주세요.</Text>
       </Card>
+
+      {terminalReceipt ? (
+        <Card>
+          <Eyebrow>정산 완료</Eyebrow>
+          <Title>청구가 완료된 투표입니다</Title>
+          <Text style={mealStyles.body}>최신 정산 상태만 다시 확인할 수 있으며 같은 청구를 다시 보낼 수 없습니다.</Text>
+        </Card>
+      ) : null}
 
       <Card>
         <Eyebrow>입금 계좌</Eyebrow>
@@ -290,16 +342,28 @@ export function MealPollChargeScreen({
       {refreshWarning ? <MealRefreshWarning onRetry={() => void refreshAfterCharge()} /> : null}
       <View style={mealStyles.actionRow}>
         <Button accessibilityLabel="밥 투표 상세로 돌아가기" onPress={onBack} variant="secondary">뒤로</Button>
-        <Button accessibilityLabel="밥 청구 최종 확인 열기" disabled={state.accounts.length === 0 || chargeableOptions.length === 0} onPress={openConfirmation}>최종 확인</Button>
+        {!terminalReceipt ? (
+          <Button accessibilityLabel="밥 청구 최종 확인 열기" disabled={state.accounts.length === 0 || chargeableOptions.length === 0} onPress={openConfirmation}>최종 확인</Button>
+        ) : null}
       </View>
 
       <Modal animationType="slide" onRequestClose={() => setConfirmationVisible(false)} transparent visible={confirmationVisible}>
         <View style={mealStyles.sheetBackdrop}>
-          <View accessible accessibilityLabel={getConfirmationAccessibilityLabel(state, selectedAccountId, drafts)} style={mealStyles.sheet}>
-            <Eyebrow>최종 청구 확인</Eyebrow>
-            <Title>이 내용으로 청구할까요?</Title>
-            <MealConfirmationSummary accounts={state.accounts} detail={state.detail} drafts={drafts} selectedAccountId={selectedAccountId} />
-            <Text style={mealStyles.body}>완료 후에는 계좌나 금액을 바꾸거나 다시 청구할 수 없습니다.</Text>
+          <View style={mealStyles.sheet}>
+            <View
+              accessible
+              accessibilityLabel={getConfirmationAccessibilityLabel(state, selectedAccountId, drafts)}>
+              <Eyebrow>최종 청구 확인</Eyebrow>
+              <Title>이 내용으로 청구할까요?</Title>
+            </View>
+            <ScrollView
+              accessibilityLabel="최종 청구 접근성 요약"
+              accessible
+              contentContainerStyle={mealStyles.list}
+              style={mealStyles.sheetSummaryScroll}>
+              <MealConfirmationSummary accounts={state.accounts} detail={state.detail} drafts={drafts} selectedAccountId={selectedAccountId} />
+              <Text style={mealStyles.body}>완료 후에는 계좌나 금액을 바꾸거나 다시 청구할 수 없습니다.</Text>
+            </ScrollView>
             <View style={mealStyles.actionRow}>
               <Button accessibilityLabel="최종 청구 취소" disabled={submitting} onPress={() => setConfirmationVisible(false)} variant="secondary">취소</Button>
               <Button accessibilityLabel="최종 청구 실행" disabled={submitting} onPress={() => void submit()}>{submitting ? '청구 중...' : '청구하기'}</Button>

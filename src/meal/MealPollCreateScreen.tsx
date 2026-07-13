@@ -7,7 +7,7 @@ import {buildMealPollCreateRequest, formatMealLocalDeadline, parseMealLocalDeadl
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
 import type {MealPollDetail} from './mealTypes';
-import {getCurrentMealRequestError, MealErrorState, mealStyles, toMealApiError} from './mealScreenShared';
+import {getCurrentMealRequestError, MealErrorState, MealLoading, mealStyles, toMealApiError} from './mealScreenShared';
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {useMealRequestTracker} from './useMealRequestTracker';
@@ -27,7 +27,7 @@ export function MealPollCreateScreen({
   onCreated,
   onSessionExpired,
 }: MealPollCreateScreenProps) {
-  const tracker = useMealRequestTracker(`campus:${campusId}/meal-create`);
+  const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/meal-create`);
   const mutationGate = useRef(createMealMutationGate()).current;
   const initialDeadline = useRef(formatMealLocalDeadline(new Date(Date.now() + 86_400_000))).current;
   const [title, setTitle] = useState('');
@@ -38,6 +38,8 @@ export function MealPollCreateScreen({
   const [allowUserOptionAdd, setAllowUserOptionAdd] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+
+  if (!scopeIsCommitted) return <MealLoading label="밥 투표 화면을 전환하는 중" />;
 
   const save = async () => {
     const operationId = beginMealMutation(

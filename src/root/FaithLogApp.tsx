@@ -4226,7 +4226,7 @@ function MealDutyProfileRow({
         });
         if (!accessToken) return;
 
-        const duty = await mealApi.getMyDuty(accessToken, state.selectedCampus.campusId);
+        const duty = await mealApi.getMyDuty(accessToken, state.selectedCampus.campusId, state.user.id);
         if (!mounted || !isAuthSessionRequestAllowed(requestGeneration)) return;
         const canManage =
           duty.dutyType === 'MEAL' && duty.isActive && duty.userId === state.user.id;

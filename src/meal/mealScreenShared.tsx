@@ -127,12 +127,17 @@ export const mealStyles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     gap: spacing.gap,
+    maxHeight: '90%',
     padding: spacing.card,
   },
   sheetBackdrop: {
     backgroundColor: 'rgba(15, 23, 42, 0.46)',
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  sheetSummaryScroll: {
+    flexShrink: 1,
+    maxHeight: 420,
   },
   softBox: {
     backgroundColor: colors.neutralSoft,

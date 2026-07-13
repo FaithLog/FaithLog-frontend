@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 
 import {createMealRequestTracker} from './mealRequestLifecycle';
 
@@ -7,13 +7,18 @@ export function useMealRequestTracker(scope: string) {
   if (trackerRef.current === null) {
     trackerRef.current = createMealRequestTracker(scope);
   }
-  trackerRef.current.syncScope(scope);
+  const tracker = trackerRef.current;
+  const [committedScope, setCommittedScope] = useState(scope);
+
+  useLayoutEffect(() => {
+    tracker.syncScope(scope);
+    setCommittedScope(scope);
+  }, [scope, tracker]);
 
   useEffect(() => {
-    const tracker = trackerRef.current;
-    tracker?.mount();
-    return () => tracker?.unmount();
-  }, []);
+    tracker.mount();
+    return () => tracker.unmount();
+  }, [tracker]);
 
-  return trackerRef.current;
+  return {scopeIsCommitted: committedScope === scope, tracker};
 }

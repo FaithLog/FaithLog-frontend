@@ -33,6 +33,12 @@ export function finishMealMutation(gate: MealMutationGate, operationId: number) 
   return true;
 }
 
+export function invalidateMealMutationGate(gate: MealMutationGate) {
+  gate.operationId += 1;
+  gate.inFlight = false;
+  gate.identityKey = null;
+}
+
 export async function runMealMutation<T>({
   gate,
   mutation,

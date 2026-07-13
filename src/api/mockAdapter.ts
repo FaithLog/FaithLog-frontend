@@ -391,7 +391,9 @@ function resolveMockData(
     if (membershipDenied) return membershipDenied;
     return [
       ...poll.summaries,
-      ...mockMealState.polls.filter((item) => item.campusId === campusId).map(toGeneralMealPollSummary),
+      ...mockMealState.polls
+        .filter((item) => item.campusId === campusId)
+        .map((item) => toGeneralMealPollSummary(item, mealActor?.userId ?? 0)),
     ];
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+$/.test(path)) {
@@ -402,7 +404,7 @@ function resolveMockData(
     const mealDetail = mockMealState.details.find((detail) => detail.id === pollId && detail.campusId === campusId);
 
     return mealDetail
-      ? toGeneralMealPollDetail(mealDetail)
+      ? toGeneralMealPollDetail(mealDetail, mealActor?.userId ?? 0)
       : poll.details.find((detail) => detail.id === pollId) ?? poll.detail;
   }
   if (
@@ -434,7 +436,8 @@ function resolveMockData(
       ) {
         return mockBadRequest('MEAL_POLL_RESPONSE_INVALID', '선택지를 한 개 선택해 주세요.');
       }
-      const previousOptionIds = mockMealState.responses[pollId]?.optionIds ?? [];
+      const responseKey = mockMealResponseKey(pollId, mealActor?.userId ?? 0);
+      const previousOptionIds = mockMealState.responses[responseKey]?.optionIds ?? [];
       const updatedOptions = mealDetail.options.map((option) => ({
         ...option,
         responseCount:
@@ -454,13 +457,13 @@ function resolveMockData(
           ? {...pollSummary, totalResponseCount: updatedDetail.totalResponseCount}
           : pollSummary,
       );
-      mockMealState.responses[pollId] = {
-        responseId: 7000 + pollId,
+      mockMealState.responses[responseKey] = {
+        responseId: 7000 + pollId * 100 + (mealActor?.userId ?? 0),
         pollId,
         optionIds,
         respondedAt: new Date().toISOString(),
       };
-      return mockMealState.responses[pollId];
+      return mockMealState.responses[responseKey];
     }
     return poll.response;
   }
@@ -908,7 +911,7 @@ type MockMealState = {
   details: MealPollDetail[];
   duties: MealDutyAssignment[];
   polls: MealPollSummary[];
-  responses: Record<number, {optionIds: number[]; pollId: number; respondedAt: string; responseId: number}>;
+  responses: Record<string, {optionIds: number[]; pollId: number; respondedAt: string; responseId: number}>;
   settlement: MealSettlement;
 };
 
@@ -1012,7 +1015,11 @@ function createInitialMockMealState(): MockMealState {
   };
 }
 
-function toGeneralMealPollSummary(poll: MealPollSummary) {
+function mockMealResponseKey(pollId: number, userId: number) {
+  return `${pollId}:${userId}`;
+}
+
+function toGeneralMealPollSummary(poll: MealPollSummary, userId: number) {
   return {
     id: poll.id,
     campusId: poll.campusId,
@@ -1024,13 +1031,13 @@ function toGeneralMealPollSummary(poll: MealPollSummary) {
     startsAt: poll.startsAt,
     endsAt: poll.endsAt,
     status: poll.status,
-    responded: Boolean(mockMealState.responses[poll.id]),
+    responded: Boolean(mockMealState.responses[mockMealResponseKey(poll.id, userId)]),
   };
 }
 
-function toGeneralMealPollDetail(detail: MealPollDetail) {
+function toGeneralMealPollDetail(detail: MealPollDetail, userId: number) {
   return {
-    ...toGeneralMealPollSummary(detail),
+    ...toGeneralMealPollSummary(detail, userId),
     templateId: null,
     chargeGenerationType: 'NONE',
     paymentCategory: null,
@@ -1043,7 +1050,7 @@ function toGeneralMealPollDetail(detail: MealPollDetail) {
       sortOrder: index + 1,
       userAdded: option.userAdded,
     })),
-    myResponse: mockMealState.responses[detail.id] ?? null,
+    myResponse: mockMealState.responses[mockMealResponseKey(detail.id, userId)] ?? null,
   };
 }
 

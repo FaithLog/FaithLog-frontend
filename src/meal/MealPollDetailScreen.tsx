@@ -37,7 +37,7 @@ export function MealPollDetailScreen({
   onSessionExpired,
   pollId,
 }: MealPollDetailScreenProps) {
-  const tracker = useMealRequestTracker(`campus:${campusId}/meal-detail:${pollId}`);
+  const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/meal-detail:${pollId}`);
   const closeGate = useRef(createMealMutationGate()).current;
   const [state, setState] = useState<MealLoadState<MealPollDetail>>({status: 'loading'});
   const [closing, setClosing] = useState(false);
@@ -70,6 +70,8 @@ export function MealPollDetailScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  if (!scopeIsCommitted) return <MealLoading label="밥 투표 상세를 전환하는 중" />;
 
   const closePoll = async () => {
     const operationId = beginMealMutation(
@@ -118,15 +120,33 @@ export function MealPollDetailScreen({
       if (mutationIdentity === null) return;
       const apiError = getCurrentMealRequestError({error, fallback: '밥 투표를 종료하지 못했습니다.', identity: mutationIdentity, onSessionExpired, tracker});
       if (!apiError) return;
-      setActionError(apiError);
       if (apiError.status === 409) {
+        const reconciled = await reconcileClosedPoll();
+        if (reconciled) return;
         setRefreshWarning(true);
       }
+      setActionError(apiError);
     } finally {
       finishMealMutation(closeGate, operationId);
       if (mutationIdentity === null || tracker.isSuccessCurrent(mutationIdentity)) {
         setClosing(false);
       }
+    }
+  };
+
+  const reconcileClosedPoll = async () => {
+    const access = await resolveMealRequestAccess(tracker, 'close-reconcile', onSessionExpired);
+    if (access.status !== 'ready') return false;
+    try {
+      const detail = await api.getPollDetail(access.request.accessToken, campusId, pollId);
+      if (!tracker.isSuccessCurrent(access.request.identity) || detail.status !== 'CLOSED') return false;
+      setState({status: 'success', data: detail});
+      setActionError(null);
+      setRefreshWarning(false);
+      return true;
+    } catch (error) {
+      getCurrentMealRequestError({error, fallback: '최신 투표 상태를 불러오지 못했습니다.', identity: access.request.identity, onSessionExpired, tracker});
+      return false;
     }
   };
 
@@ -147,7 +167,7 @@ export function MealPollDetailScreen({
             <Eyebrow>밥 투표 상세</Eyebrow>
             <Title>{detail.title}</Title>
           </View>
-          <Chip label={detail.status === 'CLOSED' ? '종료' : '진행 중'} tone={detail.status === 'CLOSED' ? 'default' : 'info'} />
+          <Chip label={getPollStatusLabel(detail.status)} tone={detail.status === 'CLOSED' ? 'default' : 'info'} />
         </View>
         <Text style={mealStyles.body}>{detail.description || '설명 없음'}</Text>
         <Text style={mealStyles.meta}>한 항목 선택 · 응답 {detail.totalResponseCount}명 · 새 선택지 추가 {detail.allowUserOptionAdd ? '가능' : '불가'}</Text>
@@ -193,6 +213,7 @@ function ChargedSummary({charge}: {charge: MealCharged}) {
       <Text style={mealStyles.body}>1인당 {formatWon(charge.amountPerMember)} · {charge.chargedMemberCount}명</Text>
       <Text style={mealStyles.body}>요청 {formatWon(charge.requestedTotalAmount)} · 실제 {formatWon(charge.actualTotalAmount)}</Text>
       {charge.roundingAdjustment > 0 ? <Text style={mealStyles.meta}>올림 차액 {formatWon(charge.roundingAdjustment)}</Text> : null}
+      <Text style={mealStyles.meta}>청구 시각 {new Date(charge.chargedAt).toLocaleString()}</Text>
       {!charge.chargedByMe ? (
         <Text style={mealStyles.meta}>다른 밥 담당자가 청구했습니다. 계좌 정보는 공개되지 않습니다.</Text>
       ) : (
@@ -200,4 +221,15 @@ function ChargedSummary({charge}: {charge: MealCharged}) {
       )}
     </View>
   );
+}
+
+function getPollStatusLabel(status: MealPollDetail['status']) {
+  switch (status) {
+    case 'SCHEDULED':
+      return '예정';
+    case 'OPEN':
+      return '진행 중';
+    case 'CLOSED':
+      return '종료';
+  }
 }

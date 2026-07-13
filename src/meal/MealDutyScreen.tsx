@@ -34,12 +34,12 @@ type MealDutyScreenProps = {
 
 type EntryState =
   | {status: 'loading'}
-  | {status: 'success'; campusId: number}
+  | {status: 'success'; campusId: number; userId: number}
   | {status: 'error'; error: ApiError};
 
 export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: MealDutyScreenProps) {
   const campusId = state.selectedCampus.campusId;
-  const tracker = useMealRequestTracker(`campus:${campusId}/meal-entry`);
+  const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${state.user.id}/meal-entry`);
   const [route, setRoute] = useState<MealRoute>({name: 'home'});
   const [entryState, setEntryState] = useState<EntryState>({status: 'loading'});
   const onSessionExpired = useCallback(
@@ -61,12 +61,12 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
       }
       const {accessToken, identity} = access.request;
       try {
-        const duty = await api.getMyDuty(accessToken, campusId);
+        const duty = await api.getMyDuty(accessToken, campusId, state.user.id);
         if (!tracker.isSuccessCurrent(identity) || !mounted) return;
         if (!duty.isActive || duty.userId !== state.user.id) {
           throw new Error('활성 밥 담당자만 밥 정산 관리를 사용할 수 있습니다.');
         }
-        setEntryState({status: 'success', campusId});
+        setEntryState({status: 'success', campusId, userId: state.user.id});
       } catch (error) {
         const apiError = getCurrentMealRequestError({error, fallback: '밥 담당 권한을 확인하지 못했습니다.', identity, onSessionExpired, tracker});
         if (apiError && mounted) setEntryState({status: 'error', error: apiError});
@@ -78,7 +78,12 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
     };
   }, [api, campusId, onSessionExpired, state.user.id, tracker]);
 
-  const entryIsCurrent = entryState.status === 'success' && entryState.campusId === campusId;
+  if (!scopeIsCommitted) return <MealLoading label="밥 정산 관리 화면을 전환하는 중" />;
+
+  const entryIsCurrent =
+    entryState.status === 'success' &&
+    entryState.campusId === campusId &&
+    entryState.userId === state.user.id;
 
   return (
     <View style={mealStyles.page}>
@@ -113,11 +118,11 @@ function renderRoute(
     case 'detail':
       return <MealPollDetailScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'polls'})} onOpenCharge={(pollId) => setRoute({name: 'charge', pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
     case 'charge':
-      return <MealPollChargeScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'detail', pollId: route.pollId})} onComplete={() => setRoute({name: 'detail', pollId: route.pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
+      return <MealPollChargeScreen api={api} campusId={campusId} currentUserId={state.user.id} onBack={() => setRoute({name: 'detail', pollId: route.pollId})} onComplete={() => setRoute({name: 'detail', pollId: route.pollId})} onSessionExpired={onSessionExpired} pollId={route.pollId} />;
     case 'account':
-      return <MealAccountScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
+      return <MealAccountScreen api={api} campusId={campusId} currentUserId={state.user.id} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
     case 'settlement':
-      return <MealSettlementScreen api={api} campusId={campusId} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
+      return <MealSettlementScreen api={api} campusId={campusId} currentUserId={state.user.id} onBack={() => setRoute({name: 'home'})} onSessionExpired={onSessionExpired} />;
     default:
       return null;
   }
