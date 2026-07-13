@@ -27,6 +27,7 @@ import {
   fetchPollDetail,
   fetchPollResults,
   fetchPolls,
+  getAdminChargeContractCapabilities,
   getApiBaseUrl,
   isMockModeEnabled,
   loginUser,
@@ -922,7 +923,11 @@ describe('FaithLog API client', () => {
       })),
     );
 
-    const changed = await changeAdminChargeStatus('access-token', 501, 'CANCELED');
+    const changed = await changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
     const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
 
     expect(String(url)).toContain('/api/v1/admin/charges/501/status');
@@ -936,9 +941,27 @@ describe('FaithLog API client', () => {
     expect(buildAdminChargeStatusChangeRequest('CANCELED')).toEqual({status: 'CANCELED'});
   });
 
+  it('keeps provisional PAID action, transport, and devotion reopen behind one capability boundary', () => {
+    expect(getAdminChargeContractCapabilities()).toEqual({
+      devotionPenaltyReopenEnabled: false,
+      paidStatusEnabled: false,
+    });
+
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    expect(getAdminChargeContractCapabilities()).toEqual({
+      devotionPenaltyReopenEnabled: true,
+      paidStatusEnabled: true,
+    });
+  });
+
   it('fails production PAID closed with API_CONTRACT_PENDING and sends no request', async () => {
     await expect(
-      changeAdminChargeStatus('access-token', 501, 'PAID'),
+      changeAdminChargeStatus('access-token', 501, 'PAID', {
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+      }),
     ).rejects.toSatisfy((error) => {
       expectApiError(error, {kind: 'error', code: 'API_CONTRACT_PENDING'});
       return true;
@@ -960,13 +983,78 @@ describe('FaithLog API client', () => {
       );
 
       await expect(
-        changeAdminChargeStatus('access-token', 501, 'CANCELED'),
+        changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+          campusId: 2,
+          userId: 7,
+          paymentCategory: 'PENALTY',
+        }),
       ).rejects.toSatisfy((error) => {
         expectApiError(error, {kind, status, code});
         return true;
       });
     },
   );
+
+  it.each([
+    ['id', {id: 999}],
+    ['campusId', {campusId: 3}],
+    ['userId', {userId: 9}],
+    ['status', {status: 'UNPAID'}],
+    ['paymentCategory', {paymentCategory: 'COFFEE'}],
+  ] as const)('rejects a successful admin charge response with mismatched %s', async (_field, patch) => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 501,
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+        title: '경건생활 벌금',
+        reason: '미제출',
+        amount: 3_000,
+        status: 'CANCELED',
+        paidAt: null,
+        ...patch,
+      })),
+    );
+
+    await expect(
+      changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'error', code: 'INVALID_SERVER_RESPONSE'});
+      return true;
+    });
+  });
+
+  it('does not retain arbitrary server text for admin charge 400 and 403 errors', async () => {
+    for (const [status, code] of [
+      [400, 'BILLING_INVALID_STATUS'],
+      [403, 'BILLING_FORBIDDEN'],
+    ] as const) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(status, envelope(null, {
+          success: false,
+          code,
+          message: '<script>token=secret SQL select *</script>',
+        })),
+      );
+
+      await expect(
+        changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+          campusId: 2,
+          userId: 7,
+          paymentCategory: 'PENALTY',
+        }),
+      ).rejects.toSatisfy((error) => {
+        expect((error as FaithLogApiError).detail.message).not.toContain('token=secret');
+        expect((error as FaithLogApiError).detail.message).not.toContain('select *');
+        return true;
+      });
+    }
+  });
 
   it('treats only an admin charge 401 as auth expiration', async () => {
     vi.mocked(startAuthSessionClear).mockReturnValueOnce({
@@ -984,7 +1072,11 @@ describe('FaithLog API client', () => {
     );
 
     await expect(
-      changeAdminChargeStatus('access-token', 501, 'CANCELED'),
+      changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+      }),
     ).rejects.toSatisfy((error) => {
       expectApiError(error, {kind: 'sessionExpired', status: 401});
       return true;

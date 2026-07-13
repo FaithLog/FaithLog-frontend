@@ -38,7 +38,7 @@ import {
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
-  isMockModeEnabled,
+  getAdminChargeContractCapabilities,
   revokeCoffeeDuty,
   sendAdminNotification,
   updateAdminPenaltyRule,
@@ -116,17 +116,21 @@ import {
 } from './adminPollListVisibility';
 import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {
-  beginAdminChargeMutation,
   createAdminChargeMutationGate,
-  finishAdminChargeMutation,
   getAdminChargeStatusActions,
   getAdminChargeStatusConfirmation,
   getAdminChargeStatusErrorMessage,
   invalidateAdminChargeMutation,
-  isAdminChargeMutationCurrent,
-  refreshAdminChargeViews,
-  shouldExpireAdminChargeSession,
 } from './adminChargeStatus';
+import {
+  buildAdminChargeDetailRequestKey,
+  buildAdminChargeSummaryRequestKey,
+  coordinateAdminChargeStatusMutation,
+  createAdminChargeReadCoordinator,
+  invalidateAdminChargeRead,
+  refreshAdminChargeSurfaces,
+  runLatestAdminChargeRead,
+} from './adminChargeCoordinator';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {
@@ -677,6 +681,7 @@ export function AdminScreen({
     useState<PrayerSeasonCloseTarget>(null);
   const [chargeStatusConfirm, setChargeStatusConfirm] = useState<ChargeStatusConfirm>(null);
   const chargeStatusMutationGateRef = useRef(createAdminChargeMutationGate());
+  const chargeReadCoordinatorRef = useRef(createAdminChargeReadCoordinator());
   const chargeStatusCampusIdRef = useRef(campusId);
   chargeStatusCampusIdRef.current = campusId;
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
@@ -883,6 +888,7 @@ export function AdminScreen({
     return () => {
       penaltyRuleMountedRef.current = false;
       penaltyRuleRequestSequenceRef.current += 1;
+      invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     };
   }, []);
 
@@ -890,6 +896,7 @@ export function AdminScreen({
     penaltyRuleRequestSequenceRef.current += 1;
     invalidatePenaltyRuleSave(penaltyRuleSaveGateRef.current);
     invalidateAdminChargeMutation(chargeStatusMutationGateRef.current);
+    invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     setSelectedMemberId(null);
     setMemberSection('list');
     setDevotionSection('missing');
@@ -1133,56 +1140,67 @@ export function AdminScreen({
   const loadSettlement = async (filters: AdminChargeFilters = chargeFilters) => {
     const requestCampusId = campusId;
     const requestGeneration = getAuthSessionGeneration();
-    setSettlementState({status: 'loading'});
-    setActionError(null);
+    const key = buildAdminChargeSummaryRequestKey({
+      campusId: requestCampusId,
+      generation: requestGeneration,
+      filters,
+    });
 
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
+    return runLatestAdminChargeRead({
+      coordinator: chargeReadCoordinatorRef.current,
+      channel: 'summary',
+      key,
+      onStart: () => {
+        setSettlementState({status: 'loading'});
+        setActionError(null);
+      },
+      request: async () => {
+        const accessToken = await resolveAccessToken(setAuthState);
 
-      if (!accessToken) {
-        return;
-      }
+        if (!accessToken) {
+          return null;
+        }
 
-      const userId = parseOptionalPositiveInt(filters.userId, 'userId');
-      const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
-        keyword: filters.keyword,
-        paymentCategory: filters.paymentCategory,
-        status: filters.status,
-        ...(userId === undefined ? {} : {userId}),
-      });
-      const visibleCharges = filterAdminCampusChargeSummary(charges, filters);
+        const userId = parseOptionalPositiveInt(filters.userId, 'userId');
+        const charges = await fetchAdminCampusChargesForMyAccounts(
+          accessToken,
+          requestCampusId,
+          {
+            keyword: filters.keyword,
+            paymentCategory: filters.paymentCategory,
+            status: filters.status,
+            ...(userId === undefined ? {} : {userId}),
+          },
+        );
 
-      if (
-        !penaltyRuleMountedRef.current ||
-        chargeStatusCampusIdRef.current !== requestCampusId ||
-        !isAuthSessionGenerationCurrent(requestGeneration)
-      ) {
-        return;
-      }
-
-      setSettlementState(
-        visibleCharges.members.length === 0
-          ? {status: 'empty', charges: visibleCharges}
-          : {status: 'success', charges: visibleCharges},
-      );
-    } catch (error) {
-      const apiError = toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.');
-
-      if (
-        !penaltyRuleMountedRef.current ||
-        chargeStatusCampusIdRef.current !== requestCampusId ||
-        !shouldHandleRequestError(
+        return filterAdminCampusChargeSummary(charges, filters);
+      },
+      normalizeError: (error) =>
+        toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.'),
+      canApplySuccess: () =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        isAuthSessionGenerationCurrent(requestGeneration),
+      canApplyError: (apiError) =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        shouldHandleRequestError(
           apiError,
           requestGeneration,
           getAuthSessionGeneration(),
-        )
-      ) {
-        return;
-      }
-
-      setSettlementState({status: 'error', error: apiError});
-      void handleAuthError(apiError, setAuthState);
-    }
+        ),
+      onSuccess: (visibleCharges) => {
+        setSettlementState(
+          visibleCharges.members.length === 0
+            ? {status: 'empty', charges: visibleCharges}
+            : {status: 'success', charges: visibleCharges},
+        );
+      },
+      onError: (apiError) => {
+        setSettlementState({status: 'error', error: apiError});
+        void handleAuthError(apiError, setAuthState);
+      },
+    });
   };
 
   const loadPaymentAccounts = async () => {
@@ -1858,6 +1876,7 @@ export function AdminScreen({
   ) => {
     const nextFilters = {...chargeFilters, [key]: value};
 
+    invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     setChargeFilters(nextFilters);
     setChargeDetailState({status: 'idle'});
 
@@ -1887,6 +1906,7 @@ export function AdminScreen({
       clearTimeout(chargeFilterDebounceRef.current);
     }
 
+    invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     setChargeFilters(nextFilters);
     setChargeDetailState({status: 'idle'});
     void loadSettlement(nextFilters);
@@ -1895,65 +1915,80 @@ export function AdminScreen({
   const openMemberCharges = async (member: AdminChargeMemberRef) => {
     const requestCampusId = campusId;
     const requestGeneration = getAuthSessionGeneration();
-    setChargeDetailState({status: 'loading', member});
-    setActionError(null);
+    const requestFilters = chargeFilters;
+    const key = buildAdminChargeDetailRequestKey({
+      campusId: requestCampusId,
+      generation: requestGeneration,
+      filters: requestFilters,
+      memberUserId: member.userId,
+    });
 
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
+    return runLatestAdminChargeRead({
+      coordinator: chargeReadCoordinatorRef.current,
+      channel: 'detail',
+      key,
+      onStart: () => {
+        setChargeDetailState({status: 'loading', member});
+        setActionError(null);
+      },
+      request: async () => {
+        const accessToken = await resolveAccessToken(setAuthState);
 
-      if (!accessToken) {
-        return;
-      }
+        if (!accessToken) {
+          return null;
+        }
 
-      const charges = filterAdminMemberChargeList(
-        await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
-          paymentCategory: chargeFilters.paymentCategory,
-          status: chargeFilters.status,
-        }),
-        chargeFilters,
-      );
+        const charges = await fetchAdminMemberCharges(
+          accessToken,
+          requestCampusId,
+          member.userId,
+          {
+            paymentCategory: requestFilters.paymentCategory,
+            status: requestFilters.status,
+          },
+        );
 
-      if (
-        !penaltyRuleMountedRef.current ||
-        chargeStatusCampusIdRef.current !== requestCampusId ||
-        !isAuthSessionGenerationCurrent(requestGeneration)
-      ) {
-        return;
-      }
-
-      setChargeDetailState(
-        charges.items.length === 0
-          ? {status: 'empty', charges}
-          : {status: 'success', charges},
-      );
-    } catch (error) {
-      const apiError = toApiError(error, '회원별 청구 상세를 불러오지 못했습니다.');
-
-      if (
-        !penaltyRuleMountedRef.current ||
-        chargeStatusCampusIdRef.current !== requestCampusId ||
-        !shouldHandleRequestError(
+        return filterAdminMemberChargeList(charges, requestFilters);
+      },
+      normalizeError: (error) =>
+        toApiError(error, '회원별 청구 상세를 불러오지 못했습니다.'),
+      canApplySuccess: () =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        isAuthSessionGenerationCurrent(requestGeneration),
+      canApplyError: (apiError) =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        shouldHandleRequestError(
           apiError,
           requestGeneration,
           getAuthSessionGeneration(),
-        )
-      ) {
-        return;
-      }
-
-      setChargeDetailState({status: 'error', error: apiError, member});
-      void handleAuthError(apiError, setAuthState);
-    }
+        ),
+      onSuccess: (charges) => {
+        setChargeDetailState(
+          charges.items.length === 0
+            ? {status: 'empty', charges}
+            : {status: 'success', charges},
+        );
+      },
+      onError: (apiError) => {
+        setChargeDetailState({status: 'error', error: apiError, member});
+        void handleAuthError(apiError, setAuthState);
+      },
+    });
   };
 
   const requestChargeStatusChange = (
     charge: ChargeItem,
     status: AdminChargeStatusTarget,
   ) => {
+    const capabilities = getAdminChargeContractCapabilities();
+
     if (
       chargeStatusMutationGateRef.current.activeOperationId !== null ||
       actionState.status !== 'idle' ||
-      charge.status === status
+      charge.status === status ||
+      !getAdminChargeStatusActions(charge, capabilities).includes(status)
     ) {
       return;
     }
@@ -1982,74 +2017,105 @@ export function AdminScreen({
         : null;
     const operationCampusId = campusId;
     const operationGeneration = getAuthSessionGeneration();
-    const operationId = beginAdminChargeMutation(chargeStatusMutationGateRef.current);
 
-    if (operationId === null) {
+    if (!detailMember) {
       return;
     }
-    setActionState({status: 'changingChargeStatus', chargeItemId: target.charge.id});
-    setActionError(null);
+    const expectedUserId = detailMember.userId;
 
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
+    const outcome = await coordinateAdminChargeStatusMutation({
+      gate: chargeStatusMutationGateRef.current,
+      expected: {
+        campusId: operationCampusId,
+        userId: expectedUserId,
+        chargeItemId: target.charge.id,
+        paymentCategory: target.charge.paymentCategory,
+        status: target.status,
+      },
+      mutate: async () => {
+        const accessToken = await resolveAccessToken(setAuthState);
 
-      if (!accessToken) {
-        return;
-      }
+        if (!accessToken) {
+          return null;
+        }
 
-      const updated = await changeAdminChargeStatus(
-        accessToken,
-        target.charge.id,
-        target.status,
-      );
-
-      if (
-        !isAdminChargeMutationCurrent(chargeStatusMutationGateRef.current, operationId) ||
-        chargeStatusCampusIdRef.current !== operationCampusId ||
-        !isAuthSessionGenerationCurrent(operationGeneration)
-      ) {
-        return;
-      }
-
-      invalidatePaymentContextCache(campusId);
-
-      replaceChargeItem(updated);
-      setChargeStatusConfirm(null);
-      setNotice({
-        tone: 'success',
-        title: '청구 상태 변경',
-        message: `${target.charge.title} 상태를 ${getChargeStatusLabel(updated.status)}로 변경했습니다.`,
-      });
-      await refreshAdminChargeViews(
-        loadSettlement,
-        detailMember ? () => openMemberCharges(detailMember) : undefined,
-      );
-    } catch (error) {
-      const apiError = toApiError(error, '청구 상태를 변경하지 못했습니다.');
-
-      if (
-        !isAdminChargeMutationCurrent(chargeStatusMutationGateRef.current, operationId) ||
-        chargeStatusCampusIdRef.current !== operationCampusId ||
-        !shouldHandleRequestError(
+        return changeAdminChargeStatus(
+          accessToken,
+          target.charge.id,
+          target.status,
+          {
+            campusId: operationCampusId,
+            userId: expectedUserId,
+            paymentCategory: target.charge.paymentCategory,
+          },
+        );
+      },
+      normalizeError: (error) =>
+        toApiError(error, '청구 상태를 변경하지 못했습니다.'),
+      canApplySuccess: () =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === operationCampusId &&
+        isAuthSessionGenerationCurrent(operationGeneration),
+      canHandleError: (apiError) =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === operationCampusId &&
+        shouldHandleRequestError(
           apiError,
           operationGeneration,
           getAuthSessionGeneration(),
-        )
-      ) {
-        return;
-      }
+        ),
+      onStart: () => {
+        setActionState({status: 'changingChargeStatus', chargeItemId: target.charge.id});
+        setActionError(null);
+      },
+      onFinish: () => {
+        if (penaltyRuleMountedRef.current) {
+          setActionState({status: 'idle'});
+        }
+      },
+      onAccepted: (updated) => {
+        invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+        invalidatePaymentContextCache(operationCampusId);
+        replaceChargeItem(updated);
+        setChargeStatusConfirm(null);
+      },
+      onConflict: () => {
+        invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+        setChargeStatusConfirm(null);
+        setActionError(null);
+      },
+      onSessionExpired: (apiError) => handleAuthError(apiError, setAuthState),
+      refresh: () =>
+        refreshAdminChargeSurfaces(
+          () => loadSettlement(),
+          () => openMemberCharges(detailMember),
+        ),
+    });
 
-      setActionError(apiError);
-      if (shouldExpireAdminChargeSession(apiError)) {
-        void handleAuthError(apiError, setAuthState);
-      }
-    } finally {
-      if (
-        penaltyRuleMountedRef.current &&
-        finishAdminChargeMutation(chargeStatusMutationGateRef.current, operationId)
-      ) {
-        setActionState({status: 'idle'});
-      }
+    if (outcome.kind === 'error') {
+      setActionError(outcome.error);
+      return;
+    }
+
+    if (outcome.kind === 'conflict') {
+      setNotice({
+        tone: 'warning',
+        title: '청구 상태 새로고침',
+        message: outcome.refresh.kind === 'complete'
+          ? '청구 상태가 이미 변경되어 최신 목록과 상세를 불러왔습니다.'
+          : '청구 상태가 이미 변경되었습니다. 최신 정보를 일부 불러오지 못해 다시 시도해 주세요.',
+      });
+      return;
+    }
+
+    if (outcome.kind === 'success') {
+      setNotice({
+        tone: outcome.refresh.kind === 'complete' ? 'success' : 'warning',
+        title: '청구 상태 변경',
+        message: outcome.refresh.kind === 'complete'
+          ? `${target.charge.title} 상태를 ${getChargeStatusLabel(outcome.response.status)}로 변경했습니다.`
+          : `${target.charge.title} 상태 변경은 완료했지만 최신 목록 또는 상세를 일부 불러오지 못했습니다.`,
+      });
     }
   };
 
@@ -2483,6 +2549,9 @@ export function AdminScreen({
 
   const selectAdminTab = (nextTab: AdminTab) => {
     const changeTab = () => {
+      if (tab === 'settlement' && nextTab !== 'settlement') {
+        invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+      }
       resetPenaltyRuleFlow();
       setSelectedMemberId(null);
       setActionError(null);
@@ -2761,6 +2830,9 @@ export function AdminScreen({
           }
           onChangeSection={(section) => {
             const changeSection = () => {
+              if (section !== 'charges') {
+                invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+              }
               resetPenaltyRuleFlow();
               setSettlementSection(section);
               setSelectedPaymentAccount(null);
@@ -2774,7 +2846,10 @@ export function AdminScreen({
 
             changeSection();
           }}
-          onBackToSummary={() => setChargeDetailState({status: 'idle'})}
+          onBackToSummary={() => {
+            invalidateAdminChargeRead(chargeReadCoordinatorRef.current, 'detail');
+            setChargeDetailState({status: 'idle'});
+          }}
           onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
@@ -9658,7 +9733,10 @@ function ChargeItemRow({
   charge: ChargeItem;
   onRequestStatusChange: (status: AdminChargeStatusTarget) => void;
 }) {
-  const statusActions = getAdminChargeStatusActions(charge);
+  const statusActions = getAdminChargeStatusActions(
+    charge,
+    getAdminChargeContractCapabilities(),
+  );
 
   return (
     <View style={styles.figmaChargeItem}>
@@ -10460,9 +10538,11 @@ function ChargeStatusConfirmSheet({
 }) {
   const visible = target !== null;
   const confirmation = target
-    ? getAdminChargeStatusConfirmation(target.charge, target.status, {
-        devotionReopenEnabled: isMockModeEnabled(),
-      })
+    ? getAdminChargeStatusConfirmation(
+        target.charge,
+        target.status,
+        getAdminChargeContractCapabilities(),
+      )
     : null;
 
   return (

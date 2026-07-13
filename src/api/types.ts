@@ -311,6 +311,11 @@ export type ChargeStatus = 'UNPAID' | 'PAID' | 'WAIVED' | 'CANCELED';
 export type AdminWritableChargeStatus = Exclude<ChargeStatus, 'PAID'>;
 export type AdminChargeStatusTarget = AdminWritableChargeStatus | 'PAID';
 
+export type AdminChargeContractCapabilities = {
+  devotionPenaltyReopenEnabled: boolean;
+  paidStatusEnabled: boolean;
+};
+
 export type ChargeSummary = {
   campusId: number;
   campusName: string;

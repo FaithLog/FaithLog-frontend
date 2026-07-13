@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
 import type {ApiError, ChargeItem} from '../api/types';
 import {
@@ -10,7 +10,6 @@ import {
   finishAdminChargeMutation,
   invalidateAdminChargeMutation,
   isAdminChargeMutationCurrent,
-  refreshAdminChargeViews,
   shouldExpireAdminChargeSession,
 } from './adminChargeStatus';
 
@@ -27,10 +26,21 @@ const unpaidPenalty: ChargeItem = {
 
 describe('admin charge status flow', () => {
   it('adds PAID and CANCELED only for UNPAID while preserving existing status actions', () => {
-    expect(getAdminChargeStatusActions(unpaidPenalty)).toEqual(['PAID', 'WAIVED', 'CANCELED']);
+    expect(getAdminChargeStatusActions(unpaidPenalty, {paidStatusEnabled: true})).toEqual([
+      'PAID',
+      'WAIVED',
+      'CANCELED',
+    ]);
+    expect(getAdminChargeStatusActions(unpaidPenalty, {paidStatusEnabled: false})).toEqual([
+      'WAIVED',
+      'CANCELED',
+    ]);
 
     for (const status of ['PAID', 'WAIVED', 'CANCELED'] as const) {
-      const actions = getAdminChargeStatusActions({...unpaidPenalty, status});
+      const actions = getAdminChargeStatusActions(
+        {...unpaidPenalty, status},
+        {paidStatusEnabled: true},
+      );
 
       expect(actions).toEqual(['UNPAID']);
       expect(actions).not.toContain('PAID');
@@ -40,7 +50,7 @@ describe('admin charge status flow', () => {
   it('uses the exact devotion reopen copy only for PENALTY cancellation', () => {
     expect(
       getAdminChargeStatusConfirmation(unpaidPenalty, 'CANCELED', {
-        devotionReopenEnabled: true,
+        devotionPenaltyReopenEnabled: true,
       }),
     ).toEqual({
       title: '경건생활 벌금을 취소할까요?',
@@ -52,7 +62,7 @@ describe('admin charge status flow', () => {
 
     expect(
       getAdminChargeStatusConfirmation(unpaidPenalty, 'CANCELED', {
-        devotionReopenEnabled: false,
+        devotionPenaltyReopenEnabled: false,
       }).messages,
     ).toEqual(['벌금이 취소됩니다.']);
 
@@ -73,33 +83,47 @@ describe('admin charge status flow', () => {
     );
   });
 
-  it('keeps bad request, permission, not found, conflict, and pending-contract errors distinct', () => {
+  it('keeps status errors distinct without exposing internal or remote messages', () => {
     const cases: Array<[ApiError, string]> = [
       [
         {kind: 'error', status: 400, code: 'BILLING_INVALID_STATUS', message: '상태 값이 올바르지 않습니다.'},
-        '상태 값이 올바르지 않습니다.',
+        '변경할 수 없는 청구 상태입니다.',
       ],
       [
-        {kind: 'permissionDenied', status: 403, code: 'BILLING_FORBIDDEN', message: '청구 상태 변경 권한이 없습니다.'},
+        {kind: 'permissionDenied', status: 403, code: 'BILLING_FORBIDDEN', message: 'role=SUPER_ADMIN token=secret'},
         '청구 상태 변경 권한이 없습니다.',
       ],
       [
-        {kind: 'error', status: 404, code: 'BILLING_CHARGE_NOT_FOUND', message: '청구를 찾을 수 없습니다.'},
+        {kind: 'error', status: 404, code: 'BILLING_CHARGE_NOT_FOUND', message: 'remote object id=501'},
         '청구를 찾을 수 없습니다. 캠퍼스 범위와 최신 목록을 확인해 주세요.',
       ],
       [
-        {kind: 'conflict', status: 409, code: 'BILLING_INVALID_STATUS_TRANSITION', message: '이미 처리된 청구입니다.'},
+        {kind: 'conflict', status: 409, code: 'BILLING_INVALID_STATUS_TRANSITION', message: 'remote transition detail'},
         '청구 상태가 이미 변경되었습니다. 목록과 상세를 다시 불러와 주세요.',
       ],
       [
         {kind: 'error', code: 'API_CONTRACT_PENDING', message: '계약 확인 전입니다.'},
-        '관리자 납부 완료 API 계약이 아직 확정되지 않아 production 요청을 보내지 않았습니다.',
+        '현재 납부 완료 처리를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.',
       ],
     ];
 
     for (const [error, message] of cases) {
-      expect(getAdminChargeStatusErrorMessage(error)).toBe(message);
+      const rendered = getAdminChargeStatusErrorMessage(error);
+
+      expect(rendered).toBe(message);
+      expect(rendered).not.toContain(error.message);
+      expect(rendered).not.toContain('REST Docs');
+      expect(rendered).not.toContain('production');
     }
+
+    expect(
+      getAdminChargeStatusErrorMessage({
+        kind: 'error',
+        status: 400,
+        code: 'UNKNOWN_VALIDATION',
+        message: '<script>internal SQL</script>',
+      }),
+    ).toBe('청구 상태 변경 요청을 확인해 주세요.');
   });
 
   it('expires auth only for a 401 session-expired error', () => {
@@ -144,13 +168,4 @@ describe('admin charge status flow', () => {
     expect(beginAdminChargeMutation(gate)).toBe(3);
   });
 
-  it('refreshes both admin charge summary and open member detail after success', async () => {
-    const refreshSummary = vi.fn(async () => undefined);
-    const refreshDetail = vi.fn(async () => undefined);
-
-    await refreshAdminChargeViews(refreshSummary, refreshDetail);
-
-    expect(refreshSummary).toHaveBeenCalledOnce();
-    expect(refreshDetail).toHaveBeenCalledOnce();
-  });
 });

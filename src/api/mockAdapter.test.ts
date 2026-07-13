@@ -80,7 +80,11 @@ describe('FaithLog mock API adapter', () => {
   });
 
   it('supports the provisional PAID payload only in mock mode with paidAt', async () => {
-    const changed = await changeAdminChargeStatus('mock-access-token', 501, 'PAID');
+    const changed = await changeAdminChargeStatus('mock-access-token', 501, 'PAID', {
+      campusId: 1,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
     const [summary, detail] = await Promise.all([
       fetchAdminCampusChargesForMyAccounts('mock-access-token', 1),
       fetchAdminMemberCharges('mock-access-token', 1, 7),

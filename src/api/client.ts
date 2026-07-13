@@ -2,6 +2,7 @@ import type {
   ApiEnvelope,
   ApiError,
   AdminCampusChargeSummary,
+  AdminChargeContractCapabilities,
   AdminCampusMember,
   AdminCampusRoleChangeRequest,
   AdminDashboardSummary,
@@ -219,6 +220,15 @@ export function isMockModeEnabled() {
   }
 
   return true;
+}
+
+export function getAdminChargeContractCapabilities(): AdminChargeContractCapabilities {
+  const provisionalContractsEnabled = isMockModeEnabled();
+
+  return {
+    devotionPenaltyReopenEnabled: provisionalContractsEnabled,
+    paidStatusEnabled: provisionalContractsEnabled,
+  };
 }
 
 export function validateRuntimeConfig() {
@@ -2490,10 +2500,22 @@ export async function changeAdminChargeStatus(
   accessToken: string,
   chargeItemId: unknown,
   status: unknown,
+  expected: {
+    campusId: number;
+    paymentCategory: PaymentCategory;
+    userId: number;
+  },
 ) {
   const body = buildAdminChargeStatusChangeRequest(status);
+  const requestedChargeItemId = toPositiveIntegerPathSegment(
+    chargeItemId,
+    'chargeItemId',
+  );
 
-  if (body.status === 'PAID' && !isMockModeEnabled()) {
+  if (
+    body.status === 'PAID' &&
+    !getAdminChargeContractCapabilities().paidStatusEnabled
+  ) {
     throw new FaithLogApiError({
       kind: 'error',
       code: 'API_CONTRACT_PENDING',
@@ -2506,14 +2528,27 @@ export async function changeAdminChargeStatus(
     buildApiPath(
       'admin',
       'charges',
-      toPositiveIntegerPathSegment(chargeItemId, 'chargeItemId'),
+      requestedChargeItemId,
       'status',
     ),
     {
       accessToken,
       body,
-      exposeServerErrorMessage: true,
-      responseParser: parseAdminChargeStatusChangeResponse,
+      responseParser: (value) => {
+        const response = parseAdminChargeStatusChangeResponse(value);
+
+        if (
+          response.id !== Number(requestedChargeItemId) ||
+          response.campusId !== expected.campusId ||
+          response.userId !== expected.userId ||
+          response.paymentCategory !== expected.paymentCategory ||
+          response.status !== body.status
+        ) {
+          throw new Error('Admin charge response identity mismatch.');
+        }
+
+        return response;
+      },
       method: 'PATCH',
     },
   );

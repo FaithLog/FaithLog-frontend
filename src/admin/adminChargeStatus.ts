@@ -1,4 +1,5 @@
 import type {
+  AdminChargeContractCapabilities,
   AdminChargeStatusTarget,
   ApiError,
   ChargeItem,
@@ -52,28 +53,28 @@ export function invalidateAdminChargeMutation(gate: AdminChargeMutationGate) {
   gate.activeOperationId = null;
 }
 
-export async function refreshAdminChargeViews(
-  refreshSummary: () => Promise<void>,
-  refreshDetail?: () => Promise<void>,
-) {
-  await Promise.all([
-    refreshSummary(),
-    refreshDetail ? refreshDetail() : Promise.resolve(),
-  ]);
-}
-
 export function getAdminChargeStatusActions(
   charge: Pick<ChargeItem, 'status'>,
+  capabilities: Pick<AdminChargeContractCapabilities, 'paidStatusEnabled'> = {
+    paidStatusEnabled: false,
+  },
 ): AdminChargeStatusTarget[] {
-  return charge.status === 'UNPAID'
+  if (charge.status !== 'UNPAID') {
+    return ['UNPAID'];
+  }
+
+  return capabilities.paidStatusEnabled
     ? ['PAID', 'WAIVED', 'CANCELED']
-    : ['UNPAID'];
+    : ['WAIVED', 'CANCELED'];
 }
 
 export function getAdminChargeStatusConfirmation(
   charge: Pick<ChargeItem, 'paymentCategory' | 'source' | 'title'>,
   status: AdminChargeStatusTarget,
-  options: {devotionReopenEnabled?: boolean} = {},
+  capabilities: Pick<
+    AdminChargeContractCapabilities,
+    'devotionPenaltyReopenEnabled'
+  > = {devotionPenaltyReopenEnabled: false},
 ): AdminChargeStatusConfirmation {
   if (status === 'PAID') {
     return {
@@ -87,7 +88,7 @@ export function getAdminChargeStatusConfirmation(
       charge.paymentCategory === 'PENALTY' &&
       charge.source?.sourceType === 'DEVOTION_RECORD';
     const reopensDevotion =
-      isDevotionPenalty && options.devotionReopenEnabled === true;
+      isDevotionPenalty && capabilities.devotionPenaltyReopenEnabled;
 
     return {
       title: `${charge.title}을 취소할까요?`,
@@ -117,7 +118,7 @@ export function getAdminChargeStatusConfirmation(
 
 export function getAdminChargeStatusErrorMessage(error: ApiError) {
   if (error.code === 'API_CONTRACT_PENDING') {
-    return '관리자 납부 완료 API 계약이 아직 확정되지 않아 production 요청을 보내지 않았습니다.';
+    return '현재 납부 완료 처리를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.';
   }
 
   if (error.kind === 'sessionExpired' && error.status === 401) {
@@ -125,7 +126,7 @@ export function getAdminChargeStatusErrorMessage(error: ApiError) {
   }
 
   if (error.status === 403) {
-    return error.message.trim() || '청구 상태 변경 권한이 없습니다.';
+    return '청구 상태 변경 권한이 없습니다.';
   }
 
   if (error.status === 404) {
@@ -137,10 +138,20 @@ export function getAdminChargeStatusErrorMessage(error: ApiError) {
   }
 
   if (error.status === 400) {
-    return error.message.trim() || '청구 상태 변경 요청을 확인해 주세요.';
+    return error.code === 'BILLING_INVALID_STATUS'
+      ? '변경할 수 없는 청구 상태입니다.'
+      : '청구 상태 변경 요청을 확인해 주세요.';
   }
 
-  return error.message.trim() || '청구 상태를 변경하지 못했습니다.';
+  if (error.code === 'INVALID_SERVER_RESPONSE') {
+    return '서버 응답을 안전하게 확인하지 못했습니다. 최신 목록과 상세를 다시 확인해 주세요.';
+  }
+
+  if (error.kind === 'offline') {
+    return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+  }
+
+  return '청구 상태를 변경하지 못했습니다.';
 }
 
 export function shouldExpireAdminChargeSession(error: ApiError) {
