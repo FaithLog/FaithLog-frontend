@@ -4,6 +4,7 @@ import {mockDomainFixtures} from './mockFixtures';
 import * as responseParsers from './runtimeValidation';
 import {
   parseAdminDashboardSummary,
+  parseAdminChargeStatusChangeResponse,
   parseAdminNotificationResponse,
   parseCampusDetail,
   parseCampusMembershipSummaries,
@@ -560,6 +561,58 @@ describe('runtime API response validation', () => {
   it('normalizes explicit null or omitted no-content data to null', () => {
     expect(parseNullResponse(null)).toBeNull();
     expect(parseNullResponse(undefined)).toBeNull();
+  });
+
+  it('requires paidAt when an admin charge response reports PAID', () => {
+    const paidResponse = {
+      ...mockDomainFixtures.admin.chargeStatusChange,
+      status: 'PAID',
+      paidAt: '2026-07-13T12:00:00.000Z',
+    };
+
+    expect(parseAdminChargeStatusChangeResponse(paidResponse)).toEqual(paidResponse);
+    expect(() =>
+      parseAdminChargeStatusChangeResponse({...paidResponse, paidAt: null}),
+    ).toThrow(INVALID_RESPONSE);
+  });
+
+  it.each([
+    ['omitted', {}],
+    ['explicit null', {reason: null}],
+  ] as const)('accepts a REST Docs-shaped %s charge reason in list and mutation responses', (_label, reasonPatch) => {
+    const listItem = {...mockDomainFixtures.billing.charges.items[0], ...reasonPatch};
+    if (!('reason' in reasonPatch)) {
+      delete (listItem as {reason?: unknown}).reason;
+    }
+    const mutation = {...mockDomainFixtures.admin.chargeStatusChange, ...reasonPatch};
+    if (!('reason' in reasonPatch)) {
+      delete (mutation as {reason?: unknown}).reason;
+    }
+
+    const parsedList = parseChargeList({
+      ...mockDomainFixtures.billing.charges,
+      items: [listItem],
+    });
+    const parsedMutation = parseAdminChargeStatusChangeResponse(mutation);
+
+    if ('reason' in reasonPatch) {
+      expect(parsedList.items[0]).toHaveProperty('reason', null);
+      expect(parsedMutation).toHaveProperty('reason', null);
+    } else {
+      expect(parsedList.items[0]).not.toHaveProperty('reason');
+      expect(parsedMutation).not.toHaveProperty('reason');
+    }
+  });
+
+  it.each([
+    ['empty', ''],
+    ['non-string', 7],
+    ['oversized', 'r'.repeat(8_193)],
+  ] as const)('rejects a malformed %s optional charge reason', (_label, reason) => {
+    expect(() => parseAdminChargeStatusChangeResponse({
+      ...mockDomainFixtures.admin.chargeStatusChange,
+      reason,
+    })).toThrow(INVALID_RESPONSE);
   });
 
   it('accepts bounded backend-defined open status strings', () => {

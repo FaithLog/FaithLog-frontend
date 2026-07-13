@@ -2,6 +2,7 @@ import type {
   ApiEnvelope,
   ApiError,
   AdminCampusChargeSummary,
+  AdminChargeContractCapabilities,
   AdminCampusMember,
   AdminCampusRoleChangeRequest,
   AdminDashboardSummary,
@@ -20,7 +21,8 @@ import type {
   AdminPrayerSeason,
   AdminPrayerSeasonCloseRequest,
   AdminPrayerSeasonCreateRequest,
-  AdminWritableChargeStatus,
+  AdminChargeStatusChangeRequest,
+  AdminChargeStatusTarget,
   AdminChargeStatusChangeResponse,
   CampusCreateRequest,
   CampusCreateResponse,
@@ -220,6 +222,15 @@ export function isMockModeEnabled() {
   }
 
   return true;
+}
+
+export function getAdminChargeContractCapabilities(): AdminChargeContractCapabilities {
+  const provisionalContractsEnabled = isMockModeEnabled();
+
+  return {
+    devotionPenaltyReopenEnabled: provisionalContractsEnabled,
+    paidStatusEnabled: provisionalContractsEnabled,
+  };
 }
 
 export function validateRuntimeConfig() {
@@ -542,15 +553,26 @@ function toSafeAdminCampusChargeQuery(params: AdminCampusChargeQueryParams) {
   return query.toString();
 }
 
-function toAdminWritableChargeStatus(value: unknown): AdminWritableChargeStatus {
-  if (value === 'UNPAID' || value === 'WAIVED' || value === 'CANCELED') {
+function toAdminChargeStatusTarget(value: unknown): AdminChargeStatusTarget {
+  if (
+    value === 'UNPAID' ||
+    value === 'PAID' ||
+    value === 'WAIVED' ||
+    value === 'CANCELED'
+  ) {
     return value;
   }
 
   throw new FaithLogApiError({
     kind: 'error',
-    message: '관리자는 PAID로 직접 변경할 수 없습니다.',
+    message: '지원하지 않는 청구 상태입니다.',
   });
+}
+
+export function buildAdminChargeStatusChangeRequest(
+  status: unknown,
+): AdminChargeStatusChangeRequest {
+  return {status: toAdminChargeStatusTarget(status)};
 }
 
 function toRequiredString(value: unknown, label: string) {
@@ -2509,22 +2531,59 @@ export function fetchAdminMemberCharges(
   );
 }
 
-export function changeAdminChargeStatus(
+export async function changeAdminChargeStatus(
   accessToken: string,
   chargeItemId: unknown,
   status: unknown,
+  expected: {
+    campusId: number;
+    paymentCategory: PaymentCategory;
+    userId: number;
+  },
 ) {
+  const body = buildAdminChargeStatusChangeRequest(status);
+  const requestedChargeItemId = toPositiveIntegerPathSegment(
+    chargeItemId,
+    'chargeItemId',
+  );
+
+  if (
+    body.status === 'PAID' &&
+    !getAdminChargeContractCapabilities().paidStatusEnabled
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      code: 'API_CONTRACT_PENDING',
+      message:
+        '관리자 납부 완료 API 계약이 아직 REST Docs로 확정되지 않아 요청을 보내지 않았습니다.',
+    });
+  }
+
   return apiRequest<AdminChargeStatusChangeResponse>(
     buildApiPath(
       'admin',
       'charges',
-      toPositiveIntegerPathSegment(chargeItemId, 'chargeItemId'),
+      requestedChargeItemId,
       'status',
     ),
     {
       accessToken,
-      body: {status: toAdminWritableChargeStatus(status)},
-      responseParser: parseAdminChargeStatusChangeResponse,
+      body,
+      responseParser: (value) => {
+        const response = parseAdminChargeStatusChangeResponse(value);
+
+        if (
+          response.id !== Number(requestedChargeItemId) ||
+          response.campusId !== expected.campusId ||
+          response.userId !== expected.userId ||
+          response.paymentCategory !== expected.paymentCategory ||
+          response.status !== body.status
+        ) {
+          throw new Error('Admin charge response identity mismatch.');
+        }
+
+        return response;
+      },
       method: 'PATCH',
     },
   );

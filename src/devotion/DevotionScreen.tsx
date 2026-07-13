@@ -27,6 +27,8 @@ import {colors, typography} from '../theme';
 import {formatWon} from '../utils/money';
 import {
   canRequestWeeklySubmit,
+  getWeeklyDevotionEntryState,
+  isWeeklyDevotionEditable,
   summarizeDevotionPenalty,
   type DevotionCheckField,
   type DevotionPenaltySummary,
@@ -111,7 +113,7 @@ export function DevotionScreen({
       setLoadState({status: 'success', weekly});
       setFormChecks(normalizeWeekChecks(weekly));
       setLateMinutesText(String(Math.max(0, weekly.saturdayLateMinutes)));
-      setScreenMode(weekly.submittedAt ? 'locked' : 'entry');
+      setScreenMode(isWeeklyDevotionEditable(weekly) ? 'entry' : 'locked');
       setSaveFeedback(null);
       setSubmitConfirmVisible(false);
       try {
@@ -158,7 +160,7 @@ export function DevotionScreen({
     penaltyRuleState.status === 'success' ? penaltyRuleState.rules : null,
   );
   const counts = getCurrentCounts(formChecks);
-  const locked = Boolean(weekly.submittedAt);
+  const locked = !isWeeklyDevotionEditable(weekly);
   const title = screenMode === 'penalty' ? '벌금 결과' : '경건생활';
 
   const moveWeek = (direction: -1 | 1) => {
@@ -961,19 +963,11 @@ function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) =
 
 function normalizeWeekChecks(weekly: WeeklyDevotionSummary): DailyFormCheck[] {
   const start = parseDate(weekly.weekStartDate);
+  const recordDates = Array.from({length: 7}, (_, index) =>
+    formatLocalDate(addDays(start, index)),
+  );
 
-  return Array.from({length: 7}, (_, index) => {
-    const recordDate = formatLocalDate(addDays(start, index));
-    const existing = weekly.dailyChecks.find((check) => check.recordDate === recordDate);
-
-    return {
-      id: existing?.id ?? null,
-      recordDate,
-      quietTimeChecked: existing?.quietTimeChecked ?? false,
-      prayerChecked: existing?.prayerChecked ?? false,
-      bibleReadingChecked: existing?.bibleReadingChecked ?? false,
-    };
-  });
+  return getWeeklyDevotionEntryState(weekly, recordDates).dailyChecks;
 }
 
 function getCurrentCounts(checks: DailyFormCheck[]) {

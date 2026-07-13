@@ -30,6 +30,11 @@ export type WeeklySubmitGuardState = {
   saving: boolean;
 };
 
+export type WeeklyDevotionEntryState = {
+  dailyChecks: WeeklyDevotionSummary['dailyChecks'];
+  editable: boolean;
+};
+
 const REQUIRED_DAYS = 5;
 
 export function getDailyCompletionCount(
@@ -113,6 +118,34 @@ export function canRequestWeeklySubmit({
   saving,
 }: WeeklySubmitGuardState) {
   return !locked && !saving && !invalidLateMinutes;
+}
+
+export function getWeeklyDevotionEntryState(
+  weekly: WeeklyDevotionSummary,
+  recordDates: string[],
+): WeeklyDevotionEntryState {
+  return {
+    editable: isWeeklyDevotionEditable(weekly),
+    dailyChecks: recordDates.map((recordDate) => {
+      const existing = weekly.dailyChecks.find(
+        (check) => check.recordDate === recordDate,
+      );
+
+      return existing ?? {
+        id: null,
+        recordDate,
+        quietTimeChecked: false,
+        prayerChecked: false,
+        bibleReadingChecked: false,
+      };
+    }),
+  };
+}
+
+export function isWeeklyDevotionEditable(
+  weekly: Pick<WeeklyDevotionSummary, 'submittedAt'>,
+) {
+  return weekly.submittedAt === null;
 }
 
 function getPenaltyAmountStatus(penaltyRules: PenaltyRule[] | null | undefined) {

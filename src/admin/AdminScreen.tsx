@@ -1,4 +1,13 @@
-import {memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   AccessibilityInfo,
   Alert,
@@ -38,6 +47,7 @@ import {
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
+  getAdminChargeContractCapabilities,
   revokeCoffeeDuty,
   sendAdminNotification,
   updateAdminPenaltyRule,
@@ -87,7 +97,7 @@ import type {
   AdminPrayerAssignableMember,
   AdminPrayerGroup,
   AdminPrayerSeason,
-  AdminWritableChargeStatus,
+  AdminChargeStatusTarget,
   ApiError,
   CampusRole,
   ChargeAmountSummary,
@@ -108,12 +118,31 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
 import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {AdminWeeklyDevotionSection} from './AdminWeeklyDevotionSection';
+import {
+  createAdminChargeMutationGate,
+  getAdminChargeStatusActions,
+  getAdminChargeStatusConfirmation,
+  getAdminChargeStatusErrorMessage,
+} from './adminChargeStatus';
+import {
+  applyAdminChargeFilterChange,
+  buildAdminChargeDetailRequestKey,
+  buildAdminChargeSummaryRequestKey,
+  commitAdminChargeCampusIdentity,
+  coordinateAdminChargeStatusMutation,
+  createAdminChargeReadCoordinator,
+  invalidateAdminChargeRead,
+  refreshAdminChargeSurfaces,
+  runLatestAdminChargeRead,
+  selectAdminChargeStatusRequest,
+} from './adminChargeCoordinator';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {
@@ -321,7 +350,7 @@ type AdminChargeFilters = {
 
 type ChargeStatusConfirm = {
   charge: ChargeItem;
-  status: AdminWritableChargeStatus;
+  status: AdminChargeStatusTarget;
 } | null;
 
 type PaymentAccountState =
@@ -664,10 +693,34 @@ export function AdminScreen({
   const [prayerSeasonCloseTarget, setPrayerSeasonCloseTarget] =
     useState<PrayerSeasonCloseTarget>(null);
   const [chargeStatusConfirm, setChargeStatusConfirm] = useState<ChargeStatusConfirm>(null);
-  const [paidBlockedTarget, setPaidBlockedTarget] = useState<ChargeItem | null>(null);
+  const chargeStatusMutationGateRef = useRef(createAdminChargeMutationGate());
+  const chargeReadCoordinatorRef = useRef(createAdminChargeReadCoordinator());
+  const chargeStatusCampusIdRef = useRef(campusId);
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
+
+  useLayoutEffect(() => {
+    commitAdminChargeCampusIdentity({
+      committedCampusId: chargeStatusCampusIdRef,
+      coordinator: chargeReadCoordinatorRef.current,
+      gate: chargeStatusMutationGateRef.current,
+      nextCampusId: campusId,
+      onCommit: () => {
+        if (chargeFilterDebounceRef.current !== null) {
+          clearTimeout(chargeFilterDebounceRef.current);
+          chargeFilterDebounceRef.current = null;
+        }
+        setSettlementSection('charges');
+        setSettlementState({status: 'idle'});
+        setChargeDetailState({status: 'idle'});
+        setChargeStatusConfirm(null);
+        setActionState((current) =>
+          current.status === 'changingChargeStatus' ? {status: 'idle'} : current,
+        );
+      },
+    });
+  }, [campusId]);
 
   const resetPenaltyRuleFlow = useCallback(() => {
     setPenaltyRuleFlow({route: 'list'});
@@ -869,6 +922,7 @@ export function AdminScreen({
     return () => {
       penaltyRuleMountedRef.current = false;
       penaltyRuleRequestSequenceRef.current += 1;
+      invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     };
   }, []);
 
@@ -889,9 +943,6 @@ export function AdminScreen({
     setNotificationLogFilters(emptyNotificationLogFilters);
     setNotificationLogState({status: 'idle'});
     setSelectedNotificationLogId(null);
-    setSettlementSection('charges');
-    setSettlementState({status: 'idle'});
-    setChargeDetailState({status: 'idle'});
     setPaymentAccountState({status: 'idle'});
     setPaymentAccountForm(emptyPaymentAccountForm);
     setSelectedPaymentAccount(null);
@@ -903,7 +954,9 @@ export function AdminScreen({
     setPenaltyRuleFlow({route: 'list'});
     setPenaltyRuleForm(emptyPenaltyRuleDraft);
     setActionState((current) =>
-      current.status === 'savingPenaltyRule' ? {status: 'idle'} : current,
+      current.status === 'savingPenaltyRule'
+        ? {status: 'idle'}
+        : current,
     );
     setActionError(null);
     setPrayerState({status: 'idle'});
@@ -912,8 +965,6 @@ export function AdminScreen({
     setPrayerGroupForm(emptyPrayerGroupForm);
     setPrayerGroupMembersForm(emptyPrayerGroupMembersForm);
     setPrayerSeasonCloseTarget(null);
-    setChargeStatusConfirm(null);
-    setPaidBlockedTarget(null);
     void loadAdmin();
     void loadInviteCode();
   }, [campusId]);
@@ -988,7 +1039,7 @@ export function AdminScreen({
 
   useEffect(
     () => () => {
-      if (chargeFilterDebounceRef.current) {
+      if (chargeFilterDebounceRef.current !== null) {
         clearTimeout(chargeFilterDebounceRef.current);
       }
     },
@@ -1114,35 +1165,69 @@ export function AdminScreen({
   };
 
   const loadSettlement = async (filters: AdminChargeFilters = chargeFilters) => {
-    setSettlementState({status: 'loading'});
-    setActionError(null);
+    const requestCampusId = campusId;
+    const requestGeneration = getAuthSessionGeneration();
+    const key = buildAdminChargeSummaryRequestKey({
+      campusId: requestCampusId,
+      generation: requestGeneration,
+      filters,
+    });
 
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
+    return runLatestAdminChargeRead({
+      coordinator: chargeReadCoordinatorRef.current,
+      channel: 'summary',
+      key,
+      onStart: () => {
+        setSettlementState({status: 'loading'});
+        setActionError(null);
+      },
+      request: async () => {
+        const accessToken = await resolveAccessToken(setAuthState);
 
-      if (!accessToken) {
-        return;
-      }
+        if (!accessToken) {
+          return null;
+        }
 
-      const userId = parseOptionalPositiveInt(filters.userId, 'userId');
-      const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
-        keyword: filters.keyword,
-        paymentCategory: filters.paymentCategory,
-        status: filters.status,
-        ...(userId === undefined ? {} : {userId}),
-      });
-      const visibleCharges = filterAdminCampusChargeSummary(charges, filters);
+        const userId = parseOptionalPositiveInt(filters.userId, 'userId');
+        const charges = await fetchAdminCampusChargesForMyAccounts(
+          accessToken,
+          requestCampusId,
+          {
+            keyword: filters.keyword,
+            paymentCategory: filters.paymentCategory,
+            status: filters.status,
+            ...(userId === undefined ? {} : {userId}),
+          },
+        );
 
-      setSettlementState(
-        visibleCharges.members.length === 0
-          ? {status: 'empty', charges: visibleCharges}
-          : {status: 'success', charges: visibleCharges},
-      );
-    } catch (error) {
-      const apiError = toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.');
-      setSettlementState({status: 'error', error: apiError});
-      void handleAuthError(apiError, setAuthState);
-    }
+        return filterAdminCampusChargeSummary(charges, filters);
+      },
+      normalizeError: (error) =>
+        toApiError(error, '관리자 정산 정보를 불러오지 못했습니다.'),
+      canApplySuccess: () =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        isAuthSessionGenerationCurrent(requestGeneration),
+      canApplyError: (apiError) =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        shouldHandleRequestError(
+          apiError,
+          requestGeneration,
+          getAuthSessionGeneration(),
+        ),
+      onSuccess: (visibleCharges) => {
+        setSettlementState(
+          visibleCharges.members.length === 0
+            ? {status: 'empty', charges: visibleCharges}
+            : {status: 'success', charges: visibleCharges},
+        );
+      },
+      onError: (apiError) => {
+        setSettlementState({status: 'error', error: apiError});
+        void handleAuthError(apiError, setAuthState);
+      },
+    });
   };
 
   const loadPaymentAccounts = async () => {
@@ -1818,21 +1903,18 @@ export function AdminScreen({
   ) => {
     const nextFilters = {...chargeFilters, [key]: value};
 
-    setChargeFilters(nextFilters);
-    setChargeDetailState({status: 'idle'});
-
-    if (chargeFilterDebounceRef.current) {
-      clearTimeout(chargeFilterDebounceRef.current);
-    }
-
-    if (key === 'keyword') {
-      chargeFilterDebounceRef.current = setTimeout(() => {
-        void loadSettlement(nextFilters);
-      }, 350);
-      return;
-    }
-
-    void loadSettlement(nextFilters);
+    chargeFilterDebounceRef.current = applyAdminChargeFilterChange({
+      coordinator: chargeReadCoordinatorRef.current,
+      currentTimer: chargeFilterDebounceRef.current,
+      key,
+      nextFilters,
+      onLoad: (filters) => void loadSettlement(filters),
+      onVisibleStateChange: (filters) => {
+        setChargeFilters(filters);
+        setChargeDetailState({status: 'idle'});
+        setSettlementState({status: 'loading'});
+      },
+    });
   };
 
   const resetChargeFilters = () => {
@@ -1843,95 +1925,223 @@ export function AdminScreen({
       userId: '',
     };
 
-    if (chargeFilterDebounceRef.current) {
+    if (chargeFilterDebounceRef.current !== null) {
       clearTimeout(chargeFilterDebounceRef.current);
+      chargeFilterDebounceRef.current = null;
     }
 
+    invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     setChargeFilters(nextFilters);
     setChargeDetailState({status: 'idle'});
     void loadSettlement(nextFilters);
   };
 
   const openMemberCharges = async (member: AdminChargeMemberRef) => {
-    setChargeDetailState({status: 'loading', member});
-    setActionError(null);
+    const requestCampusId = campusId;
+    const requestGeneration = getAuthSessionGeneration();
+    const requestFilters = chargeFilters;
+    const key = buildAdminChargeDetailRequestKey({
+      campusId: requestCampusId,
+      generation: requestGeneration,
+      filters: requestFilters,
+      memberUserId: member.userId,
+    });
 
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
+    return runLatestAdminChargeRead({
+      coordinator: chargeReadCoordinatorRef.current,
+      channel: 'detail',
+      key,
+      onStart: () => {
+        setChargeDetailState({status: 'loading', member});
+        setActionError(null);
+      },
+      request: async () => {
+        const accessToken = await resolveAccessToken(setAuthState);
 
-      if (!accessToken) {
-        return;
-      }
+        if (!accessToken) {
+          return null;
+        }
 
-      const charges = filterAdminMemberChargeList(
-        await fetchAdminMemberCharges(accessToken, campusId, member.userId, {
-          paymentCategory: chargeFilters.paymentCategory,
-          status: chargeFilters.status,
-        }),
-        chargeFilters,
-      );
+        const charges = await fetchAdminMemberCharges(
+          accessToken,
+          requestCampusId,
+          member.userId,
+          {
+            paymentCategory: requestFilters.paymentCategory,
+            status: requestFilters.status,
+          },
+        );
 
-      setChargeDetailState(
-        charges.items.length === 0
-          ? {status: 'empty', charges}
-          : {status: 'success', charges},
-      );
-    } catch (error) {
-      const apiError = toApiError(error, '회원별 청구 상세를 불러오지 못했습니다.');
-      setChargeDetailState({status: 'error', error: apiError, member});
-      void handleAuthError(apiError, setAuthState);
-    }
+        return filterAdminMemberChargeList(charges, requestFilters);
+      },
+      normalizeError: (error) =>
+        toApiError(error, '회원별 청구 상세를 불러오지 못했습니다.'),
+      canApplySuccess: () =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        isAuthSessionGenerationCurrent(requestGeneration),
+      canApplyError: (apiError) =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === requestCampusId &&
+        shouldHandleRequestError(
+          apiError,
+          requestGeneration,
+          getAuthSessionGeneration(),
+        ),
+      onSuccess: (charges) => {
+        setChargeDetailState(
+          charges.items.length === 0
+            ? {status: 'empty', charges}
+            : {status: 'success', charges},
+        );
+      },
+      onError: (apiError) => {
+        setChargeDetailState({status: 'error', error: apiError, member});
+        void handleAuthError(apiError, setAuthState);
+      },
+    });
   };
 
   const requestChargeStatusChange = (
     charge: ChargeItem,
-    status: AdminWritableChargeStatus,
+    status: AdminChargeStatusTarget,
   ) => {
-    if (actionState.status !== 'idle' || charge.status === status) {
+    const capabilities = getAdminChargeContractCapabilities();
+    const target = selectAdminChargeStatusRequest({
+      actionIdle: actionState.status === 'idle',
+      capabilities,
+      charge,
+      mutationActive: chargeStatusMutationGateRef.current.activeOperationId !== null,
+      status,
+    });
+
+    if (!target) {
       return;
     }
 
     setActionError(null);
-    setChargeStatusConfirm({charge, status});
+    setChargeStatusConfirm(target);
   };
 
   const confirmChargeStatusChange = async () => {
-    if (!chargeStatusConfirm || actionState.status !== 'idle') {
+    if (
+      !chargeStatusConfirm ||
+      chargeStatusMutationGateRef.current.activeOperationId !== null ||
+      actionState.status !== 'idle'
+    ) {
       return;
     }
 
     const target = chargeStatusConfirm;
-    setActionState({status: 'changingChargeStatus', chargeItemId: target.charge.id});
-    setActionError(null);
+    const detailMember =
+      chargeDetailState.status === 'success' || chargeDetailState.status === 'empty'
+        ? {
+            userId: chargeDetailState.charges.userId,
+            name: chargeDetailState.charges.name,
+            email: chargeDetailState.charges.email,
+          }
+        : null;
+    const operationCampusId = campusId;
+    const operationGeneration = getAuthSessionGeneration();
 
-    try {
-      const accessToken = await resolveAccessToken(setAuthState);
+    if (!detailMember) {
+      return;
+    }
+    const expectedUserId = detailMember.userId;
 
-      if (!accessToken) {
-        return;
-      }
+    const outcome = await coordinateAdminChargeStatusMutation({
+      gate: chargeStatusMutationGateRef.current,
+      expected: {
+        campusId: operationCampusId,
+        userId: expectedUserId,
+        chargeItemId: target.charge.id,
+        paymentCategory: target.charge.paymentCategory,
+        status: target.status,
+      },
+      mutate: async () => {
+        const accessToken = await resolveAccessToken(setAuthState);
 
-      const updated = await changeAdminChargeStatus(
-        accessToken,
-        target.charge.id,
-        target.status,
-      );
-      invalidatePaymentContextCache(campusId);
+        if (!accessToken) {
+          return null;
+        }
 
-      replaceChargeItem(updated);
-      setChargeStatusConfirm(null);
+        return changeAdminChargeStatus(
+          accessToken,
+          target.charge.id,
+          target.status,
+          {
+            campusId: operationCampusId,
+            userId: expectedUserId,
+            paymentCategory: target.charge.paymentCategory,
+          },
+        );
+      },
+      normalizeError: (error) =>
+        toApiError(error, '청구 상태를 변경하지 못했습니다.'),
+      canApplySuccess: () =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === operationCampusId &&
+        isAuthSessionGenerationCurrent(operationGeneration),
+      canHandleError: (apiError) =>
+        penaltyRuleMountedRef.current &&
+        chargeStatusCampusIdRef.current === operationCampusId &&
+        shouldHandleRequestError(
+          apiError,
+          operationGeneration,
+          getAuthSessionGeneration(),
+        ),
+      onStart: () => {
+        setActionState({status: 'changingChargeStatus', chargeItemId: target.charge.id});
+        setActionError(null);
+      },
+      onFinish: () => {
+        if (penaltyRuleMountedRef.current) {
+          setActionState({status: 'idle'});
+        }
+      },
+      onAccepted: (updated) => {
+        invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+        invalidatePaymentContextCache(operationCampusId);
+        replaceChargeItem(updated);
+        setChargeStatusConfirm(null);
+      },
+      onConflict: () => {
+        invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+        setChargeStatusConfirm(null);
+        setActionError(null);
+      },
+      onSessionExpired: (apiError) => handleAuthError(apiError, setAuthState),
+      refresh: () =>
+        refreshAdminChargeSurfaces(
+          () => loadSettlement(),
+          () => openMemberCharges(detailMember),
+        ),
+    });
+
+    if (outcome.kind === 'error') {
+      setActionError(outcome.error);
+      return;
+    }
+
+    if (outcome.kind === 'conflict') {
       setNotice({
-        tone: 'success',
-        title: '청구 상태 변경',
-        message: `${target.charge.title} 상태를 ${updated.status}로 변경했습니다.`,
+        tone: 'warning',
+        title: '청구 상태 새로고침',
+        message: outcome.refresh.kind === 'complete'
+          ? '청구 상태가 이미 변경되어 최신 목록과 상세를 불러왔습니다.'
+          : '청구 상태가 이미 변경되었습니다. 최신 정보를 일부 불러오지 못해 다시 시도해 주세요.',
       });
-      void loadSettlement();
-    } catch (error) {
-      const apiError = toApiError(error, '청구 상태를 변경하지 못했습니다.');
-      setActionError(apiError);
-      void handleAuthError(apiError, setAuthState);
-    } finally {
-      setActionState({status: 'idle'});
+      return;
+    }
+
+    if (outcome.kind === 'success') {
+      setNotice({
+        tone: outcome.refresh.kind === 'complete' ? 'success' : 'warning',
+        title: '청구 상태 변경',
+        message: outcome.refresh.kind === 'complete'
+          ? `${target.charge.title} 상태를 ${getChargeStatusLabel(outcome.response.status)}로 변경했습니다.`
+          : `${target.charge.title} 상태 변경은 완료했지만 최신 목록 또는 상세를 일부 불러오지 못했습니다.`,
+      });
     }
   };
 
@@ -2365,6 +2575,9 @@ export function AdminScreen({
 
   const selectAdminTab = (nextTab: AdminTab) => {
     const changeTab = () => {
+      if (tab === 'settlement' && nextTab !== 'settlement') {
+        invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+      }
       resetPenaltyRuleFlow();
       setSelectedMemberId(null);
       setActionError(null);
@@ -2645,6 +2858,9 @@ export function AdminScreen({
           }
           onChangeSection={(section) => {
             const changeSection = () => {
+              if (section !== 'charges') {
+                invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+              }
               resetPenaltyRuleFlow();
               setSettlementSection(section);
               setSelectedPaymentAccount(null);
@@ -2658,8 +2874,10 @@ export function AdminScreen({
 
             changeSection();
           }}
-          onBackToSummary={() => setChargeDetailState({status: 'idle'})}
-          onBlockedPaid={setPaidBlockedTarget}
+          onBackToSummary={() => {
+            invalidateAdminChargeRead(chargeReadCoordinatorRef.current, 'detail');
+            setChargeDetailState({status: 'idle'});
+          }}
           onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
           onCopyPaymentAccount={copyAccountNumber}
           onEditPenaltyRule={editPenaltyRule}
@@ -2754,10 +2972,6 @@ export function AdminScreen({
         onCancel={() => setChargeStatusConfirm(null)}
         onConfirm={confirmChargeStatusChange}
         target={chargeStatusConfirm}
-      />
-      <PaidNotAllowedSheet
-        charge={paidBlockedTarget}
-        onClose={() => setPaidBlockedTarget(null)}
       />
       <DeactivatePaymentAccountSheet
         account={paymentAccountDeactivateTarget}
@@ -8097,7 +8311,6 @@ function AdminSettlement({
   onChangePenaltyRuleForm,
   onChangeSection,
   onBackToSummary,
-  onBlockedPaid,
   onCopyPaymentAccount,
   onEditPenaltyRule,
   onOpenPenaltyRuleCreate,
@@ -8140,7 +8353,6 @@ function AdminSettlement({
   onChangePenaltyRuleForm: (patch: Partial<PenaltyRuleDraft>) => void;
   onChangeSection: (section: AdminSettlementSection) => void;
   onBackToSummary: () => void;
-  onBlockedPaid: (charge: ChargeItem) => void;
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
   onOpenPenaltyRuleCreate: () => void;
@@ -8148,7 +8360,7 @@ function AdminSettlement({
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
-  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminChargeStatusTarget) => void;
   onRetryPaymentAccounts: () => void;
   onRetryPenaltyRules: () => void;
   onResetFilters: () => void;
@@ -8196,7 +8408,6 @@ function AdminSettlement({
           filters={filters}
           notificationState={notificationState}
           onBackToSummary={onBackToSummary}
-          onBlockedPaid={onBlockedPaid}
           onOpenChargeReminderConfirm={onOpenChargeReminderConfirm}
           onOpenMemberCharges={onOpenMemberCharges}
           onRequestStatusChange={onRequestStatusChange}
@@ -8252,7 +8463,6 @@ function AdminChargeSettlement({
   filters,
   notificationState,
   onBackToSummary,
-  onBlockedPaid,
   onOpenChargeReminderConfirm,
   onOpenMemberCharges,
   onRequestStatusChange,
@@ -8268,10 +8478,9 @@ function AdminChargeSettlement({
   filters: AdminChargeFilters;
   notificationState: NotificationSendState;
   onBackToSummary: () => void;
-  onBlockedPaid: (charge: ChargeItem) => void;
   onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
-  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminChargeStatusTarget) => void;
   onResetFilters: () => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
   onRetrySummary: () => void;
@@ -8286,7 +8495,6 @@ function AdminChargeSettlement({
       actionState,
       detailState,
       onBackToSummary,
-      onBlockedPaid,
       onRequestStatusChange,
       onRetryDetail,
     });
@@ -9462,15 +9670,13 @@ function renderChargeDetail({
   actionState,
   detailState,
   onBackToSummary,
-  onBlockedPaid,
   onRequestStatusChange,
   onRetryDetail,
 }: {
   actionState: AdminActionState;
   detailState: AdminChargeDetailState;
   onBackToSummary: () => void;
-  onBlockedPaid: (charge: ChargeItem) => void;
-  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminChargeStatusTarget) => void;
   onRetryDetail: (member: AdminChargeMemberRef) => void;
 }) {
   switch (detailState.status) {
@@ -9497,7 +9703,6 @@ function renderChargeDetail({
           actionState={actionState}
           charges={detailState.charges}
           onBackToSummary={onBackToSummary}
-          onBlockedPaid={onBlockedPaid}
           onRequestStatusChange={onRequestStatusChange}
         />
       );
@@ -9510,14 +9715,12 @@ function AdminChargeDetail({
   actionState,
   charges,
   onBackToSummary,
-  onBlockedPaid,
   onRequestStatusChange,
 }: {
   actionState: AdminActionState;
   charges: AdminMemberChargeList;
   onBackToSummary: () => void;
-  onBlockedPaid: (charge: ChargeItem) => void;
-  onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
+  onRequestStatusChange: (charge: ChargeItem, status: AdminChargeStatusTarget) => void;
 }) {
   const busy = actionState.status !== 'idle';
 
@@ -9528,7 +9731,7 @@ function AdminChargeDetail({
           <View style={styles.headerText}>
             <Text style={styles.figmaScreenTitle}>{charges.name}</Text>
             <Text style={styles.figmaBodyText}>
-              총 미납 {formatWon(charges.summary.unpaidAmount)} · 사용자가 직접 납부 완료 처리
+              총 미납 {formatWon(charges.summary.unpaidAmount)} · 청구 상태 관리
             </Text>
           </View>
           <Button accessibilityLabel="정산 집계로 돌아가기" onPress={onBackToSummary} variant="ghost">
@@ -9546,7 +9749,6 @@ function AdminChargeDetail({
               busy={busy}
               charge={charge}
               key={charge.id}
-              onBlockedPaid={() => onBlockedPaid(charge)}
               onRequestStatusChange={(status) => onRequestStatusChange(charge, status)}
             />
           ))}
@@ -9559,16 +9761,16 @@ function AdminChargeDetail({
 function ChargeItemRow({
   busy,
   charge,
-  onBlockedPaid,
   onRequestStatusChange,
 }: {
   busy: boolean;
   charge: ChargeItem;
-  onBlockedPaid: () => void;
-  onRequestStatusChange: (status: AdminWritableChargeStatus) => void;
+  onRequestStatusChange: (status: AdminChargeStatusTarget) => void;
 }) {
-  const statusActions: AdminWritableChargeStatus[] =
-    charge.status === 'UNPAID' ? ['WAIVED', 'CANCELED'] : ['UNPAID'];
+  const statusActions = getAdminChargeStatusActions(
+    charge,
+    getAdminChargeContractCapabilities(),
+  );
 
   return (
     <View style={styles.figmaChargeItem}>
@@ -9601,19 +9803,16 @@ function ChargeItemRow({
             disabled={busy || charge.status === status}
             key={status}
             onPress={() => onRequestStatusChange(status)}
-            variant={status === 'CANCELED' ? 'danger' : 'secondary'}>
+            variant={
+              status === 'CANCELED'
+                ? 'danger'
+                : status === 'PAID'
+                  ? 'primary'
+                  : 'secondary'
+            }>
             {getChargeStatusActionLabel(status)}
           </Button>
         ))}
-        {charge.status === 'UNPAID' ? (
-          <Button
-            accessibilityLabel={`${charge.title} 납부 완료 직접 변경 불가 안내`}
-            disabled={busy}
-            onPress={onBlockedPaid}
-            variant="ghost">
-            납부 완료
-          </Button>
-        ) : null}
       </View>
     </View>
   );
@@ -10372,19 +10571,26 @@ function ChargeStatusConfirmSheet({
   target: ChargeStatusConfirm;
 }) {
   const visible = target !== null;
+  const confirmation = target
+    ? getAdminChargeStatusConfirmation(
+        target.charge,
+        target.status,
+        getAdminChargeContractCapabilities(),
+      )
+    : null;
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
+    <Modal
+      animationType="slide"
+      transparent
+      visible={visible}
+      onRequestClose={loading ? undefined : onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
-          <Title>
-            {target
-              ? `${target.charge.title}을 ${getChargeStatusLabel(target.status)} 처리할까요?`
-              : '청구 상태 변경'}
-          </Title>
-          <Body>
-            관리자 화면에서는 면제, 취소, 미납 복구만 처리할 수 있습니다. 납부 완료는 사용자가 직접 처리합니다.
-          </Body>
+          <Title>{confirmation?.title ?? '청구 상태 변경'}</Title>
+          {confirmation?.messages.map((message) => (
+            <Body key={message}>{message}</Body>
+          ))}
           {target ? (
             <>
               <ListRow label="현재 상태" value={getChargeStatusLabel(target.charge.status)} />
@@ -10392,7 +10598,13 @@ function ChargeStatusConfirmSheet({
               <ListRow label="금액" value={formatWon(target.charge.amount)} />
             </>
           ) : null}
-          {error ? <AdminInlineError error={error} /> : null}
+          {error ? (
+            <View accessibilityRole="alert" style={styles.inlineError}>
+              <Text style={styles.inlineErrorText}>
+                {getAdminChargeStatusErrorMessage(error)}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.actionRow}>
             <Button
               accessibilityLabel="청구 상태 변경 실행"
@@ -10460,37 +10672,6 @@ function PollCloseConfirmSheet({
               취소
             </Button>
           </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function PaidNotAllowedSheet({
-  charge,
-  onClose,
-}: {
-  charge: ChargeItem | null;
-  onClose: () => void;
-}) {
-  return (
-    <Modal animationType="slide" transparent visible={charge !== null} onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <View style={styles.sheet}>
-          <Title>관리자는 납부 완료로 직접 변경할 수 없어요</Title>
-          <Body>
-            납부 완료는 사용자가 본인 화면에서 처리합니다. 관리자는 면제, 취소, 미납 복구만 진행할 수 있습니다.
-          </Body>
-          {charge ? (
-            <ListRow
-              label={charge.title}
-              supportingText={`현재 상태 ${getChargeStatusLabel(charge.status)}`}
-              value={formatWon(charge.amount)}
-            />
-          ) : null}
-          <Button accessibilityLabel="납부 완료 직접 변경 불가 안내 닫기" onPress={onClose}>
-            확인
-          </Button>
         </View>
       </View>
     </Modal>
@@ -12352,7 +12533,7 @@ function getChargeStatusLabel(status: ChargeStatus) {
   }
 }
 
-function getChargeStatusActionLabel(status: AdminWritableChargeStatus) {
+function getChargeStatusActionLabel(status: AdminChargeStatusTarget) {
   if (status === 'UNPAID') {
     return '미납 복구';
   }
@@ -12377,7 +12558,7 @@ function getChargeDescription(charge: ChargeItem) {
     return charge.dueDate;
   }
 
-  return charge.reason;
+  return charge.reason?.trim() || getPaymentCategoryLabel(charge.paymentCategory);
 }
 
 function getChargeStatusTone(status: ChargeStatus) {

@@ -13,7 +13,10 @@ vi.mock('./tokenStorage', () => ({
 
 import {
   apiRequest,
+  changeAdminChargeStatus,
   FaithLogApiError,
+  fetchAdminCampusChargesForMyAccounts,
+  fetchAdminMemberCharges,
   fetchPrayerWeek,
   loginUser,
   validateRuntimeConfig,
@@ -24,6 +27,7 @@ import {
   type AdminPollTemplateRequest,
 } from './adminPollApi';
 import {mockApiErrorFixtures, mockDomainFixtures} from './mockFixtures';
+import {resetMockAdapterStateForTests} from './mockAdapter';
 
 function expectApiError(error: unknown, expected: Partial<FaithLogApiError['detail']>) {
   expect(error).toBeInstanceOf(FaithLogApiError);
@@ -32,6 +36,7 @@ function expectApiError(error: unknown, expected: Partial<FaithLogApiError['deta
 
 describe('FaithLog mock API adapter', () => {
   beforeEach(() => {
+    resetMockAdapterStateForTests();
     process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
     vi.stubGlobal('fetch', vi.fn());
@@ -72,6 +77,25 @@ describe('FaithLog mock API adapter', () => {
     expect(mockDomainFixtures).toHaveProperty('poll');
     expect(mockDomainFixtures).toHaveProperty('prayer');
     expect(mockDomainFixtures).toHaveProperty('notification');
+  });
+
+  it('supports the provisional PAID payload only in mock mode with paidAt', async () => {
+    const changed = await changeAdminChargeStatus('mock-access-token', 501, 'PAID', {
+      campusId: 1,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+    const [summary, detail] = await Promise.all([
+      fetchAdminCampusChargesForMyAccounts('mock-access-token', 1),
+      fetchAdminMemberCharges('mock-access-token', 1, 7),
+    ]);
+
+    expect(changed).toMatchObject({id: 501, status: 'PAID'});
+    expect(changed.paidAt).toEqual(expect.any(String));
+    expect(summary.summary).toMatchObject({unpaidAmount: 3_000, paidAmount: 15_000});
+    expect(detail.summary).toMatchObject({unpaidAmount: 3_000, paidAmount: 15_000});
+    expect(detail.items[0]).toMatchObject({status: 'PAID', paidAt: changed.paidAt});
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('returns parser-compatible options when mock poll templates are created and updated', async () => {

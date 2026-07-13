@@ -15,6 +15,8 @@ import {
   authenticatedTransportRequest,
   apiRequest,
   buildApiUrl,
+  buildAdminChargeStatusChangeRequest,
+  changeAdminChargeStatus,
   createAdminPaymentAccount,
   createAdminPenaltyRule,
   createCoffeeDutyPaymentAccount,
@@ -26,10 +28,12 @@ import {
   fetchPollDetail,
   fetchPollResults,
   fetchPolls,
+  getAdminChargeContractCapabilities,
   getApiBaseUrl,
   isMockModeEnabled,
   loginUser,
   logoutUser,
+  markMyChargePaid,
   registerMyFcmToken,
   updateAdminPenaltyRule,
   validateRuntimeConfig,
@@ -903,6 +907,233 @@ describe('FaithLog API client', () => {
     expect(requestUrl.searchParams.get('paymentAccountId')).toBe('16');
     expect(requestUrl.searchParams.has('paymentCategory')).toBe(false);
     expect(requestUrl.searchParams.has('status')).toBe(false);
+  });
+
+  it('sends the documented CANCELED admin payload and parses the changed charge', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 501,
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+        title: '경건생활 벌금',
+        amount: 3_000,
+        status: 'CANCELED',
+        paidAt: null,
+      })),
+    );
+
+    const changed = await changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+
+    expect(String(url)).toContain('/api/v1/admin/charges/501/status');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(String(init?.body))).toEqual({status: 'CANCELED'});
+    expect(changed).toMatchObject({id: 501, status: 'CANCELED', paidAt: null});
+  });
+
+  it('builds typed PAID and CANCELED admin payloads without endpoint fallback', () => {
+    expect(buildAdminChargeStatusChangeRequest('PAID')).toEqual({status: 'PAID'});
+    expect(buildAdminChargeStatusChangeRequest('CANCELED')).toEqual({status: 'CANCELED'});
+  });
+
+  it.each([
+    ['omitted', {}, false],
+    ['explicit null', {reason: null}, true],
+  ] as const)('accepts a successful admin mutation with %s reason', async (_label, reasonPatch, hasReason) => {
+    const response = {
+      id: 501,
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+      title: '경건생활 벌금',
+      amount: 3_000,
+      status: 'CANCELED',
+      paidAt: null,
+      ...reasonPatch,
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(response)));
+
+    const changed = await changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+
+    if (hasReason) {
+      expect(changed).toHaveProperty('reason', null);
+    } else {
+      expect(changed).not.toHaveProperty('reason');
+    }
+  });
+
+  it('keeps provisional PAID action, transport, and devotion reopen behind one capability boundary', () => {
+    expect(getAdminChargeContractCapabilities()).toEqual({
+      devotionPenaltyReopenEnabled: false,
+      paidStatusEnabled: false,
+    });
+
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    expect(getAdminChargeContractCapabilities()).toEqual({
+      devotionPenaltyReopenEnabled: true,
+      paidStatusEnabled: true,
+    });
+  });
+
+  it('fails production PAID closed with API_CONTRACT_PENDING and sends no request', async () => {
+    await expect(
+      changeAdminChargeStatus('access-token', 501, 'PAID', {
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'error', code: 'API_CONTRACT_PENDING'});
+      return true;
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [400, 'error', 'BILLING_INVALID_STATUS'],
+    [403, 'permissionDenied', 'BILLING_FORBIDDEN'],
+    [404, 'error', 'BILLING_CHARGE_NOT_FOUND'],
+    [409, 'conflict', 'BILLING_INVALID_STATUS_TRANSITION'],
+  ] as const)(
+    'keeps admin charge status HTTP %i distinct',
+    async (status, kind, code) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(status, envelope(null, {success: false, code, message: `status-${status}`})),
+      );
+
+      await expect(
+        changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+          campusId: 2,
+          userId: 7,
+          paymentCategory: 'PENALTY',
+        }),
+      ).rejects.toSatisfy((error) => {
+        expectApiError(error, {kind, status, code});
+        return true;
+      });
+    },
+  );
+
+  it.each([
+    ['id', {id: 999}],
+    ['campusId', {campusId: 3}],
+    ['userId', {userId: 9}],
+    ['status', {status: 'UNPAID'}],
+    ['paymentCategory', {paymentCategory: 'COFFEE'}],
+  ] as const)('rejects a successful admin charge response with mismatched %s', async (_field, patch) => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 501,
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+        title: '경건생활 벌금',
+        amount: 3_000,
+        status: 'CANCELED',
+        paidAt: null,
+        ...patch,
+      })),
+    );
+
+    await expect(
+      changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'error', code: 'INVALID_SERVER_RESPONSE'});
+      return true;
+    });
+  });
+
+  it('does not retain arbitrary server text for admin charge 400 and 403 errors', async () => {
+    for (const [status, code] of [
+      [400, 'BILLING_INVALID_STATUS'],
+      [403, 'BILLING_FORBIDDEN'],
+    ] as const) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(status, envelope(null, {
+          success: false,
+          code,
+          message: '<script>token=secret SQL select *</script>',
+        })),
+      );
+
+      await expect(
+        changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+          campusId: 2,
+          userId: 7,
+          paymentCategory: 'PENALTY',
+        }),
+      ).rejects.toSatisfy((error) => {
+        expect((error as FaithLogApiError).detail.message).not.toContain('token=secret');
+        expect((error as FaithLogApiError).detail.message).not.toContain('select *');
+        return true;
+      });
+    }
+  });
+
+  it('treats only an admin charge 401 as auth expiration', async () => {
+    vi.mocked(startAuthSessionClear).mockReturnValueOnce({
+      cleared: true,
+      previousGeneration: FIRST_AUTH_GENERATION,
+      currentGeneration: 2 as AuthSessionGeneration,
+      completion: Promise.resolve(),
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(401, envelope(null, {
+        success: false,
+        code: 'AUTH_ACCESS_TOKEN_EXPIRED',
+        message: 'expired',
+      })),
+    );
+
+    await expect(
+      changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+      }),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'sessionExpired', status: 401});
+      return true;
+    });
+  });
+
+  it('preserves the existing member mark-paid endpoint and empty-body contract', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 501,
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+        title: '경건생활 벌금',
+        amount: 3_000,
+        status: 'PAID',
+        paidAt: '2026-07-13T12:00:00.000Z',
+      })),
+    );
+
+    const paid = await markMyChargePaid('access-token', 2, 501);
+    const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+
+    expect(String(url)).toContain('/api/v1/campuses/2/charges/me/501/paid');
+    expect(init?.method).toBe('PATCH');
+    expect(init?.body).toBeUndefined();
+    expect(paid).toMatchObject({status: 'PAID', paidAt: '2026-07-13T12:00:00.000Z'});
+    expect(paid).not.toHaveProperty('reason');
   });
 
   it('requests admin charges for my accounts', async () => {

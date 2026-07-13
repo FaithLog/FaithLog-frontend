@@ -309,6 +309,12 @@ export type PaymentCategory = 'PENALTY' | 'COFFEE';
 
 export type ChargeStatus = 'UNPAID' | 'PAID' | 'WAIVED' | 'CANCELED';
 export type AdminWritableChargeStatus = Exclude<ChargeStatus, 'PAID'>;
+export type AdminChargeStatusTarget = AdminWritableChargeStatus | 'PAID';
+
+export type AdminChargeContractCapabilities = {
+  devotionPenaltyReopenEnabled: boolean;
+  paidStatusEnabled: boolean;
+};
 
 export type ChargeSummary = {
   campusId: number;
@@ -347,7 +353,7 @@ export type ChargeItem = {
   id: number;
   paymentCategory: PaymentCategory;
   title: string;
-  reason: string;
+  reason?: string | null;
   amount: number;
   status: ChargeStatus;
   dueDate?: string | null;
@@ -385,7 +391,7 @@ export type AdminMemberChargeList = ChargeList & {
 };
 
 export type AdminChargeStatusChangeRequest = {
-  status: AdminWritableChargeStatus;
+  status: AdminChargeStatusTarget;
 };
 
 export type AdminChargeStatusChangeResponse = Omit<ChargeItem, 'account' | 'dueDate' | 'source'> & {
