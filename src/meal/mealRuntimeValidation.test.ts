@@ -85,6 +85,30 @@ describe('MEAL runtime validation', () => {
     expect(() => parseMealPollList({content: [{...poll, selectionType: 'MULTIPLE'}], page: 0, size: 20, totalElements: 1, totalPages: 1})).toThrow('Invalid API response');
   });
 
+  it.each(['OPEN', 'SCHEDULED'])('rejects %s management summaries marked CHARGED', (status) => {
+    const poll = mealPollSummary({settlementStatus: 'CHARGED', status, totalResponseCount: 3});
+
+    expect(() => parseMealPollList({
+      content: [poll],
+      page: 0,
+      size: 20,
+      totalElements: 1,
+      totalPages: 1,
+    })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
+  });
+
+  it('rejects a CHARGED summary without any respondents', () => {
+    const poll = mealPollSummary({settlementStatus: 'CHARGED', totalResponseCount: 0});
+
+    expect(() => parseMealPollList({
+      content: [poll],
+      page: 0,
+      size: 20,
+      totalElements: 1,
+      totalPages: 1,
+    })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
+  });
+
   it('binds management list content to the requested status', () => {
     const poll = mealPollSummary({status: 'OPEN'});
 
@@ -178,6 +202,27 @@ describe('MEAL runtime validation', () => {
         charge: {chargeStatus: 'NOT_CHARGED'},
       });
       detail.totalResponseCount = 4;
+    }],
+    ['charged zero-response option', (detail: ReturnType<typeof mealDetail>) => {
+      detail.options.push({
+        optionId: 1002,
+        content: '샐러드',
+        responseCount: 0,
+        userAdded: false,
+        charge: {
+          chargeStatus: 'CHARGED',
+          chargedByMe: true,
+          paymentAccountId: 10,
+          calculationType: 'PER_MEMBER',
+          enteredAmount: 8000,
+          amountPerMember: 8000,
+          requestedTotalAmount: 8000,
+          actualTotalAmount: 8000,
+          roundingAdjustment: 0,
+          chargedMemberCount: 1,
+          chargedAt: '2026-07-13T03:00:00.000Z',
+        },
+      });
     }],
   ])('rejects INVALID_SERVER_RESPONSE for %s', (_label, mutate) => {
     const detail = mealDetail({

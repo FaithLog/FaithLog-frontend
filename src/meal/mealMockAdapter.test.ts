@@ -18,7 +18,9 @@ vi.mock('../api/tokenStorage', () => ({
 import {
   addUserPollOption,
   fetchDutyAssignments,
+  fetchMyCharges,
   fetchPollDetail,
+  markMyChargePaid,
   savePollResponse,
 } from '../api/client';
 import {
@@ -168,6 +170,69 @@ describe('MEAL mock adapter flow', () => {
       ],
     });
     expect(result.chargedMemberCount).toBe(before.totalResponseCount + 2);
+  });
+
+  it('creates a canonical payable MEAL charge for each recorded respondent', async () => {
+    const poll = await mealApi.createPoll(mealMockAccessTokens.activeDuty, 1, {
+      title: '응답자 밥 청구',
+      description: '',
+      endsAt: '2027-07-20T03:00:00.000Z',
+      options: [{content: '제육볶음'}, {content: '김치찌개'}],
+      allowUserOptionAdd: false,
+    });
+    const firstOptionId = poll.options[0]?.optionId ?? 0;
+    const secondOptionId = poll.options[1]?.optionId ?? 0;
+    await savePollResponse(mealMockAccessTokens.activeDuty, 1, poll.id, {
+      optionIds: [firstOptionId],
+    });
+    await savePollResponse(mealMockAccessTokens.otherDuty, 1, poll.id, {
+      optionIds: [secondOptionId],
+    });
+    await mealApi.closePoll(mealMockAccessTokens.activeDuty, 1, poll.id);
+    await mealApi.createCharges(mealMockAccessTokens.activeDuty, 1, poll.id, {
+      paymentAccountId: 10,
+      groups: [
+        {optionId: firstOptionId, calculationType: 'PER_MEMBER', enteredAmount: 7000},
+        {optionId: secondOptionId, calculationType: 'PER_MEMBER', enteredAmount: 8000},
+      ],
+    });
+
+    const beforePaid = await fetchMyCharges(mealMockAccessTokens.otherDuty, 1, {
+      paymentCategory: 'MEAL',
+      status: 'UNPAID',
+    });
+    const charge = beforePaid.items[0];
+
+    expect(beforePaid.items).toHaveLength(1);
+    expect(charge).toMatchObject({
+      amount: 8000,
+      paymentCategory: 'MEAL',
+      reason: '김치찌개',
+      source: {sourceType: 'POLL_RESPONSE'},
+      status: 'UNPAID',
+      title: '응답자 밥 청구',
+    });
+    expect(charge?.source?.sourceId).toBeGreaterThan(0);
+    expect(charge?.account).toMatchObject({paymentAccountId: 10});
+
+    const paid = await markMyChargePaid(
+      mealMockAccessTokens.otherDuty,
+      1,
+      charge?.id ?? 0,
+    );
+    const afterPaid = await fetchMyCharges(mealMockAccessTokens.otherDuty, 1, {
+      paymentCategory: 'MEAL',
+      status: 'PAID',
+    });
+
+    expect(paid).toMatchObject({
+      id: charge?.id,
+      paymentCategory: 'MEAL',
+      status: 'PAID',
+      userId: 8,
+    });
+    expect(afterPaid.items).toContainEqual(expect.objectContaining({id: charge?.id, status: 'PAID'}));
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('keeps old CLOSED polls in the separate management list', async () => {

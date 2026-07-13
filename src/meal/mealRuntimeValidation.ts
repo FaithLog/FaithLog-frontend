@@ -355,7 +355,7 @@ function parseMealPollSummary(value: unknown): MealPollSummary {
   const record = requireRecord(value);
   if (record.pollType !== 'MEAL' || record.selectionType !== 'SINGLE') invalidResponse();
 
-  return {
+  const summary: MealPollSummary = {
     id: requirePositiveId(record.id),
     campusId: requirePositiveId(record.campusId),
     title: requireString(record.title),
@@ -369,6 +369,15 @@ function parseMealPollSummary(value: unknown): MealPollSummary {
     settlementStatus: requireEnum(record.settlementStatus, settlementStatuses),
     totalResponseCount: requireNonNegativeInteger(record.totalResponseCount),
   };
+
+  if (
+    summary.settlementStatus === 'CHARGED' &&
+    (summary.status !== 'CLOSED' || summary.totalResponseCount === 0)
+  ) {
+    invalidResponse();
+  }
+
+  return summary;
 }
 
 function parseMealPollOption(value: unknown): MealPollOptionDetail {
@@ -418,6 +427,14 @@ function validateMealPollDetailSemantics(detail: MealPollDetail) {
 
   const respondingOptions = detail.options.filter((option) => option.responseCount > 0);
   if (detail.settlementStatus === 'CHARGED' && respondingOptions.length === 0) invalidResponse();
+
+  if (
+    detail.options.some(
+      (option) => option.responseCount === 0 && option.charge.chargeStatus !== 'NOT_CHARGED',
+    )
+  ) {
+    invalidResponse();
+  }
 
   for (const option of respondingOptions) {
     if (

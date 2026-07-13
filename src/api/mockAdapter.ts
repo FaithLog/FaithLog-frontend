@@ -15,6 +15,7 @@ import type {
   MealPollSummary,
   MealSettlement,
 } from '../meal/mealTypes';
+import type {ChargeItem, ChargeList, MarkChargePaidResponse} from './types';
 
 type MockScenario =
   | '401'
@@ -220,10 +221,20 @@ function resolveMockData(
     return billing.summary;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/charges\/me$/.test(path)) {
-    return billing.charges;
+    return getMockMemberChargeList(
+      billing.charges,
+      mealActor,
+      getCampusId(path),
+      route.searchParams,
+    );
   }
   if (route.method === 'PATCH' && /^\/campuses\/\d+\/charges\/me\/\d+\/paid$/.test(path)) {
-    return billing.paidCharge;
+    const mealPaid = markMockMealChargePaid(
+      mealActor,
+      getCampusId(path),
+      getPathNumberBeforeSuffix(path, 'paid'),
+    );
+    return mealPaid ?? billing.paidCharge;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/payment-accounts$/.test(path)) {
     return billing.paymentAccounts;
@@ -462,6 +473,7 @@ function resolveMockData(
         pollId,
         optionIds,
         respondedAt: new Date().toISOString(),
+        userId: mealActor?.userId ?? 0,
       };
       return mockMealState.responses[responseKey];
     }
@@ -910,8 +922,10 @@ type MockMealState = {
   accounts: MealPaymentAccount[];
   details: MealPollDetail[];
   duties: MealDutyAssignment[];
+  memberCharges: Record<number, ChargeItem[]>;
+  nextChargeItemId: number;
   polls: MealPollSummary[];
-  responses: Record<string, {optionIds: number[]; pollId: number; respondedAt: string; responseId: number}>;
+  responses: Record<string, {optionIds: number[]; pollId: number; respondedAt: string; responseId: number; userId: number}>;
   settlement: MealSettlement;
 };
 
@@ -1002,6 +1016,8 @@ function createInitialMockMealState(): MockMealState {
 
   return {
     accounts,
+    memberCharges: {},
+    nextChargeItemId: 10_000,
     polls,
     responses: {},
     details,
@@ -1287,11 +1303,20 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
   } catch {
     return mockBadRequest('MEAL_CHARGE_AMOUNT_OVERFLOW', '청구 금액이 처리 가능한 범위를 벗어났습니다.');
   }
+  const memberChargeUpdate = appendMockMealMemberCharges(
+    mockMealState.memberCharges,
+    mockMealState.nextChargeItemId,
+    activeAccount,
+    detail,
+    results,
+  );
   mockMealState.details[detailIndex] = chargedDetail;
   mockMealState.polls = mockMealState.polls.map((poll) =>
     poll.id === pollId ? {...poll, settlementStatus: 'CHARGED'} : poll,
   );
   mockMealState.settlement = nextSettlement;
+  mockMealState.memberCharges = memberChargeUpdate.memberCharges;
+  mockMealState.nextChargeItemId = memberChargeUpdate.nextChargeItemId;
   return result;
 }
 
@@ -1299,6 +1324,47 @@ type MealChargeResultSummary = Pick<
   MealChargeResult,
   'actualTotalAmount' | 'chargedMemberCount' | 'requestedTotalAmount' | 'roundingAdjustment'
 >;
+
+function appendMockMealMemberCharges(
+  current: Record<number, ChargeItem[]>,
+  nextChargeItemId: number,
+  account: MealPaymentAccount,
+  detail: MealPollDetail,
+  groups: MealChargeGroupResult[],
+) {
+  const memberCharges = Object.fromEntries(
+    Object.entries(current).map(([userId, charges]) => [userId, [...charges]]),
+  ) as Record<number, ChargeItem[]>;
+  let nextId = nextChargeItemId;
+
+  for (const response of Object.values(mockMealState.responses)) {
+    if (response.pollId !== detail.id) continue;
+    const group = groups.find((item) => response.optionIds.includes(item.optionId));
+    if (!group) continue;
+    const option = detail.options.find((item) => item.optionId === group.optionId);
+    if (!option) continue;
+    const charge: ChargeItem = {
+      id: nextId++,
+      paymentCategory: 'MEAL',
+      title: detail.title,
+      reason: option.content,
+      amount: group.amountPerMember,
+      status: 'UNPAID',
+      dueDate: null,
+      paidAt: null,
+      account: {
+        paymentAccountId: account.id,
+        bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        accountHolder: account.accountHolder,
+      },
+      source: {sourceType: 'POLL_RESPONSE', sourceId: response.responseId},
+    };
+    memberCharges[response.userId] = [...(memberCharges[response.userId] ?? []), charge];
+  }
+
+  return {memberCharges, nextChargeItemId: nextId};
+}
 
 function summarizeMealChargeGroups(groups: MealChargeGroupResult[]): MealChargeResultSummary {
   return groups.reduce<MealChargeResultSummary>(
@@ -1386,6 +1452,110 @@ function getMockMealSettlement(campusId: number, userId: number): MealSettlement
       (summary, item) => addMealSettlementSummaries(summary, item.summary),
       emptyMealSettlementSummary(),
     ),
+  };
+}
+
+function getMockMemberChargeList(
+  fixture: ChargeList,
+  actor: MockMealActor | null,
+  campusId: number,
+  searchParams: URLSearchParams,
+): ChargeList {
+  const mealCharges = actor?.campusIds.includes(campusId)
+    ? mockMealState.memberCharges[actor.userId] ?? []
+    : [];
+  const requestedCategory = searchParams.get('paymentCategory');
+  const requestedStatus = searchParams.get('status');
+  const allItems = [...fixture.items, ...mealCharges].filter((charge) =>
+    (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
+    (requestedStatus === null || charge.status === requestedStatus),
+  );
+  const sort = searchParams.get('sort') ?? 'createdAt,desc';
+  const sortedItems = [...allItems].sort((left, right) => {
+    if (sort.startsWith('amount,')) {
+      return sort.endsWith(',asc') ? left.amount - right.amount : right.amount - left.amount;
+    }
+    return sort.endsWith(',asc') ? left.id - right.id : right.id - left.id;
+  });
+  const pageValue = Number(searchParams.get('page') ?? 0);
+  const sizeValue = Number(searchParams.get('size') ?? 20);
+  const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
+  const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
+  const start = page * size;
+
+  return {
+    ...fixture,
+    summary: summarizeMockMemberCharges(allItems),
+    items: sortedItems.slice(start, start + size),
+  };
+}
+
+function summarizeMockMemberCharges(items: ChargeItem[]) {
+  return items.reduce(
+    (summary, charge) => ({
+      totalAmount: safeMockAdd(summary.totalAmount, charge.amount),
+      unpaidAmount: safeMockAdd(
+        summary.unpaidAmount,
+        charge.status === 'UNPAID' ? charge.amount : 0,
+      ),
+      paidAmount: safeMockAdd(
+        summary.paidAmount,
+        charge.status === 'PAID' ? charge.amount : 0,
+      ),
+      waivedAmount: safeMockAdd(
+        summary.waivedAmount,
+        charge.status === 'WAIVED' ? charge.amount : 0,
+      ),
+      canceledAmount: safeMockAdd(
+        summary.canceledAmount,
+        charge.status === 'CANCELED' ? charge.amount : 0,
+      ),
+    }),
+    {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+  );
+}
+
+function markMockMealChargePaid(
+  actor: MockMealActor | null,
+  campusId: number,
+  chargeItemId: number | null,
+): MarkChargePaidResponse | MockErrorResult | null {
+  if (!actor || !actor.campusIds.includes(campusId) || chargeItemId === null) return null;
+  const charges = mockMealState.memberCharges[actor.userId] ?? [];
+  const chargeIndex = charges.findIndex((charge) => charge.id === chargeItemId);
+  const charge = charges[chargeIndex];
+  if (!charge) return null;
+  if (charge.status !== 'UNPAID') {
+    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
+  }
+
+  const paidAt = new Date().toISOString();
+  const paidCharge: ChargeItem = {...charge, status: 'PAID', paidAt};
+  mockMealState.memberCharges[actor.userId] = charges.map((item, index) =>
+    index === chargeIndex ? paidCharge : item,
+  );
+  mockMealState.settlement = {
+    ...mockMealState.settlement,
+    accounts: mockMealState.settlement.accounts.map((item) => ({
+      ...item,
+      charges: item.charges.map((settlementCharge) =>
+        settlementCharge.chargeId === chargeItemId
+          ? {...settlementCharge, status: 'PAID'}
+          : settlementCharge,
+      ),
+    })),
+  };
+
+  return {
+    id: paidCharge.id,
+    campusId,
+    userId: actor.userId,
+    paymentCategory: paidCharge.paymentCategory,
+    title: paidCharge.title,
+    reason: paidCharge.reason,
+    amount: paidCharge.amount,
+    status: paidCharge.status,
+    paidAt,
   };
 }
 

@@ -98,6 +98,7 @@ import type {
   CoffeeMenu,
   DutyAssignment,
   PaymentAccount,
+  PaymentAccountCategory,
   PaymentCategory,
   PenaltyRule,
   PenaltyRuleType,
@@ -348,7 +349,7 @@ type PaymentAccountState =
 type PaymentAccountForm = {
   accountHolder: string;
   accountNumber: string;
-  accountType: PaymentCategory;
+  accountType: PaymentAccountCategory;
   bankName: string;
   nickname: string;
 };
@@ -444,6 +445,7 @@ const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
 const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
   {id: 'PENALTY', label: '벌금'},
   {id: 'COFFEE', label: '커피'},
+  {id: 'MEAL', label: '밥'},
 ];
 
 const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
@@ -452,7 +454,7 @@ const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
   {id: 'penaltyRules', label: '규칙'},
 ];
 
-const paymentAccountTypeOptions: Array<{id: PaymentCategory; label: string}> = [
+const paymentAccountTypeOptions: Array<{id: PaymentAccountCategory; label: string}> = [
   {id: 'PENALTY', label: '벌금'},
   {id: 'COFFEE', label: '커피'},
 ];
@@ -489,7 +491,7 @@ const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: st
 ];
 
 const quickNotificationMessages: Record<
-  'missingDevotion' | PaymentCategory,
+  'missingDevotion' | PaymentAccountCategory,
   Pick<AdminNotificationDraft, 'body' | 'sourceLabel' | 'targetId' | 'targetWeekStartDate' | 'title'>
 > = {
   missingDevotion: {
@@ -627,7 +629,7 @@ export function AdminScreen({
     userId: '',
   });
   const [chargeReminderLoadingCategory, setChargeReminderLoadingCategory] =
-    useState<PaymentCategory | null>(null);
+    useState<PaymentAccountCategory | null>(null);
   const chargeFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settlementSection, setSettlementSection] =
     useState<AdminSettlementSection>('charges');
@@ -2077,7 +2079,7 @@ export function AdminScreen({
     setActionError(null);
   };
 
-  const openChargeReminderConfirm = async (paymentCategory: PaymentCategory) => {
+  const openChargeReminderConfirm = async (paymentCategory: PaymentAccountCategory) => {
     if (notificationState.status === 'sending' || chargeReminderLoadingCategory !== null) {
       return;
     }
@@ -8366,7 +8368,7 @@ function AdminSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
-  chargeReminderLoadingCategory: PaymentCategory | null;
+  chargeReminderLoadingCategory: PaymentAccountCategory | null;
   currentUserId: number;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
@@ -8384,7 +8386,7 @@ function AdminSettlement({
   onCopyPaymentAccount: (account: PaymentAccount) => void;
   onEditPenaltyRule: (rule: PenaltyRule) => void;
   onOpenPenaltyRuleCreate: () => void;
-  onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
+  onOpenChargeReminderConfirm: (paymentCategory: PaymentAccountCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
@@ -8503,13 +8505,13 @@ function AdminChargeSettlement({
   settlementState,
 }: {
   actionState: AdminActionState;
-  chargeReminderLoadingCategory: PaymentCategory | null;
+  chargeReminderLoadingCategory: PaymentAccountCategory | null;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
   notificationState: NotificationSendState;
   onBackToSummary: () => void;
   onBlockedPaid: (charge: ChargeItem) => void;
-  onOpenChargeReminderConfirm: (paymentCategory: PaymentCategory) => void;
+  onOpenChargeReminderConfirm: (paymentCategory: PaymentAccountCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminWritableChargeStatus) => void;
   onResetFilters: () => void;
@@ -11921,7 +11923,7 @@ function comparePaymentAccountsForDisplay(a: PaymentAccount, b: PaymentAccount) 
   return a.id - b.id;
 }
 
-function getPaymentAccountTypePriority(type: PaymentCategory) {
+function getPaymentAccountTypePriority(type: PaymentAccountCategory) {
   return type === 'PENALTY' ? 0 : 1;
 }
 
@@ -12387,6 +12389,8 @@ function getPollTypeLabel(value: string) {
   switch (value) {
     case 'COFFEE':
       return '커피';
+    case 'MEAL':
+      return '밥';
     case 'WEDNESDAY':
       return '수요';
     case 'SATURDAY':
@@ -12571,6 +12575,8 @@ function getPaymentCategoryLabel(category: PaymentCategory) {
       return '벌금';
     case 'COFFEE':
       return '커피';
+    case 'MEAL':
+      return '밥';
     default:
       return assertNever(category);
   }
@@ -12643,7 +12649,9 @@ function getChargeIcon(charge: ChargeItem): IconexIconName {
     return 'check';
   }
 
-  return charge.paymentCategory === 'COFFEE' ? 'coins' : 'wallet';
+  if (charge.paymentCategory === 'COFFEE') return 'coins';
+  if (charge.paymentCategory === 'MEAL') return 'receipt';
+  return 'wallet';
 }
 
 function getChargeDescription(charge: ChargeItem) {
