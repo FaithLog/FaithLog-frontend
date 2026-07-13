@@ -576,6 +576,45 @@ describe('runtime API response validation', () => {
     ).toThrow(INVALID_RESPONSE);
   });
 
+  it.each([
+    ['omitted', {}],
+    ['explicit null', {reason: null}],
+  ] as const)('accepts a REST Docs-shaped %s charge reason in list and mutation responses', (_label, reasonPatch) => {
+    const listItem = {...mockDomainFixtures.billing.charges.items[0], ...reasonPatch};
+    if (!('reason' in reasonPatch)) {
+      delete (listItem as {reason?: unknown}).reason;
+    }
+    const mutation = {...mockDomainFixtures.admin.chargeStatusChange, ...reasonPatch};
+    if (!('reason' in reasonPatch)) {
+      delete (mutation as {reason?: unknown}).reason;
+    }
+
+    const parsedList = parseChargeList({
+      ...mockDomainFixtures.billing.charges,
+      items: [listItem],
+    });
+    const parsedMutation = parseAdminChargeStatusChangeResponse(mutation);
+
+    if ('reason' in reasonPatch) {
+      expect(parsedList.items[0]).toHaveProperty('reason', null);
+      expect(parsedMutation).toHaveProperty('reason', null);
+    } else {
+      expect(parsedList.items[0]).not.toHaveProperty('reason');
+      expect(parsedMutation).not.toHaveProperty('reason');
+    }
+  });
+
+  it.each([
+    ['empty', ''],
+    ['non-string', 7],
+    ['oversized', 'r'.repeat(8_193)],
+  ] as const)('rejects a malformed %s optional charge reason', (_label, reason) => {
+    expect(() => parseAdminChargeStatusChangeResponse({
+      ...mockDomainFixtures.admin.chargeStatusChange,
+      reason,
+    })).toThrow(INVALID_RESPONSE);
+  });
+
   it('accepts bounded backend-defined open status strings', () => {
     expect(
       parseCampusMembershipSummary({...VALID_MEMBERSHIP, status: 'SUSPENDED'})

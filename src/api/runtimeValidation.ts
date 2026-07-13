@@ -147,6 +147,16 @@ function requireNullableString(
   return value === null ? null : requireString(value, maxLength);
 }
 
+function optionalNullableString(
+  record: UnknownRecord,
+  key: string,
+  maxLength = MAX_TEXT_LENGTH,
+): Record<string, string | null> {
+  return record[key] === undefined
+    ? {}
+    : {[key]: requireNullableString(record[key], maxLength)};
+}
+
 function requirePositiveId(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     return invalidResponse();
@@ -591,7 +601,7 @@ function parseChargeItemValue(value: unknown): ChargeItem {
     id: requirePositiveId(record.id),
     paymentCategory: requireEnum(record.paymentCategory, PAYMENT_CATEGORIES),
     title: requireString(record.title, 500),
-    reason: requireString(record.reason, MAX_TEXT_LENGTH),
+    ...optionalNullableString(record, 'reason'),
     amount: requireNonNegativeInteger(record.amount),
     status: requireEnum(record.status, CHARGE_STATUSES),
     ...optionalNullableDate(record, 'dueDate'),
@@ -696,7 +706,7 @@ function parseChargeMutationValue(
     userId: requirePositiveId(record.userId),
     paymentCategory: requireEnum(record.paymentCategory, PAYMENT_CATEGORIES),
     title: requireString(record.title, 500),
-    reason: requireString(record.reason, MAX_TEXT_LENGTH),
+    ...optionalNullableString(record, 'reason'),
     amount: requireNonNegativeInteger(record.amount),
     status: requireEnum(record.status, CHARGE_STATUSES),
     ...optionalNullableDateTime(record, 'paidAt'),

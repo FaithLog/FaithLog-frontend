@@ -916,7 +916,6 @@ describe('FaithLog API client', () => {
         userId: 7,
         paymentCategory: 'PENALTY',
         title: '경건생활 벌금',
-        reason: '미제출',
         amount: 3_000,
         status: 'CANCELED',
         paidAt: null,
@@ -939,6 +938,36 @@ describe('FaithLog API client', () => {
   it('builds typed PAID and CANCELED admin payloads without endpoint fallback', () => {
     expect(buildAdminChargeStatusChangeRequest('PAID')).toEqual({status: 'PAID'});
     expect(buildAdminChargeStatusChangeRequest('CANCELED')).toEqual({status: 'CANCELED'});
+  });
+
+  it.each([
+    ['omitted', {}, false],
+    ['explicit null', {reason: null}, true],
+  ] as const)('accepts a successful admin mutation with %s reason', async (_label, reasonPatch, hasReason) => {
+    const response = {
+      id: 501,
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+      title: '경건생활 벌금',
+      amount: 3_000,
+      status: 'CANCELED',
+      paidAt: null,
+      ...reasonPatch,
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(response)));
+
+    const changed = await changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+
+    if (hasReason) {
+      expect(changed).toHaveProperty('reason', null);
+    } else {
+      expect(changed).not.toHaveProperty('reason');
+    }
   });
 
   it('keeps provisional PAID action, transport, and devotion reopen behind one capability boundary', () => {
@@ -1009,7 +1038,6 @@ describe('FaithLog API client', () => {
         userId: 7,
         paymentCategory: 'PENALTY',
         title: '경건생활 벌금',
-        reason: '미제출',
         amount: 3_000,
         status: 'CANCELED',
         paidAt: null,
@@ -1091,7 +1119,6 @@ describe('FaithLog API client', () => {
         userId: 7,
         paymentCategory: 'PENALTY',
         title: '경건생활 벌금',
-        reason: '미제출',
         amount: 3_000,
         status: 'PAID',
         paidAt: '2026-07-13T12:00:00.000Z',
@@ -1105,6 +1132,7 @@ describe('FaithLog API client', () => {
     expect(init?.method).toBe('PATCH');
     expect(init?.body).toBeUndefined();
     expect(paid).toMatchObject({status: 'PAID', paidAt: '2026-07-13T12:00:00.000Z'});
+    expect(paid).not.toHaveProperty('reason');
   });
 
   it('requests admin charges for my accounts', async () => {

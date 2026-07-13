@@ -1,4 +1,13 @@
-import {memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   AccessibilityInfo,
   Alert,
@@ -120,11 +129,12 @@ import {
   getAdminChargeStatusActions,
   getAdminChargeStatusConfirmation,
   getAdminChargeStatusErrorMessage,
-  invalidateAdminChargeMutation,
 } from './adminChargeStatus';
 import {
+  applyAdminChargeFilterChange,
   buildAdminChargeDetailRequestKey,
   buildAdminChargeSummaryRequestKey,
+  commitAdminChargeCampusIdentity,
   coordinateAdminChargeStatusMutation,
   createAdminChargeReadCoordinator,
   invalidateAdminChargeRead,
@@ -684,10 +694,31 @@ export function AdminScreen({
   const chargeStatusMutationGateRef = useRef(createAdminChargeMutationGate());
   const chargeReadCoordinatorRef = useRef(createAdminChargeReadCoordinator());
   const chargeStatusCampusIdRef = useRef(campusId);
-  chargeStatusCampusIdRef.current = campusId;
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
+
+  useLayoutEffect(() => {
+    commitAdminChargeCampusIdentity({
+      committedCampusId: chargeStatusCampusIdRef,
+      coordinator: chargeReadCoordinatorRef.current,
+      gate: chargeStatusMutationGateRef.current,
+      nextCampusId: campusId,
+      onCommit: () => {
+        if (chargeFilterDebounceRef.current !== null) {
+          clearTimeout(chargeFilterDebounceRef.current);
+          chargeFilterDebounceRef.current = null;
+        }
+        setSettlementSection('charges');
+        setSettlementState({status: 'idle'});
+        setChargeDetailState({status: 'idle'});
+        setChargeStatusConfirm(null);
+        setActionState((current) =>
+          current.status === 'changingChargeStatus' ? {status: 'idle'} : current,
+        );
+      },
+    });
+  }, [campusId]);
 
   const resetPenaltyRuleFlow = useCallback(() => {
     setPenaltyRuleFlow({route: 'list'});
@@ -896,8 +927,6 @@ export function AdminScreen({
   useEffect(() => {
     penaltyRuleRequestSequenceRef.current += 1;
     invalidatePenaltyRuleSave(penaltyRuleSaveGateRef.current);
-    invalidateAdminChargeMutation(chargeStatusMutationGateRef.current);
-    invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     setSelectedMemberId(null);
     setMemberSection('list');
     setDevotionSection('missing');
@@ -912,9 +941,6 @@ export function AdminScreen({
     setNotificationLogFilters(emptyNotificationLogFilters);
     setNotificationLogState({status: 'idle'});
     setSelectedNotificationLogId(null);
-    setSettlementSection('charges');
-    setSettlementState({status: 'idle'});
-    setChargeDetailState({status: 'idle'});
     setPaymentAccountState({status: 'idle'});
     setPaymentAccountForm(emptyPaymentAccountForm);
     setSelectedPaymentAccount(null);
@@ -926,8 +952,7 @@ export function AdminScreen({
     setPenaltyRuleFlow({route: 'list'});
     setPenaltyRuleForm(emptyPenaltyRuleDraft);
     setActionState((current) =>
-      current.status === 'savingPenaltyRule' ||
-      current.status === 'changingChargeStatus'
+      current.status === 'savingPenaltyRule'
         ? {status: 'idle'}
         : current,
     );
@@ -938,7 +963,6 @@ export function AdminScreen({
     setPrayerGroupForm(emptyPrayerGroupForm);
     setPrayerGroupMembersForm(emptyPrayerGroupMembersForm);
     setPrayerSeasonCloseTarget(null);
-    setChargeStatusConfirm(null);
     void loadAdmin();
     void loadInviteCode();
   }, [campusId]);
@@ -1013,7 +1037,7 @@ export function AdminScreen({
 
   useEffect(
     () => () => {
-      if (chargeFilterDebounceRef.current) {
+      if (chargeFilterDebounceRef.current !== null) {
         clearTimeout(chargeFilterDebounceRef.current);
       }
     },
@@ -1877,22 +1901,18 @@ export function AdminScreen({
   ) => {
     const nextFilters = {...chargeFilters, [key]: value};
 
-    invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
-    setChargeFilters(nextFilters);
-    setChargeDetailState({status: 'idle'});
-
-    if (chargeFilterDebounceRef.current) {
-      clearTimeout(chargeFilterDebounceRef.current);
-    }
-
-    if (key === 'keyword') {
-      chargeFilterDebounceRef.current = setTimeout(() => {
-        void loadSettlement(nextFilters);
-      }, 350);
-      return;
-    }
-
-    void loadSettlement(nextFilters);
+    chargeFilterDebounceRef.current = applyAdminChargeFilterChange({
+      coordinator: chargeReadCoordinatorRef.current,
+      currentTimer: chargeFilterDebounceRef.current,
+      key,
+      nextFilters,
+      onLoad: (filters) => void loadSettlement(filters),
+      onVisibleStateChange: (filters) => {
+        setChargeFilters(filters);
+        setChargeDetailState({status: 'idle'});
+        setSettlementState({status: 'loading'});
+      },
+    });
   };
 
   const resetChargeFilters = () => {
@@ -1903,8 +1923,9 @@ export function AdminScreen({
       userId: '',
     };
 
-    if (chargeFilterDebounceRef.current) {
+    if (chargeFilterDebounceRef.current !== null) {
       clearTimeout(chargeFilterDebounceRef.current);
+      chargeFilterDebounceRef.current = null;
     }
 
     invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
@@ -12527,7 +12548,7 @@ function getChargeDescription(charge: ChargeItem) {
     return charge.dueDate;
   }
 
-  return charge.reason;
+  return charge.reason?.trim() || getPaymentCategoryLabel(charge.paymentCategory);
 }
 
 function getChargeStatusTone(status: ChargeStatus) {

@@ -353,7 +353,7 @@ export type ChargeItem = {
   id: number;
   paymentCategory: PaymentCategory;
   title: string;
-  reason: string;
+  reason?: string | null;
   amount: number;
   status: ChargeStatus;
   dueDate?: string | null;

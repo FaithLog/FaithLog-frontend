@@ -6,8 +6,10 @@ import type {
   ChargeItem,
 } from '../api/types';
 import {
+  applyAdminChargeFilterChange,
   buildAdminChargeDetailRequestKey,
   buildAdminChargeSummaryRequestKey,
+  commitAdminChargeCampusIdentity,
   coordinateAdminChargeStatusMutation,
   createAdminChargeReadCoordinator,
   invalidateAdminChargeRead,
@@ -16,6 +18,7 @@ import {
   selectAdminChargeStatusRequest,
 } from './adminChargeCoordinator';
 import {
+  beginAdminChargeMutation,
   createAdminChargeMutationGate,
   getAdminChargeStatusActions,
   invalidateAdminChargeMutation,
@@ -55,7 +58,7 @@ const canceledResponse: AdminChargeStatusChangeResponse = {
   userId: 7,
   paymentCategory: 'PENALTY',
   title: targetCharge.title,
-  reason: targetCharge.reason,
+  reason: '주간 경건생활 미제출',
   amount: targetCharge.amount,
   status: 'CANCELED',
   paidAt: null,
@@ -67,6 +70,113 @@ const normalizeError = (error: unknown): ApiError =>
     : {kind: 'error', message: '청구 상태를 변경하지 못했습니다.'};
 
 describe('admin charge production coordinator', () => {
+  it('keeps committed campus identity unchanged for an abandoned render and invalidates only on commit', async () => {
+    const reads = createAdminChargeReadCoordinator();
+    const gate = createAdminChargeMutationGate();
+    const committedCampusId = {current: 1};
+    const abandonedRenderCampusId = 2;
+    const first = deferred<string>();
+    const applied: string[] = [];
+    const load = runLatestAdminChargeRead({
+      coordinator: reads,
+      channel: 'summary',
+      key: buildAdminChargeSummaryRequestKey({campusId: 1, generation: 3, filters}),
+      request: () => first.promise,
+      normalizeError,
+      canApplySuccess: () => committedCampusId.current === 1,
+      canApplyError: () => committedCampusId.current === 1,
+      onSuccess: (value) => applied.push(value),
+      onError: vi.fn(),
+    });
+
+    expect(abandonedRenderCampusId).toBe(2);
+    expect(committedCampusId.current).toBe(1);
+    first.resolve('campus A');
+    await expect(load).resolves.toEqual({kind: 'applied'});
+    expect(applied).toEqual(['campus A']);
+
+    const second = deferred<string>();
+    const staleLoad = runLatestAdminChargeRead({
+      coordinator: reads,
+      channel: 'summary',
+      key: buildAdminChargeSummaryRequestKey({campusId: 1, generation: 3, filters}),
+      request: () => second.promise,
+      normalizeError,
+      canApplySuccess: () => committedCampusId.current === 1,
+      canApplyError: () => committedCampusId.current === 1,
+      onSuccess: (value) => applied.push(value),
+      onError: vi.fn(),
+    });
+    const onCommit = vi.fn();
+    const operationId = beginAdminChargeMutation(gate);
+    expect(operationId).toBe(1);
+    expect(commitAdminChargeCampusIdentity({
+      committedCampusId,
+      coordinator: reads,
+      gate,
+      nextCampusId: 2,
+      onCommit,
+    })).toBe(true);
+    expect(committedCampusId.current).toBe(2);
+    expect(gate.activeOperationId).toBeNull();
+    second.resolve('late campus A');
+    await expect(staleLoad).resolves.toEqual({kind: 'stale'});
+    expect(applied).toEqual(['campus A']);
+    expect(commitAdminChargeCampusIdentity({
+      committedCampusId,
+      coordinator: reads,
+      gate,
+      nextCampusId: 2,
+      onCommit,
+    })).toBe(false);
+    expect(onCommit).toHaveBeenCalledOnce();
+  });
+
+  it('hides old rows synchronously and dispatches only the latest keyword after 350ms', async () => {
+    vi.useFakeTimers();
+    try {
+      const reads = createAdminChargeReadCoordinator();
+      let visibleRows = ['old member'];
+      const onLoad = vi.fn();
+      const firstFilters = {...filters, keyword: 'jo'};
+      const secondFilters = {...filters, keyword: 'joseph'};
+
+      let timer = applyAdminChargeFilterChange({
+        coordinator: reads,
+        currentTimer: null,
+        key: 'keyword',
+        nextFilters: firstFilters,
+        onLoad,
+        onVisibleStateChange: () => {
+          visibleRows = [];
+        },
+      });
+
+      expect(visibleRows).toEqual([]);
+      expect(onLoad).not.toHaveBeenCalled();
+
+      timer = applyAdminChargeFilterChange({
+        coordinator: reads,
+        currentTimer: timer,
+        key: 'keyword',
+        nextFilters: secondFilters,
+        onLoad,
+        onVisibleStateChange: () => {
+          visibleRows = [];
+        },
+      });
+      expect(timer).not.toBeNull();
+
+      await vi.advanceTimersByTimeAsync(349);
+      expect(onLoad).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onLoad).toHaveBeenCalledOnce();
+      expect(onLoad).toHaveBeenCalledWith(secondFilters);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps fresh summary B after mutation refresh when deferred A settles last', async () => {
     const reads = createAdminChargeReadCoordinator();
     const first = deferred<string>();

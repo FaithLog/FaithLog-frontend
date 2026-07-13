@@ -10,6 +10,7 @@ import {
   beginAdminChargeMutation,
   finishAdminChargeMutation,
   getAdminChargeStatusActions,
+  invalidateAdminChargeMutation,
   isAdminChargeMutationCurrent,
   shouldExpireAdminChargeSession,
   type AdminChargeMutationGate,
@@ -39,7 +40,7 @@ export type AdminChargeReadResult =
   | {kind: 'aborted'}
   | {kind: 'failed'; error: ApiError};
 
-type AdminChargeRequestFilters = {
+export type AdminChargeRequestFilters = {
   keyword: string;
   paymentCategory: string;
   status: string;
@@ -57,6 +58,63 @@ export function createAdminChargeReadCoordinator(): AdminChargeReadCoordinator {
     summary: {key: null, sequence: 0},
     detail: {key: null, sequence: 0},
   };
+}
+
+export function commitAdminChargeCampusIdentity({
+  committedCampusId,
+  coordinator,
+  gate,
+  nextCampusId,
+  onCommit,
+}: {
+  committedCampusId: {current: number};
+  coordinator: AdminChargeReadCoordinator;
+  gate: AdminChargeMutationGate;
+  nextCampusId: number;
+  onCommit?: () => void;
+}) {
+  if (committedCampusId.current === nextCampusId) {
+    return false;
+  }
+
+  committedCampusId.current = nextCampusId;
+  invalidateAdminChargeMutation(gate);
+  invalidateAdminChargeRead(coordinator);
+  onCommit?.();
+  return true;
+}
+
+export function applyAdminChargeFilterChange<
+  Filters extends AdminChargeRequestFilters,
+>({
+  coordinator,
+  currentTimer,
+  key,
+  nextFilters,
+  onLoad,
+  onVisibleStateChange,
+}: {
+  coordinator: AdminChargeReadCoordinator;
+  currentTimer: ReturnType<typeof setTimeout> | null;
+  key: keyof Filters;
+  nextFilters: Filters;
+  onLoad: (filters: Filters) => void;
+  onVisibleStateChange: (filters: Filters) => void;
+}): ReturnType<typeof setTimeout> | null {
+  invalidateAdminChargeRead(coordinator);
+
+  if (currentTimer !== null) {
+    clearTimeout(currentTimer);
+  }
+
+  onVisibleStateChange(nextFilters);
+
+  if (key !== 'keyword') {
+    onLoad(nextFilters);
+    return null;
+  }
+
+  return setTimeout(() => onLoad(nextFilters), 350);
 }
 
 export function selectAdminChargeStatusRequest({
