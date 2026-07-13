@@ -1972,7 +1972,7 @@ function markMockLegacyChargePaid(
     userId: actor.userId,
     paymentCategory: paidCharge.paymentCategory,
     title: paidCharge.title,
-    reason: paidCharge.reason,
+    ...(paidCharge.reason === undefined ? {} : {reason: paidCharge.reason}),
     amount: paidCharge.amount,
     status: paidCharge.status,
     paidAt,
