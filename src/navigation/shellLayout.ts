@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useSyncExternalStore} from 'react';
 import {AppState, Dimensions, Keyboard, Platform, StatusBar} from 'react-native';
 
 import {getAndroidNavigationMode} from './androidNavigationMode';
@@ -26,59 +26,82 @@ export function getAndroidShellLayoutInsets(): AndroidShellLayoutInsets {
 }
 
 export function useAndroidShellLayoutInsets() {
-  const [insets, setInsets] = useState(getAndroidShellLayoutInsets);
-  const keyboardVisibleRef = useRef(false);
+  return useSyncExternalStore(
+    androidShellLayoutStore.subscribe,
+    androidShellLayoutStore.getSnapshot,
+    androidShellLayoutStore.getServerSnapshot,
+  );
+}
 
-  useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return undefined;
-    }
+type StoreListener = () => void;
 
+function createAndroidShellLayoutStore() {
+  let snapshot = getAndroidShellLayoutInsets();
+  let cleanup: (() => void) | null = null;
+  let keyboardVisible = false;
+  const listeners = new Set<StoreListener>();
+
+  const refresh = () => {
+    if (keyboardVisible) return;
+    const next = getAndroidShellLayoutInsets();
+    if (
+      next.bottomNavInset === snapshot.bottomNavInset &&
+      next.shellContentBottomPadding === snapshot.shellContentBottomPadding &&
+      next.topSafeInset === snapshot.topSafeInset
+    ) return;
+    snapshot = next;
+    listeners.forEach((listener) => listener());
+  };
+
+  const start = () => {
+    if (Platform.OS !== 'android' || cleanup) return;
     const refreshTimers = new Set<ReturnType<typeof setTimeout>>();
-    const refreshInsets = () => {
-      if (keyboardVisibleRef.current) {
-        return;
-      }
-
-      setInsets(getAndroidShellLayoutInsets());
-    };
     const scheduleRefresh = (delayMs: number) => {
       const timer = setTimeout(() => {
         refreshTimers.delete(timer);
-        refreshInsets();
+        refresh();
       }, delayMs);
-
       refreshTimers.add(timer);
     };
-    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        refreshInsets();
-      }
-    });
-    const dimensionSubscription = Dimensions.addEventListener('change', refreshInsets);
-    const keyboardShowSubscription = Keyboard.addListener('keyboardDidShow', () => {
-      keyboardVisibleRef.current = true;
-    });
-    const keyboardHideSubscription = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardVisibleRef.current = false;
-      refreshInsets();
-      scheduleRefresh(80);
-      scheduleRefresh(240);
-    });
-
-    refreshInsets();
-
-    return () => {
+    const subscriptions = [
+      AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active') refresh();
+      }),
+      Dimensions.addEventListener('change', refresh),
+      Keyboard.addListener('keyboardDidShow', () => {
+        keyboardVisible = true;
+      }),
+      Keyboard.addListener('keyboardDidHide', () => {
+        keyboardVisible = false;
+        refresh();
+        scheduleRefresh(80);
+        scheduleRefresh(240);
+      }),
+    ];
+    refresh();
+    cleanup = () => {
       refreshTimers.forEach((timer) => clearTimeout(timer));
-      appStateSubscription.remove();
-      dimensionSubscription.remove();
-      keyboardShowSubscription.remove();
-      keyboardHideSubscription.remove();
+      subscriptions.forEach((subscription) => subscription.remove());
+      keyboardVisible = false;
+      cleanup = null;
     };
-  }, []);
+  };
 
-  return insets;
+  return {
+    getServerSnapshot: () => snapshot,
+    getSnapshot: () => snapshot,
+    subscribe(listener: StoreListener) {
+      listeners.add(listener);
+      start();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) cleanup?.();
+      };
+    },
+  };
 }
+
+const androidShellLayoutStore = createAndroidShellLayoutStore();
 
 export function getAndroidTopSafeInset() {
   if (Platform.OS !== 'android') {

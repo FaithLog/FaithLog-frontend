@@ -1,5 +1,5 @@
 import {StyleSheet, type StyleProp, View, type ViewStyle} from 'react-native';
-import {SvgXml} from 'react-native-svg';
+import {parse, SvgAst, type JsxAST} from 'react-native-svg';
 
 import {colors} from '../theme';
 
@@ -85,22 +85,24 @@ export const IconexIcon = memo(function IconexIcon({
       accessibilityElementsHidden
       importantForAccessibility="no"
       style={[styles.icon, {height: size, width: size}, style]}>
-      <SvgXml height={size} width={size} xml={getIconSvg(name, color, strokeWidth)} />
+      <SvgAst ast={getIconAst(name, color, strokeWidth)} height={size} width={size} />
     </View>
   );
 });
 
-const iconSvgCache = new Map<string, string>();
+const iconAstCache = new Map<string, JsxAST>();
 
-function getIconSvg(name: IconexIconName, color: string, strokeWidth: number): string {
+function getIconAst(name: IconexIconName, color: string, strokeWidth: number): JsxAST {
   const key = `${name}:${color}:${strokeWidth}`;
-  const cached = iconSvgCache.get(key);
+  const cached = iconAstCache.get(key);
   if (cached) return cached;
   const xml = iconexIconSvgs[name]
     .replaceAll(ICONEX_SOURCE_COLOR, color)
     .replaceAll(`stroke-width="${ICONEX_SOURCE_STROKE_WIDTH}"`, `stroke-width="${strokeWidth}"`);
-  iconSvgCache.set(key, xml);
-  return xml;
+  const ast = parse(xml);
+  if (!ast) throw new Error(`Unable to parse Iconex icon: ${name}`);
+  iconAstCache.set(key, ast);
+  return ast;
 }
 
 const iconexIconSvgs: Record<IconexIconName, string> = {
