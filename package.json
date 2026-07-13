@@ -29,7 +29,9 @@
     "expo": "~56.0.15",
     "expo-build-properties": "~56.0.22",
     "expo-clipboard": "~56.0.4",
+    "expo-file-system": "~56.0.8",
     "expo-secure-store": "~56.0.4",
+    "expo-sharing": "~56.0.21",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-svg": "15.15.4"
@@ -37,9 +39,11 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "@types/react": "~19.2.3",
+    "@types/react-test-renderer": "19.1.0",
     "babel-preset-expo": "^56.0.15",
     "eslint": "^10.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.62.0",
     "vitest": "^4.1.9"

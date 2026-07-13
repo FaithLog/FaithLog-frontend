@@ -12,6 +12,7 @@ vi.mock('./tokenStorage', () => ({
 }));
 
 import {
+  authenticatedTransportRequest,
   apiRequest,
   buildApiUrl,
   createAdminPaymentAccount,
@@ -1496,5 +1497,145 @@ describe('FaithLog API client', () => {
       },
       FIRST_AUTH_GENERATION,
     );
+  });
+
+  it('shares one refresh flight across concurrent raw authenticated transports', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, envelope({
+        accessToken: 'fresh-access-token',
+        refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      })),
+    );
+    const execute = vi.fn(async (accessToken: string) => {
+      if (accessToken === 'expired-access-token') {
+        throw new FaithLogApiError({
+          kind: 'sessionExpired',
+          status: 401,
+          message: 'expired',
+        });
+      }
+      return new Uint8Array([80, 75]);
+    });
+
+    const [first, second] = await Promise.all([
+      authenticatedTransportRequest({
+        accessToken: 'expired-access-token',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+        execute,
+      }),
+      authenticatedTransportRequest({
+        accessToken: 'expired-access-token',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+        execute,
+      }),
+    ]);
+
+    expect(first).toEqual(new Uint8Array([80, 75]));
+    expect(second).toEqual(new Uint8Array([80, 75]));
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledWith('fresh-access-token');
+    expect(saveTokens).toHaveBeenCalledOnce();
+  });
+
+  it('expires a concurrent terminal raw 401 only once', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, envelope({
+        accessToken: 'fresh-access-token',
+        refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      })),
+    );
+    vi.mocked(startAuthSessionClear).mockImplementation((generation) => {
+      if (generation !== currentAuthGeneration) {
+        return {
+          cleared: false,
+          previousGeneration: currentAuthGeneration,
+          currentGeneration: currentAuthGeneration,
+          completion: Promise.resolve(),
+        };
+      }
+      const previousGeneration = currentAuthGeneration;
+      currentAuthGeneration = 2 as AuthSessionGeneration;
+      return {
+        cleared: true,
+        previousGeneration,
+        currentGeneration: currentAuthGeneration,
+        completion: Promise.resolve(),
+      };
+    });
+    const execute = vi.fn(async () => {
+      throw new FaithLogApiError({
+        kind: 'sessionExpired',
+        status: 401,
+        message: 'expired',
+      });
+    });
+
+    const results = await Promise.allSettled([
+      authenticatedTransportRequest({
+        accessToken: 'expired-access-token',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+        execute,
+      }),
+      authenticatedTransportRequest({
+        accessToken: 'expired-access-token',
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+        execute,
+      }),
+    ]);
+
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
+    expect(startAuthSessionClear).toHaveBeenCalledOnce();
+    expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
+  });
+
+  it('converts an old-generation raw 401 into a stale request without expiring the new login', async () => {
+    let rejectOldRequest!: (reason: unknown) => void;
+    const oldRequest = new Promise<Uint8Array>((_resolve, reject) => {
+      rejectOldRequest = reject;
+    });
+    const execute = vi.fn(() => oldRequest);
+    const request = authenticatedTransportRequest({
+      accessToken: 'old-access-token',
+      authSessionGeneration: FIRST_AUTH_GENERATION,
+      execute,
+    });
+    await vi.waitFor(() => {
+      expect(execute).toHaveBeenCalledWith('old-access-token');
+    });
+
+    currentAuthGeneration = 3 as AuthSessionGeneration;
+    rejectOldRequest(new FaithLogApiError({
+      kind: 'sessionExpired',
+      status: 401,
+      message: 'old session expired',
+    }));
+
+    await expect(request).rejects.toSatisfy((error: unknown) => {
+      expectApiError(error, {
+        authSessionGeneration: FIRST_AUTH_GENERATION,
+        code: 'AUTH_SESSION_CHANGED',
+        kind: 'error',
+      });
+      return true;
+    });
+    expect(startAuthSessionClear).not.toHaveBeenCalled();
   });
 });
