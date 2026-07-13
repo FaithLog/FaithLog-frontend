@@ -27,7 +27,6 @@ import {
   fetchMyDutyAssignment,
   fetchPaymentAccounts,
 } from '../api/client';
-import {getStoredTokens} from '../api/tokenStorage';
 import type {
   AdminCampusChargeSummary,
   CoffeeMenu,
@@ -37,6 +36,7 @@ import type {
   PollSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {IconexIcon} from '../components/IconexIcon';
 import {
   Body,
@@ -1691,17 +1691,12 @@ function CoffeePollResultPanel({state}: {state: CoffeePollResultState}) {
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
+  return resolveCurrentAccessToken(() => {
     setAuthState({
       status: 'sessionExpired',
       message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
     });
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 async function fetchCoffeeChargeSummary(

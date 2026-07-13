@@ -1,4 +1,6 @@
-import {describe, expect, it, vi} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+
+const invalidatePaymentContextCache = vi.hoisted(() => vi.fn());
 
 vi.mock('react-native', () => ({
   Platform: {OS: 'ios'},
@@ -7,12 +9,18 @@ vi.mock('react-native', () => ({
 
 vi.mock('../api/client', () => ({}));
 vi.mock('../api/errorPolicy', () => ({}));
-vi.mock('../api/tokenStorage', () => ({}));
+vi.mock('../api/tokenStorage', () => ({
+  StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {},
+}));
 vi.mock('../admin/AdminScreen', () => ({}));
 vi.mock('../admin/ServiceAdminScreen', () => ({}));
 vi.mock('../auth/authForms', () => ({}));
 vi.mock('../auth/authGate', () => ({}));
-vi.mock('../auth/session', () => ({}));
+vi.mock('../auth/session', () => ({
+}));
+vi.mock('../auth/fcmTransitionCleanup', () => ({
+  beginFcmTransitionCleanup: vi.fn(async () => undefined),
+}));
 vi.mock('../campus/campusForms', () => ({}));
 vi.mock('../components/ui', () => ({}));
 vi.mock('../components/IconexIcon', () => ({}));
@@ -27,6 +35,7 @@ vi.mock('../notifications/nativeFirebaseMessaging', () => ({}));
 vi.mock('../notifications/notificationAdapter', () => ({}));
 vi.mock('../notifications/pushNavigation', () => ({}));
 vi.mock('../payments/PaymentScreen', () => ({}));
+vi.mock('../payments/paymentContextCache', () => ({invalidatePaymentContextCache}));
 vi.mock('../polls/PollScreen', () => ({}));
 vi.mock('../prayers/PrayerScreen', () => ({}));
 vi.mock('../theme', () => ({
@@ -35,9 +44,156 @@ vi.mock('../theme', () => ({
 }));
 vi.mock('../utils/money', () => ({}));
 
-import {beginLogoutAuthTransition} from './FaithLogApp';
+import {applyAuthResultIfCurrent, applyCompletedAccountDeletionTeardown, attachAccountDeletionCleanupWarning, beginAccountDeletionTeardown, beginLogoutAuthTransition, beginProtectedLogoutUiTeardown, finalizeAccountDeletionTeardown, getApiErrorMessage, purgePaymentContextForAuthState} from './FaithLogApp';
+import {StaleAuthSessionReadError} from '../api/tokenStorage';
+import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from '../auth/localCleanupBarrier';
 
 describe('logout UI transition', () => {
+  beforeEach(() => resetLocalCleanupBarrierForTests());
+  it('clears payment context immediately on logout teardown', async () => {
+    await beginLogoutAuthTransition(42, async () => ({
+      completeRemoteLogout: async () => ({status: 'signedOut'}),
+    }));
+    expect(invalidatePaymentContextCache).toHaveBeenCalledWith();
+  });
+
+  it.each(['signedOut', 'sessionExpired'] as const)(
+    'clears payment context for %s teardown',
+    (status) => {
+      const invalidate = vi.fn();
+      purgePaymentContextForAuthState(status, invalidate);
+      expect(invalidate).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('purges sensitive cache and returns a warning when post-deletion clear fails', async () => {
+    const invalidate = vi.fn();
+    await expect(finalizeAccountDeletionTeardown(
+      async () => { throw new Error('secure storage unavailable'); }, invalidate,
+    )).resolves.toContain('계정은 삭제됐지만');
+    expect(invalidate).toHaveBeenCalledOnce();
+  });
+
+  it('does not let a delayed bootstrap result overwrite expiration', () => {
+    let state = 'sessionExpired';
+    applyAuthResultIfCurrent(2, 3, () => { state = 'error'; });
+    expect(state).toBe('sessionExpired');
+  });
+
+  it('hides protected UI and purges cache before a hanging local clear completes', () => {
+    const invalidate = vi.fn();
+    const transition = vi.fn();
+    const never = new Promise<never>(() => {});
+    void beginAccountDeletionTeardown(transition, () => never, invalidate);
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(transition).toHaveBeenCalledOnce();
+  });
+
+  it('applies backend deletion success before a durable-claim cleanup warning', async () => {
+    const invalidate = vi.fn();
+    const transition = vi.fn();
+    const warning = vi.fn();
+    const cleanup = applyCompletedAccountDeletionTeardown(
+      'durable claim remains pending', transition, async () => true, invalidate, warning,
+    );
+    expect(transition).toHaveBeenCalledOnce();
+    expect(invalidate).toHaveBeenCalledOnce();
+    await expect(cleanup).resolves.toBe('durable claim remains pending');
+    expect(warning).toHaveBeenCalledWith('durable claim remains pending');
+  });
+
+  it('shows a known durable-claim warning without waiting for local clear', () => {
+    const invalidate = vi.fn();
+    const events: string[] = [];
+    const never = new Promise<never>(() => {});
+    void applyCompletedAccountDeletionTeardown(
+      'restart required',
+      () => events.push('signedOut'),
+      () => never,
+      invalidate,
+      (warning) => events.push(`warning:${warning}`),
+    );
+
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(events).toEqual(['signedOut', 'warning:restart required']);
+  });
+
+  it('preserves a known restart warning when local cleanup fails later', async () => {
+    const warning = vi.fn();
+    await expect(applyCompletedAccountDeletionTeardown(
+      'restart required',
+      vi.fn(),
+      async () => { throw new Error('local clear failed'); },
+      vi.fn(),
+      warning,
+    )).resolves.toBe('restart required');
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith('restart required');
+  });
+
+  it('registers account-deletion cleanup with the production restart barrier', async () => {
+    vi.useFakeTimers();
+    try {
+      void beginAccountDeletionTeardown(
+        vi.fn(),
+        () => new Promise<never>(() => {}),
+        vi.fn(),
+      );
+      const waiting = waitForLocalSessionCleanup(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(waiting).resolves.toBe(false);
+      await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('captures pending FCM cleanup before account-deletion local teardown', async () => {
+    const remoteCleanup = vi.fn(async () => undefined);
+    const clear = vi.fn(async () => true);
+    await beginAccountDeletionTeardown(vi.fn(), clear, vi.fn(), remoteCleanup);
+    expect(remoteCleanup).toHaveBeenCalledOnce();
+    expect(remoteCleanup.mock.invocationCallOrder[0]).toBeLessThan(
+      clear.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('restart-gates account deletion cleanup rejection despite its UI warning result', async () => {
+    const cleanup = beginAccountDeletionTeardown(
+      vi.fn(),
+      async () => { throw new Error('durable cleanup failed'); },
+      vi.fn(),
+    );
+    await expect(cleanup).resolves.toContain('계정은 삭제됐지만');
+    await expect(waitForLocalSessionCleanup(5_000)).resolves.toBe(false);
+  });
+
+
+  it('does not attach a late cleanup warning to a newly authenticated session', () => {
+    const authenticated = {status: 'authenticated'} as never;
+    expect(attachAccountDeletionCleanupWarning(authenticated, 'late warning')).toBe(authenticated);
+  });
+
+  it('closes protected UI before a never-resolving logout preparation', () => {
+    const invalidate = vi.fn();
+    const signedOut = vi.fn();
+    const never = new Promise<never>(() => {});
+    beginProtectedLogoutUiTeardown(signedOut, invalidate);
+    void never;
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(signedOut).toHaveBeenCalledOnce();
+  });
+
+  it.each(['login', 'signup'] as const)(
+    'shows restart recovery copy for a bounded logout barrier timeout in %s',
+    (context) => {
+    expect(getApiErrorMessage({
+      kind: 'conflict',
+      code: 'LOGOUT_CLEANUP_PENDING',
+      message: '로그아웃 정리가 지연되고 있습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+    }, context)).toContain('앱을 완전히 종료');
+    },
+  );
   it('closes protected UI with a visible warning when local invalidation fails', async () => {
     const prepareLogout = vi.fn(async (_userId?: number) => {
       throw new Error('secure storage unavailable');
@@ -54,6 +210,14 @@ describe('logout UI transition', () => {
       },
       remoteState: null,
     });
+  });
+
+  it('cancels an old logout instead of signing out a newer session', async () => {
+    const transition = await beginLogoutAuthTransition(42, async () => {
+      throw new StaleAuthSessionReadError(1 as never);
+    });
+    expect(transition.cancelled).toBe(true);
+    expect(transition.remoteState).toBeNull();
   });
 
   it('closes protected UI before the remote logout result arrives', async () => {

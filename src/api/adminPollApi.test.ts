@@ -7,6 +7,7 @@ vi.mock('./tokenStorage', () => ({
   getStoredTokens: vi.fn(),
   isAccessTokenOwnedByAuthSession: vi.fn(async () => true),
   isAuthSessionGenerationCurrent: vi.fn(() => true),
+  isAuthSessionRequestAllowed: vi.fn(() => true),
   saveTokens: vi.fn(),
 }));
 

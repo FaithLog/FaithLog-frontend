@@ -96,6 +96,695 @@ describe('native auth token storage', () => {
     ).resolves.toBe(false);
   });
 
+  it('rolls back an old durable teardown intent when a successor session wins', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens(
+      {accessToken: 'old-access', refreshToken: 'old-refresh'}, generation,
+    );
+    let releaseMarker!: () => void;
+    const markerBlocked = new Promise<void>((resolve) => { releaseMarker = resolve; });
+    secureStoreMocks.setItemAsync.mockImplementationOnce(async (key, value) => {
+      testState.storage.set(key, value);
+      await markerBlocked;
+    });
+
+    const teardown = tokenStorage.prepareDurableStoredSessionTeardown(generation);
+    await vi.waitFor(() => {
+      expect(testState.storage.get('faithlog.authTeardownPending')).toBe('1');
+    });
+    const successor = tokenStorage.beginAuthSession();
+    releaseMarker();
+
+    await expect(teardown).rejects.toBeInstanceOf(tokenStorage.StaleAuthSessionReadError);
+    const successorGeneration = await successor;
+    expect(testState.storage.has('faithlog.authTeardownPending')).toBe(false);
+    expect(testState.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+    await expect(tokenStorage.saveTokens(
+      {accessToken: 'new-access', refreshToken: 'new-refresh'}, successorGeneration,
+    )).resolves.toBe(true);
+    await expect(tokenStorage.getStoredAuthSession(successorGeneration)).resolves.toMatchObject({
+      accessToken: 'new-access', refreshToken: 'new-refresh',
+    });
+  });
+
+  it('does not downgrade a rotated durable logout receipt from a tombstoned token record', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    testState.storage.set('faithlog.authInvalidated', '1');
+    testState.storage.set('faithlog.authTokens.v2', JSON.stringify({
+      version: 1, accessToken: 'stale-A1', refreshToken: 'stale-R1',
+    }));
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1,
+      obligations: [{
+        accessToken: 'rotated-A2', refreshToken: 'rotated-R2', userId: null,
+        clientInstanceId: null, kind: 'clientLogout', token: null, tokenId: null,
+      }],
+    }));
+
+    await expect(tokenStorage.materializeStoredSessionLogoutObligation(generation)).resolves.toEqual({
+      accessToken: 'rotated-A2', refreshToken: 'rotated-R2',
+    });
+    await expect(tokenStorage.prepareDurableStoredSessionTeardown(generation)).resolves.toMatchObject({
+      tokens: {accessToken: 'rotated-A2', refreshToken: 'rotated-R2'},
+    });
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([
+      expect.objectContaining({
+        accessToken: 'rotated-A2', refreshToken: 'rotated-R2', kind: 'clientLogout',
+      }),
+    ]);
+  });
+
+  it('does not assign a queued token read to a generation created by logout', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseWrite!: () => void;
+    const blockedWrite = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    secureStoreMocks.setItemAsync.mockImplementationOnce(async () => blockedWrite);
+    const write = tokenStorage.saveTokens(
+      {accessToken: 'old-access', refreshToken: 'old-refresh'}, generation,
+    );
+    const queuedRead = tokenStorage.getStoredTokens(generation);
+    const logout = tokenStorage.clearTokens(generation);
+    releaseWrite();
+    await expect(write).resolves.toBe(false);
+    await expect(queuedRead).rejects.toMatchObject({expectedGeneration: generation});
+    await expect(logout).resolves.toBe(true);
+  });
+
+  it('keeps a tombstone if token rotation is interrupted after the token write', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseTokenWrite!: () => void;
+    const tokenWriteBlocked = new Promise<void>((resolve) => { releaseTokenWrite = resolve; });
+    secureStoreMocks.setItemAsync
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value); // auth tombstone
+      })
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value); // token record reached durable storage
+        await tokenWriteBlocked;
+      });
+    const rotation = tokenStorage.saveTokens(
+      {accessToken: 'rotated-access', refreshToken: 'rotated-refresh'}, generation,
+    );
+    await vi.waitFor(() => {
+      expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+      expect(testState.storage.get('faithlog.authTokens.v2')).toContain('rotated-access');
+    });
+
+    const crashSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = crashSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    await expect(restartedStorage.getStoredTokens()).resolves.toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+    releaseTokenWrite();
+    await rotation;
+  });
+
+  it('turns a rejected old storage read into typed stale cancellation', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = tokenStorage.getAuthSessionGeneration();
+    let rejectRead!: (error: Error) => void;
+    secureStoreMocks.getItemAsync.mockReturnValueOnce(new Promise((_, reject) => {
+      rejectRead = reject;
+    }));
+    const oldRead = tokenStorage.getStoredAuthSession(generation);
+    await vi.waitFor(() => expect(secureStoreMocks.getItemAsync).toHaveBeenCalled());
+    const nextSession = tokenStorage.beginAuthSession();
+    rejectRead(new Error('keychain unavailable'));
+    await expect(oldRead).rejects.toMatchObject({expectedGeneration: generation});
+    await nextSession;
+    expect(tokenStorage.getAuthSessionGeneration()).toBe(generation + 1);
+  });
+
+  it('closes the current request gate synchronously before storage cleanup', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = tokenStorage.getAuthSessionGeneration();
+    expect(tokenStorage.markAuthSessionClosing(generation)).toBe(true);
+    expect(tokenStorage.isAuthSessionRequestAllowed(generation)).toBe(false);
+    await tokenStorage.clearTokens(generation);
+  });
+
+  it('does not restore the previous auth session after durable logout and restart', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens({
+      accessToken: 'restart-old-access', refreshToken: 'restart-old-refresh',
+    }, generation);
+    await tokenStorage.clearTokens(generation);
+
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    await expect(restartedStorage.getStoredTokens()).resolves.toEqual({
+      accessToken: null, refreshToken: null,
+    });
+  });
+
+  it('persists user-scoped FCM opt-out across logout client rotation', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const clientInstanceId = await tokenStorage.getOrCreateClientInstanceId();
+    await expect(tokenStorage.saveFcmOptOut(42, clientInstanceId, generation)).resolves.toBe(true);
+    await tokenStorage.clearTokens(generation);
+    await tokenStorage.rotateClientInstanceId(clientInstanceId);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    const nextGeneration = restartedStorage.getAuthSessionGeneration();
+    const nextClientInstanceId = await restartedStorage.getOrCreateClientInstanceId();
+
+    await expect(restartedStorage.isFcmOptedOut(
+      42, nextClientInstanceId, nextGeneration,
+    )).resolves.toBe(true);
+    await restartedStorage.clearFcmOptOut(42, nextClientInstanceId, nextGeneration);
+    await expect(restartedStorage.isFcmOptedOut(
+      42, nextClientInstanceId, nextGeneration,
+    )).resolves.toBe(false);
+  });
+
+  it('keeps multiple users opt-out preferences isolated on one device', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const clientInstanceId = await tokenStorage.getOrCreateClientInstanceId();
+    await tokenStorage.saveFcmOptOut(41, clientInstanceId, generation, {status: 'confirmed'});
+    await tokenStorage.saveFcmOptOut(42, clientInstanceId, generation, {status: 'confirmed'});
+    await expect(tokenStorage.isFcmOptedOut(41, clientInstanceId, generation)).resolves.toBe(true);
+    await expect(tokenStorage.isFcmOptedOut(42, clientInstanceId, generation)).resolves.toBe(true);
+
+    await tokenStorage.clearFcmOptOut(41, clientInstanceId, generation);
+    await expect(tokenStorage.isFcmOptedOut(41, clientInstanceId, generation)).resolves.toBe(false);
+    await expect(tokenStorage.isFcmOptedOut(42, clientInstanceId, generation)).resolves.toBe(true);
+  });
+
+  it('round-trips an unresolved FCM registration attempt across module restart', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await expect(tokenStorage.saveFcmRegistrationAttempt({
+      userId: 42, clientInstanceId: 'client-42', token: 'pending-device-token',
+    }, generation)).resolves.toBe(true);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+
+    await expect(restartedStorage.getFcmRegistrationAttempts(
+      42, restartedStorage.getAuthSessionGeneration(),
+    )).resolves.toEqual([{
+      userId: 42, clientInstanceId: 'client-42', token: 'pending-device-token',
+    }]);
+  });
+
+  it('preserves exact token-rotation attempts and clears only the confirmed token', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const first = {userId: 42, clientInstanceId: 'client-42', token: 'token-T1'};
+    const second = {userId: 42, clientInstanceId: 'client-42', token: 'token-T2'};
+    await tokenStorage.saveFcmRegistrationAttempt(first, generation);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    const restartedGeneration = restartedStorage.getAuthSessionGeneration();
+    await restartedStorage.saveFcmRegistrationAttempt(second, restartedGeneration);
+    await expect(restartedStorage.getFcmRegistrationAttempts(
+      42, restartedGeneration,
+    )).resolves.toEqual([first, second]);
+
+    await restartedStorage.clearFcmRegistrationAttempt(second, restartedGeneration);
+    await expect(restartedStorage.getFcmRegistrationAttempts(
+      42, restartedGeneration,
+    )).resolves.toEqual([first]);
+  });
+
+  it('clears only attempts compensated by the retired client instance', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveFcmRegistrationAttempt({
+      userId: 41, clientInstanceId: 'retired-client', token: 'token-41',
+    }, generation);
+    await tokenStorage.saveFcmRegistrationAttempt({
+      userId: 42, clientInstanceId: 'current-client', token: 'token-42',
+    }, generation);
+    await tokenStorage.clearFcmRegistrationAttemptsForClientInstance('retired-client');
+
+    await expect(tokenStorage.getFcmRegistrationAttempts(41, generation)).resolves.toEqual([]);
+    await expect(tokenStorage.getFcmRegistrationAttempts(42, generation)).resolves.toEqual([{
+      userId: 42,
+      clientInstanceId: 'current-client', token: 'token-42',
+    }]);
+  });
+
+  it('never evicts pending opt-out cleanup obligations at the confirmed preference cap', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const clientInstanceId = await tokenStorage.getOrCreateClientInstanceId();
+    await tokenStorage.saveFcmOptOut(100, clientInstanceId, generation, {
+      status: 'confirmed', tokenId: null,
+    });
+    for (let userId = 1; userId <= 22; userId += 1) {
+      await tokenStorage.saveFcmOptOut(userId, clientInstanceId, generation, {
+        status: 'pending', tokenId: userId,
+      });
+    }
+    await expect(tokenStorage.getFcmOptOutState(1, generation)).resolves.toMatchObject({
+      status: 'pending', tokenId: 1,
+    });
+    await expect(tokenStorage.getFcmOptOutState(22, generation)).resolves.toMatchObject({
+      status: 'pending', tokenId: 22,
+    });
+    await expect(tokenStorage.getFcmOptOutState(100, generation)).resolves.toMatchObject({
+      status: 'confirmed',
+    });
+  });
+
+  it('migrates an unconfirmed v1 opt-out as pending', async () => {
+    testState.storage.set('faithlog.fcmOptOut.v1', JSON.stringify({
+      version: 1, userId: 42, clientInstanceId: 'legacy-client',
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    const generation = tokenStorage.getAuthSessionGeneration();
+    await expect(tokenStorage.getFcmOptOutState(42, generation)).resolves.toEqual({
+      clientInstanceId: 'legacy-client', status: 'pending', tokenId: null,
+    });
+  });
+
+  it.each([
+    ['malformed JSON', '{'],
+    ['unknown version', JSON.stringify({version: 99, entries: []})],
+    ['partial invalid entry', JSON.stringify({version: 2, entries: [{userId: 42}]})],
+  ])('fails closed for %s opt-out privacy state', async (_name, serialized) => {
+    testState.storage.set('faithlog.fcmOptOut.v1', serialized);
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getFcmOptOutState(
+      42, tokenStorage.getAuthSessionGeneration(),
+    )).rejects.toBeInstanceOf(tokenStorage.CorruptFcmPrivacyStateError);
+  });
+
+  it.each([
+    ['missing tokenId', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'pending',
+    }]}],
+    ['invalid tokenId', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'pending', tokenId: '77',
+    }]}],
+    ['missing status', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', tokenId: null,
+    }]}],
+    ['invalid status', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'disabled', tokenId: null,
+    }]}],
+    ['confirmed with token', {version: 2, entries: [{
+      userId: 42, clientInstanceId: 'client-42', status: 'confirmed', tokenId: 77,
+    }]}],
+    ['duplicate user', {version: 2, entries: [
+      {userId: 42, clientInstanceId: 'client-42', status: 'confirmed', tokenId: null},
+      {userId: 42, clientInstanceId: 'client-42', status: 'pending', tokenId: 77},
+    ]}],
+  ])('rejects semantic-invalid v2 opt-out state: %s', async (_name, value) => {
+    testState.storage.set('faithlog.fcmOptOut.v1', JSON.stringify(value));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getFcmOptOutState(
+      42, tokenStorage.getAuthSessionGeneration(),
+    )).rejects.toBeInstanceOf(tokenStorage.CorruptFcmPrivacyStateError);
+  });
+
+  it.each([
+    ['malformed JSON', '{'],
+    ['unknown version', JSON.stringify({version: 99, entries: []})],
+    ['partial invalid entry', JSON.stringify({
+      version: 1, entries: [{userId: 42, clientInstanceId: 'client-42'}],
+    })],
+  ])('fails closed for %s unresolved registration state', async (_name, serialized) => {
+    testState.storage.set('faithlog.fcmRegistrationAttempts.v1', serialized);
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getFcmRegistrationAttempts(
+      42, tokenStorage.getAuthSessionGeneration(),
+    )).rejects.toBeInstanceOf(tokenStorage.CorruptFcmPrivacyStateError);
+  });
+
+  it('does not write an attempt when logout closes during the storage read', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseRead!: () => void;
+    let attemptReadStarted = false;
+    const blockedRead = new Promise<void>((resolve) => { releaseRead = resolve; });
+    secureStoreMocks.getItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.fcmRegistrationAttempts.v1') {
+        attemptReadStarted = true;
+        await blockedRead;
+      }
+      return testState.storage.get(key) ?? null;
+    });
+    const saving = tokenStorage.saveFcmRegistrationAttempt({
+      userId: 42, clientInstanceId: 'client-42', token: 'unsent-token',
+    }, generation);
+    await vi.waitFor(() => expect(attemptReadStarted).toBe(true));
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseRead();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.has('faithlog.fcmRegistrationAttempts.v1')).toBe(false);
+  });
+
+  it('keeps FCM registration tombstoned when closing wins a delayed record write', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const attempt = {userId: 42, clientInstanceId: 'client-42', token: 'device-token'};
+    await tokenStorage.saveFcmRegistrationAttempt(attempt, generation);
+    let releaseRecordWrite!: () => void;
+    let recordWriteStarted = false;
+    const blockedWrite = new Promise<void>((resolve) => { releaseRecordWrite = resolve; });
+    secureStoreMocks.setItemAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'faithlog.fcmRegistration.v2') {
+        recordWriteStarted = true;
+        await blockedWrite;
+      }
+      testState.storage.set(key, value);
+    });
+    const saving = tokenStorage.saveFcmRegistration({
+      token: 'device-token', tokenId: 77, userId: 42, clientInstanceId: 'client-42',
+    }, generation);
+    await vi.waitFor(() => expect(recordWriteStarted).toBe(true));
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseRecordWrite();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: null, tokenId: null, userId: null, clientInstanceId: null,
+    });
+    await expect(tokenStorage.getFcmRegistrationAttempts(42, generation)).resolves.toEqual([attempt]);
+  });
+
+  it('re-tombstones FCM registration when closing wins final marker removal', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    const attempt = {userId: 42, clientInstanceId: 'client-42', token: 'device-token'};
+    await tokenStorage.saveFcmRegistrationAttempt(attempt, generation);
+    let releaseMarkerDelete!: () => void;
+    let markerDeleteStarted = false;
+    const blockedDelete = new Promise<void>((resolve) => { releaseMarkerDelete = resolve; });
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.fcmRegistrationInvalidated') {
+        markerDeleteStarted = true;
+        await blockedDelete;
+      }
+      testState.storage.delete(key);
+    });
+    const saving = tokenStorage.saveFcmRegistration({
+      token: 'device-token', tokenId: 77, userId: 42, clientInstanceId: 'client-42',
+    }, generation);
+    await vi.waitFor(() => expect(markerDeleteStarted).toBe(true));
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseMarkerDelete();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: null, tokenId: null, userId: null, clientInstanceId: null,
+    });
+    await expect(tokenStorage.getFcmRegistrationAttempts(42, generation)).resolves.toEqual([attempt]);
+  });
+
+  it('keeps the FCM tombstone until legacy cleanup has finished', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseLegacyDelete!: () => void;
+    const legacyDeleteBlocked = new Promise<void>((resolve) => { releaseLegacyDelete = resolve; });
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.fcmToken') await legacyDeleteBlocked;
+      testState.storage.delete(key);
+    });
+    const saving = tokenStorage.saveFcmRegistration({
+      token: 'device-token', tokenId: 77, userId: 42, clientInstanceId: 'client-42',
+    }, generation);
+    await vi.waitFor(() => expect(secureStoreMocks.deleteItemAsync).toHaveBeenCalledWith(
+      'faithlog.fcmToken',
+    ));
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+    tokenStorage.markAuthSessionClosing(generation);
+    releaseLegacyDelete();
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.fcmRegistrationInvalidated')).toBe('1');
+  });
+
+  it('round-trips the device-level remote cleanup gate across module restart', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const obligation = {
+      accessToken: 'old-access', clientInstanceId: 'old-client',
+      userId: 42, kind: 'registration' as const, token: 'old-token', tokenId: null,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([obligation]);
+    const restartSnapshot = new Map(testState.storage);
+    vi.resetModules();
+    testState.storage = restartSnapshot;
+    const restartedStorage = await import('./tokenStorage');
+    await expect(restartedStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(restartedStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([obligation]);
+  });
+
+  it('does not create an empty durable cleanup gate', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    await tokenStorage.markFcmRemoteCleanupPending([]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+  });
+
+  it('self-clears a legacy empty cleanup record instead of treating it as debt', async () => {
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1, obligations: [],
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toBeNull();
+    expect(testState.storage.has('faithlog.fcmRemoteCleanupPending.v1')).toBe(false);
+  });
+
+  it('clears only completed cleanup identities and preserves concurrent obligations', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const first = {
+      accessToken: 'old-A', refreshToken: 'refresh-A', userId: 42,
+      clientInstanceId: 'client-A', kind: 'registration' as const,
+      token: 'token-A', tokenId: null,
+    };
+    const second = {
+      accessToken: 'old-B', refreshToken: 'refresh-B', userId: 43,
+      clientInstanceId: 'client-B', kind: 'deactivation' as const,
+      token: null, tokenId: 77,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([first]);
+    await tokenStorage.markFcmRemoteCleanupPending([second]);
+    await tokenStorage.clearFcmRemoteCleanupObligations([first]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([second]);
+  });
+
+  it('keeps delimiter-containing structured cleanup identities distinct', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const first = {
+      accessToken: 'old-A', userId: 42, clientInstanceId: 'old|registration',
+      kind: 'registration' as const, token: 'token', tokenId: null,
+    };
+    const second = {
+      accessToken: 'old-B', userId: 42, clientInstanceId: 'old',
+      kind: 'registration' as const, token: 'registration|token', tokenId: null,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([first, second]);
+    await tokenStorage.clearFcmRemoteCleanupObligations([first]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([second]);
+  });
+
+  it('atomically replaces session logout with retirement while preserving unrelated debt', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const logout = {
+      accessToken: 'old-access', refreshToken: 'old-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+    };
+    const unrelated = {
+      accessToken: 'other-access', userId: 42, clientInstanceId: 'old-client',
+      kind: 'deactivation' as const, token: null, tokenId: 77,
+    };
+    const retirement = {
+      accessToken: 'old-access', refreshToken: null, userId: null,
+      clientInstanceId: 'current-client', kind: 'clientRetirement' as const,
+      token: null, tokenId: null,
+    };
+    await tokenStorage.markFcmRemoteCleanupPending([logout, unrelated]);
+    await tokenStorage.replaceFcmRemoteCleanupObligations([logout], [retirement]);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual(
+      expect.arrayContaining([
+        unrelated,
+        expect.objectContaining({
+          kind: 'clientRetirement', clientInstanceId: 'current-client',
+        }),
+      ]),
+    );
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.not.toContainEqual(logout);
+  });
+
+  it('moves a claimed cleanup receipt to generic replacement debt atomically', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const claimed = {
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh', userId: 42,
+      clientInstanceId: 'old-client', kind: 'registration' as const,
+      token: 'old-token', tokenId: 77,
+    };
+    const logout = {
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh', userId: null,
+      clientInstanceId: null, kind: 'clientLogout' as const, token: null, tokenId: null,
+    };
+    await tokenStorage.claimFcmRemoteCleanupForAccountDeletion([claimed], [claimed]);
+    await tokenStorage.replaceFcmRemoteCleanupObligations([claimed], [logout]);
+    await expect(tokenStorage.getFcmAccountDeletionClaim()).resolves.toMatchObject({
+      phase: 'cleanupRequired', cleanupReceipts: [],
+    });
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([logout]);
+  });
+
+  it.each([
+    {userId: 42, clientInstanceId: 'old-client', kind: 'deactivation', token: null, tokenId: null},
+    {userId: 42, clientInstanceId: 'old-client', kind: 'registration', token: null, tokenId: null},
+    {userId: null, clientInstanceId: 'old-client', kind: 'clientLogout', token: 'bad', tokenId: null},
+  ])('keeps a corrupt per-kind remote obligation fail-closed: %j', async (invalid) => {
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 1,
+      obligations: [{accessToken: 'old-access', ...invalid}],
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([]);
+  });
+
+  it('rejects an account-deletion claim whose identity is not a structured receipt', async () => {
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 2,
+      obligations: [],
+      accountDeletionClaim: {
+        phase: 'cleanupRequired',
+        claimedReceipts: ['garbage'],
+        cleanupReceipts: [],
+      },
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([]);
+  });
+
+  it('rejects the same cleanup receipt in generic and account-claim provenance', async () => {
+    const receipt = {
+      accessToken: 'old-access', userId: 42, clientInstanceId: 'old-client',
+      kind: 'deactivation', token: null, tokenId: 77,
+    };
+    testState.storage.set('faithlog.fcmRemoteCleanupPending.v1', JSON.stringify({
+      version: 2,
+      obligations: [receipt],
+      accountDeletionClaim: {
+        phase: 'cleanupRequired', claimedReceipts: [receipt], cleanupReceipts: [receipt],
+      },
+    }));
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.hasFcmRemoteCleanupPending()).resolves.toBe(true);
+    await expect(tokenStorage.getFcmRemoteCleanupObligations()).resolves.toEqual([]);
+  });
+
+  it('keeps a tombstone and rejects rotated tokens when logout closes during save', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseTokenWrite!: () => void;
+    const tokenWriteBlocked = new Promise<void>((resolve) => { releaseTokenWrite = resolve; });
+    secureStoreMocks.setItemAsync
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value);
+      })
+      .mockImplementationOnce(async (key: string, value: string) => {
+        testState.storage.set(key, value);
+        await tokenWriteBlocked;
+      });
+
+    const saving = tokenStorage.saveTokens({
+      accessToken: 'closing-rotated-access',
+      refreshToken: 'closing-rotated-refresh',
+    }, generation);
+    await vi.waitFor(() => expect(
+      testState.storage.get('faithlog.authTokens.v2'),
+    ).toContain('closing-rotated-access'));
+    expect(tokenStorage.markAuthSessionClosing(generation)).toBe(true);
+    releaseTokenWrite();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    await expect(tokenStorage.getStoredTokens(generation)).resolves.toEqual({
+      accessToken: null,
+      refreshToken: null,
+    });
+    await expect(tokenStorage.isAccessTokenOwnedByAuthSession(
+      'closing-rotated-access', generation,
+    )).resolves.toBe(false);
+  });
+
+  it('re-tombstones when logout closes during final marker removal', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    let releaseMarkerDelete!: () => void;
+    const markerDeleteBlocked = new Promise<void>((resolve) => { releaseMarkerDelete = resolve; });
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      testState.storage.delete(key);
+      if (key === 'faithlog.authInvalidated') await markerDeleteBlocked;
+    });
+
+    const saving = tokenStorage.saveTokens({
+      accessToken: 'final-boundary-access',
+      refreshToken: 'final-boundary-refresh',
+    }, generation);
+    await vi.waitFor(() => expect(secureStoreMocks.deleteItemAsync).toHaveBeenCalledWith(
+      'faithlog.authInvalidated',
+    ));
+    expect(tokenStorage.markAuthSessionClosing(generation)).toBe(true);
+    releaseMarkerDelete();
+
+    await expect(saving).resolves.toBe(false);
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    await expect(tokenStorage.isAccessTokenOwnedByAuthSession(
+      'final-boundary-access', generation,
+    )).resolves.toBe(false);
+  });
+
+  it('keeps fail-closed marker when final token commit marker removal fails', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.authInvalidated') throw new Error('delete interrupted');
+      testState.storage.delete(key);
+    });
+    await expect(tokenStorage.saveTokens({
+      accessToken: 'new-access', refreshToken: 'new-refresh',
+    }, generation)).rejects.toThrow('delete interrupted');
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      testState.storage.delete(key);
+    });
+  });
+
+  it('keeps fail-closed marker when legacy migration finalization is interrupted', async () => {
+    testState.storage.set('faithlog.accessToken', 'legacy-access');
+    testState.storage.set('faithlog.refreshToken', 'legacy-refresh');
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'faithlog.authInvalidated') throw new Error('migration interrupted');
+      testState.storage.delete(key);
+    });
+    const tokenStorage = await import('./tokenStorage');
+    await expect(tokenStorage.getStoredTokens()).rejects.toThrow('migration interrupted');
+    expect(testState.storage.get('faithlog.authInvalidated')).toBe('1');
+    secureStoreMocks.deleteItemAsync.mockImplementation(async (key: string) => {
+      testState.storage.delete(key);
+    });
+  });
+
   it('keeps every rotated access token owned by the same auth session', async () => {
     const tokenStorage = await import('./tokenStorage');
     const generation = await tokenStorage.beginAuthSession();

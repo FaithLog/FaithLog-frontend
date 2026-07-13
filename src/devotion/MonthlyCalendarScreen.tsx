@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {
@@ -8,7 +8,7 @@ import {
   saveDevotionDailyCheck,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {clearTokens} from '../api/tokenStorage';
 import type {
   ApiError,
   DevotionDailyCheck,
@@ -16,6 +16,7 @@ import type {
   WeeklyDevotionSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {
   Conflict,
   ErrorState,
@@ -28,6 +29,7 @@ import {
 } from '../components/ui';
 import {IconexIcon} from '../components/IconexIcon';
 import {colors} from '../theme';
+import {VersionedAsyncCache} from '../utils/versionedAsyncCache';
 import {
   buildDailyCompletionMap,
   getDailyCompletionCount,
@@ -84,9 +86,18 @@ export function MonthlyCalendarScreen({
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [quickSaveMessage, setQuickSaveMessage] = useState<string | null>(null);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const campusId = state.selectedCampus.campusId;
+  const monthlyCache = useRef(new VersionedAsyncCache<string, DevotionMonthlySummary>());
+  const weeklyCache = useRef(new VersionedAsyncCache<string, WeeklyDevotionSummary>());
+  const latestRequest = useRef(0);
+  const viewKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}:${selectedWeekStart}`;
+  const currentViewKey = useRef(viewKey);
+  currentViewKey.current = viewKey;
 
   const loadCalendar = async () => {
+    const requestId = ++latestRequest.current;
+    const requestedViewKey = viewKey;
     setLoadState({status: 'loading'});
     setActionError(null);
     try {
@@ -96,29 +107,37 @@ export function MonthlyCalendarScreen({
         return;
       }
 
-      const visibleWeekStartDates = getVisibleWeekStartDates(visibleMonth, selectedWeekStart);
-      const [monthly, ...weeklySummaries] = await Promise.all([
-        fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth),
-        ...visibleWeekStartDates.map((weekStartDate) =>
-          fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
-        ),
+      const monthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
+      const weekKey = `${campusId}:${selectedWeekStart}`;
+      const visibleWeekStarts = getVisibleWeekStartDates(visibleMonth, selectedWeekStart);
+      const [monthly] = await Promise.all([
+        monthlyCache.current.getOrLoad(monthKey, () =>
+          fetchDevotionMonthlySummary(accessToken, campusId, visibleMonth)),
+        ...visibleWeekStarts.map((weekStart) => {
+          const key = `${campusId}:${weekStart}`;
+          return weeklyCache.current.getOrLoad(key, () =>
+            fetchWeeklyDevotionSummary(accessToken, campusId, weekStart));
+        }),
       ]);
-      const weekly =
-        weeklySummaries.find((summary) => summary.weekStartDate === selectedWeekStart) ??
-        weeklySummaries[0];
 
-      if (!weekly) {
-        throw new Error('Selected weekly devotion summary is missing.');
-      }
+      if (requestId !== latestRequest.current || requestedViewKey !== currentViewKey.current) return;
+      const weekly = weeklyCache.current.get(weekKey);
+      if (!weekly) throw new Error('Selected weekly devotion summary is missing.');
 
       setLoadState({
         status: 'success',
         monthly,
         weekly,
-        dailyCompletionByDate: buildDailyCompletionMap(weeklySummaries),
+        dailyCompletionByDate: buildDailyCompletionMap(
+          visibleWeekStarts.flatMap((weekStart) => {
+            const summary = weeklyCache.current.get(`${campusId}:${weekStart}`);
+            return summary ? [summary] : [];
+          }),
+        ),
       });
       setFormChecks(normalizeWeekChecks(weekly));
     } catch (error) {
+      if (requestId !== latestRequest.current || requestedViewKey !== currentViewKey.current) return;
       const apiError = toApiError(error, '월간 경건생활 캘린더를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
@@ -127,7 +146,7 @@ export function MonthlyCalendarScreen({
 
   useEffect(() => {
     void loadCalendar();
-  }, [campusId, selectedWeekStart, visibleMonth.month, visibleMonth.year]);
+  }, [campusId, reloadVersion, selectedWeekStart, visibleMonth.month, visibleMonth.year]);
 
   const selectedCheck = formChecks.find((check) => check.recordDate === selectedDate);
   const locked = loadState.status === 'success' && Boolean(loadState.weekly.submittedAt);
@@ -172,12 +191,19 @@ export function MonthlyCalendarScreen({
       }
 
       const savedDate = selectedCheck.recordDate;
+      const savedMonthKey = `${campusId}:${visibleMonth.year}-${visibleMonth.month}`;
+      const savedWeekKey = `${campusId}:${selectedWeekStart}`;
       await saveDevotionDailyCheck(accessToken, campusId, selectedCheck.recordDate, {
         quietTimeChecked: selectedCheck.quietTimeChecked,
         prayerChecked: selectedCheck.prayerChecked,
         bibleReadingChecked: selectedCheck.bibleReadingChecked,
       });
-      await loadCalendar();
+      monthlyCache.current.invalidate(savedMonthKey);
+      weeklyCache.current.invalidate(savedWeekKey);
+      const currentMonthPrefix = savedMonthKey + ':';
+      if (currentViewKey.current.startsWith(currentMonthPrefix)) {
+        setReloadVersion((current) => current + 1);
+      }
       setQuickSaveMessage(`${formatKoreanDate(savedDate)} 저장됨`);
     } catch (error) {
       const apiError = toApiError(error, '빠른 체크를 저장하지 못했습니다.');
@@ -491,15 +517,9 @@ function MonthlyCalendarActionError({error, onRetry}: {error: ApiError; onRetry:
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
-    await clearTokens();
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) => void) {
@@ -565,13 +585,9 @@ function getVisibleWeekStartDates(
   selectedWeekStart: string,
 ) {
   const weekStarts = new Set<string>([selectedWeekStart]);
-
   getMonthGridCells(visibleMonth.year, visibleMonth.month).forEach((cell) => {
-    if (cell) {
-      weekStarts.add(getWeekStartDate(parseDate(cell.date)));
-    }
+    if (cell) weekStarts.add(getWeekStartDate(parseDate(cell.date)));
   });
-
   return Array.from(weekStarts).sort();
 }
 

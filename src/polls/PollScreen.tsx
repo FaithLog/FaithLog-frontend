@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -26,7 +26,7 @@ import {
   updatePollComment,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {clearTokens, getStoredTokens} from '../api/tokenStorage';
+import {getAuthSessionGeneration} from '../api/tokenStorage';
 import type {
   ApiError,
   CoffeeBrand,
@@ -37,6 +37,8 @@ import type {
   PollSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {
   Body,
   Button,
@@ -56,6 +58,9 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {colors, radius, spacing} from '../theme';
+import {isCurrentDetailEpoch} from '../utils/requestIdentity';
+import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
+import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
   getUserVisiblePollCount,
@@ -134,6 +139,29 @@ export function PollScreen({
   const [optionAddContent, setOptionAddContent] = useState('');
   const [actionState, setActionState] = useState<ActionState>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const currentPollId = useRef<number | null>(selectedPollId);
+  const detailEpoch = useRef(0);
+  const screenMounted = useRef(true);
+  currentPollId.current = selectedPollId;
+
+  const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
+    screenMounted.current && isCurrentDetailEpoch(
+      pollId, currentPollId.current, epoch, detailEpoch.current,
+      generation, getAuthSessionGeneration(),
+    );
+  const shouldHandleDetailError = (
+    error: ApiError, pollId: number, epoch: number, generation: number,
+  ) => screenMounted.current && currentPollId.current === pollId && detailEpoch.current === epoch &&
+    shouldHandleRequestError(error, generation, getAuthSessionGeneration());
+
+  useEffect(() => {
+    screenMounted.current = true;
+    return () => {
+      screenMounted.current = false;
+      detailEpoch.current += 1;
+      currentPollId.current = null;
+    };
+  }, []);
 
   const loadPolls = async () => {
     setListState({status: 'loading'});
@@ -153,7 +181,14 @@ export function PollScreen({
     }
   };
 
-  const loadDetail = async (pollId: number, tab: DetailTab = detailTab) => {
+  const loadDetail = async (
+    pollId: number,
+    tab: DetailTab = detailTab,
+    expected?: {epoch: number; generation: number},
+  ) => {
+    const epoch = expected?.epoch ?? detailEpoch.current;
+    const generation = expected?.generation ?? getAuthSessionGeneration();
+    if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
     setDetailState({status: 'loading'});
     setActionError(null);
     try {
@@ -169,6 +204,7 @@ export function PollScreen({
         fetchPollResultState(accessToken, campusId, pollId),
       ]);
       const coffeeCatalog = await loadCoffeeCatalog(accessToken, detail);
+      if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
       if (coffeeCatalog.status === 'error') {
         handleAuthError(coffeeCatalog.error, setAuthState);
       }
@@ -184,6 +220,11 @@ export function PollScreen({
       setDetailTab(tab);
     } catch (error) {
       const apiError = toApiError(error, '투표 상세를 불러오지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, pollId, epoch, generation)) return;
+      if (apiError.kind === 'sessionExpired') {
+        handleAuthError(apiError, setAuthState);
+        return;
+      }
       setDetailState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
     }
@@ -195,16 +236,26 @@ export function PollScreen({
 
   const openDetail = (poll: PollSummary) => {
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
+    detailEpoch.current += 1;
+    currentPollId.current = poll.id;
+    setCommentContent('');
+    setEditingComment(null);
+    setActionState(null);
+    setActionError(null);
     setSelectedPollId(poll.id);
     setDetailTab(initialTab);
     void loadDetail(poll.id, initialTab);
   };
 
   const closeDetail = () => {
+    detailEpoch.current += 1;
+    currentPollId.current = null;
     setSelectedPollId(null);
     setDetailState({status: 'idle'});
     setActionError(null);
     setEditingComment(null);
+    setCommentContent('');
+    setActionState(null);
     void loadPolls();
   };
 
@@ -239,6 +290,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'response'});
     setActionError(null);
     try {
@@ -248,17 +302,25 @@ export function PollScreen({
         return;
       }
 
-      await savePollResponse(accessToken, campusId, activeDetail.id, {
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
+      await savePollResponse(accessToken, campusId, mutationPollId, {
         optionIds: selectedOptionIds,
       });
-      await loadDetail(activeDetail.id, 'results');
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+      await loadDetail(mutationPollId, 'results', {
+        epoch: mutationEpoch,
+        generation: mutationGeneration,
+      });
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       await loadPolls();
     } catch (error) {
       const apiError = toApiError(error, '투표 응답을 저장하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -289,6 +351,10 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
+    const mutationSelectionType = activeDetail.selectionType;
     setActionState({kind: 'optionAdd'});
     setActionError(null);
     try {
@@ -298,27 +364,38 @@ export function PollScreen({
         return;
       }
 
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
       const added = await addUserPollOptionWithMenuContractFallback({
         accessToken,
         campusId,
         content: trimmed,
         ...(optionMenuId === undefined ? {} : {menuId: optionMenuId}),
-        pollId: activeDetail.id,
+        isCurrent: () => isCurrentDetailOperation(
+          mutationPollId, mutationEpoch, mutationGeneration,
+        ),
+        pollId: mutationPollId,
       });
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setOptionAddContent('');
       setOptionAddVisible(false);
-      await loadDetail(activeDetail.id, 'response');
+      await loadDetail(mutationPollId, 'response', {
+        epoch: mutationEpoch,
+        generation: mutationGeneration,
+      });
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setSelectedOptionIds((current) =>
-        activeDetail.selectionType === 'SINGLE'
+        mutationSelectionType === 'SINGLE'
           ? [added.id]
           : Array.from(new Set([...current, added.id])),
       );
     } catch (error) {
       const apiError = toApiError(error, '투표 항목을 추가하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -334,6 +411,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'comment'});
     setActionError(null);
     try {
@@ -343,15 +423,22 @@ export function PollScreen({
         return;
       }
 
-      await createPollComment(accessToken, campusId, activeDetail.id, {content});
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
+      const created = await createPollComment(accessToken, campusId, mutationPollId, {content});
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setCommentContent('');
-      await loadDetail(activeDetail.id, 'comments');
+      setDetailState((current) => current.status === 'success' &&
+        current.detail.id === mutationPollId && created.pollId === mutationPollId
+        ? {...current, comments: [...current.comments, created]}
+        : current);
     } catch (error) {
       const apiError = toApiError(error, '댓글을 등록하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -367,6 +454,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'edit', id: editingComment.commentId});
     setActionError(null);
     try {
@@ -376,18 +466,26 @@ export function PollScreen({
         return;
       }
 
-      await updatePollComment(accessToken, campusId, activeDetail.id, editingComment.commentId, {
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
+      const updated = await updatePollComment(accessToken, campusId, mutationPollId, editingComment.commentId, {
         content,
       });
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setEditingComment(null);
       setCommentContent('');
-      await loadDetail(activeDetail.id, 'comments');
+      setDetailState((current) => current.status === 'success' &&
+        current.detail.id === mutationPollId && updated.pollId === mutationPollId
+        ? {...current, comments: current.comments.map((item) =>
+          item.commentId === updated.commentId ? updated : item)}
+        : current);
     } catch (error) {
       const apiError = toApiError(error, '댓글을 수정하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -396,6 +494,9 @@ export function PollScreen({
       return;
     }
 
+    const mutationPollId = activeDetail.id;
+    const mutationGeneration = getAuthSessionGeneration();
+    const mutationEpoch = detailEpoch.current;
     setActionState({kind: 'delete', id: comment.commentId});
     setActionError(null);
     try {
@@ -405,14 +506,31 @@ export function PollScreen({
         return;
       }
 
-      await deletePollComment(accessToken, campusId, activeDetail.id, comment.commentId);
-      await loadDetail(activeDetail.id, 'comments');
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+
+      await deletePollComment(accessToken, campusId, mutationPollId, comment.commentId);
+      if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+      try {
+        const comments = await fetchPollComments(accessToken, campusId, mutationPollId);
+        if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
+        setDetailState((current) => current.status === 'success' && current.detail.id === mutationPollId
+          ? {...current, comments} : current);
+      } catch (refreshError) {
+        const refreshApiError = toApiError(refreshError, '댓글 목록을 새로고치지 못했습니다.');
+        if (!shouldHandleDetailError(
+          refreshApiError, mutationPollId, mutationEpoch, mutationGeneration,
+        )) return;
+        const contextualError = toDeletedCommentRefreshError(refreshApiError);
+        setActionError(contextualError);
+        handleAuthError(contextualError, setAuthState);
+      }
     } catch (error) {
       const apiError = toApiError(error, '댓글을 삭제하지 못했습니다.');
+      if (!shouldHandleDetailError(apiError, mutationPollId, mutationEpoch, mutationGeneration)) return;
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
-      setActionState(null);
+      if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
 
@@ -1415,9 +1533,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
 }
 
 function ActionErrorCard({error}: {error: ApiError}) {
-  const presentation = getApiErrorPresentation(error, {
-    conflictMessage: '투표 상태가 변경되었습니다. 다시 불러온 뒤 응답해 주세요.',
-  });
+  const presentation = getPollActionErrorPresentation(error);
   const title = RESPONSE_ERROR_CODES.has(error.code ?? '')
     ? '선택을 다시 확인해 주세요'
     : presentation.title;
@@ -1457,32 +1573,34 @@ async function addUserPollOptionWithMenuContractFallback({
   content,
   menuId,
   pollId,
+  isCurrent,
 }: {
   accessToken: string;
   campusId: number;
   content: string;
   menuId?: number;
   pollId: number;
+  isCurrent: () => boolean;
 }) {
   const requests =
     menuId === undefined
       ? [{content}]
       : [{content, menuId}, {menuId}, {content}];
-  let lastError: unknown = null;
+  return runPollOptionFallback(
+    requests,
+    isCurrent,
+    (request) => addUserPollOption(accessToken, campusId, pollId, request),
+    canRetryPollOptionAddWithNextContract,
+    createStalePollMutationError,
+  );
+}
 
-  for (const request of requests) {
-    try {
-      return await addUserPollOption(accessToken, campusId, pollId, request);
-    } catch (error) {
-      if (!canRetryPollOptionAddWithNextContract(error)) {
-        throw error;
-      }
-
-      lastError = error;
-    }
-  }
-
-  throw lastError;
+function createStalePollMutationError() {
+  return new FaithLogApiError({
+    kind: 'error',
+    code: 'AUTH_SESSION_CHANGED',
+    message: '투표 화면이 변경되어 이전 작업을 취소했습니다.',
+  });
 }
 
 function canRetryPollOptionAddWithNextContract(error: unknown) {
@@ -1533,6 +1651,13 @@ function normalizePollOptionLabel(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR');
 }
 
+const COFFEE_CATALOG_TTL_MS = 5 * 60_000;
+let coffeeCatalogFlight: {
+  generation: number;
+  expiresAt: number;
+  promise: Promise<CoffeeCatalogState>;
+} | null = null;
+
 async function loadCoffeeCatalog(
   accessToken: string,
   detail: PollDetail,
@@ -1541,7 +1666,17 @@ async function loadCoffeeCatalog(
     return {status: 'notNeeded'};
   }
 
-  try {
+  const generation = getAuthSessionGeneration();
+  if (
+    coffeeCatalogFlight &&
+    coffeeCatalogFlight.generation === generation &&
+    coffeeCatalogFlight.expiresAt > Date.now()
+  ) {
+    return coffeeCatalogFlight.promise;
+  }
+
+  const promise = (async (): Promise<CoffeeCatalogState> => {
+   try {
     const brands = await fetchCoffeeBrands(accessToken);
     const menusByBrand = await Promise.all(
       brands
@@ -1563,7 +1698,18 @@ async function loadCoffeeCatalog(
     }
 
     return {status: 'error', error: apiError};
+   }
+  })();
+  coffeeCatalogFlight = {
+    generation,
+    expiresAt: Date.now() + COFFEE_CATALOG_TTL_MS,
+    promise,
+  };
+  const result = await promise;
+  if (result.status === 'error' && coffeeCatalogFlight?.promise === promise) {
+    coffeeCatalogFlight = null;
   }
+  return result;
 }
 
 async function fetchPollResultState(
@@ -1588,15 +1734,9 @@ async function fetchPollResultState(
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
-    await clearTokens();
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '저장된 access token이 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 function handleAuthError(error: ApiError, setAuthState: (state: AuthGateState) => void) {

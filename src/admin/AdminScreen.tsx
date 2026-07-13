@@ -66,7 +66,6 @@ import {prayerApi} from '../api/prayerApi';
 import {
   clearStoredPrayerSeason,
   clearTokens,
-  getStoredTokens,
   saveStoredPrayerSeason,
 } from '../api/tokenStorage';
 import type {
@@ -104,12 +103,14 @@ import type {
   PrayerWeekSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
+import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
 import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {isEndedPoll} from '../polls/pollListVisibility';
+import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {
   Body,
   Button,
@@ -1136,6 +1137,7 @@ export function AdminScreen({
         accountNumber: paymentAccountForm.accountNumber,
         accountHolder: paymentAccountForm.accountHolder,
       });
+      invalidatePaymentContextCache(campusId);
 
       setPaymentAccountForm(emptyPaymentAccountForm);
       if (paymentAccountForm.accountType === 'COFFEE') {
@@ -1177,6 +1179,7 @@ export function AdminScreen({
       }
 
       await deactivateAdminPaymentAccount(accessToken, target.id);
+      invalidatePaymentContextCache(campusId);
       setPaymentAccountDeactivateTarget(null);
       setSelectedPaymentAccount(null);
       setPaymentAccountState({status: 'idle'});
@@ -1210,6 +1213,7 @@ export function AdminScreen({
       }
 
       await activateAdminPaymentAccount(accessToken, campusId, account.id);
+      invalidatePaymentContextCache(campusId);
       setSelectedPaymentAccount(null);
       setPaymentAccountState({status: 'idle'});
       setNotice({
@@ -1252,6 +1256,7 @@ export function AdminScreen({
       }
 
       await deleteAdminPaymentAccount(accessToken, campusId, target.id);
+      invalidatePaymentContextCache(campusId);
       setPaymentAccountDeleteTarget(null);
       setSelectedPaymentAccount(null);
       setPaymentAccountState({status: 'idle'});
@@ -1720,6 +1725,7 @@ export function AdminScreen({
         target.charge.id,
         target.status,
       );
+      invalidatePaymentContextCache(campusId);
 
       replaceChargeItem(updated);
       setChargeStatusConfirm(null);
@@ -10557,14 +10563,9 @@ function AdminInlineError({
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {
-  const {accessToken} = await getStoredTokens();
-
-  if (!accessToken) {
+  return resolveCurrentAccessToken(() => {
     setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
-    return null;
-  }
-
-  return accessToken;
+  });
 }
 
 async function handleAuthError(

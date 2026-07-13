@@ -26,12 +26,22 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../api/tokenStorage', () => ({
   clearTokens: vi.fn(),
+  clearAuthTeardownPending: vi.fn(async () => undefined),
+  getAuthSessionGeneration: vi.fn(() => 17),
   getStoredAuthSession: vi.fn(),
+  hasAuthTeardownPending: vi.fn(async () => false),
+  hasFcmRemoteCleanupPending: vi.fn(async () => false),
+  markAuthTeardownPending: vi.fn(async () => undefined),
+  materializeStoredSessionLogoutObligation: vi.fn(async () => null),
+  startAuthSessionClear: vi.fn(),
 }));
 
 vi.mock('./session', () => ({
   refreshAndEstablishSession: vi.fn(),
 }));
+
+const waitForFcmTransitionCleanup = vi.hoisted(() => vi.fn());
+vi.mock('./fcmTransitionCleanup', () => ({waitForFcmTransitionCleanup}));
 
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
 import {
@@ -54,6 +64,7 @@ describe('auth bootstrap gate', () => {
       refreshToken: 'expired-refresh-token',
     });
     vi.mocked(clearTokens).mockResolvedValue(true);
+    waitForFcmTransitionCleanup.mockResolvedValue(true);
   });
 
   it('clears the same stored session and shows expiry when refresh is rejected', async () => {
@@ -97,5 +108,26 @@ describe('auth bootstrap gate', () => {
       message: '만료된 로그인 정보를 안전하게 삭제하지 못했습니다.',
     });
     expect(clearTokens).toHaveBeenCalledWith(AUTH_GENERATION);
+  });
+
+  it('always refreshes on restart so remotely revoked sessions fail closed', async () => {
+    vi.mocked(refreshAndEstablishSession).mockResolvedValue({
+      status: 'noCampus',
+      user: {
+        id: 1, email: 'safe@example.com', name: '사용자', role: 'USER',
+        isActive: true, lastLoginAt: null, campusMemberships: [],
+      },
+    });
+    await bootstrapAuthGate();
+    expect(refreshAndEstablishSession).toHaveBeenCalledWith(
+      'expired-refresh-token', AUTH_GENERATION,
+    );
+  });
+
+  it('never refreshes a stored session while durable FCM cleanup is unresolved', async () => {
+    waitForFcmTransitionCleanup.mockResolvedValue(false);
+    await expect(bootstrapAuthGate()).resolves.toMatchObject({status: 'signedOut'});
+    expect(getStoredAuthSession).not.toHaveBeenCalled();
+    expect(refreshAndEstablishSession).not.toHaveBeenCalled();
   });
 });

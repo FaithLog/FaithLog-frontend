@@ -73,7 +73,7 @@ export const iconexIconNodeIds: Record<IconexIconName, string> = {
   wallet: '191:641',
 };
 
-export function IconexIcon({
+export const IconexIcon = memo(function IconexIcon({
   color = colors.textPrimary,
   name,
   size = 24,
@@ -88,12 +88,19 @@ export function IconexIcon({
       <SvgXml height={size} width={size} xml={getIconSvg(name, color, strokeWidth)} />
     </View>
   );
-}
+});
+
+const iconSvgCache = new Map<string, string>();
 
 function getIconSvg(name: IconexIconName, color: string, strokeWidth: number): string {
-  return iconexIconSvgs[name]
+  const key = `${name}:${color}:${strokeWidth}`;
+  const cached = iconSvgCache.get(key);
+  if (cached) return cached;
+  const xml = iconexIconSvgs[name]
     .replaceAll(ICONEX_SOURCE_COLOR, color)
     .replaceAll(`stroke-width="${ICONEX_SOURCE_STROKE_WIDTH}"`, `stroke-width="${strokeWidth}"`);
+  iconSvgCache.set(key, xml);
+  return xml;
 }
 
 const iconexIconSvgs: Record<IconexIconName, string> = {
@@ -255,3 +262,4 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
 });
+import {memo} from 'react';

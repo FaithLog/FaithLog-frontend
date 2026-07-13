@@ -1,7 +1,20 @@
 import {FaithLogApiError, validateRuntimeConfig} from '../api/client';
-import {clearTokens, getStoredAuthSession} from '../api/tokenStorage';
+import {
+  clearTokens,
+  clearAuthTeardownPending,
+  getAuthSessionGeneration,
+  getStoredAuthSession,
+  hasAuthTeardownPending,
+  hasFcmRemoteCleanupPending,
+  markAuthTeardownPending,
+  materializeStoredSessionLogoutObligation,
+  startAuthSessionClear,
+} from '../api/tokenStorage';
 import type {ApiError, CampusMembershipSummary, CurrentUser} from '../api/types';
 import {refreshAndEstablishSession} from './session';
+import {waitForFcmTransitionCleanup} from './fcmTransitionCleanup';
+
+const BOOTSTRAP_REMOTE_CLEANUP_TIMEOUT_MS = 21_000;
 
 export type AuthGateState =
   | {status: 'loading'; message: string}
@@ -52,6 +65,55 @@ export async function bootstrapAuthGate(): Promise<AuthGateState> {
     return {
       status: 'configurationError',
       message: '앱 설정을 확인하지 못했습니다.',
+    };
+  }
+
+  let hadDurableTeardown = false;
+  try {
+    const [authTeardownPending, fcmCleanupPending] = await Promise.all([
+      hasAuthTeardownPending(), hasFcmRemoteCleanupPending(),
+    ]);
+    hadDurableTeardown = authTeardownPending || fcmCleanupPending;
+    if (hadDurableTeardown) {
+      try {
+        const generation = getAuthSessionGeneration();
+        if (!authTeardownPending) await markAuthTeardownPending();
+        await materializeStoredSessionLogoutObligation(generation);
+        const transition = startAuthSessionClear(generation);
+        if (!transition.cleared) throw new Error('Authentication teardown changed.');
+        await transition.completion;
+      } catch {
+        return {
+          status: 'signedOut',
+          warning: '이전 로그인 정보를 안전하게 삭제하지 못했습니다. 앱을 다시 실행해 주세요.',
+        };
+      }
+    }
+    const cleanupComplete = await waitForFcmTransitionCleanup(
+      BOOTSTRAP_REMOTE_CLEANUP_TIMEOUT_MS,
+    );
+    if (hadDurableTeardown) {
+      if (cleanupComplete) await clearAuthTeardownPending();
+      return cleanupComplete
+        ? {
+            status: 'signedOut',
+            warning: '이전 로그아웃 정리를 완료했습니다. 다시 로그인해 주세요.',
+          }
+        : {
+            status: 'signedOut',
+            warning: '이전 알림 연결 정리가 필요합니다. 네트워크를 확인한 뒤 앱을 다시 실행해 주세요.',
+          };
+    }
+    if (!cleanupComplete) {
+      return {
+        status: 'signedOut',
+        warning: '이전 알림 연결 정리가 필요합니다. 네트워크를 확인한 뒤 앱을 다시 실행해 주세요.',
+      };
+    }
+  } catch {
+    return {
+      status: 'signedOut',
+      warning: '이전 알림 연결 상태를 안전하게 확인하지 못했습니다.',
     };
   }
 

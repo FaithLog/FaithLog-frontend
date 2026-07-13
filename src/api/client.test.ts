@@ -5,8 +5,10 @@ vi.mock('./tokenStorage', () => ({
   getAuthSessionGeneration: vi.fn(),
   getStoredAuthSession: vi.fn(),
   isAccessTokenOwnedByAuthSession: vi.fn(),
+  isAuthSessionRequestAllowed: vi.fn(),
   isAuthSessionGenerationCurrent: vi.fn(),
   saveTokens: vi.fn(),
+  startAuthSessionClear: vi.fn(),
 }));
 
 import {
@@ -25,6 +27,8 @@ import {
   getApiBaseUrl,
   isMockModeEnabled,
   loginUser,
+  logoutUser,
+  registerMyFcmToken,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -32,10 +36,17 @@ import {
   getAuthSessionGeneration,
   getStoredAuthSession,
   isAccessTokenOwnedByAuthSession,
+  isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   saveTokens,
+  startAuthSessionClear,
   type AuthSessionGeneration,
 } from './tokenStorage';
+import {
+  collectRefreshTokensForLogout,
+  hasRefreshLogoutHandoff,
+  resetRefreshLogoutHandoffForTests,
+} from '../auth/refreshLogoutHandoff';
 
 const API_BASE_URL = 'https://api.faithlog.test/root/';
 const FIRST_AUTH_GENERATION = 1 as AuthSessionGeneration;
@@ -114,6 +125,7 @@ type ResponseEnvelope<T> = {
 
 describe('FaithLog API client', () => {
   beforeEach(() => {
+    resetRefreshLogoutHandoffForTests();
     currentAuthGeneration = FIRST_AUTH_GENERATION;
     process.env.EXPO_PUBLIC_API_BASE_URL = API_BASE_URL;
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
@@ -124,6 +136,9 @@ describe('FaithLog API client', () => {
       (generation) => generation === currentAuthGeneration,
     );
     vi.mocked(isAccessTokenOwnedByAuthSession).mockResolvedValue(true);
+    vi.mocked(isAuthSessionRequestAllowed).mockImplementation(
+      (generation) => generation === currentAuthGeneration,
+    );
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: currentAuthGeneration,
       accessToken: null,
@@ -147,6 +162,32 @@ describe('FaithLog API client', () => {
     expect(buildApiUrl('/api/v1/users/me')).toBe(
       'https://api.faithlog.test/root/api/v1/users/me',
     );
+  });
+
+  it('reports an actually-sent logout timeout as an unknown offline outcome', async () => {
+    vi.useFakeTimers();
+    try {
+      const onRequestDispatch = vi.fn();
+      vi.mocked(fetch).mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+        expect(onRequestDispatch).toHaveBeenCalledOnce();
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }));
+      const logout = logoutUser(
+        'captured-access',
+        {refreshToken: 'captured-refresh'},
+        onRequestDispatch,
+      );
+      const rejected = expect(logout).rejects.toSatisfy((error) => {
+        expectApiError(error, {kind: 'offline', code: 'REQUEST_TIMEOUT'});
+        return true;
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(onRequestDispatch).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('requires the approved HTTPS origin for preview and production builds', () => {
@@ -268,6 +309,36 @@ describe('FaithLog API client', () => {
       password: 'FaithLog!100047',
       confirmText: '회원탈퇴',
     });
+  });
+
+  it('fails account deletion as sessionExpired when both DELETE and refresh return 401', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access',
+      refreshToken: 'expired-refresh',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_REFRESH_REJECTED', message: 'refresh revoked',
+      })));
+    vi.mocked(startAuthSessionClear).mockReturnValueOnce({
+      cleared: true,
+      previousGeneration: FIRST_AUTH_GENERATION,
+      currentGeneration: 2 as AuthSessionGeneration,
+      completion: Promise.resolve(),
+    });
+
+    await expect(deleteMyAccount('expired-access', {
+      password: 'FaithLog!100047', confirmText: '회원탈퇴',
+    })).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'sessionExpired'});
+      return true;
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
   });
 
   it('requests poll list with a large page size and unwraps paged content', async () => {
@@ -577,6 +648,48 @@ describe('FaithLog API client', () => {
     expect(clearTokens).not.toHaveBeenCalled();
   });
 
+  it('awaits effective FCM credentials before sending a transparent 401 retry', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    let releaseCredentialUpdate!: () => void;
+    const credentialUpdate = new Promise<void>((resolve) => {
+      releaseCredentialUpdate = resolve;
+    });
+    const onEffectiveAuthTokens = vi.fn(async () => credentialUpdate);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        accessToken: 'fresh-access-token', refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+      })))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-03T00:00:00.000Z',
+        lastSeenAt: '2026-07-03T00:00:00.000Z', tokenId: 77,
+      })));
+
+    const request = registerMyFcmToken(
+      'expired-access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      onEffectiveAuthTokens,
+    );
+    await vi.waitFor(() => expect(onEffectiveAuthTokens).toHaveBeenCalledWith({
+      accessToken: 'fresh-access-token', refreshToken: 'fresh-refresh-token',
+      accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    releaseCredentialUpdate();
+    await expect(request).resolves.toMatchObject({tokenId: 77});
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('refreshes once for admin payment account create before keeping endpoint 401 inline', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,
@@ -870,6 +983,110 @@ describe('FaithLog API client', () => {
     expect(saveTokens).not.toHaveBeenCalled();
   });
 
+  it('rechecks generation after deferred ownership and before mutation fetch', async () => {
+    let finishOwnership!: (owned: boolean) => void;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => { finishOwnership = resolve; }),
+    );
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'first-user-access-token',
+      method: 'POST',
+      body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    finishOwnership(true);
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects mutation fetch when logout marks its generation closing', async () => {
+    let finishOwnership!: (owned: boolean) => void;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => { finishOwnership = resolve; }),
+    );
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'first-user-access-token',
+      method: 'PATCH',
+      body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishOwnership(true);
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not report the FCM server boundary before ownership and closing checks pass', async () => {
+    let finishOwnership!: (owned: boolean) => void;
+    vi.mocked(isAccessTokenOwnedByAuthSession).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => { finishOwnership = resolve; }),
+    );
+    const onDispatch = vi.fn();
+    const pending = registerMyFcmToken(
+      'first-user-access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      undefined,
+      onDispatch,
+    );
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishOwnership(true);
+
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(onDispatch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports dispatch only at the production fetch boundary', async () => {
+    const onDispatch = vi.fn();
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      expect(onDispatch).toHaveBeenCalledOnce();
+      return jsonResponse(200, envelope({
+        appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS',
+        isActive: true, lastRefreshedAt: '2026-07-13T00:00:00.000Z',
+        lastSeenAt: '2026-07-13T00:00:00.000Z', tokenId: 77,
+      }));
+    });
+
+    await expect(registerMyFcmToken(
+      'access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      undefined,
+      onDispatch,
+    )).resolves.toMatchObject({tokenId: 77});
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the receipt prepared when URL validation fails before fetch', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:8080';
+    const onDispatch = vi.fn();
+
+    await expect(registerMyFcmToken(
+      'access-token',
+      {appVersion: '1.0.0', clientInstanceId: 'client-1', deviceType: 'IOS', token: 'fcm'},
+      FIRST_AUTH_GENERATION,
+      undefined,
+      onDispatch,
+    )).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'CONFIGURATION'});
+      return true;
+    });
+    expect(onDispatch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('retries a same-session stale token with an already rotated stored token', async () => {
     vi.mocked(getStoredAuthSession).mockResolvedValue({
       generation: FIRST_AUTH_GENERATION,
@@ -910,6 +1127,113 @@ describe('FaithLog API client', () => {
         String(url).endsWith('/api/v1/auth/refresh'),
       ),
     ).toBe(false);
+  });
+
+  it('rechecks generation after a rotated-token promise and before retry fetch', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+      success: false,
+      code: 'AUTH_UNAUTHORIZED',
+      message: 'expired',
+    })));
+    let finishStoredRead!: (value: Awaited<ReturnType<typeof getStoredAuthSession>>) => void;
+    vi.mocked(getStoredAuthSession).mockReturnValueOnce(new Promise((resolve) => {
+      finishStoredRead = resolve;
+    }));
+    const pending = apiRequest('/protected', {
+      accessToken: 'old-access',
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    currentAuthGeneration = 2 as AuthSessionGeneration;
+    finishStoredRead({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access',
+      refreshToken: 'rotated-refresh',
+    });
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('does not retry a 401 mutation after logout marks the generation closing', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+      success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+    })));
+    let finishStoredRead!: (value: Awaited<ReturnType<typeof getStoredAuthSession>>) => void;
+    vi.mocked(getStoredAuthSession).mockReturnValueOnce(new Promise((resolve) => {
+      finishStoredRead = resolve;
+    }));
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'old-access', method: 'PATCH', body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishStoredRead({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh',
+    });
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('does not expire a closing logout after a delayed null refresh-token read', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+      success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+    })));
+    let finishStoredRead!: (value: Awaited<ReturnType<typeof getStoredAuthSession>>) => void;
+    vi.mocked(getStoredAuthSession).mockReturnValueOnce(new Promise((resolve) => {
+      finishStoredRead = resolve;
+    }));
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'old-access', method: 'PATCH', body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishStoredRead({
+      generation: FIRST_AUTH_GENERATION, accessToken: null, refreshToken: null,
+    });
+
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
+    expect(startAuthSessionClear).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('does not apply a retry response that completes after logout closing', async () => {
+    const fetchMock = vi.mocked(fetch);
+    let finishRetry!: (response: Response) => void;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockReturnValueOnce(new Promise((resolve) => { finishRetry = resolve; }));
+    vi.mocked(getStoredAuthSession).mockResolvedValueOnce({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'rotated-access', refreshToken: 'rotated-refresh',
+    });
+    const pending = apiRequest('/protected-mutation', {
+      accessToken: 'old-access', method: 'POST', body: {enabled: true},
+      responseParser: parseOkResponse,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    vi.mocked(isAuthSessionRequestAllowed).mockReturnValue(false);
+    finishRetry(jsonResponse(200, envelope({ok: true})));
+    await expect(pending).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'AUTH_SESSION_CHANGED'});
+      return true;
+    });
   });
 
   it('does not persist a delayed refresh after logout or account replacement', async () => {
@@ -969,6 +1293,10 @@ describe('FaithLog API client', () => {
     });
     expect(saveTokens).not.toHaveBeenCalled();
     expect(clearTokens).not.toHaveBeenCalled();
+    await expect(collectRefreshTokensForLogout(FIRST_AUTH_GENERATION)).resolves.toMatchObject({
+      accessToken: 'stale-fresh-access-token',
+      refreshToken: 'stale-fresh-refresh-token',
+    });
   });
 
   it('preserves stored tokens when refresh fails because the device is offline', async () => {
@@ -1001,6 +1329,38 @@ describe('FaithLog API client', () => {
     });
     expect(clearTokens).not.toHaveBeenCalled();
     expect(saveTokens).not.toHaveBeenCalled();
+  });
+
+  it('restart-gates and clears issued refresh tokens when durable save rejects', async () => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION,
+      accessToken: 'expired-access-token',
+      refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {
+        success: false, code: 'AUTH_UNAUTHORIZED', message: 'expired',
+      })))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        accessToken: 'issued-before-save-failure',
+        refreshToken: 'issued-refresh-before-save-failure',
+        accessTokenExpiresIn: 3600,
+        refreshTokenExpiresIn: 7200,
+        tokenType: 'Bearer',
+      })));
+    vi.mocked(saveTokens).mockRejectedValueOnce(new Error('secure storage write failed'));
+    vi.mocked(startAuthSessionClear).mockReturnValueOnce({
+      cleared: true,
+      previousGeneration: FIRST_AUTH_GENERATION,
+      currentGeneration: 2 as AuthSessionGeneration,
+      completion: Promise.resolve(),
+    });
+
+    await expect(apiRequest('/protected', {
+      accessToken: 'expired-access-token', responseParser: parseOkResponse,
+    })).rejects.toThrow();
+    expect(hasRefreshLogoutHandoff(FIRST_AUTH_GENERATION)).toBe(false);
+    expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
   });
 
   it('refreshes once for concurrent 401 responses and retries original requests', async () => {

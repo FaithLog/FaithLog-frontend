@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  AppState,
   Keyboard,
   KeyboardAvoidingView,
   type KeyboardTypeOptions,
@@ -37,7 +38,6 @@ import {
   fetchMyCampuses,
   fetchPrayerWeek,
   joinCampus,
-  signupUser,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {
@@ -45,7 +45,11 @@ import {
   getAuthSessionGeneration,
   getStoredAuthSession,
   getStoredTokens,
+  isAuthSessionRequestAllowed,
+  markAuthSessionClosing,
   saveSelectedCampusId,
+  StaleAuthSessionReadError,
+  type AuthSessionGeneration,
 } from '../api/tokenStorage';
 import type {
   ApiError,
@@ -67,12 +71,18 @@ import {
   validateSignupForm,
 } from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
+import {expireMissingAuthSession, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {shouldHandleRequestError} from '../auth/requestErrorLineage';
+import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   loginAndEstablishSession,
   prepareCurrentSessionLogout,
+  signupAfterSessionCleanup,
   type PreparedLogout,
 } from '../auth/session';
+import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
+import {beginFcmTransitionCleanup} from '../auth/fcmTransitionCleanup';
 import {
   type CampusCreateFormValues,
   type InviteCodeFormValues,
@@ -115,13 +125,16 @@ import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {
   deactivateCurrentFcmToken,
-  inspectFcmRegistrationStatus,
+  ensureAutomaticFcmRegistration,
+  inspectFcmRegistrationStatusWithCleanup,
   registerCurrentFcmToken,
   registerFcmTokenValue,
+  runAccountDeletionWithFcmPreflight,
   type FcmRegistrationStatus,
 } from '../notifications/fcmRegistration';
 import {isFcmRuntimeEnabled} from '../notifications/fcmEnvironment';
 import {initializeNativeFirebaseMessaging} from '../notifications/nativeFirebaseMessaging';
+import {createNotificationOperationCoordinator, type NotificationOperationIdentity} from '../notifications/notificationOperationCoordinator';
 import {
   getInitialNotificationOpenPayload,
   openNotificationSettings,
@@ -132,9 +145,11 @@ import {
   parsePushNotificationOpenPayload,
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
+import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {colors, spacing} from '../theme';
+import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
 
 const initialState: AuthGateState = {
@@ -162,6 +177,7 @@ type SetAuthState = Dispatch<SetStateAction<AuthGateState>>;
 type SignedOutAuthState = Extract<AuthGateState, {status: 'signedOut'}>;
 type PrepareLogout = (userId?: number) => Promise<PreparedLogout>;
 type LogoutAuthTransition = {
+  cancelled?: boolean;
   initialState: SignedOutAuthState;
   remoteState: Promise<SignedOutAuthState | null> | null;
 };
@@ -173,6 +189,7 @@ export async function beginLogoutAuthTransition(
   userId: number,
   prepareLogout: PrepareLogout = prepareCurrentSessionLogout,
 ): Promise<LogoutAuthTransition> {
+  invalidatePaymentContextCache();
   try {
     const prepared = await prepareLogout(userId);
     const remoteState = Promise.resolve()
@@ -188,12 +205,103 @@ export async function beginLogoutAuthTransition(
       }));
 
     return {initialState: {status: 'signedOut'}, remoteState};
-  } catch {
+  } catch (error) {
+    if (error instanceof StaleAuthSessionReadError) {
+      return {cancelled: true, initialState: {status: 'signedOut'}, remoteState: null};
+    }
     return {
       initialState: {status: 'signedOut', warning: LOCAL_LOGOUT_FAILURE_WARNING},
       remoteState: null,
     };
   }
+}
+
+export function purgePaymentContextForAuthState(
+  status: AuthGateState['status'],
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  if (status !== 'authenticated') invalidate();
+}
+
+export function applyAuthResultIfCurrent(
+  epoch: number,
+  currentEpoch: number,
+  apply: () => void,
+) {
+  if (epoch === currentEpoch) apply();
+}
+
+export async function finalizeAccountDeletionTeardown(
+  clear: () => Promise<unknown>,
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  try {
+    const cleared = await clear();
+    if (cleared === false) {
+      return '로그인 세션이 변경되어 이 기기의 이전 로그인 정보 정리를 확인하지 못했습니다.';
+    }
+    return null;
+  } catch {
+    return '계정은 삭제됐지만 이 기기의 로그인 정보 정리를 완료하지 못했습니다.';
+  } finally {
+    invalidate();
+  }
+}
+
+export function beginAccountDeletionTeardown(
+  transitionToPublic: () => void,
+  clear: () => Promise<unknown>,
+  invalidate: () => void = invalidatePaymentContextCache,
+  beginRemoteCleanup: (generation?: number) => Promise<void> = beginFcmTransitionCleanup,
+  remoteCleanupGeneration?: number,
+) {
+  invalidate();
+  transitionToPublic();
+  void beginRemoteCleanup(remoteCleanupGeneration);
+  const cleanup = clear();
+  trackLocalSessionCleanup(cleanup);
+  return finalizeAccountDeletionTeardown(() => cleanup, () => {});
+}
+
+export function attachAccountDeletionCleanupWarning(
+  current: AuthGateState,
+  warning: string,
+): AuthGateState {
+  return current.status === 'signedOut' ? {...current, warning} : current;
+}
+
+export function applyCompletedAccountDeletionTeardown(
+  cleanupWarning: string | undefined,
+  transitionToPublic: () => void,
+  clear: () => Promise<unknown>,
+  invalidate: () => void,
+  onWarning: (warning: string) => void,
+  generation?: AuthSessionGeneration,
+) {
+  const teardown = beginAccountDeletionTeardown(
+    transitionToPublic,
+    clear,
+    invalidate,
+    async () => undefined,
+    generation,
+  );
+  // The backend deletion and public transition are already terminal. Surface a
+  // known durable-claim warning immediately instead of waiting for local
+  // SecureStore cleanup, which may remain pending at the OS boundary.
+  if (cleanupWarning) onWarning(cleanupWarning);
+  return teardown.then((localWarning) => {
+    const warning = cleanupWarning ?? localWarning;
+    if (!cleanupWarning && localWarning) onWarning(localWarning);
+    return warning;
+  });
+}
+
+export function beginProtectedLogoutUiTeardown(
+  transitionToSignedOut: () => void,
+  invalidate: () => void = invalidatePaymentContextCache,
+) {
+  invalidate();
+  transitionToSignedOut();
 }
 
 type CardState<T> =
@@ -214,7 +322,6 @@ type NotificationUiState =
   | {status: 'dismissed'}
   | FcmRegistrationStatus;
 
-const HOME_TODAY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 export function FaithLogApp() {
   const androidShellInsets = useAndroidShellLayoutInsets();
@@ -224,6 +331,7 @@ export function FaithLogApp() {
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const autoFcmRegistrationAttemptRef = useRef<string | null>(null);
+  const authTransitionEpoch = useRef(0);
   const clearAppMessage = () => {};
   const ignoreAppMessage = (_notice: AppMessage) => {};
   const publicAuthMode =
@@ -233,16 +341,38 @@ export function FaithLogApp() {
   const RootContainer = Platform.OS === 'android' ? View : SafeAreaView;
 
   const retryBootstrap = () => {
+    const epoch = ++authTransitionEpoch.current;
     setEntryTarget(null);
     clearAppMessage();
     setAuthState({status: 'loading', message: '세션을 다시 확인하고 있어요.'});
-    void bootstrapAuthGate().then(setAuthState);
+    void bootstrapAuthGate().then((result) => applyAuthResultIfCurrent(
+      epoch, authTransitionEpoch.current, () => setAuthState(result),
+    ));
   };
 
+  useEffect(() => subscribeSessionExpiration(createSessionExpirationHandler(
+    getAuthSessionGeneration,
+    () => {
+      authTransitionEpoch.current += 1;
+      invalidatePaymentContextCache();
+      setAuthState({
+        status: 'sessionExpired',
+        message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+      });
+    },
+  )), []);
+
   useEffect(() => {
+    const epoch = authTransitionEpoch.current;
     void initializeNativeFirebaseMessaging();
-    void bootstrapAuthGate().then(setAuthState);
+    void bootstrapAuthGate().then((result) => applyAuthResultIfCurrent(
+      epoch, authTransitionEpoch.current, () => setAuthState(result),
+    ));
   }, []);
+
+  useEffect(() => {
+    purgePaymentContextForAuthState(authState.status);
+  }, [authState.status]);
 
   useEffect(() => {
     if (authState.status !== 'authenticated' || !isFcmRuntimeEnabled()) {
@@ -261,10 +391,11 @@ export function FaithLogApp() {
       }
 
       unsubscribe = subscribeDeviceFcmTokenRefresh((token) => {
-        void getStoredAuthSession()
+        void getStoredAuthSession(generation)
           .then((session) => {
             if (
               !active ||
+              !isAuthSessionRequestAllowed(generation) ||
               !session.accessToken ||
               session.generation !== generation
             ) {
@@ -305,30 +436,23 @@ export function FaithLogApp() {
     let active = true;
 
     void initializeNativeFirebaseMessaging()
-      .then(() => getStoredAuthSession())
+      .then(() => getStoredAuthSession(generation))
       .then((session) => {
         if (
           !active ||
+          !isAuthSessionRequestAllowed(generation) ||
           !session.accessToken ||
           session.generation !== generation
         ) {
           return null;
         }
 
-        return inspectFcmRegistrationStatus(userId, generation).then((status) => {
-          if (
-            !active ||
-            status.status === 'registered'
-          ) {
-            return status;
-          }
-
-          return registerCurrentFcmToken(
-            session.accessToken!,
-            userId,
-            generation,
-          );
-        });
+        return ensureAutomaticFcmRegistration(
+          session.accessToken,
+          userId,
+          generation,
+          () => active && isAuthSessionRequestAllowed(generation),
+        );
       })
       .catch((error) => {
         if (!active) {
@@ -928,12 +1052,10 @@ function InviteCodeForm({
 
     setSubmitting(true);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const joined = await joinCampus(accessToken, result.payload);
       const nextState = await resolveAuthenticatedCampusState(
@@ -1039,12 +1161,10 @@ function CampusCreateForm({
 
     setSubmitting(true);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const created = await createCampus(accessToken, result.payload);
       const nextState = await resolveAuthenticatedCampusState(
@@ -1264,10 +1384,12 @@ function SignupForm({
 
     setSubmitting(true);
     try {
-      const user = await signupUser(result.payload);
+      const user = await signupAfterSessionCleanup(result.payload);
       onSignupComplete(user.name);
     } catch (error) {
-      if (error instanceof FaithLogApiError && error.detail.kind === 'conflict') {
+      if (error instanceof FaithLogApiError && error.detail.code === 'LOGOUT_CLEANUP_PENDING') {
+        setFormError(getAuthFormErrorMessage(error, 'signup'));
+      } else if (error instanceof FaithLogApiError && error.detail.kind === 'conflict') {
         setFieldErrors((current) => ({
           ...current,
           email: '이미 가입된 이메일입니다.',
@@ -1523,7 +1645,9 @@ async function applyCampusFormError(
 ) {
   if (error instanceof FaithLogApiError) {
     if (error.detail.kind === 'sessionExpired') {
-      await clearTokens(error.detail.authSessionGeneration);
+      if (error.detail.authSessionGeneration !== undefined) {
+        expireMissingAuthSession(error.detail.authSessionGeneration);
+      }
       options.setFormError(null);
       options.onSessionExpired(error.detail.message);
       return;
@@ -1571,7 +1695,8 @@ function getAuthFormErrorMessage(error: unknown, context: 'login' | 'signup') {
   return '요청 중 알 수 없는 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
-function getApiErrorMessage(error: ApiError, context: 'login' | 'signup') {
+export function getApiErrorMessage(error: ApiError, context: 'login' | 'signup') {
+  if (error.code === 'LOGOUT_CLEANUP_PENDING') return error.message;
   switch (error.kind) {
     case 'sessionExpired':
       return context === 'login'
@@ -1731,15 +1856,13 @@ function AuthenticatedShell({
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const nextState = await refreshAuthenticatedCampusState(accessToken, state);
       setAuthState(nextState);
@@ -1775,15 +1898,13 @@ function AuthenticatedShell({
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
       const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
@@ -1815,34 +1936,34 @@ function AuthenticatedShell({
     }
   };
 
-  const completeLogout = async () => {
+  const completeLogout = () => {
     if (loggingOut) {
       return;
     }
 
     const userId = state.user.id;
+    const logoutGeneration = getAuthSessionGeneration();
+    if (!markAuthSessionClosing(logoutGeneration)) return;
     setLoggingOut(true);
+    setLogoutConfirmVisible(false);
+    setRoute('userHome');
+    beginProtectedLogoutUiTeardown(() => setAuthState({status: 'signedOut'}));
 
-    const transitionToSignedOut = (warning?: string) => {
-      setLogoutConfirmVisible(false);
-      setRoute('userHome');
-      setAuthState({status: 'signedOut', ...(warning ? {warning} : {})});
-    };
-
-    const transition = await beginLogoutAuthTransition(userId);
-    transitionToSignedOut(transition.initialState.warning);
-
-    if (transition.remoteState) {
-      void transition.remoteState.then((remoteState) => {
-        if (!remoteState) {
-          return;
-        }
-
-        setAuthState((currentState) =>
-          currentState.status === 'signedOut' ? remoteState : currentState,
-        );
-      });
-    }
+    void beginLogoutAuthTransition(userId).then((transition) => {
+      if (transition.cancelled) return;
+      const applyWarning = (nextState: SignedOutAuthState | null) => {
+        if (!nextState || getAuthSessionGeneration() !== logoutGeneration + 1) return;
+        setAuthState((currentState) => currentState.status === 'signedOut'
+          ? nextState
+          : currentState);
+      };
+      if (transition.initialState.warning) {
+        setAuthState((currentState) => currentState.status === 'signedOut'
+          ? transition.initialState
+          : currentState);
+      }
+      if (transition.remoteState) void transition.remoteState.then(applyWarning);
+    });
   };
 
   const openLogoutConfirm = () => {
@@ -1900,15 +2021,13 @@ function AuthenticatedShell({
   const refreshCampusDetail = async () => {
     setCampusDetailState({status: 'loading'});
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, state.selectedCampus.campusId);
       setSelectedCampusDetail(detail);
@@ -1931,15 +2050,13 @@ function AuthenticatedShell({
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
       const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
@@ -1992,16 +2109,14 @@ function AuthenticatedShell({
     }
 
     setCampusDetailState({status: 'loading'});
-    void getStoredTokens()
-      .then(({accessToken}) => {
-        if (!accessToken) {
+    void resolveCurrentAccessToken(() => {
           setAuthState({
             status: 'sessionExpired',
             message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
           });
-          return null;
-        }
-
+      })
+      .then((accessToken) => {
+        if (!accessToken) return null;
         return fetchCampusDetail(accessToken, state.selectedCampus.campusId);
       })
       .then((detail) => {
@@ -2537,50 +2652,87 @@ function UserHomeDashboard({
   const [prayerState, setPrayerState] = useState<CardState<PrayerWeekSummary>>({status: 'idle'});
   const displayUserName = getCompactDisplayName(state.user.name, '사용자');
   const campusLabel = getHeaderCampusName(state.selectedCampus.campusName);
+  const homeRequestSequence = useRef(0);
+  const homeMounted = useRef(true);
+  const currentHomeKey = useRef('');
+  currentHomeKey.current = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
 
-  const runCardRequest = async <T,>(
-    key: HomeCardKey,
-    setCardState: (cardState: CardState<T>) => void,
-    request: (accessToken: string) => Promise<T>,
-  ) => {
-    setCardState({status: 'loading'});
+  const loadHomeCards = async () => {
+    const requestSequence = ++homeRequestSequence.current;
+    const requestGeneration = getAuthSessionGeneration();
+    const requestKey = `${requestGeneration}:${campusId}:${year}-${month}:${weekStartDate}`;
+    setMonthlyDevotionState({status: 'loading'});
+    setChargeState({status: 'loading'});
+    setPrayerState({status: 'loading'});
     try {
-      const {accessToken} = await getStoredTokens();
+      const {accessToken} = await getStoredTokens(requestGeneration);
 
       if (!accessToken) {
+        if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration)) return;
+        expireMissingAuthSession(requestGeneration);
         const error: ApiError = {
           kind: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         };
-        setCardState({status: 'error', error});
+        setMonthlyDevotionState({status: 'error', error});
+        setChargeState({status: 'error', error});
+        setPrayerState({status: 'error', error});
         setAuthState({status: 'sessionExpired', message: error.message});
         return;
       }
 
-      const data = await request(accessToken);
-      setCardState({status: 'success', data});
+      const apply = <T,>(
+        result: PromiseSettledResult<T>, currentKey: string,
+        key: HomeCardKey,
+        setter: (value: CardState<T>) => void,
+      ) => {
+        if (result.status === 'fulfilled') {
+          if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration) ||
+              !isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
+          setter({status: 'success', data: result.value});
+          return;
+        }
+        const error = toApiError(result.reason, getHomeCardFallbackMessage(key));
+        if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration) || !shouldHandleRequestError(
+          error, requestGeneration, getAuthSessionGeneration(),
+        )) return;
+        if (error.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: error.message});
+          return;
+        }
+        if (!isCurrentRequest(requestSequence, homeRequestSequence.current, currentKey, currentHomeKey.current)) return;
+        setter({status: 'error', error});
+      };
+      const settle = <T,>(promise: Promise<T>, key: HomeCardKey, setter: (value: CardState<T>) => void) =>
+        settleIndependently(promise, (result) => apply(result, requestKey, key, setter));
+      await Promise.all([
+        settle(fetchDevotionMonthlySummary(accessToken, campusId, {month, year}), 'devotion', setMonthlyDevotionState),
+        settle(fetchChargeSummary(accessToken, campusId, {month, year}), 'charges', setChargeState),
+        settle(fetchPrayerWeek(accessToken, campusId, weekStartDate), 'prayers', setPrayerState),
+      ]);
     } catch (error) {
-      const apiError = toApiError(error, getHomeCardFallbackMessage(key));
-      setCardState({status: 'error', error: apiError});
-
+      const apiError = toApiError(error, '홈 요약을 불러오지 못했습니다.');
+      if (!homeMounted.current || !isAuthSessionRequestAllowed(requestGeneration) || !shouldHandleRequestError(
+        apiError, requestGeneration, getAuthSessionGeneration(),
+      )) return;
       if (apiError.kind === 'sessionExpired') {
         setAuthState({status: 'sessionExpired', message: apiError.message});
+        return;
       }
+      if (requestSequence !== homeRequestSequence.current) return;
+      setMonthlyDevotionState({status: 'error', error: apiError});
+      setChargeState({status: 'error', error: apiError});
+      setPrayerState({status: 'error', error: apiError});
     }
   };
 
-  const loadMonthlyDevotion = () =>
-    runCardRequest('devotion', setMonthlyDevotionState, (accessToken) =>
-      fetchDevotionMonthlySummary(accessToken, campusId, {month, year}),
-    );
-  const loadCharges = () =>
-    runCardRequest('charges', setChargeState, (accessToken) =>
-      fetchChargeSummary(accessToken, campusId, {month, year}),
-    );
-  const loadPrayers = () =>
-    runCardRequest('prayers', setPrayerState, (accessToken) =>
-      fetchPrayerWeek(accessToken, campusId, weekStartDate),
-    );
+  useEffect(() => {
+    homeMounted.current = true;
+    return () => {
+      homeMounted.current = false;
+      homeRequestSequence.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     const refreshToday = () => {
@@ -2590,17 +2742,35 @@ function UserHomeDashboard({
         formatLocalDate(currentToday) === formatLocalDate(nextToday) ? currentToday : nextToday,
       );
     };
-    const intervalId = setInterval(refreshToday, HOME_TODAY_REFRESH_INTERVAL_MS);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const scheduleMidnightRefresh = () => {
+      clearTimeout(timeoutId);
+      const now = new Date();
+      const nextMidnight = new Date(now);
+      nextMidnight.setHours(24, 0, 1, 0);
+      timeoutId = setTimeout(() => {
+        refreshToday();
+        scheduleMidnightRefresh();
+      }, nextMidnight.getTime() - now.getTime());
+    };
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshToday();
+        scheduleMidnightRefresh();
+      }
+    });
 
     refreshToday();
+    scheduleMidnightRefresh();
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearTimeout(timeoutId);
+      subscription.remove();
+    };
   }, []);
 
   useEffect(() => {
-    void loadMonthlyDevotion();
-    void loadCharges();
-    void loadPrayers();
+    void loadHomeCards();
   }, [campusId, month, weekStartDate, year]);
 
   return (
@@ -3211,13 +3381,35 @@ function NotificationSettingsDetail({
   userId: number;
 }) {
   const [state, setState] = useState<NotificationUiState>({status: 'checking'});
+  const notificationCoordinator = useRef(
+    createNotificationOperationCoordinator(isAuthSessionRequestAllowed),
+  ).current;
 
-  const inspect = async () => {
+  const inspect = async (
+    identity: NotificationOperationIdentity = notificationCoordinator.start(
+      getAuthSessionGeneration(),
+    ),
+  ) => {
+    const isCurrent = () => notificationCoordinator.isCurrent(identity);
+    if (!isCurrent()) return;
     setState({status: 'checking'});
     try {
-      const generation = getAuthSessionGeneration();
-      setState(await inspectFcmRegistrationStatus(userId, generation));
+      const accessToken = await resolveCurrentAccessToken(() => {
+        setAuthState({
+          status: 'sessionExpired',
+          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+        });
+      });
+      if (!accessToken || !isCurrent()) return;
+      const nextState = await inspectFcmRegistrationStatusWithCleanup(
+        accessToken,
+        userId,
+        identity.generation as AuthSessionGeneration,
+      );
+      if (!isCurrent()) return;
+      setState(nextState);
     } catch {
+      if (!isCurrent()) return;
       setState({
         status: 'error',
         error: {kind: 'error', message: '알림 설정을 확인하지 못했습니다.'},
@@ -3230,25 +3422,28 @@ function NotificationSettingsDetail({
       return;
     }
 
+    const requestGeneration = getAuthSessionGeneration();
+    const identity = notificationCoordinator.start(requestGeneration);
+    const isCurrent = () => notificationCoordinator.isCurrent(identity);
     setState({status: 'registering'});
     try {
-      const session = await getStoredAuthSession();
-
-      if (!session.accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken || !isCurrent()) return;
 
       const result = await registerCurrentFcmToken(
-        session.accessToken,
+        accessToken,
         userId,
-        session.generation,
+        requestGeneration,
       );
+      if (!isCurrent()) return;
       setState(result);
     } catch (error) {
+      if (!isCurrent()) return;
       const apiError = toApiError(error, '기기 알림을 연결하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
@@ -3263,25 +3458,28 @@ function NotificationSettingsDetail({
       return;
     }
 
+    const requestGeneration = getAuthSessionGeneration();
+    const identity = notificationCoordinator.start(requestGeneration);
+    const isCurrent = () => notificationCoordinator.isCurrent(identity);
     setState({status: 'deactivating'});
     try {
-      const session = await getStoredAuthSession();
-
-      if (!session.accessToken) {
+      const accessToken = await resolveCurrentAccessToken(() => {
         setAuthState({
           status: 'sessionExpired',
           message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
         });
-        return;
-      }
+      });
+      if (!accessToken || !isCurrent()) return;
 
       await deactivateCurrentFcmToken(
-        session.accessToken,
+        accessToken,
         userId,
-        session.generation,
+        requestGeneration,
       );
-      await inspect();
+      if (!isCurrent()) return;
+      await inspect(identity);
     } catch (error) {
+      if (!isCurrent()) return;
       const apiError = toApiError(error, '기기 알림 연결을 해제하지 못했습니다.');
       setState({status: 'error', error: apiError});
 
@@ -3292,7 +3490,11 @@ function NotificationSettingsDetail({
   };
 
   useEffect(() => {
+    notificationCoordinator.setup();
     void inspect();
+    return () => {
+      notificationCoordinator.cleanup();
+    };
   }, []);
 
   const openSystemSettings =
@@ -3322,7 +3524,7 @@ function NotificationSettingsDetail({
         <Button
           accessibilityLabel="알림 설정 다시 확인"
           disabled={busy}
-          onPress={inspect}
+          onPress={notificationCoordinator.createInspectPressHandler(() => inspect())}
           variant="secondary">
           {state.status === 'checking' ? '확인 중...' : '다시 확인'}
         </Button>
@@ -3387,6 +3589,20 @@ function renderNotificationSettingRows(state: NotificationUiState) {
         <>
           <ListRow label="권한" supportingText="기기 알림은 허용됨" value="허용됨" />
           <ListRow label="연결" supportingText={state.message} value="대기" />
+        </>
+      );
+    case 'optedOut':
+      return (
+        <>
+          <ListRow label="알림 연결" supportingText={state.message} value="비활성화" />
+          <ListRow label="다시 켜기" supportingText="알림 켜기를 누르면 다시 연결됩니다" value="선택" />
+        </>
+      );
+    case 'optedOutPending':
+      return (
+        <>
+          <ListRow label="알림 연결" supportingText={state.message} value="확인 필요" />
+          <ListRow label="재시도" supportingText="다시 확인하면 서버 해제를 재시도합니다" value="대기" />
         </>
       );
     case 'disabled':
@@ -3670,6 +3886,7 @@ function AccountDeletionScreen({
   const [confirmText, setConfirmText] = useState('');
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const deletionInFlightRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const canDelete = password.length > 0 && confirmText === ACCOUNT_DELETE_CONFIRM_TEXT && !busy;
 
@@ -3689,48 +3906,66 @@ function AccountDeletionScreen({
   };
 
   const submitDelete = async () => {
-    if (busy || !canDelete) {
+    if (deletionInFlightRef.current || busy || !canDelete) {
       return;
     }
 
+    deletionInFlightRef.current = true;
+    const deletionGeneration = getAuthSessionGeneration();
     let shouldResetBusy = true;
     setBusy(true);
     setError(null);
     try {
-      const {accessToken} = await getStoredTokens();
-
-      if (!accessToken) {
-        await clearTokens();
-        shouldResetBusy = false;
-        setAuthState({
-          status: 'sessionExpired',
-          message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-        });
-        return;
-      }
-
-      await deleteMyAccount(accessToken, {
-        password,
-        confirmText,
-      });
-      await clearTokens();
+      const deletion = await runAccountDeletionWithFcmPreflight(
+        deletionGeneration,
+        () => resolveCurrentAccessToken(() => {
+          shouldResetBusy = false;
+          setAuthState({
+            status: 'sessionExpired',
+            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          });
+        }),
+        (accessToken) => deleteMyAccount(accessToken, {password, confirmText}),
+      );
+      if (deletion.status === 'cancelled') return;
       setConfirmVisible(false);
       shouldResetBusy = false;
-      setAuthState({status: 'signedOut'});
+      void applyCompletedAccountDeletionTeardown(
+        deletion.cleanupWarning,
+        () => setAuthState({status: 'signedOut'}),
+        () => clearTokens(deletionGeneration),
+        invalidatePaymentContextCache,
+        (warning) => {
+          setAuthState((current) => attachAccountDeletionCleanupWarning(
+            current, warning,
+          ));
+        },
+        deletionGeneration,
+      );
     } catch (deleteError) {
       const apiError = toApiError(deleteError, '회원 탈퇴를 완료하지 못했습니다.');
 
       if (apiError.kind === 'sessionExpired') {
-        await clearTokens(apiError.authSessionGeneration);
+        if (!shouldHandleRequestError(
+          apiError, deletionGeneration, getAuthSessionGeneration(),
+        )) return;
         setConfirmVisible(false);
         shouldResetBusy = false;
-        setAuthState({status: 'sessionExpired', message: apiError.message});
+        const generation = apiError.authSessionGeneration ?? getAuthSessionGeneration();
+        void beginAccountDeletionTeardown(
+          () => setAuthState({status: 'sessionExpired', message: apiError.message}),
+          () => clearTokens(generation),
+          invalidatePaymentContextCache,
+          beginFcmTransitionCleanup,
+          generation,
+        );
         return;
       }
 
       setError(getAccountDeletionErrorMessage(apiError));
       setConfirmVisible(false);
     } finally {
+      deletionInFlightRef.current = false;
       if (shouldResetBusy) {
         setBusy(false);
       }
@@ -3894,15 +4129,13 @@ function CoffeeDutyProfileRow({
 
     const loadCoffeeDuty = async () => {
       try {
-        const {accessToken} = await getStoredTokens();
-
-        if (!accessToken) {
+        const accessToken = await resolveCurrentAccessToken(() => {
           setAuthState({
             status: 'sessionExpired',
             message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
           });
-          return;
-        }
+        });
+        if (!accessToken) return;
 
         const duty = await fetchMyDutyAssignment(accessToken, state.selectedCampus.campusId);
         const canManage =

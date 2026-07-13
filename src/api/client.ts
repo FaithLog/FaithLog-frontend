@@ -84,6 +84,7 @@ import type {
   WeeklyDevotionSummary,
 } from './types';
 import {getSafeApiErrorMessage} from './errorPolicy';
+import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
 import {
   parseAdminCampusChargeSummary,
@@ -137,14 +138,15 @@ import {
   parseWeeklyDevotionSummary,
 } from './runtimeValidation';
 import {
-  clearTokens,
   getAuthSessionGeneration,
   getStoredAuthSession,
   isAccessTokenOwnedByAuthSession,
+  isAuthSessionRequestAllowed,
   isAuthSessionGenerationCurrent,
   saveTokens,
   type AuthSessionGeneration,
 } from './tokenStorage';
+import {hasRefreshLogoutHandoff, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
 
 type RequestOptions = {
   accessToken?: string;
@@ -158,6 +160,10 @@ type RequestOptions = {
   responseParser?: (value: unknown) => unknown;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   body?: unknown;
+  onResponseParsed?: (value: unknown) => void;
+  onEffectiveAuthTokens?: (tokens: Pick<TokenPair, 'accessToken' | 'refreshToken'>) =>
+    void | Promise<void>;
+  onRequestDispatch?: () => void;
 };
 
 type ParsedRequestOptions<T> = Omit<RequestOptions, 'responseParser'> & {
@@ -1229,12 +1235,14 @@ async function executeApiRequest<T>(
     },
     ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   };
-  const response = isMockModeEnabled()
+  const mockMode = isMockModeEnabled();
+  const response = mockMode
     ? await executeMockRequest(path, init)
     : await fetchWithTimeout(
         buildApiUrl(path),
         init,
         options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+        options.onRequestDispatch,
       );
   const envelope = await parseEnvelope<T>(
     response,
@@ -1269,7 +1277,12 @@ async function executeApiRequest<T>(
   }
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  onRequestDispatch?: () => void,
+) {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -1278,6 +1291,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }, Math.max(1, timeoutMs));
 
   try {
+    onRequestDispatch?.();
     return await fetch(url, {...init, signal: controller.signal});
   } catch (error) {
     if (timedOut) {
@@ -1317,7 +1331,9 @@ export async function apiRequest<T>(
 
   try {
     await assertRequestAccessTokenIsOwned(requestOptions);
+    assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     const data = await executeApiRequest<T>(path, requestOptions);
+    requestOptions.onResponseParsed?.(data);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     return data;
   } catch (error) {
@@ -1358,8 +1374,11 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
     throw new FaithLogApiError(createSessionExpiredError(generation));
   }
 
-  assertAuthSessionGenerationIsCurrent(generation);
+  assertAuthSessionRequestIsAllowed(generation);
   const tokens = await getTokensAfterSingleFlightRefresh(previousAccessToken, generation);
+  assertAuthSessionRequestIsAllowed(generation);
+  await options.onEffectiveAuthTokens?.(tokens);
+  assertAuthSessionRequestIsAllowed(generation);
 
   try {
     const data = await executeApiRequest<T>(path, {
@@ -1367,17 +1386,17 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
       accessToken: tokens.accessToken,
       skipAuthRefresh: true,
     });
-    assertAuthSessionGenerationIsCurrent(generation);
+    assertAuthSessionRequestIsAllowed(generation);
     return data;
   } catch (retryError) {
-    assertAuthSessionGenerationIsCurrent(generation);
+    assertAuthSessionRequestIsAllowed(generation);
     const normalizedRetryError = withAuthSessionGeneration(
       normalizeNetworkError(retryError),
       generation,
     );
 
     if (normalizedRetryError.kind === 'sessionExpired') {
-      await clearTokens(generation);
+      await expireAuthSession(generation);
     }
 
     throw new FaithLogApiError(normalizedRetryError);
@@ -1388,8 +1407,9 @@ async function getTokensAfterSingleFlightRefresh(
   previousAccessToken: string,
   generation: AuthSessionGeneration,
 ) {
-  assertAuthSessionGenerationIsCurrent(generation);
-  const storedTokens = await getStoredAuthSession();
+  assertAuthSessionRequestIsAllowed(generation);
+  const storedTokens = await getStoredAuthSession(generation);
+  assertAuthSessionRequestIsAllowed(generation);
 
   if (storedTokens.generation !== generation) {
     throw new FaithLogApiError(createAuthSessionChangedError(generation));
@@ -1407,7 +1427,7 @@ async function getTokensAfterSingleFlightRefresh(
   }
 
   if (!storedTokens.refreshToken) {
-    await clearTokens(generation);
+    await expireAuthSession(generation);
     throw new FaithLogApiError(createSessionExpiredError(generation));
   }
 
@@ -1439,15 +1459,30 @@ async function refreshAndPersistTokens(
   generation: AuthSessionGeneration,
 ) {
   try {
-    const tokens = await refreshAuthToken(refreshToken, generation);
+    const trackedRefresh = trackRefreshForLogout(
+      generation,
+      (onIssued) => refreshAuthToken(refreshToken, generation, onIssued),
+    );
+    const tokens = await trackedRefresh;
+    assertAuthSessionRequestIsAllowed(generation);
     const saved = await saveTokens(tokens, generation);
 
     if (!saved) {
       throw new FaithLogApiError(createAuthSessionChangedError(generation));
     }
 
+    assertAuthSessionRequestIsAllowed(generation);
+    trackedRefresh.discardAfterCommit();
+
     return tokens;
   } catch (error) {
+    if (
+      hasRefreshLogoutHandoff(generation) &&
+      isAuthSessionRequestAllowed(generation)
+    ) {
+      await expireAuthSession(generation);
+      throw new FaithLogApiError(createSessionExpiredError(generation));
+    }
     if (
       isAuthSessionChangedError(error) ||
       !isAuthSessionGenerationCurrent(generation)
@@ -1461,7 +1496,7 @@ async function refreshAndPersistTokens(
     );
 
     if (normalizedError.kind === 'sessionExpired') {
-      await clearTokens(generation);
+      await expireAuthSession(generation);
     }
 
     throw new FaithLogApiError(normalizedError);
@@ -1501,7 +1536,9 @@ function assertRequestAuthSessionIsCurrent(
     return;
   }
 
-  assertAuthSessionGenerationIsCurrent(options.authSessionGeneration);
+  if (!isAuthSessionRequestAllowed(options.authSessionGeneration)) {
+    throw new FaithLogApiError(createAuthSessionChangedError(options.authSessionGeneration));
+  }
 }
 
 async function assertRequestAccessTokenIsOwned(options: RequestOptions) {
@@ -1527,8 +1564,8 @@ async function assertRequestAccessTokenIsOwned(options: RequestOptions) {
   }
 }
 
-function assertAuthSessionGenerationIsCurrent(generation: AuthSessionGeneration) {
-  if (!isAuthSessionGenerationCurrent(generation)) {
+function assertAuthSessionRequestIsAllowed(generation: AuthSessionGeneration) {
+  if (!isAuthSessionRequestAllowed(generation)) {
     throw new FaithLogApiError(createAuthSessionChangedError(generation));
   }
 }
@@ -1545,9 +1582,21 @@ function withAuthSessionGeneration(
 export function refreshAuthToken(
   refreshToken: string,
   authSessionGeneration?: AuthSessionGeneration,
+  onIssuedTokens?: (tokens: TokenPair) => void,
 ) {
   return apiRequest<TokenPair>('/api/v1/auth/refresh', {
     ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+    skipAuthRefresh: true,
+    responseParser: parseTokenPair,
+    ...(onIssuedTokens ? {onResponseParsed: (value: unknown) => onIssuedTokens(value as TokenPair)} : {}),
+    method: 'POST',
+    body: {refreshToken},
+  });
+}
+
+export function refreshAuthTokenForCleanup(refreshToken: string) {
+  return apiRequest<TokenPair>('/api/v1/auth/refresh', {
+    allowAuthSessionChange: true,
     skipAuthRefresh: true,
     responseParser: parseTokenPair,
     method: 'POST',
@@ -1571,7 +1620,11 @@ export function loginUser(body: LoginRequest) {
   });
 }
 
-export function logoutUser(accessToken: string, body: LogoutRequest) {
+export function logoutUser(
+  accessToken: string,
+  body: LogoutRequest,
+  onRequestDispatch?: RequestOptions['onRequestDispatch'],
+) {
   return apiRequest<null>('/api/v1/auth/logout', {
     accessToken,
     allowAuthSessionChange: true,
@@ -1580,6 +1633,7 @@ export function logoutUser(accessToken: string, body: LogoutRequest) {
     timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
     method: 'POST',
     body,
+    ...(onRequestDispatch ? {onRequestDispatch} : {}),
   });
 }
 
@@ -1597,11 +1651,30 @@ export function registerMyFcmToken(
   accessToken: string,
   body: FcmTokenRegisterRequest,
   authSessionGeneration?: AuthSessionGeneration,
+  onEffectiveAuthTokens?: RequestOptions['onEffectiveAuthTokens'],
+  onRequestDispatch?: RequestOptions['onRequestDispatch'],
 ) {
   return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
     accessToken,
     ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
     responseParser: parseFcmTokenRegisterResponse,
+    method: 'POST',
+    body,
+    ...(onEffectiveAuthTokens ? {onEffectiveAuthTokens} : {}),
+    ...(onRequestDispatch ? {onRequestDispatch} : {}),
+  });
+}
+
+export function registerMyFcmTokenForCleanup(
+  accessToken: string,
+  body: FcmTokenRegisterRequest,
+) {
+  return apiRequest<FcmTokenRegisterResponse>('/api/v1/users/me/fcm-tokens', {
+    accessToken,
+    allowAuthSessionChange: true,
+    allowUnstoredAccessToken: true,
+    responseParser: parseFcmTokenRegisterResponse,
+    skipAuthRefresh: true,
     method: 'POST',
     body,
   });
@@ -1611,6 +1684,8 @@ export function deactivateMyFcmToken(
   accessToken: string,
   tokenId: unknown,
   authSessionGeneration?: AuthSessionGeneration,
+  onEffectiveAuthTokens?: RequestOptions['onEffectiveAuthTokens'],
+  onRequestDispatch?: RequestOptions['onRequestDispatch'],
 ) {
   return apiRequest<null>(
     buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
@@ -1618,6 +1693,25 @@ export function deactivateMyFcmToken(
       accessToken,
       ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
       responseParser: parseNullResponse,
+      method: 'DELETE',
+      ...(onEffectiveAuthTokens ? {onEffectiveAuthTokens} : {}),
+      ...(onRequestDispatch ? {onRequestDispatch} : {}),
+    },
+  );
+}
+
+export function deactivateMyFcmTokenForCleanup(
+  accessToken: string,
+  tokenId: unknown,
+) {
+  return apiRequest<null>(
+    buildApiPath('users', 'me', 'fcm-tokens', toPositiveIntegerPathSegment(tokenId, 'tokenId')),
+    {
+      accessToken,
+      allowAuthSessionChange: true,
+      allowUnstoredAccessToken: true,
+      responseParser: parseNullResponse,
+      skipAuthRefresh: true,
       method: 'DELETE',
     },
   );
