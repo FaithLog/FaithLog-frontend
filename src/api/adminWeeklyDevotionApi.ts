@@ -1,5 +1,7 @@
 import {FaithLogApiError} from './apiError';
+import {authenticatedTransportRequest} from './client';
 import type {ChargeStatus} from './types';
+import type {AuthSessionGeneration} from './tokenStorage';
 
 export const ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS = 'pending' as const;
 
@@ -118,11 +120,18 @@ export function parseAdminWeeklyDevotion(value: unknown): AdminWeeklyDevotion {
       throw new Error('Inconsistent weekly devotion response');
     }
 
+    assertUniqueMemberIds(submittedMembers, missingMembers);
+
     for (const member of submittedMembers) {
+      const seenDates = new Set<string>();
       for (const check of member.dailyChecks) {
         if (check.recordDate < weekStartDate || check.recordDate > weekEndDate) {
           throw new Error('Daily check outside selected week');
         }
+        if (seenDates.has(check.recordDate)) {
+          throw new Error('Duplicate daily check');
+        }
+        seenDates.add(check.recordDate);
       }
     }
 
@@ -146,21 +155,23 @@ export function parseAdminWeeklyDevotion(value: unknown): AdminWeeklyDevotion {
 
 export function createMockAdminWeeklyDevotionAdapter(): AdminWeeklyDevotionAdapter {
   return {
-    exportWeek: async (request) => {
-      resolveMockScenario(request.authGeneration);
-      return {
-        bytes: new Uint8Array([80, 75, 3, 4]),
-        fileName: `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
-      };
-    },
-    fetchWeek: async (request) => {
-      const scenario = resolveMockScenario(request.authGeneration);
-      const value =
-        scenario === 'empty'
-          ? createEmptyMockWeek(request.weekStartDate)
-          : createSuccessMockWeek(request.weekStartDate);
-      return parseAdminWeeklyDevotion(value);
-    },
+    exportWeek: (request) =>
+      authenticateRequest(request, async () => {
+        resolveMockScenario(request.authGeneration);
+        return {
+          bytes: new Uint8Array([80, 75, 3, 4]),
+          fileName: `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
+        };
+      }),
+    fetchWeek: (request) =>
+      authenticateRequest(request, async () => {
+        const scenario = resolveMockScenario(request.authGeneration);
+        const value =
+          scenario === 'empty'
+            ? createEmptyMockWeek(request.weekStartDate)
+            : createSuccessMockWeek(request.weekStartDate);
+        return parseRequestedWeek(value, request.weekStartDate);
+      }),
   };
 }
 
@@ -188,46 +199,53 @@ export function createProvisionalAdminWeeklyDevotionTransport({
   return {
     exportWeek: async (request) => {
       assertConfirmed();
-      const path = buildProvisionalPath(request, 'export');
-      const response = await fetchImpl(`${normalizeBaseUrl(apiBaseUrl)}${path}`, {
-        headers: {
-          Accept: CONTENT_TYPE,
-          Authorization: `Bearer ${request.accessToken}`,
-        },
-        method: 'GET',
+      return authenticateRequest(request, async (accessToken) => {
+        const path = buildProvisionalPath(request, 'export');
+        const response = await fetchImpl(`${normalizeBaseUrl(apiBaseUrl)}${path}`, {
+          headers: {
+            Accept: CONTENT_TYPE,
+            Authorization: `Bearer ${accessToken}`,
+          },
+          method: 'GET',
+        });
+        assertResponseStatus(response, request.authGeneration);
+
+        if (
+          response.headers.get('Content-Type')?.split(';')[0]?.trim() !==
+          CONTENT_TYPE
+        ) {
+          throw invalidServerResponse(response.status);
+        }
+
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length === 0) {
+          throw invalidServerResponse(response.status);
+        }
+
+        return {
+          bytes,
+          fileName:
+            getAttachmentFileName(response.headers.get('Content-Disposition')) ??
+            `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
+        };
       });
-      assertResponseStatus(response, request.authGeneration);
-
-      if (response.headers.get('Content-Type')?.split(';')[0]?.trim() !== CONTENT_TYPE) {
-        throw invalidServerResponse(response.status);
-      }
-
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.length === 0) {
-        throw invalidServerResponse(response.status);
-      }
-
-      return {
-        bytes,
-        fileName:
-          getAttachmentFileName(response.headers.get('Content-Disposition')) ??
-          `faithlog-devotion-${request.campusId}-${request.weekStartDate}.xlsx`,
-      };
     },
     fetchWeek: async (request) => {
       assertConfirmed();
-      const path = buildProvisionalPath(request, 'members');
-      const response = await fetchImpl(`${normalizeBaseUrl(apiBaseUrl)}${path}`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${request.accessToken}`,
-        },
-        method: 'GET',
+      return authenticateRequest(request, async (accessToken) => {
+        const path = buildProvisionalPath(request, 'members');
+        const response = await fetchImpl(`${normalizeBaseUrl(apiBaseUrl)}${path}`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          method: 'GET',
+        });
+        assertResponseStatus(response, request.authGeneration);
+        const payload: unknown = await response.json();
+        const data = unwrapPossibleEnvelope(payload);
+        return parseRequestedWeek(data, request.weekStartDate);
       });
-      assertResponseStatus(response, request.authGeneration);
-      const payload: unknown = await response.json();
-      const data = unwrapPossibleEnvelope(payload);
-      return parseAdminWeeklyDevotion(data);
     },
   };
 }
@@ -235,16 +253,16 @@ export function createProvisionalAdminWeeklyDevotionTransport({
 function parseSubmittedMember(value: unknown): AdminWeeklyDevotionSubmittedMember {
   const record = requireRecord(value);
   return {
-    bibleReadingCount: requireNonNegativeInteger(
+    bibleReadingCount: requireWeeklyCount(
       record.bibleReadingCount,
       'bibleReadingCount',
     ),
-    dailyChecks: requireArray(record.dailyChecks, parseDailyCheck),
+    dailyChecks: requireArray(record.dailyChecks, parseDailyCheck, 7),
     email: requireString(record.email, 'email'),
     name: requireString(record.name, 'name'),
     penalty: record.penalty === null ? null : parsePenalty(record.penalty),
-    prayerCount: requireNonNegativeInteger(record.prayerCount, 'prayerCount'),
-    quietTimeCount: requireNonNegativeInteger(
+    prayerCount: requireWeeklyCount(record.prayerCount, 'prayerCount'),
+    quietTimeCount: requireWeeklyCount(
       record.quietTimeCount,
       'quietTimeCount',
     ),
@@ -288,6 +306,46 @@ function parseMissingMember(value: unknown): AdminWeeklyDevotionMissingMember {
     name: requireString(record.name, 'name'),
     userId: requirePositiveInteger(record.userId, 'userId'),
   };
+}
+
+function authenticateRequest<T>(
+  request: AdminWeeklyDevotionRequest,
+  execute: (effectiveAccessToken: string) => Promise<T>,
+) {
+  return authenticatedTransportRequest({
+    accessToken: request.accessToken,
+    authSessionGeneration: request.authGeneration as AuthSessionGeneration,
+    execute,
+  });
+}
+
+function parseRequestedWeek(value: unknown, requestedWeekStartDate: string) {
+  const data = parseAdminWeeklyDevotion(value);
+  if (data.weekStartDate !== requestedWeekStartDate) {
+    throw invalidServerResponse();
+  }
+  return data;
+}
+
+function assertUniqueMemberIds(
+  submittedMembers: AdminWeeklyDevotionSubmittedMember[],
+  missingMembers: AdminWeeklyDevotionMissingMember[],
+) {
+  const submittedIds = new Set<number>();
+  for (const member of submittedMembers) {
+    if (submittedIds.has(member.userId)) {
+      throw new Error('Duplicate submitted member');
+    }
+    submittedIds.add(member.userId);
+  }
+
+  const missingIds = new Set<number>();
+  for (const member of missingMembers) {
+    if (missingIds.has(member.userId) || submittedIds.has(member.userId)) {
+      throw new Error('Duplicate or overlapping missing member');
+    }
+    missingIds.add(member.userId);
+  }
 }
 
 function createSuccessMockWeek(weekStartDate: string): AdminWeeklyDevotion {
@@ -511,11 +569,23 @@ function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function requireArray<T>(value: unknown, parse: (item: unknown) => T): T[] {
-  if (!Array.isArray(value) || value.length > 1000) {
+function requireArray<T>(
+  value: unknown,
+  parse: (item: unknown) => T,
+  maximumLength = 1000,
+): T[] {
+  if (!Array.isArray(value) || value.length > maximumLength) {
     throw new Error('Expected array');
   }
   return value.map(parse);
+}
+
+function requireWeeklyCount(value: unknown, label: string) {
+  const count = requireNonNegativeInteger(value, label);
+  if (count > 7) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return count;
 }
 
 function requireString(value: unknown, label: string) {

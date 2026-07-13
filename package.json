@@ -39,9 +39,11 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "@types/react": "~19.2.3",
+    "@types/react-test-renderer": "19.1.0",
     "babel-preset-expo": "^56.0.15",
     "eslint": "^10.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.62.0",
     "vitest": "^4.1.9"

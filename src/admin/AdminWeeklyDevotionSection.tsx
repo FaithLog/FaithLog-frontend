@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
+  AppState,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,9 +22,9 @@ import {
 } from '../api/adminWeeklyDevotionApi';
 import {isMockModeEnabled} from '../api/client';
 import {
-  clearTokens,
   getAuthSessionGeneration,
   isAuthSessionGenerationCurrent,
+  StaleAuthSessionReadError,
 } from '../api/tokenStorage';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import type {AuthGateState} from '../auth/authGate';
@@ -39,7 +40,6 @@ import {colors, radius, spacing} from '../theme';
 import {formatWon} from '../utils/money';
 import {
   AdminWeeklyDevotionCoordinator,
-  AdminWeeklyDevotionExportGate,
   formatAdminWeekRange,
   getAdminWeekStartDate,
   moveAdminWeek,
@@ -47,11 +47,15 @@ import {
 import {saveAndShareAdminWeeklyDevotionExport} from './adminWeeklyDevotionFile';
 
 type WeeklyState =
-  | {status: 'loading'}
-  | {data: AdminWeeklyDevotion; status: 'success'}
-  | {status: 'empty'}
-  | {error: FaithLogApiError['detail']; status: 'error'}
-  | {error: FaithLogApiError['detail']; status: 'permissionDenied'};
+  | {status: 'loading'; weekStartDate: string}
+  | {data: AdminWeeklyDevotion; status: 'success'; weekStartDate: string}
+  | {status: 'empty'; weekStartDate: string}
+  | {error: FaithLogApiError['detail']; status: 'error'; weekStartDate: string}
+  | {
+      error: FaithLogApiError['detail'];
+      status: 'permissionDenied';
+      weekStartDate: string;
+    };
 
 type Feedback = {
   message: string;
@@ -60,25 +64,42 @@ type Feedback = {
 
 type Props = {
   campusId: number;
+  dependencies?: {
+    adapter?: AdminWeeklyDevotionAdapter;
+    getNow?: () => Date;
+    resolveRequest?: (
+      selectedWeekStartDate: string,
+    ) => Promise<AdminWeeklyDevotionRequest | null>;
+    shareExport?: typeof saveAndShareAdminWeeklyDevotionExport;
+  };
   setAuthState: (state: AuthGateState) => void;
 };
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 
-export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
-  const latestWeekStartDate = useMemo(() => getAdminWeekStartDate(new Date()), []);
+export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState}: Props) {
+  const getNow = dependencies?.getNow ?? getSystemNow;
+  const [latestWeekStartDate, setLatestWeekStartDate] = useState(() =>
+    getAdminWeekStartDate(getNow()),
+  );
   const [weekStartDate, setWeekStartDate] = useState(latestWeekStartDate);
-  const [state, setState] = useState<WeeklyState>({status: 'loading'});
+  const [state, setState] = useState<WeeklyState>({
+    status: 'loading',
+    weekStartDate: latestWeekStartDate,
+  });
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
-  const adapter = useMemo(createRuntimeAdapter, []);
+  const runtimeAdapter = useMemo(createRuntimeAdapter, []);
+  const adapter = dependencies?.adapter ?? runtimeAdapter;
+  const shareExport =
+    dependencies?.shareExport ?? saveAndShareAdminWeeklyDevotionExport;
   const coordinator = useMemo(() => new AdminWeeklyDevotionCoordinator(adapter), [adapter]);
-  const exportGate = useMemo(
-    () => new AdminWeeklyDevotionExportGate(adapter.exportWeek),
-    [adapter],
-  );
   const mountedRef = useRef(true);
+  const latestWeekStartDateRef = useRef(latestWeekStartDate);
+  const weekStartDateRef = useRef(weekStartDate);
+  const loadOperationRef = useRef(0);
+  const exportInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -87,26 +108,7 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
     };
   }, []);
 
-  useEffect(() => {
-    setWeekStartDate(latestWeekStartDate);
-    setExpandedUserId(null);
-    setFeedback(null);
-  }, [campusId, latestWeekStartDate]);
-
-  const handleSessionExpired = useCallback(
-    async (error: FaithLogApiError['detail']) => {
-      if (error.kind !== 'sessionExpired') {
-        return;
-      }
-      await clearTokens(error.authSessionGeneration);
-      if (mountedRef.current) {
-        setAuthState({status: 'sessionExpired', message: error.message});
-      }
-    },
-    [setAuthState],
-  );
-
-  const resolveRequest = useCallback(
+  const defaultResolveRequest = useCallback(
     async (selectedWeekStartDate: string): Promise<AdminWeeklyDevotionRequest | null> => {
       const authGeneration = getAuthSessionGeneration();
       const accessToken = await resolveCurrentAccessToken(() => {
@@ -121,68 +123,149 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
     },
     [campusId, setAuthState],
   );
+  const resolveRequest = dependencies?.resolveRequest ?? defaultResolveRequest;
+
+  const showWeekImmediately = useCallback(
+    (selectedWeekStartDate: string) => {
+      loadOperationRef.current += 1;
+      weekStartDateRef.current = selectedWeekStartDate;
+      const cached = coordinator.peek({
+        accessToken: '',
+        authGeneration: getAuthSessionGeneration(),
+        campusId,
+        weekStartDate: selectedWeekStartDate,
+      });
+      setState(toWeeklyState(selectedWeekStartDate, cached));
+      setExpandedUserId(null);
+      setFeedback(null);
+    },
+    [campusId, coordinator],
+  );
+
+  const previousCampusIdRef = useRef(campusId);
+  useEffect(() => {
+    if (previousCampusIdRef.current === campusId) {
+      return;
+    }
+    previousCampusIdRef.current = campusId;
+    showWeekImmediately(latestWeekStartDateRef.current);
+    setWeekStartDate(latestWeekStartDateRef.current);
+  }, [campusId, showWeekImmediately]);
+
+  const refreshLatestWeek = useCallback(() => {
+    const nextLatestWeekStartDate = getAdminWeekStartDate(getNow());
+    const previousLatestWeekStartDate = latestWeekStartDateRef.current;
+    if (nextLatestWeekStartDate === previousLatestWeekStartDate) {
+      return;
+    }
+
+    latestWeekStartDateRef.current = nextLatestWeekStartDate;
+    setLatestWeekStartDate(nextLatestWeekStartDate);
+    if (weekStartDateRef.current === previousLatestWeekStartDate) {
+      showWeekImmediately(nextLatestWeekStartDate);
+      setWeekStartDate(nextLatestWeekStartDate);
+    }
+  }, [getNow, showWeekImmediately]);
+
+  useEffect(() => {
+    let rolloverTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRollover = () => {
+      if (rolloverTimer) {
+        clearTimeout(rolloverTimer);
+      }
+      rolloverTimer = setTimeout(() => {
+        refreshLatestWeek();
+        scheduleRollover();
+      }, millisecondsUntilNextLocalDay(getNow()));
+    };
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshLatestWeek();
+        scheduleRollover();
+      }
+    });
+    scheduleRollover();
+
+    return () => {
+      subscription.remove();
+      if (rolloverTimer) {
+        clearTimeout(rolloverTimer);
+      }
+    };
+  }, [getNow, refreshLatestWeek]);
 
   const loadWeek = useCallback(
     async (selectedWeekStartDate: string, invalidate = false) => {
-      const request = await resolveRequest(selectedWeekStartDate);
-      if (!request || !mountedRef.current) {
-        return;
-      }
-
-      if (invalidate) {
-        coordinator.invalidate(request);
-      }
-      const cached = coordinator.peek(request);
-      setState(
-        cached
-          ? cached.activeMemberCount === 0
-            ? {status: 'empty'}
-            : {data: cached, status: 'success'}
-          : {status: 'loading'},
-      );
-      setFeedback(null);
+      const operationId = ++loadOperationRef.current;
+      let request: AdminWeeklyDevotionRequest | null = null;
 
       try {
-        const result = await coordinator.select(
-          request,
-          latestWeekStartDate,
-          (prefetchError) => {
-            if (prefetchError instanceof FaithLogApiError) {
-              void handleSessionExpired(prefetchError.detail);
-            }
-          },
-        );
+        request = await resolveRequest(selectedWeekStartDate);
+        if (
+          !request ||
+          !isCurrentLoad(
+            operationId,
+            selectedWeekStartDate,
+            loadOperationRef,
+            weekStartDateRef,
+            mountedRef,
+          )
+        ) {
+          return;
+        }
+
+        if (invalidate) {
+          coordinator.invalidate(request);
+        }
+        setState(toWeeklyState(selectedWeekStartDate, coordinator.peek(request)));
+        setFeedback(null);
+
+        const result = await coordinator.select(request, latestWeekStartDateRef.current);
 
         if (
           result.status === 'stale' ||
-          !mountedRef.current ||
+          !isCurrentLoad(
+            operationId,
+            selectedWeekStartDate,
+            loadOperationRef,
+            weekStartDateRef,
+            mountedRef,
+          ) ||
           !isAuthSessionGenerationCurrent(request.authGeneration)
         ) {
           return;
         }
 
-        setState(
-          result.data.activeMemberCount === 0
-            ? {status: 'empty'}
-            : {data: result.data, status: 'success'},
-        );
+        setState(toWeeklyState(selectedWeekStartDate, result.data));
       } catch (error) {
-        if (!mountedRef.current || !isAuthSessionGenerationCurrent(request.authGeneration)) {
+        if (
+          error instanceof StaleAuthSessionReadError ||
+          !isCurrentLoad(
+            operationId,
+            selectedWeekStartDate,
+            loadOperationRef,
+            weekStartDateRef,
+            mountedRef,
+          )
+        ) {
           return;
         }
         const apiError = normalizeError(error);
-        if (apiError.kind === 'sessionExpired') {
-          await handleSessionExpired(apiError);
+        if (
+          apiError.kind === 'sessionExpired' ||
+          apiError.code === 'AUTH_SESSION_CHANGED' ||
+          (request && !isAuthSessionGenerationCurrent(request.authGeneration))
+        ) {
           return;
         }
         setState(
           apiError.kind === 'permissionDenied'
-            ? {error: apiError, status: 'permissionDenied'}
-            : {error: apiError, status: 'error'},
+            ? {error: apiError, status: 'permissionDenied', weekStartDate: selectedWeekStartDate}
+            : {error: apiError, status: 'error', weekStartDate: selectedWeekStartDate},
         );
       }
     },
-    [coordinator, handleSessionExpired, latestWeekStartDate, resolveRequest],
+    [coordinator, resolveRequest],
   );
 
   useEffect(() => {
@@ -190,53 +273,72 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
   }, [loadWeek, weekStartDate]);
 
   const moveWeek = (direction: -1 | 1) => {
-    setExpandedUserId(null);
-    setWeekStartDate((current) => moveAdminWeek(current, direction));
+    const nextWeekStartDate = moveAdminWeek(weekStartDateRef.current, direction);
+    showWeekImmediately(nextWeekStartDate);
+    setWeekStartDate(nextWeekStartDate);
   };
 
-  const exportExcel = async () => {
-    if (exporting) {
-      return;
-    }
-    const request = await resolveRequest(weekStartDate);
-    if (!request || !mountedRef.current) {
-      return;
+  const exportExcel = () => {
+    if (exportInFlightRef.current) {
+      return exportInFlightRef.current;
     }
 
-    setExporting(true);
-    setFeedback(null);
-    try {
-      const exported = await exportGate.run(request);
-      await saveAndShareAdminWeeklyDevotionExport(exported);
-      if (!mountedRef.current || !isAuthSessionGenerationCurrent(request.authGeneration)) {
-        return;
+    const selectedWeekStartDate = weekStartDateRef.current;
+    const operation = (async () => {
+      let request: AdminWeeklyDevotionRequest | null = null;
+      setExporting(true);
+      setFeedback(null);
+      try {
+        request = await resolveRequest(selectedWeekStartDate);
+        if (!request || !mountedRef.current) {
+          return;
+        }
+        const exported = await adapter.exportWeek(request);
+        await shareExport(exported);
+        if (!mountedRef.current || !isAuthSessionGenerationCurrent(request.authGeneration)) {
+          return;
+        }
+        const message = 'Excel 파일을 저장하고 공유 화면을 열었습니다.';
+        setFeedback({message, tone: 'success'});
+        AccessibilityInfo.announceForAccessibility(message);
+      } catch (error) {
+        if (error instanceof StaleAuthSessionReadError || !mountedRef.current) {
+          return;
+        }
+        const apiError = normalizeError(error);
+        if (
+          apiError.kind === 'sessionExpired' ||
+          apiError.code === 'AUTH_SESSION_CHANGED' ||
+          (request && !isAuthSessionGenerationCurrent(request.authGeneration))
+        ) {
+          return;
+        }
+        if (apiError.kind === 'permissionDenied') {
+          setState({
+            error: apiError,
+            status: 'permissionDenied',
+            weekStartDate: selectedWeekStartDate,
+          });
+        }
+        const message =
+          apiError.code === 'API_CONTRACT_PENDING'
+            ? 'REST Docs 계약 확정 전에는 Excel을 다운로드할 수 없습니다.'
+            : 'Excel 파일을 저장하거나 공유하지 못했습니다.';
+        setFeedback({message, tone: 'error'});
+        AccessibilityInfo.announceForAccessibility(message);
+      } finally {
+        if (mountedRef.current) {
+          setExporting(false);
+        }
       }
-      const message = 'Excel 파일을 저장하고 공유 화면을 열었습니다.';
-      setFeedback({message, tone: 'success'});
-      AccessibilityInfo.announceForAccessibility(message);
-    } catch (error) {
-      if (!mountedRef.current || !isAuthSessionGenerationCurrent(request.authGeneration)) {
-        return;
+    })();
+    const inFlight = operation.finally(() => {
+      if (exportInFlightRef.current === inFlight) {
+        exportInFlightRef.current = null;
       }
-      const apiError = normalizeError(error);
-      if (apiError.kind === 'sessionExpired') {
-        await handleSessionExpired(apiError);
-        return;
-      }
-      if (apiError.kind === 'permissionDenied') {
-        setState({error: apiError, status: 'permissionDenied'});
-      }
-      const message =
-        apiError.code === 'API_CONTRACT_PENDING'
-          ? 'REST Docs 계약 확정 전에는 Excel을 다운로드할 수 없습니다.'
-          : 'Excel 파일을 저장하거나 공유하지 못했습니다.';
-      setFeedback({message, tone: 'error'});
-      AccessibilityInfo.announceForAccessibility(message);
-    } finally {
-      if (mountedRef.current) {
-        setExporting(false);
-      }
-    }
+    });
+    exportInFlightRef.current = inFlight;
+    return inFlight;
   };
 
   return (
@@ -267,7 +369,7 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
         <WeeklyIconButton
           accessibilityLabel="주차별 경건 현황 Excel 다운로드"
           disabled={exporting}
-          onPress={() => void exportExcel()}
+          onPress={exportExcel}
           tooltip="Excel 다운로드">
           <IconexIcon color={colors.textPrimary} name="download" size={22} />
         </WeeklyIconButton>
@@ -286,6 +388,7 @@ export function AdminWeeklyDevotionSection({campusId, setAuthState}: Props) {
         onRetry: () => void loadWeek(weekStartDate, true),
         onToggleDetails: (userId) =>
           setExpandedUserId((current) => (current === userId ? null : userId)),
+        selectedWeekStartDate: weekStartDate,
         state,
       })}
     </View>
@@ -296,13 +399,19 @@ function renderWeeklyState({
   expandedUserId,
   onRetry,
   onToggleDetails,
+  selectedWeekStartDate,
   state,
 }: {
   expandedUserId: number | null;
   onRetry: () => void;
   onToggleDetails: (userId: number) => void;
+  selectedWeekStartDate: string;
   state: WeeklyState;
 }) {
+  if (state.weekStartDate !== selectedWeekStartDate) {
+    return <Loading message="주차별 경건 현황을 불러오고 있어요." />;
+  }
+
   switch (state.status) {
     case 'loading':
       return <Loading message="주차별 경건 현황을 불러오고 있어요." />;
@@ -394,7 +503,7 @@ function WeeklySuccess({
                 <View key={member.userId}>
                   <Pressable
                     accessibilityHint="선택하면 월요일부터 일요일까지 일별 상세를 확인합니다."
-                    accessibilityLabel={`${member.name} 일별 상세 열기`}
+                    accessibilityLabel={formatSubmittedMemberAccessibilityLabel(member)}
                     accessibilityRole="button"
                     accessibilityState={{expanded: expandedUserId === member.userId}}
                     onPress={() => onToggleDetails(member.userId)}
@@ -652,6 +761,18 @@ function formatPenaltyStatus(status: AdminWeeklyDevotionPenalty['status'] | null
   }
 }
 
+export function formatSubmittedMemberAccessibilityLabel(
+  member: AdminWeeklyDevotionSubmittedMember,
+) {
+  return `${member.name}, 큐티 ${member.quietTimeCount}회, 성경 ${
+    member.bibleReadingCount
+  }회, 기도 ${member.prayerCount}회, 토요일 지각 ${
+    member.saturdayLateMinutes
+  }분, 벌금 ${formatWon(member.penalty?.amount ?? 0)}, 상태 ${formatPenaltyStatus(
+    member.penalty?.status ?? null,
+  )}, 일별 상세 열기`;
+}
+
 function toCheckMark(value: boolean | undefined) {
   return value ? '✓' : '–';
 }
@@ -660,6 +781,42 @@ function toLocalDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
     date.getDate(),
   ).padStart(2, '0')}`;
+}
+
+function toWeeklyState(
+  weekStartDate: string,
+  data?: AdminWeeklyDevotion,
+): WeeklyState {
+  if (!data) {
+    return {status: 'loading', weekStartDate};
+  }
+  return data.activeMemberCount === 0
+    ? {status: 'empty', weekStartDate}
+    : {data, status: 'success', weekStartDate};
+}
+
+function isCurrentLoad(
+  operationId: number,
+  selectedWeekStartDate: string,
+  loadOperationRef: React.RefObject<number>,
+  weekStartDateRef: React.RefObject<string>,
+  mountedRef: React.RefObject<boolean>,
+) {
+  return (
+    mountedRef.current &&
+    weekStartDateRef.current === selectedWeekStartDate &&
+    loadOperationRef.current === operationId
+  );
+}
+
+function getSystemNow() {
+  return new Date();
+}
+
+function millisecondsUntilNextLocalDay(now: Date) {
+  const nextDay = new Date(now);
+  nextDay.setHours(24, 0, 1, 0);
+  return Math.max(1_000, nextDay.getTime() - now.getTime());
 }
 
 function assertNever(value: never): never {

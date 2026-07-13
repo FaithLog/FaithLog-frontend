@@ -1,6 +1,19 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
+vi.mock('./client', () => ({
+  authenticatedTransportRequest: vi.fn(
+    async <T,>({
+      accessToken,
+      execute,
+    }: {
+      accessToken: string;
+      execute: (effectiveAccessToken: string) => Promise<T>;
+    }) => execute(accessToken),
+  ),
+}));
+
 import {FaithLogApiError} from './apiError';
+import {authenticatedTransportRequest} from './client';
 import {
   ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS,
   createMockAdminWeeklyDevotionAdapter,
@@ -74,6 +87,56 @@ describe('admin weekly devotion provisional validator', () => {
   ])('fails closed for an invalid provisional response', (value) => {
     expect(() => parseAdminWeeklyDevotion(value)).toThrow(FaithLogApiError);
   });
+
+  it.each([
+    {
+      ...VALID_WEEK,
+      submittedMembers: [VALID_WEEK.submittedMembers[0], VALID_WEEK.submittedMembers[0]],
+      submittedCount: 2,
+      activeMemberCount: 3,
+    },
+    {
+      ...VALID_WEEK,
+      missingMembers: [{email: 'duplicate@example.test', name: '중복', userId: 1}],
+    },
+    {
+      ...VALID_WEEK,
+      submittedMembers: [
+        {...VALID_WEEK.submittedMembers[0], quietTimeCount: 8},
+        VALID_WEEK.submittedMembers[1],
+      ],
+    },
+    {
+      ...VALID_WEEK,
+      submittedMembers: [
+        {
+          ...VALID_WEEK.submittedMembers[0],
+          dailyChecks: Array.from({length: 8}, (_, index) => ({
+            bibleReading: false,
+            prayer: false,
+            quietTime: false,
+            recordDate: `2026-07-${String(13 + Math.min(index, 6)).padStart(2, '0')}`,
+          })),
+        },
+        VALID_WEEK.submittedMembers[1],
+      ],
+    },
+    {
+      ...VALID_WEEK,
+      submittedMembers: [
+        {
+          ...VALID_WEEK.submittedMembers[0],
+          dailyChecks: [
+            VALID_WEEK.submittedMembers[0]!.dailyChecks[0],
+            VALID_WEEK.submittedMembers[0]!.dailyChecks[0],
+          ],
+        },
+        VALID_WEEK.submittedMembers[1],
+      ],
+    },
+  ])('fails closed for duplicate identities, invalid weekly counts, or duplicate days', (value) => {
+    expect(() => parseAdminWeeklyDevotion(value)).toThrow(FaithLogApiError);
+  });
 });
 
 describe('admin weekly devotion adapters', () => {
@@ -131,6 +194,18 @@ describe('admin weekly devotion adapters', () => {
           : {}),
       });
       return true;
+    });
+  });
+
+  it('routes the mock 401 through the shared authenticated transport lineage', async () => {
+    process.env.EXPO_PUBLIC_ADMIN_WEEKLY_DEVOTION_MOCK_SCENARIO = '401';
+    const mock = createMockAdminWeeklyDevotionAdapter();
+
+    await expect(mock.fetchWeek(REQUEST)).rejects.toBeInstanceOf(FaithLogApiError);
+    expect(authenticatedTransportRequest).toHaveBeenCalledWith({
+      accessToken: REQUEST.accessToken,
+      authSessionGeneration: REQUEST.authGeneration,
+      execute: expect.any(Function),
     });
   });
 
@@ -195,6 +270,38 @@ describe('confirmed provisional binary transport', () => {
     await expect(transport.exportWeek(REQUEST)).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(FaithLogApiError);
       expect((error as FaithLogApiError).detail).toMatchObject({kind, status});
+      return true;
+    });
+  });
+
+  it('rejects a members payload whose week does not match the requested cache key', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({
+        ...VALID_WEEK,
+        weekStartDate: '2026-07-20',
+        weekEndDate: '2026-07-26',
+        submittedMembers: [],
+        missingMembers: [],
+        submittedCount: 0,
+        missingCount: 0,
+        activeMemberCount: 0,
+        totalPenaltyAmount: 0,
+      }), {
+        headers: {'Content-Type': 'application/json'},
+        status: 200,
+      }),
+    );
+    const transport = createProvisionalAdminWeeklyDevotionTransport({
+      apiBaseUrl: 'https://api.example.test',
+      contractConfirmed: true,
+      fetchImpl,
+    });
+
+    await expect(transport.fetchWeek(REQUEST)).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(FaithLogApiError);
+      expect((error as FaithLogApiError).detail).toMatchObject({
+        code: 'INVALID_SERVER_RESPONSE',
+      });
       return true;
     });
   });

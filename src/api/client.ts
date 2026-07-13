@@ -175,6 +175,14 @@ type UnparsedRequestOptions = Omit<RequestOptions, 'responseParser'> & {
   responseParser?: never;
 };
 
+export type AuthenticatedTransportRequestOptions<T> = {
+  accessToken: string;
+  authSessionGeneration: AuthSessionGeneration;
+  execute: (effectiveAccessToken: string) => Promise<T>;
+};
+
+type RequestExecutor<T> = (options: RequestOptions) => Promise<T>;
+
 export {FaithLogApiError} from './apiError';
 
 type AuthRefreshFlight = {
@@ -1323,10 +1331,40 @@ export async function apiRequest<T>(
       options.authSessionGeneration ?? getAuthSessionGeneration(),
   };
 
+  return executeRequestWithAuth(
+    requestOptions,
+    guardAuthSession,
+    (effectiveOptions) => executeApiRequest<T>(path, effectiveOptions),
+  );
+}
+
+export function authenticatedTransportRequest<T>({
+  accessToken,
+  authSessionGeneration,
+  execute,
+}: AuthenticatedTransportRequestOptions<T>) {
+  const requestOptions: RequestOptions = {
+    accessToken,
+    authSessionGeneration,
+  };
+
+  return executeRequestWithAuth(requestOptions, true, async (effectiveOptions) => {
+    if (!effectiveOptions.accessToken) {
+      throw new FaithLogApiError(createSessionExpiredError(authSessionGeneration));
+    }
+    return execute(effectiveOptions.accessToken);
+  });
+}
+
+async function executeRequestWithAuth<T>(
+  requestOptions: RequestOptions,
+  guardAuthSession: boolean,
+  execute: RequestExecutor<T>,
+): Promise<T> {
   try {
     await assertRequestAccessTokenIsOwned(requestOptions);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
-    const data = await executeApiRequest<T>(path, requestOptions);
+    const data = await execute(requestOptions);
     requestOptions.onResponseParsed?.(data);
     assertRequestAuthSessionIsCurrent(requestOptions, guardAuthSession);
     return data;
@@ -1338,7 +1376,7 @@ export async function apiRequest<T>(
     );
 
     if (shouldRetryWithRefreshedAccessToken(normalizedError, requestOptions)) {
-      return retryWithRefreshedAccessToken(path, requestOptions);
+      return retryWithRefreshedAccessToken(requestOptions, execute);
     }
 
     throw new FaithLogApiError(normalizedError);
@@ -1360,7 +1398,10 @@ function shouldRetryWithRefreshedAccessToken(error: ApiError, options: RequestOp
   );
 }
 
-async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOptions) {
+async function retryWithRefreshedAccessToken<T>(
+  options: RequestOptions,
+  execute: RequestExecutor<T>,
+) {
   const previousAccessToken = options.accessToken;
   const generation = options.authSessionGeneration;
 
@@ -1375,7 +1416,7 @@ async function retryWithRefreshedAccessToken<T>(path: string, options: RequestOp
   assertAuthSessionRequestIsAllowed(generation);
 
   try {
-    const data = await executeApiRequest<T>(path, {
+    const data = await execute({
       ...options,
       accessToken: tokens.accessToken,
       skipAuthRefresh: true,

@@ -81,6 +81,20 @@ describe('AdminWeeklyDevotionCoordinator', () => {
     first.resolve(createWeek(PREVIOUS_WEEK));
     await expect(oldSelection).resolves.toEqual({status: 'stale'});
   });
+
+  it('evicts old completed weeks when the cache reaches its explicit bound', async () => {
+    const adapter = createAdapter();
+    const coordinator = new AdminWeeklyDevotionCoordinator(adapter, 3);
+
+    await coordinator.load(createRequest('2026-06-01'));
+    await coordinator.load(createRequest('2026-06-08'));
+    await coordinator.load(createRequest('2026-06-15'));
+    await coordinator.load(createRequest('2026-06-22'));
+
+    expect(coordinator.cacheSize).toBe(3);
+    expect(coordinator.peek(createRequest('2026-06-01'))).toBeUndefined();
+    expect(coordinator.peek(createRequest('2026-06-22'))).toBeDefined();
+  });
 });
 
 describe('AdminWeeklyDevotionExportGate', () => {

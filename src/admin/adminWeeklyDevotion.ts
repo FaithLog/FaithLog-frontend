@@ -17,26 +17,35 @@ type CacheEntry = {
 export class AdminWeeklyDevotionCoordinator {
   private readonly adapter: AdminWeeklyDevotionAdapter;
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly maximumCacheEntries: number;
   private selectionSequence = 0;
 
-  constructor(adapter: AdminWeeklyDevotionAdapter) {
+  constructor(adapter: AdminWeeklyDevotionAdapter, maximumCacheEntries = 12) {
     this.adapter = adapter;
+    this.maximumCacheEntries = Math.max(3, maximumCacheEntries);
+  }
+
+  get cacheSize() {
+    return this.cache.size;
   }
 
   load(request: AdminWeeklyDevotionRequest) {
     const key = createCacheKey(request);
     const existing = this.cache.get(key);
     if (existing?.data) {
+      this.touch(key, existing);
       return Promise.resolve(existing.data);
     }
     if (existing?.promise) {
+      this.touch(key, existing);
       return existing.promise;
     }
 
     const promise = this.adapter.fetchWeek(request).then(
       (data) => {
         if (this.cache.get(key)?.promise === promise) {
-          this.cache.set(key, {data});
+          this.touch(key, {data});
+          this.pruneCompletedEntries();
         }
         return data;
       },
@@ -47,7 +56,7 @@ export class AdminWeeklyDevotionCoordinator {
         throw error;
       },
     );
-    this.cache.set(key, {promise});
+    this.touch(key, {promise});
     return promise;
   }
 
@@ -93,6 +102,23 @@ export class AdminWeeklyDevotionCoordinator {
 
   invalidate(request: AdminWeeklyDevotionRequest) {
     this.cache.delete(createCacheKey(request));
+  }
+
+  private touch(key: string, entry: CacheEntry) {
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+  }
+
+  private pruneCompletedEntries() {
+    while (this.cache.size > this.maximumCacheEntries) {
+      const oldestCompletedKey = Array.from(this.cache.entries()).find(
+        ([, entry]) => entry.data !== undefined,
+      )?.[0];
+      if (!oldestCompletedKey) {
+        return;
+      }
+      this.cache.delete(oldestCompletedKey);
+    }
   }
 }
 
