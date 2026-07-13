@@ -238,7 +238,9 @@ function resolveMockData(
     const campusId = getCampusId(path);
     const denied = authorizeCampusMember(mealActor, campusId);
     if (denied) return denied;
-    return getMockMemberChargeSummary(billing.summary, mealActor, campusId);
+    const period = parseMockChargeSummaryPeriod(route.searchParams);
+    if (isMockErrorResult(period)) return period;
+    return getMockMemberChargeSummary(billing.summary, mealActor, campusId, period);
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/charges\/me$/.test(path)) {
     const campusId = getCampusId(path);
@@ -1068,6 +1070,7 @@ type MockMealState = {
   accounts: MealPaymentAccount[];
   details: MealPollDetail[];
   duties: MealDutyAssignment[];
+  memberChargeIssuedAt: Record<number, string>;
   memberCharges: Record<string, ChargeItem[]>;
   nextChargeItemId: number;
   polls: MealPollSummary[];
@@ -1162,6 +1165,7 @@ function createInitialMockMealState(): MockMealState {
 
   return {
     accounts,
+    memberChargeIssuedAt: {},
     memberCharges: {},
     nextChargeItemId: 10_000,
     polls,
@@ -1444,6 +1448,7 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
   let chargeMaterialization: ReturnType<typeof materializeMockMealCharges>;
   try {
     chargeMaterialization = materializeMockMealCharges(
+      mockMealState.memberChargeIssuedAt,
       mockMealState.memberCharges,
       mockMealState.nextChargeItemId,
       activeAccount,
@@ -1465,6 +1470,7 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
     poll.id === pollId ? {...poll, settlementStatus: 'CHARGED'} : poll,
   );
   mockMealState.settlement = nextSettlement;
+  mockMealState.memberChargeIssuedAt = chargeMaterialization.memberChargeIssuedAt;
   mockMealState.memberCharges = chargeMaterialization.memberCharges;
   mockMealState.nextChargeItemId = chargeMaterialization.nextChargeItemId;
   return result;
@@ -1476,6 +1482,7 @@ type MealChargeResultSummary = Pick<
 >;
 
 function materializeMockMealCharges(
+  currentIssuedAt: Record<number, string>,
   current: Record<string, ChargeItem[]>,
   nextChargeItemId: number,
   account: MealPaymentAccount,
@@ -1486,6 +1493,7 @@ function materializeMockMealCharges(
   const memberCharges = Object.fromEntries(
     Object.entries(current).map(([memberKey, charges]) => [memberKey, [...charges]]),
   ) as Record<string, ChargeItem[]>;
+  const memberChargeIssuedAt = {...currentIssuedAt};
   const settlementCharges: MealSettlementCharge[] = [];
   let nextId = nextChargeItemId;
 
@@ -1521,6 +1529,7 @@ function materializeMockMealCharges(
       };
       const memberChargeKey = mockMealMemberChargeKey(detail.campusId, response.userId);
       memberCharges[memberChargeKey] = [...(memberCharges[memberChargeKey] ?? []), charge];
+      memberChargeIssuedAt[chargeId] = chargedAt;
       settlementCharges.push(toMockMealSettlementCharge(
         chargeId,
         detail,
@@ -1546,7 +1555,7 @@ function materializeMockMealCharges(
     }
   }
 
-  return {memberCharges, nextChargeItemId: nextId, settlementCharges};
+  return {memberChargeIssuedAt, memberCharges, nextChargeItemId: nextId, settlementCharges};
 }
 
 function claimNextMockChargeId(value: number) {
@@ -1677,9 +1686,10 @@ function getMockMemberChargeList(
   const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
   const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
   const start = page * size;
+  const campusIdentity = getMockChargeCampusIdentity(fixture, campusId);
 
   return {
-    ...fixture,
+    ...campusIdentity,
     summary: summarizeMockMemberCharges(allItems),
     items: sortedItems.slice(start, start + size),
   };
@@ -1689,12 +1699,17 @@ function getMockMemberChargeSummary(
   fixture: ChargeSummary,
   actor: MockMealActor | null,
   campusId: number,
+  period: {month: number; year: number},
 ): ChargeSummary {
   if (!actor) throw new Error('Authorized mock member required');
   const ownsFixture = actor.userId === fixture.userId && campusId === fixture.campusId;
-  const memberCharges = mockMealState.memberCharges[
+  const allMemberCharges = mockMealState.memberCharges[
     mockMealMemberChargeKey(campusId, actor.userId)
   ] ?? [];
+  const memberCharges = allMemberCharges.filter((charge) => isMockChargeInPeriod(
+    mockMealState.memberChargeIssuedAt[charge.id],
+    period,
+  ));
   const monthlyByCategory = new Map<PaymentCategory, ChargeSummary['monthlyByCategory'][number]>();
 
   if (ownsFixture) {
@@ -1729,13 +1744,19 @@ function getMockMemberChargeSummary(
   const basePaidAmount = ownsFixture ? fixture.monthlyPaidAmount : 0;
   const baseUnpaidAmount = ownsFixture ? fixture.monthlyUnpaidAmount : 0;
   const baseTotalAmount = ownsFixture ? fixture.monthlyTotalChargeAmount : 0;
+  const dynamicTotalPaidAmount = allMemberCharges.reduce(
+    (total, charge) => safeMockAdd(total, charge.status === 'PAID' ? charge.amount : 0),
+    0,
+  );
+  const campusIdentity = getMockChargeCampusIdentity(fixture, campusId);
   return {
-    campusId,
-    campusName: campusId === fixture.campusId ? fixture.campusName : `캠퍼스 ${campusId}`,
-    region: campusId === fixture.campusId ? fixture.region : '지역 정보 없음',
+    ...campusIdentity,
     userId: actor.userId,
     name: member?.name ?? `사용자 ${actor.userId}`,
-    totalPaidAmount: safeMockAdd(ownsFixture ? fixture.totalPaidAmount : 0, dynamicPaidAmount),
+    totalPaidAmount: safeMockAdd(
+      ownsFixture ? fixture.totalPaidAmount : 0,
+      dynamicTotalPaidAmount,
+    ),
     monthlyPaidAmount: safeMockAdd(basePaidAmount, dynamicPaidAmount),
     monthlyUnpaidAmount: safeMockAdd(baseUnpaidAmount, dynamicUnpaidAmount),
     monthlyTotalChargeAmount: safeMockAdd(
@@ -1744,6 +1765,46 @@ function getMockMemberChargeSummary(
     ),
     monthlyByCategory: [...monthlyByCategory.values()],
   };
+}
+
+function getMockChargeCampusIdentity(
+  fixture: Pick<ChargeList, 'campusId' | 'campusName' | 'region'>,
+  campusId: number,
+) {
+  return campusId === fixture.campusId
+    ? {campusId, campusName: fixture.campusName, region: fixture.region}
+    : {campusId, campusName: `캠퍼스 ${campusId}`, region: '지역 정보 없음'};
+}
+
+function parseMockChargeSummaryPeriod(
+  searchParams: URLSearchParams,
+): {month: number; year: number} | MockErrorResult {
+  const year = Number(searchParams.get('year'));
+  const month = Number(searchParams.get('month'));
+  if (
+    !Number.isInteger(year) ||
+    year < 2000 ||
+    year > 2100 ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    return mockBadRequest('CHARGE_SUMMARY_PERIOD_INVALID', '납부 요약 조회 연월이 올바르지 않습니다.');
+  }
+  return {month, year};
+}
+
+function isMockChargeInPeriod(
+  chargedAt: string | undefined,
+  period: {month: number; year: number},
+) {
+  if (!chargedAt) return false;
+  const date = new Date(chargedAt);
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.getUTCFullYear() === period.year &&
+    date.getUTCMonth() + 1 === period.month
+  );
 }
 
 function summarizeMockMemberCharges(items: ChargeItem[]) {
