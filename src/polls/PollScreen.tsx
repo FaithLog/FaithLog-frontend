@@ -2113,6 +2113,10 @@ function getPollDetailTitle(detail: PollDetail) {
     return '커피 주문';
   }
 
+  if (detail.pollType === 'MEAL') {
+    return '밥 투표';
+  }
+
   if (detail.title.includes('수요') || detail.pollType === 'WEDNESDAY') {
     return '수요예배 투표';
   }
@@ -2169,6 +2173,8 @@ function getPollInitial(type: string) {
       return '토';
     case 'COFFEE':
       return '커';
+    case 'MEAL':
+      return '밥';
     default:
       return '커';
   }
@@ -2214,6 +2220,8 @@ function getPollTypeLabel(type: string) {
       return '커스텀';
     case 'COFFEE':
       return '커피';
+    case 'MEAL':
+      return '밥';
     case 'WEDNESDAY':
       return '수요예배';
     case 'SATURDAY':

@@ -81,6 +81,7 @@ import {
   clearTokens,
   getAuthSessionGeneration,
   isAuthSessionGenerationCurrent,
+  StaleAuthSessionReadError,
   saveStoredPrayerSeason,
 } from '../api/tokenStorage';
 import type {
@@ -117,7 +118,11 @@ import type {
   PrayerWeekSummary,
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
-import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {
+  expireMissingAuthSession,
+  readCurrentAccessToken,
+  resolveCurrentAccessToken,
+} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {
   getAdminPollsForStatusTab,
@@ -145,6 +150,13 @@ import {
 } from './adminChargeCoordinator';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
+import {mealApi} from '../meal/mealApi';
+import {
+  beginMealMutation,
+  createMealMutationGate,
+  finishMealMutationForScope,
+} from '../meal/mealMutationFlow';
+import {useCommittedMealMutationScope} from '../meal/useCommittedMealMutationScope';
 import {
   Body,
   Button,
@@ -252,6 +264,8 @@ type AdminActionState =
   | {status: 'changingRole'; membershipId: number}
   | {status: 'assigningCoffee'; userId: number}
   | {status: 'revokingCoffee'; assignmentId: number}
+  | {status: 'assigningMeal'; userId: number}
+  | {status: 'revokingMeal'; assignmentId: number}
   | {status: 'deletingMember'; membershipId: number}
   | {status: 'changingChargeStatus'; chargeItemId: number}
   | {status: 'savingPaymentAccount'}
@@ -680,6 +694,7 @@ export function AdminScreen({
   const penaltyRuleMountedRef = useRef(true);
   const penaltyRuleRequestSequenceRef = useRef(0);
   const penaltyRuleSaveGateRef = useRef(createPenaltyRuleSaveGate());
+  const mealDutyMutationGateRef = useRef(createMealMutationGate());
   penaltyRuleCampusIdRef.current = campusId;
   const [prayerState, setPrayerState] = useState<AdminPrayerState>({status: 'idle'});
   const [assignablePrayerMembersState, setAssignablePrayerMembersState] =
@@ -699,6 +714,18 @@ export function AdminScreen({
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminCampusMember | null>(null);
+  const resetMealDutyActionForCampusChange = useCallback(() => {
+    setActionState((current) =>
+      current.status === 'assigningMeal' || current.status === 'revokingMeal'
+        ? {status: 'idle'}
+        : current,
+    );
+  }, []);
+  const mealDutyCampusIdRef = useCommittedMealMutationScope(
+    campusId,
+    mealDutyMutationGateRef.current,
+    resetMealDutyActionForCampusChange,
+  );
 
   useLayoutEffect(() => {
     commitAdminChargeCampusIdentity({
@@ -925,6 +952,78 @@ export function AdminScreen({
       invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
     };
   }, []);
+
+  const isMealDutyOperationMounted = (operationId: number, operationCampusId: number) =>
+    penaltyRuleMountedRef.current &&
+    mealDutyCampusIdRef.current === operationCampusId &&
+    mealDutyMutationGateRef.current.operationId === operationId;
+
+  const resolveMealDutyMutationAccess = async (
+    operationId: number,
+    operationCampusId: number,
+  ) => {
+    const generation = getAuthSessionGeneration();
+    try {
+      const resolution = await readCurrentAccessToken();
+      if (
+        resolution.generation !== generation ||
+        !isAuthSessionGenerationCurrent(generation) ||
+        !isMealDutyOperationMounted(operationId, operationCampusId)
+      ) {
+        return null;
+      }
+      if (!resolution.accessToken) {
+        expireMissingAuthSession(generation);
+        setAuthState({status: 'sessionExpired', message: '저장된 로그인 정보가 없습니다.'});
+        return null;
+      }
+      return {accessToken: resolution.accessToken, generation};
+    } catch (error) {
+      if (error instanceof StaleAuthSessionReadError) return null;
+      throw error;
+    }
+  };
+
+  const refreshMealDutyAdminState = async (
+    operationId: number,
+    operationCampusId: number,
+  ) => {
+    const access = await resolveMealDutyMutationAccess(operationId, operationCampusId);
+    if (!access) return false;
+    try {
+      const [summary, members, duties] = await Promise.all([
+        fetchAdminDashboardSummary(access.accessToken, operationCampusId, {weekStartDate}),
+        fetchAdminCampusMembers(access.accessToken, operationCampusId),
+        fetchDutyAssignments(access.accessToken, operationCampusId),
+      ]);
+      if (
+        !isMealDutyOperationMounted(operationId, operationCampusId) ||
+        !isAuthSessionGenerationCurrent(access.generation)
+      ) {
+        return false;
+      }
+      setLoadState(
+        members.length === 0
+          ? {status: 'empty', summary}
+          : {status: 'success', summary, members, duties},
+      );
+      if (members.length === 0) setSelectedMemberId(null);
+      return true;
+    } catch (error) {
+      const apiError = toApiError(error, '최신 담당자 목록을 불러오지 못했습니다.');
+      if (
+        isMealDutyOperationMounted(operationId, operationCampusId) &&
+        shouldHandleRequestError(
+          apiError,
+          access.generation,
+          getAuthSessionGeneration(),
+        )
+      ) {
+        void handleAuthError(apiError, setAuthState);
+      }
+      return false;
+    }
+  };
 
   useEffect(() => {
     penaltyRuleRequestSequenceRef.current += 1;
@@ -2510,6 +2609,152 @@ export function AdminScreen({
     }
   };
 
+  const assignMeal = async (member: AdminCampusMember) => {
+    if (actionState.status !== 'idle') return;
+    const gate = mealDutyMutationGateRef.current;
+    const operationId = beginMealMutation(
+      gate,
+      `${campusId}:${getAuthSessionGeneration()}:meal-duty`,
+    );
+    if (operationId === null) return;
+    const operationCampusId = campusId;
+    const operationGeneration = getAuthSessionGeneration();
+    let mutationSucceeded = false;
+
+    setActionState({status: 'assigningMeal', userId: member.userId});
+    setActionError(null);
+    try {
+      const access = await resolveMealDutyMutationAccess(operationId, operationCampusId);
+      if (!access) return;
+
+      await mealApi.assignDuty(access.accessToken, operationCampusId, {userId: member.userId});
+      if (
+        !isMealDutyOperationMounted(operationId, operationCampusId) ||
+        !isAuthSessionGenerationCurrent(access.generation)
+      ) return;
+      mutationSucceeded = true;
+      setNotice({
+        tone: 'success',
+        title: '밥 담당자 지정',
+        message: `${member.name}님을 밥 담당자로 지정했습니다. 기존 밥 담당자는 그대로 유지됩니다.`,
+      });
+      if (!(await refreshMealDutyAdminState(operationId, operationCampusId))) {
+        if (!isMealDutyOperationMounted(operationId, operationCampusId)) return;
+        setNotice({
+          tone: 'warning',
+          title: '밥 담당자 지정 완료',
+          message: '지정은 완료됐지만 최신 담당자 목록을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.',
+        });
+      }
+    } catch (error) {
+      if (mutationSucceeded) {
+        if (isMealDutyOperationMounted(operationId, operationCampusId)) {
+          setNotice({
+            tone: 'warning',
+            title: '밥 담당자 지정 완료',
+            message: '지정은 완료됐지만 최신 담당자 목록을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.',
+          });
+        }
+        return;
+      }
+      const apiError = toApiError(error, '밥 담당자를 지정하지 못했습니다.');
+      if (
+        isMealDutyOperationMounted(operationId, operationCampusId) &&
+        shouldHandleRequestError(
+          apiError,
+          operationGeneration,
+          getAuthSessionGeneration(),
+        )
+      ) {
+        setActionError(apiError);
+        void handleAuthError(apiError, setAuthState);
+      }
+    } finally {
+      if (finishMealMutationForScope({
+        currentScope: mealDutyCampusIdRef.current,
+        gate,
+        mounted: penaltyRuleMountedRef.current,
+        operationId,
+        operationScope: operationCampusId,
+      })) {
+        setActionState({status: 'idle'});
+      }
+    }
+  };
+
+  const revokeMeal = async (assignment: DutyAssignment) => {
+    if (actionState.status !== 'idle') return;
+    const gate = mealDutyMutationGateRef.current;
+    const operationId = beginMealMutation(
+      gate,
+      `${campusId}:${getAuthSessionGeneration()}:meal-duty`,
+    );
+    if (operationId === null) return;
+    const operationCampusId = campusId;
+    const operationGeneration = getAuthSessionGeneration();
+    let mutationSucceeded = false;
+
+    setActionState({status: 'revokingMeal', assignmentId: assignment.assignmentId});
+    setActionError(null);
+    try {
+      const access = await resolveMealDutyMutationAccess(operationId, operationCampusId);
+      if (!access) return;
+
+      await mealApi.revokeDuty(access.accessToken, operationCampusId, assignment.assignmentId);
+      if (
+        !isMealDutyOperationMounted(operationId, operationCampusId) ||
+        !isAuthSessionGenerationCurrent(access.generation)
+      ) return;
+      mutationSucceeded = true;
+      setNotice({
+        tone: 'success',
+        title: '밥 담당자 해제',
+        message: `${assignment.name}님의 밥 담당자 배정을 해제했습니다.`,
+      });
+      if (!(await refreshMealDutyAdminState(operationId, operationCampusId))) {
+        if (!isMealDutyOperationMounted(operationId, operationCampusId)) return;
+        setNotice({
+          tone: 'warning',
+          title: '밥 담당자 해제 완료',
+          message: '해제는 완료됐지만 최신 담당자 목록을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.',
+        });
+      }
+    } catch (error) {
+      if (mutationSucceeded) {
+        if (isMealDutyOperationMounted(operationId, operationCampusId)) {
+          setNotice({
+            tone: 'warning',
+            title: '밥 담당자 해제 완료',
+            message: '해제는 완료됐지만 최신 담당자 목록을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.',
+          });
+        }
+        return;
+      }
+      const apiError = toApiError(error, '밥 담당자 배정을 해제하지 못했습니다.');
+      if (
+        isMealDutyOperationMounted(operationId, operationCampusId) &&
+        shouldHandleRequestError(
+          apiError,
+          operationGeneration,
+          getAuthSessionGeneration(),
+        )
+      ) {
+        setActionError(apiError);
+        void handleAuthError(apiError, setAuthState);
+      }
+    } finally {
+      if (finishMealMutationForScope({
+        currentScope: mealDutyCampusIdRef.current,
+        gate,
+        mounted: penaltyRuleMountedRef.current,
+        operationId,
+        operationScope: operationCampusId,
+      })) {
+        setActionState({status: 'idle'});
+      }
+    }
+  };
+
   const confirmDeleteMember = async () => {
     if (!deleteTarget || actionState.status !== 'idle') {
       return;
@@ -2654,6 +2899,7 @@ export function AdminScreen({
   }
 
   const coffeeDuty = getActiveCoffeeDuty(loadState.duties);
+  const activeMealDuties = getActiveMealDuties(loadState.duties);
   const selectedMember = selectedMemberId
     ? loadState.members.find((member) => member.membershipId === selectedMemberId) ?? null
     : null;
@@ -2707,13 +2953,16 @@ export function AdminScreen({
       {selectedMember ? (
         <AdminMemberDetail
           actionState={actionState}
+          activeMealDuties={activeMealDuties}
           coffeeDuty={coffeeDuty}
           globalRole={state.user.role}
           member={selectedMember}
           onAssignCoffee={() => assignCoffee(selectedMember)}
+          onAssignMeal={() => assignMeal(selectedMember)}
           onBack={() => setSelectedMemberId(null)}
           onRequestDelete={() => setDeleteTarget(selectedMember)}
           onRevokeCoffee={revokeCoffee}
+          onRevokeMeal={revokeMeal}
           onUpdateRole={(role) => updateRole(selectedMember, role)}
           selectedCampusRole={state.selectedCampus.campusRole}
         />
@@ -10218,28 +10467,36 @@ function InviteCodeCopyRow({
 
 function AdminMemberDetail({
   actionState,
+  activeMealDuties,
   coffeeDuty,
   globalRole,
   member,
   onAssignCoffee,
+  onAssignMeal,
   onBack,
   onRequestDelete,
   onRevokeCoffee,
+  onRevokeMeal,
   onUpdateRole,
   selectedCampusRole,
 }: {
   actionState: AdminActionState;
+  activeMealDuties: DutyAssignment[];
   coffeeDuty: DutyAssignment | null;
   globalRole: string;
   member: AdminCampusMember;
   onAssignCoffee: () => void;
+  onAssignMeal: () => void;
   onBack: () => void;
   onRequestDelete: () => void;
   onRevokeCoffee: (assignment: DutyAssignment) => void;
+  onRevokeMeal: (assignment: DutyAssignment) => void;
   onUpdateRole: (role: CampusRole) => void;
   selectedCampusRole: CampusRole;
 }) {
   const memberCoffeeDuty = coffeeDuty?.userId === member.userId ? coffeeDuty : null;
+  const memberMealDuties = activeMealDuties.filter((assignment) => assignment.userId === member.userId);
+  const memberMealDuty = memberMealDuties[0] ?? null;
   const busy = actionState.status !== 'idle';
 
   return (
@@ -10258,6 +10515,7 @@ function AdminMemberDetail({
         <View style={styles.chipRow}>
           <Chip label={`캠퍼스 권한 ${member.campusRole}`} tone="info" />
           <Chip label={member.status} tone={member.status === 'ACTIVE' ? 'success' : 'warning'} />
+          {memberMealDuty ? <Chip label="밥 담당" tone="success" /> : null}
         </View>
         <ListRow label="현재 로그인 전체 권한" value={globalRole} />
         <ListRow label="현재 로그인 캠퍼스 권한" value={selectedCampusRole} />
@@ -10299,6 +10557,31 @@ function AdminMemberDetail({
               disabled={busy}
               onPress={onAssignCoffee}>
               {actionState.status === 'assigningCoffee' ? '지정 중...' : '커피 담당자로 지정'}
+            </Button>
+          )}
+        </View>
+      </Card>
+      <Card>
+        <Eyebrow>밥 담당</Eyebrow>
+        <Title>{memberMealDuty ? '현재 밥 담당자입니다' : '현재 밥 담당자가 아니에요'}</Title>
+        <Body>
+          밥 담당자는 여러 명을 동시에 지정할 수 있습니다.
+        </Body>
+        <View style={styles.actionRow}>
+          {memberMealDuty ? (
+            <Button
+              accessibilityLabel={`${member.name} 밥 담당자 해제`}
+              disabled={busy}
+              onPress={() => onRevokeMeal(memberMealDuty)}
+              variant="danger">
+              {actionState.status === 'revokingMeal' ? '해제 중...' : '밥 담당 해제'}
+            </Button>
+          ) : (
+            <Button
+              accessibilityLabel={`${member.name} 밥 담당자로 지정`}
+              disabled={busy}
+              onPress={onAssignMeal}>
+              {actionState.status === 'assigningMeal' ? '지정 중...' : '밥 담당자로 지정'}
             </Button>
           )}
         </View>
@@ -11259,6 +11542,10 @@ function filterMembers(members: AdminCampusMember[], filter: MemberFilter) {
 
 function getActiveCoffeeDuty(duties: DutyAssignment[]) {
   return duties.find((duty) => duty.dutyType === 'COFFEE' && duty.isActive) ?? null;
+}
+
+function getActiveMealDuties(duties: DutyAssignment[]) {
+  return duties.filter((duty) => duty.dutyType === 'MEAL' && duty.isActive);
 }
 
 function getAdminShellTitle(tab: AdminTab) {
