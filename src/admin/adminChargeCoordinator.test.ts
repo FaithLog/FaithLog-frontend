@@ -11,11 +11,17 @@ import {
   buildAdminChargeSummaryRequestKey,
   commitAdminChargeCampusIdentity,
   coordinateAdminChargeStatusMutation,
+  createAdminChargeViewIdentity,
   createAdminChargeReadCoordinator,
+  getAdminChargeRefreshIdentity,
   invalidateAdminChargeRead,
+  isAdminChargeDetailRequestKeyCurrent,
+  isAdminChargeSummaryRequestKeyCurrent,
   refreshAdminChargeSurfaces,
   runLatestAdminChargeRead,
   selectAdminChargeStatusRequest,
+  setAdminChargeViewDetail,
+  setAdminChargeViewFilters,
 } from './adminChargeCoordinator';
 import {
   beginAdminChargeMutation,
@@ -240,16 +246,123 @@ describe('admin charge production coordinator', () => {
     expect(applied).toEqual(['B:PAID']);
   });
 
+  it('refreshes the current B filters when a mutation that started under A resolves', async () => {
+    const reads = createAdminChargeReadCoordinator();
+    const gate = createAdminChargeMutationGate();
+    const mutationResponse = deferred<AdminChargeStatusChangeResponse>();
+    const lateA = deferred<string>();
+    const filtersA = {...filters, status: 'UNPAID'};
+    const filtersB = {...filters, status: 'CANCELED'};
+    const viewIdentity = createAdminChargeViewIdentity(filtersA);
+    setAdminChargeViewDetail(viewIdentity, {userId: 7});
+    const applied: string[] = [];
+    const refreshedStatuses: string[] = [];
+    const keyFor = (currentFilters: typeof filtersA) =>
+      buildAdminChargeSummaryRequestKey({
+        campusId: 1,
+        generation: 3,
+        filters: currentFilters,
+      });
+    const loadA = runLatestAdminChargeRead({
+      coordinator: reads,
+      channel: 'summary',
+      key: keyFor(filtersA),
+      request: () => lateA.promise,
+      normalizeError,
+      canApplySuccess: () => true,
+      canApplyError: () => true,
+      onSuccess: (value) => applied.push(value),
+      onError: vi.fn(),
+    });
+    const mutation = coordinateAdminChargeStatusMutation({
+      gate,
+      expected: {
+        campusId: 1,
+        userId: 7,
+        chargeItemId: 501,
+        paymentCategory: 'PENALTY',
+        status: 'CANCELED',
+      },
+      mutate: () => mutationResponse.promise,
+      normalizeError,
+      canApplySuccess: () => true,
+      canHandleError: () => true,
+      onStart: vi.fn(),
+      onFinish: vi.fn(),
+      onAccepted: () => invalidateAdminChargeRead(reads),
+      onConflict: vi.fn(),
+      onSessionExpired: vi.fn(),
+      refresh: () => {
+        const current = getAdminChargeRefreshIdentity(viewIdentity);
+        refreshedStatuses.push(current.filters.status);
+        return refreshAdminChargeSurfaces(() => runLatestAdminChargeRead({
+          coordinator: reads,
+          channel: 'summary',
+          key: keyFor(current.filters),
+          request: async () => `refresh:${current.filters.status}`,
+          normalizeError,
+          canApplySuccess: () =>
+            isAdminChargeSummaryRequestKeyCurrent({
+              campusId: 1,
+              generation: 3,
+              identity: viewIdentity,
+              key: keyFor(current.filters),
+            }),
+          canApplyError: () => true,
+          onSuccess: (value) => applied.push(value),
+          onError: vi.fn(),
+        }));
+      },
+    });
+
+    setAdminChargeViewFilters(viewIdentity, filtersB);
+    expect(getAdminChargeRefreshIdentity(viewIdentity)).toEqual({
+      detail: null,
+      filters: filtersB,
+    });
+    const loadB = runLatestAdminChargeRead({
+      coordinator: reads,
+      channel: 'summary',
+      key: keyFor(filtersB),
+      request: async () => 'B:CANCELED',
+      normalizeError,
+      canApplySuccess: () => true,
+      canApplyError: () => true,
+      onSuccess: (value) => applied.push(value),
+      onError: vi.fn(),
+    });
+    await expect(loadB).resolves.toEqual({kind: 'applied'});
+
+    mutationResponse.resolve(canceledResponse);
+    await expect(mutation).resolves.toMatchObject({
+      kind: 'success',
+      refresh: {kind: 'complete'},
+    });
+    lateA.resolve('late A:UNPAID');
+    await expect(loadA).resolves.toEqual({kind: 'stale'});
+
+    expect(refreshedStatuses).toEqual(['CANCELED']);
+    expect(applied).toEqual(['B:CANCELED', 'refresh:CANCELED']);
+  });
+
   it('uses member/filter identity and invalidation to discard stale detail reads', async () => {
     const reads = createAdminChargeReadCoordinator();
     const request = deferred<string>();
     const onSuccess = vi.fn();
+    const viewIdentity = createAdminChargeViewIdentity(filters);
+    setAdminChargeViewDetail(viewIdentity, {userId: 7});
     const key = buildAdminChargeDetailRequestKey({
       campusId: 1,
       generation: 3,
       filters,
       memberUserId: 7,
     });
+    expect(isAdminChargeDetailRequestKeyCurrent({
+      campusId: 1,
+      generation: 3,
+      identity: viewIdentity,
+      key,
+    })).toBe(true);
     const load = runLatestAdminChargeRead({
       coordinator: reads,
       channel: 'detail',
@@ -263,6 +376,13 @@ describe('admin charge production coordinator', () => {
     });
 
     invalidateAdminChargeRead(reads, 'detail');
+    setAdminChargeViewFilters(viewIdentity, {...filters, status: 'CANCELED'});
+    expect(isAdminChargeDetailRequestKeyCurrent({
+      campusId: 1,
+      generation: 3,
+      identity: viewIdentity,
+      key,
+    })).toBe(false);
     request.resolve('late member 7');
 
     await expect(load).resolves.toEqual({kind: 'stale'});

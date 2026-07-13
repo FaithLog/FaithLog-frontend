@@ -143,10 +143,16 @@ import {
   commitAdminChargeCampusIdentity,
   coordinateAdminChargeStatusMutation,
   createAdminChargeReadCoordinator,
+  createAdminChargeViewIdentity,
+  getAdminChargeRefreshIdentity,
   invalidateAdminChargeRead,
+  isAdminChargeDetailRequestKeyCurrent,
+  isAdminChargeSummaryRequestKeyCurrent,
   refreshAdminChargeSurfaces,
   runLatestAdminChargeRead,
   selectAdminChargeStatusRequest,
+  setAdminChargeViewDetail,
+  setAdminChargeViewFilters,
 } from './adminChargeCoordinator';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
@@ -710,6 +716,9 @@ export function AdminScreen({
   const [chargeStatusConfirm, setChargeStatusConfirm] = useState<ChargeStatusConfirm>(null);
   const chargeStatusMutationGateRef = useRef(createAdminChargeMutationGate());
   const chargeReadCoordinatorRef = useRef(createAdminChargeReadCoordinator());
+  const chargeViewIdentityRef = useRef(
+    createAdminChargeViewIdentity<AdminChargeFilters, AdminChargeMemberRef>(chargeFilters),
+  );
   const chargeStatusCampusIdRef = useRef(campusId);
   const [actionState, setActionState] = useState<AdminActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
@@ -740,6 +749,7 @@ export function AdminScreen({
         }
         setSettlementSection('charges');
         setSettlementState({status: 'idle'});
+        setAdminChargeViewDetail(chargeViewIdentityRef.current, null);
         setChargeDetailState({status: 'idle'});
         setChargeStatusConfirm(null);
         setActionState((current) =>
@@ -1263,7 +1273,9 @@ export function AdminScreen({
     void loadNotificationLogs(nextFilters);
   };
 
-  const loadSettlement = async (filters: AdminChargeFilters = chargeFilters) => {
+  const loadSettlement = async (
+    filters: AdminChargeFilters = getAdminChargeRefreshIdentity(chargeViewIdentityRef.current).filters,
+  ) => {
     const requestCampusId = campusId;
     const requestGeneration = getAuthSessionGeneration();
     const key = buildAdminChargeSummaryRequestKey({
@@ -1306,10 +1318,22 @@ export function AdminScreen({
       canApplySuccess: () =>
         penaltyRuleMountedRef.current &&
         chargeStatusCampusIdRef.current === requestCampusId &&
-        isAuthSessionGenerationCurrent(requestGeneration),
+        isAuthSessionGenerationCurrent(requestGeneration) &&
+        isAdminChargeSummaryRequestKeyCurrent({
+          campusId: requestCampusId,
+          generation: requestGeneration,
+          identity: chargeViewIdentityRef.current,
+          key,
+        }),
       canApplyError: (apiError) =>
         penaltyRuleMountedRef.current &&
         chargeStatusCampusIdRef.current === requestCampusId &&
+        isAdminChargeSummaryRequestKeyCurrent({
+          campusId: requestCampusId,
+          generation: requestGeneration,
+          identity: chargeViewIdentityRef.current,
+          key,
+        }) &&
         shouldHandleRequestError(
           apiError,
           requestGeneration,
@@ -2000,7 +2024,10 @@ export function AdminScreen({
     key: Key,
     value: AdminChargeFilters[Key],
   ) => {
-    const nextFilters = {...chargeFilters, [key]: value};
+    const nextFilters = {
+      ...getAdminChargeRefreshIdentity(chargeViewIdentityRef.current).filters,
+      [key]: value,
+    };
 
     chargeFilterDebounceRef.current = applyAdminChargeFilterChange({
       coordinator: chargeReadCoordinatorRef.current,
@@ -2009,6 +2036,7 @@ export function AdminScreen({
       nextFilters,
       onLoad: (filters) => void loadSettlement(filters),
       onVisibleStateChange: (filters) => {
+        setAdminChargeViewFilters(chargeViewIdentityRef.current, filters);
         setChargeFilters(filters);
         setChargeDetailState({status: 'idle'});
         setSettlementState({status: 'loading'});
@@ -2030,15 +2058,20 @@ export function AdminScreen({
     }
 
     invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+    setAdminChargeViewFilters(chargeViewIdentityRef.current, nextFilters);
     setChargeFilters(nextFilters);
     setChargeDetailState({status: 'idle'});
     void loadSettlement(nextFilters);
   };
 
-  const openMemberCharges = async (member: AdminChargeMemberRef) => {
+  const openMemberCharges = async (
+    member: AdminChargeMemberRef,
+    filters: AdminChargeFilters = getAdminChargeRefreshIdentity(chargeViewIdentityRef.current).filters,
+  ) => {
     const requestCampusId = campusId;
     const requestGeneration = getAuthSessionGeneration();
-    const requestFilters = chargeFilters;
+    const requestFilters = filters;
+    setAdminChargeViewDetail(chargeViewIdentityRef.current, member);
     const key = buildAdminChargeDetailRequestKey({
       campusId: requestCampusId,
       generation: requestGeneration,
@@ -2078,10 +2111,22 @@ export function AdminScreen({
       canApplySuccess: () =>
         penaltyRuleMountedRef.current &&
         chargeStatusCampusIdRef.current === requestCampusId &&
-        isAuthSessionGenerationCurrent(requestGeneration),
+        isAuthSessionGenerationCurrent(requestGeneration) &&
+        isAdminChargeDetailRequestKeyCurrent({
+          campusId: requestCampusId,
+          generation: requestGeneration,
+          identity: chargeViewIdentityRef.current,
+          key,
+        }),
       canApplyError: (apiError) =>
         penaltyRuleMountedRef.current &&
         chargeStatusCampusIdRef.current === requestCampusId &&
+        isAdminChargeDetailRequestKeyCurrent({
+          campusId: requestCampusId,
+          generation: requestGeneration,
+          identity: chargeViewIdentityRef.current,
+          key,
+        }) &&
         shouldHandleRequestError(
           apiError,
           requestGeneration,
@@ -2132,14 +2177,7 @@ export function AdminScreen({
     }
 
     const target = chargeStatusConfirm;
-    const detailMember =
-      chargeDetailState.status === 'success' || chargeDetailState.status === 'empty'
-        ? {
-            userId: chargeDetailState.charges.userId,
-            name: chargeDetailState.charges.name,
-            email: chargeDetailState.charges.email,
-          }
-        : null;
+    const detailMember = getAdminChargeRefreshIdentity(chargeViewIdentityRef.current).detail;
     const operationCampusId = campusId;
     const operationGeneration = getAuthSessionGeneration();
 
@@ -2210,11 +2248,17 @@ export function AdminScreen({
         setActionError(null);
       },
       onSessionExpired: (apiError) => handleAuthError(apiError, setAuthState),
-      refresh: () =>
-        refreshAdminChargeSurfaces(
-          () => loadSettlement(),
-          () => openMemberCharges(detailMember),
-        ),
+      refresh: () => {
+        const current = getAdminChargeRefreshIdentity(chargeViewIdentityRef.current);
+        const currentDetail = current.detail;
+
+        return refreshAdminChargeSurfaces(
+          () => loadSettlement(current.filters),
+          currentDetail
+            ? () => openMemberCharges(currentDetail, current.filters)
+            : undefined,
+        );
+      },
     });
 
     if (outcome.kind === 'error') {
@@ -2822,6 +2866,8 @@ export function AdminScreen({
     const changeTab = () => {
       if (tab === 'settlement' && nextTab !== 'settlement') {
         invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+        setAdminChargeViewDetail(chargeViewIdentityRef.current, null);
+        setChargeDetailState({status: 'idle'});
       }
       resetPenaltyRuleFlow();
       setSelectedMemberId(null);
@@ -3109,6 +3155,7 @@ export function AdminScreen({
             const changeSection = () => {
               if (section !== 'charges') {
                 invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
+                setAdminChargeViewDetail(chargeViewIdentityRef.current, null);
               }
               resetPenaltyRuleFlow();
               setSettlementSection(section);
@@ -3125,6 +3172,7 @@ export function AdminScreen({
           }}
           onBackToSummary={() => {
             invalidateAdminChargeRead(chargeReadCoordinatorRef.current, 'detail');
+            setAdminChargeViewDetail(chargeViewIdentityRef.current, null);
             setChargeDetailState({status: 'idle'});
           }}
           onActivatePaymentAccount={(account) => void activatePaymentAccount(account)}
