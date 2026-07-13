@@ -15,10 +15,13 @@ import {
   apiRequest,
   changeAdminChargeStatus,
   FaithLogApiError,
+  fetchChargeSummary,
   fetchAdminCampusChargesForMyAccounts,
   fetchAdminMemberCharges,
+  fetchMyCharges,
   fetchPrayerWeek,
   loginUser,
+  markMyChargePaid,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -96,6 +99,86 @@ describe('FaithLog mock API adapter', () => {
     expect(detail.summary).toMatchObject({unpaidAmount: 3_000, paidAmount: 15_000});
     expect(detail.items[0]).toMatchObject({status: 'PAID', paidAt: changed.paidAt});
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('shares an admin CANCELED transition with the member list and blocks member payment', async () => {
+    await changeAdminChargeStatus('mock-access-token', 501, 'CANCELED', {
+      campusId: 1,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+
+    const [memberList, memberSummary, adminDetail] = await Promise.all([
+      fetchMyCharges('mock-access-token', 1, {status: 'CANCELED'}),
+      fetchChargeSummary('mock-access-token', 1, {year: 2026, month: 6}),
+      fetchAdminMemberCharges('mock-access-token', 1, 7),
+    ]);
+
+    expect(memberList.items).toContainEqual(expect.objectContaining({id: 501, status: 'CANCELED'}));
+    expect(memberList.summary).toMatchObject({
+      totalAmount: 3000,
+      unpaidAmount: 0,
+      paidAmount: 0,
+      waivedAmount: 0,
+      canceledAmount: 3000,
+    });
+    expect(memberSummary).toMatchObject({
+      totalPaidAmount: 12000,
+      monthlyPaidAmount: 12000,
+      monthlyUnpaidAmount: 3000,
+      monthlyTotalChargeAmount: 18000,
+    });
+    expect(adminDetail.items).toContainEqual(expect.objectContaining({id: 501, status: 'CANCELED'}));
+    await expect(
+      markMyChargePaid('mock-access-token', 1, 501),
+    ).rejects.toMatchObject({detail: {status: 409}});
+  });
+
+  it('shares a member PAID transition with admin detail and canonical filtered aggregates', async () => {
+    const before = await fetchMyCharges('mock-access-token', 1, {});
+    expect(before.summary).toMatchObject({
+      totalAmount: 18000,
+      unpaidAmount: 6000,
+      paidAmount: 12000,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
+
+    await markMyChargePaid('mock-access-token', 1, 501);
+    const [memberAll, memberPaid, memberUnpaid, memberSummary, adminDetail, adminCampus] =
+      await Promise.all([
+        fetchMyCharges('mock-access-token', 1, {}),
+        fetchMyCharges('mock-access-token', 1, {status: 'PAID'}),
+        fetchMyCharges('mock-access-token', 1, {status: 'UNPAID'}),
+        fetchChargeSummary('mock-access-token', 1, {year: 2026, month: 6}),
+        fetchAdminMemberCharges('mock-access-token', 1, 7),
+        fetchAdminCampusChargesForMyAccounts('mock-access-token', 1),
+      ]);
+
+    expect(memberAll.items).toContainEqual(expect.objectContaining({id: 501, status: 'PAID'}));
+    expect(memberAll.summary).toMatchObject({totalAmount: 18000, unpaidAmount: 3000, paidAmount: 15000});
+    expect(memberPaid.summary).toMatchObject({totalAmount: 15000, paidAmount: 15000, unpaidAmount: 0});
+    expect(memberUnpaid.summary).toMatchObject({totalAmount: 3000, unpaidAmount: 3000, paidAmount: 0});
+    expect(memberSummary).toMatchObject({
+      totalPaidAmount: 15000,
+      monthlyPaidAmount: 15000,
+      monthlyUnpaidAmount: 3000,
+    });
+    expect(adminDetail.items).toContainEqual(expect.objectContaining({id: 501, status: 'PAID'}));
+    expect(adminDetail.summary).toMatchObject({totalAmount: 18000, unpaidAmount: 3000, paidAmount: 15000});
+    expect(adminCampus.summary).toMatchObject({totalAmount: 18000, unpaidAmount: 3000, paidAmount: 15000});
+
+    resetMockAdapterStateForTests();
+    const [memberAfterReset, adminAfterReset, summaryAfterReset] = await Promise.all([
+      fetchMyCharges('mock-access-token', 1, {}),
+      fetchAdminMemberCharges('mock-access-token', 1, 7),
+      fetchChargeSummary('mock-access-token', 1, {year: 2026, month: 6}),
+    ]);
+    expect(memberAfterReset.items).toContainEqual(expect.objectContaining({id: 501, status: 'UNPAID'}));
+    expect(memberAfterReset.summary).toMatchObject({totalAmount: 18000, unpaidAmount: 6000, paidAmount: 12000});
+    expect(adminAfterReset.items).toContainEqual(expect.objectContaining({id: 501, status: 'UNPAID'}));
+    expect(adminAfterReset.summary).toMatchObject({totalAmount: 18000, unpaidAmount: 6000, paidAmount: 12000});
+    expect(summaryAfterReset).toMatchObject({totalPaidAmount: 12000, monthlyUnpaidAmount: 6000});
   });
 
   it('returns parser-compatible options when mock poll templates are created and updated', async () => {

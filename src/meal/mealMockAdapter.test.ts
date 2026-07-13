@@ -208,6 +208,11 @@ describe('MEAL mock adapter flow', () => {
       paymentCategory: 'MEAL',
       status: 'UNPAID',
     });
+    const [ownerAllCharges, ownerMealCharges, ownerPenaltyCharges] = await Promise.all([
+      fetchMyCharges(mealMockAccessTokens.activeDuty, 1, {}),
+      fetchMyCharges(mealMockAccessTokens.activeDuty, 1, {paymentCategory: 'MEAL'}),
+      fetchMyCharges(mealMockAccessTokens.activeDuty, 1, {paymentCategory: 'PENALTY'}),
+    ]);
     const charge = beforePaid.items[0];
     const ownerSettlementBeforePaid = await mealApi.getMySettlement(
       mealMockAccessTokens.activeDuty,
@@ -228,6 +233,27 @@ describe('MEAL mock adapter flow', () => {
     ]);
 
     expect(beforePaid.items).toHaveLength(1);
+    expect(ownerAllCharges.summary).toEqual({
+      totalAmount: 25000,
+      unpaidAmount: 13000,
+      paidAmount: 12000,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
+    expect(ownerMealCharges.summary).toEqual({
+      totalAmount: 7000,
+      unpaidAmount: 7000,
+      paidAmount: 0,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
+    expect(ownerPenaltyCharges.summary).toEqual({
+      totalAmount: 18000,
+      unpaidAmount: 6000,
+      paidAmount: 12000,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
     expect(charge).toMatchObject({
       amount: 8000,
       paymentCategory: 'MEAL',
