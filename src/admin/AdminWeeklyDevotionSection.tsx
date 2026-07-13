@@ -95,7 +95,9 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     weekStartDate: initialLatestWeekStartDate,
   });
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
-  const [exportingContextKey, setExportingContextKey] = useState<string | null>(null);
+  const [exportingContextKeys, setExportingContextKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [feedback, setFeedback] = useState<Feedback>(null);
   const runtimeAdapter = useMemo(createRuntimeAdapter, []);
   const adapter = dependencies?.adapter ?? runtimeAdapter;
@@ -107,11 +109,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
   const weekStartDateRef = useRef(weekStartDate);
   const campusIdRef = useRef(campusId);
   const loadOperationRef = useRef(0);
-  const exportOperationRef = useRef(0);
-  const exportInFlightRef = useRef<{
-    contextKey: string;
-    promise: Promise<void>;
-  } | null>(null);
+  const exportInFlightRef = useRef(new Map<string, Promise<void>>());
 
   useLayoutEffect(() => {
     if (campusIdRef.current === campusId) {
@@ -119,7 +117,6 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     }
     campusIdRef.current = campusId;
     loadOperationRef.current += 1;
-    exportOperationRef.current += 1;
   }, [campusId]);
 
   useEffect(() => {
@@ -149,7 +146,6 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
   const showWeekImmediately = useCallback(
     (selectedWeekStartDate: string) => {
       loadOperationRef.current += 1;
-      exportOperationRef.current += 1;
       weekStartDateRef.current = selectedWeekStartDate;
       const authGeneration = getAuthSessionGeneration();
       const cached = coordinator.peek({
@@ -357,24 +353,26 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
       getAuthSessionGeneration(),
       selectedWeekStartDate,
     );
-    if (exportInFlightRef.current?.contextKey === selectedContextKey) {
-      return exportInFlightRef.current.promise;
+    const existing = exportInFlightRef.current.get(selectedContextKey);
+    if (existing) {
+      return existing;
     }
 
-    const operationId = ++exportOperationRef.current;
     const operation = (async () => {
       let request: AdminWeeklyDevotionRequest | null = null;
-      setExportingContextKey(selectedContextKey);
+      setExportingContextKeys((current) => {
+        const next = new Set(current);
+        next.add(selectedContextKey);
+        return next;
+      });
       setFeedback(null);
       try {
         request = await resolveRequest(selectedWeekStartDate);
         if (
           !request ||
           !isCurrentExport(
-            operationId,
             selectedCampusId,
             selectedWeekStartDate,
-            exportOperationRef,
             campusIdRef,
             weekStartDateRef,
             mountedRef,
@@ -388,10 +386,8 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         const exported = await adapter.exportWeek(request);
         if (
           !isCurrentExport(
-            operationId,
             selectedCampusId,
             selectedWeekStartDate,
-            exportOperationRef,
             campusIdRef,
             weekStartDateRef,
             mountedRef,
@@ -403,10 +399,8 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         await shareExport(exported);
         if (
           !isCurrentExport(
-            operationId,
             selectedCampusId,
             selectedWeekStartDate,
-            exportOperationRef,
             campusIdRef,
             weekStartDateRef,
             mountedRef,
@@ -422,10 +416,8 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         if (
           error instanceof StaleAuthSessionReadError ||
           !isCurrentExport(
-            operationId,
             selectedCampusId,
             selectedWeekStartDate,
-            exportOperationRef,
             campusIdRef,
             weekStartDateRef,
             mountedRef,
@@ -459,20 +451,21 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
             : 'Excel 파일을 저장하거나 공유하지 못했습니다.';
         setFeedback({message, tone: 'error'});
         AccessibilityInfo.announceForAccessibility(message);
-      } finally {
-        if (mountedRef.current) {
-          setExportingContextKey((current) =>
-            current === selectedContextKey ? null : current,
-          );
-        }
       }
     })();
     const inFlight = operation.finally(() => {
-      if (exportInFlightRef.current?.promise === inFlight) {
-        exportInFlightRef.current = null;
+      if (exportInFlightRef.current.get(selectedContextKey) === inFlight) {
+        exportInFlightRef.current.delete(selectedContextKey);
+        if (mountedRef.current) {
+          setExportingContextKeys((current) => {
+            const next = new Set(current);
+            next.delete(selectedContextKey);
+            return next;
+          });
+        }
       }
     });
-    exportInFlightRef.current = {contextKey: selectedContextKey, promise: inFlight};
+    exportInFlightRef.current.set(selectedContextKey, inFlight);
     return inFlight;
   };
 
@@ -481,7 +474,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     getAuthSessionGeneration(),
     weekStartDate,
   );
-  const exporting = exportingContextKey === selectedContextKey;
+  const exporting = exportingContextKeys.has(selectedContextKey);
 
   return (
     <View style={styles.container}>
@@ -1004,17 +997,14 @@ function isCurrentLoad(
 }
 
 function isCurrentExport(
-  operationId: number,
   selectedCampusId: number,
   selectedWeekStartDate: string,
-  exportOperationRef: React.RefObject<number>,
   campusIdRef: React.RefObject<number>,
   weekStartDateRef: React.RefObject<string>,
   mountedRef: React.RefObject<boolean>,
 ) {
   return (
     mountedRef.current &&
-    exportOperationRef.current === operationId &&
     campusIdRef.current === selectedCampusId &&
     weekStartDateRef.current === selectedWeekStartDate
   );

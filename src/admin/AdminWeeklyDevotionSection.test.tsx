@@ -222,6 +222,88 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
     }));
   });
 
+  it('reuses the original campus export after an A to B to A round trip', async () => {
+    const campusAExport = deferred<Awaited<ReturnType<AdminWeeklyDevotionAdapter['exportWeek']>>>();
+    const adapter = createAdapter();
+    adapter.exportWeek
+      .mockReturnValueOnce(campusAExport.promise)
+      .mockResolvedValueOnce({
+        bytes: new Uint8Array([80, 75]),
+        fileName: 'campus-2-weekly.xlsx',
+      });
+    const shareExport = vi.fn(async () => 'file:///weekly.xlsx');
+    let activeCampusId = 1;
+    const dependencies = {
+      adapter,
+      getNow: () => new Date(2026, 6, 13, 9),
+      resolveRequest: async (weekStartDate: string) => ({
+        ...REQUEST,
+        campusId: activeCampusId,
+        weekStartDate,
+      }),
+      shareExport,
+    };
+    let renderer!: ReactTestRenderer;
+    let firstCampusPromise!: Promise<void>;
+
+    await act(async () => {
+      renderer = track(create(
+        <AdminWeeklyDevotionSection
+          campusId={1}
+          dependencies={dependencies}
+          setAuthState={vi.fn()}
+        />,
+      ));
+    });
+    await act(async () => {
+      firstCampusPromise = renderer.root.findByProps({
+        accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+      }).props.onPress();
+      await Promise.resolve();
+    });
+
+    activeCampusId = 2;
+    act(() => {
+      renderer.update(
+        <AdminWeeklyDevotionSection
+          campusId={2}
+          dependencies={dependencies}
+          setAuthState={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      await renderer.root.findByProps({
+        accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+      }).props.onPress();
+    });
+
+    activeCampusId = 1;
+    act(() => {
+      renderer.update(
+        <AdminWeeklyDevotionSection
+          campusId={1}
+          dependencies={dependencies}
+          setAuthState={vi.fn()}
+        />,
+      );
+    });
+    expect(renderer.root.findByProps({
+      accessibilityLabel: '주차별 경건 현황 Excel 다운로드',
+    }).props.disabled).toBe(true);
+    expect(adapter.exportWeek).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      campusAExport.resolve({
+        bytes: new Uint8Array([80, 75]),
+        fileName: 'campus-1-weekly.xlsx',
+      });
+      await firstCampusPromise;
+    });
+    expect(adapter.exportWeek).toHaveBeenCalledTimes(2);
+    expect(shareExport).toHaveBeenCalledTimes(2);
+  });
+
   it('hides the previous table immediately when the selected week changes', async () => {
     const nextRequest = deferred<AdminWeeklyDevotionRequest | null>();
     const adapter = createAdapter();
