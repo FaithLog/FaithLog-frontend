@@ -83,6 +83,7 @@ import type {
   WeeklyDevotionSaveRequest,
   WeeklyDevotionSummary,
 } from './types';
+import {FaithLogApiError} from './apiError';
 import {getSafeApiErrorMessage} from './errorPolicy';
 import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
@@ -174,14 +175,7 @@ type UnparsedRequestOptions = Omit<RequestOptions, 'responseParser'> & {
   responseParser?: never;
 };
 
-export class FaithLogApiError extends Error {
-  readonly detail: ApiError;
-
-  constructor(detail: ApiError) {
-    super(detail.message);
-    this.detail = detail;
-  }
-}
+export {FaithLogApiError} from './apiError';
 
 type AuthRefreshFlight = {
   generation: AuthSessionGeneration;
