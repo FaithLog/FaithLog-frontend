@@ -78,6 +78,7 @@ module.exports = ({config}) => {
       ...(config.plugins || []),
       './plugins/withAndroidNavigationMode',
       buildPropertiesPlugin,
+      'expo-sharing',
       ...firebasePlugins,
     ],
     ios: {

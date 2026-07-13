@@ -113,6 +113,7 @@ import {
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
 import {getRepeatScheduleValidationMessage} from './repeatSchedule';
+import {AdminWeeklyDevotionSection} from './AdminWeeklyDevotionSection';
 import {isEndedPoll} from '../polls/pollListVisibility';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {
@@ -184,7 +185,7 @@ type AdminTab =
 type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
 type RoleFilter = MemberFilter;
 type AdminMemberSection = 'list' | 'roles' | 'coffee';
-type AdminDevotionSection = 'missing' | 'prayer';
+type AdminDevotionSection = 'missing' | 'weekly' | 'prayer';
 type AdminPrayerManagementSection = 'status' | 'groups' | 'period';
 type AdminPrayerGroupFlow = 'list' | 'details' | 'members';
 type AdminCompactButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -405,6 +406,7 @@ const adminMemberSections: Array<{id: AdminMemberSection; label: string}> = [
 
 const adminDevotionSections: Array<{id: AdminDevotionSection; label: string}> = [
   {id: 'missing', label: '경건 현황'},
+  {id: 'weekly', label: '주차별 현황'},
   {id: 'prayer', label: '기도제목'},
 ];
 const adminPrayerManagementSections: Array<{id: AdminPrayerManagementSection; label: string}> = [
@@ -2514,6 +2516,7 @@ export function AdminScreen({
       ) : tab === 'devotion' ? (
         <AdminDevotionPage
           assignableMembersState={assignablePrayerMembersState}
+          campusId={campusId}
           devotionSection={devotionSection}
           members={loadState.members}
           missingState={missingDevotionState}
@@ -2541,6 +2544,7 @@ export function AdminScreen({
           prayerGroupForm={prayerGroupForm}
           prayerMembersForm={prayerGroupMembersForm}
           prayerSeasonForm={prayerSeasonForm}
+          setAuthState={setAuthState}
           summary={loadState.summary}
           weekStartDate={weekStartDate}
         />
@@ -6267,6 +6271,7 @@ function AdminPollPicker({
 
 function AdminDevotionPage({
   assignableMembersState,
+  campusId,
   devotionSection,
   members,
   missingState,
@@ -6288,10 +6293,12 @@ function AdminDevotionPage({
   prayerGroupForm,
   prayerMembersForm,
   prayerSeasonForm,
+  setAuthState,
   summary,
   weekStartDate,
 }: {
   assignableMembersState: AssignablePrayerMembersState;
+  campusId: number;
   devotionSection: AdminDevotionSection;
   members: AdminCampusMember[];
   missingState: MissingDevotionState;
@@ -6313,6 +6320,7 @@ function AdminDevotionPage({
   prayerGroupForm: PrayerGroupForm;
   prayerMembersForm: PrayerGroupMembersForm;
   prayerSeasonForm: PrayerSeasonForm;
+  setAuthState: (state: AuthGateState) => void;
   summary: AdminDashboardSummary;
   weekStartDate: string;
 }) {
@@ -6323,7 +6331,7 @@ function AdminDevotionPage({
         items={adminDevotionSections}
         onSelect={onChangeDevotionSection}
         selectedId={devotionSection}
-        subtitle="경건 제출과 기도제목 운영을 나누어 봅니다."
+        subtitle="미제출 알림, 주차별 제출 현황, 기도제목 운영을 나누어 봅니다."
         title="경건 관리"
       />
       {devotionSection === 'missing' ? (
@@ -6336,6 +6344,8 @@ function AdminDevotionPage({
           summary={summary}
           weekStartDate={weekStartDate}
         />
+      ) : devotionSection === 'weekly' ? (
+        <AdminWeeklyDevotionSection campusId={campusId} setAuthState={setAuthState} />
       ) : (
         <AdminPrayerManagement
           actionState={prayerActionState}

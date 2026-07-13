@@ -16,6 +16,7 @@ export type IconexIconName =
   | 'danger'
   | 'document'
   | 'document-2'
+  | 'download'
   | 'home'
   | 'lock'
   | 'lock-check'
@@ -56,6 +57,7 @@ export const iconexIconNodeIds: Record<IconexIconName, string> = {
   danger: '191:903',
   document: '191:664',
   'document-2': '191:670',
+  download: 'local:admin-weekly-export',
   home: '191:957',
   lock: '191:739',
   'lock-check': '191:749',
@@ -138,6 +140,11 @@ const iconexIconSvgs: Record<IconexIconName, string> = {
 <path d="M15 2.5V6C15 7.10457 15.8954 8 17 8H19.5" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 <path d="M8 12H16" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 <path d="M8 17H12" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  download: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M12 3V15" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M8 11L12 15L16 11" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M5 20H19" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 </svg>`,
   category: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect x="3.5" y="4" width="7" height="7" rx="2.5" stroke="#4E4F53" stroke-width="1.5"/>
