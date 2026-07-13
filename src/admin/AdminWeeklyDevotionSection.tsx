@@ -47,11 +47,12 @@ import {
 import {saveAndShareAdminWeeklyDevotionExport} from './adminWeeklyDevotionFile';
 
 type WeeklyState =
-  | {status: 'loading'; weekStartDate: string}
-  | {data: AdminWeeklyDevotion; status: 'success'; weekStartDate: string}
-  | {status: 'empty'; weekStartDate: string}
-  | {error: FaithLogApiError['detail']; status: 'error'; weekStartDate: string}
+  | {contextKey: string; status: 'loading'; weekStartDate: string}
+  | {contextKey: string; data: AdminWeeklyDevotion; status: 'success'; weekStartDate: string}
+  | {contextKey: string; status: 'empty'; weekStartDate: string}
+  | {contextKey: string; error: FaithLogApiError['detail']; status: 'error'; weekStartDate: string}
   | {
+      contextKey: string;
       error: FaithLogApiError['detail'];
       status: 'permissionDenied';
       weekStartDate: string;
@@ -76,16 +77,22 @@ type Props = {
 };
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
+const MEMBER_RENDER_BATCH_SIZE = 50;
 
 export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState}: Props) {
   const getNow = dependencies?.getNow ?? getSystemNow;
-  const [latestWeekStartDate, setLatestWeekStartDate] = useState(() =>
+  const [initialLatestWeekStartDate] = useState(() =>
     getAdminWeekStartDate(getNow()),
   );
-  const [weekStartDate, setWeekStartDate] = useState(latestWeekStartDate);
+  const [weekStartDate, setWeekStartDate] = useState(initialLatestWeekStartDate);
   const [state, setState] = useState<WeeklyState>({
+    contextKey: createViewContextKey(
+      campusId,
+      getAuthSessionGeneration(),
+      initialLatestWeekStartDate,
+    ),
     status: 'loading',
-    weekStartDate: latestWeekStartDate,
+    weekStartDate: initialLatestWeekStartDate,
   });
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -96,10 +103,18 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     dependencies?.shareExport ?? saveAndShareAdminWeeklyDevotionExport;
   const coordinator = useMemo(() => new AdminWeeklyDevotionCoordinator(adapter), [adapter]);
   const mountedRef = useRef(true);
-  const latestWeekStartDateRef = useRef(latestWeekStartDate);
+  const latestWeekStartDateRef = useRef(initialLatestWeekStartDate);
   const weekStartDateRef = useRef(weekStartDate);
+  const campusIdRef = useRef(campusId);
   const loadOperationRef = useRef(0);
+  const exportOperationRef = useRef(0);
   const exportInFlightRef = useRef<Promise<void> | null>(null);
+
+  if (campusIdRef.current !== campusId) {
+    campusIdRef.current = campusId;
+    loadOperationRef.current += 1;
+    exportOperationRef.current += 1;
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -128,14 +143,22 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
   const showWeekImmediately = useCallback(
     (selectedWeekStartDate: string) => {
       loadOperationRef.current += 1;
+      exportOperationRef.current += 1;
       weekStartDateRef.current = selectedWeekStartDate;
+      const authGeneration = getAuthSessionGeneration();
       const cached = coordinator.peek({
         accessToken: '',
-        authGeneration: getAuthSessionGeneration(),
+        authGeneration,
         campusId,
         weekStartDate: selectedWeekStartDate,
       });
-      setState(toWeeklyState(selectedWeekStartDate, cached));
+      setState(
+        toWeeklyState(
+          createViewContextKey(campusId, authGeneration, selectedWeekStartDate),
+          selectedWeekStartDate,
+          cached,
+        ),
+      );
       setExpandedUserId(null);
       setFeedback(null);
     },
@@ -160,7 +183,6 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     }
 
     latestWeekStartDateRef.current = nextLatestWeekStartDate;
-    setLatestWeekStartDate(nextLatestWeekStartDate);
     if (weekStartDateRef.current === previousLatestWeekStartDate) {
       showWeekImmediately(nextLatestWeekStartDate);
       setWeekStartDate(nextLatestWeekStartDate);
@@ -197,6 +219,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
   const loadWeek = useCallback(
     async (selectedWeekStartDate: string, invalidate = false) => {
       const operationId = ++loadOperationRef.current;
+      const operationCampusId = campusId;
       let request: AdminWeeklyDevotionRequest | null = null;
 
       try {
@@ -208,16 +231,36 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
             selectedWeekStartDate,
             loadOperationRef,
             weekStartDateRef,
+            campusIdRef,
             mountedRef,
+            operationCampusId,
           )
         ) {
           return;
         }
 
+        if (
+          request.campusId !== operationCampusId ||
+          request.weekStartDate !== selectedWeekStartDate
+        ) {
+          throw new FaithLogApiError({
+            kind: 'error',
+            code: 'INVALID_REQUEST_CONTEXT',
+            message: '요청한 주차별 현황 범위가 현재 화면과 일치하지 않습니다.',
+          });
+        }
+
         if (invalidate) {
           coordinator.invalidate(request);
         }
-        setState(toWeeklyState(selectedWeekStartDate, coordinator.peek(request)));
+        const requestContextKey = createViewContextKey(
+          request.campusId,
+          request.authGeneration,
+          request.weekStartDate,
+        );
+        setState(
+          toWeeklyState(requestContextKey, selectedWeekStartDate, coordinator.peek(request)),
+        );
         setFeedback(null);
 
         const result = await coordinator.select(request, latestWeekStartDateRef.current);
@@ -229,14 +272,16 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
             selectedWeekStartDate,
             loadOperationRef,
             weekStartDateRef,
+            campusIdRef,
             mountedRef,
+            operationCampusId,
           ) ||
           !isAuthSessionGenerationCurrent(request.authGeneration)
         ) {
           return;
         }
 
-        setState(toWeeklyState(selectedWeekStartDate, result.data));
+        setState(toWeeklyState(requestContextKey, selectedWeekStartDate, result.data));
       } catch (error) {
         if (
           error instanceof StaleAuthSessionReadError ||
@@ -245,7 +290,9 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
             selectedWeekStartDate,
             loadOperationRef,
             weekStartDateRef,
+            campusIdRef,
             mountedRef,
+            operationCampusId,
           )
         ) {
           return;
@@ -260,8 +307,26 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         }
         setState(
           apiError.kind === 'permissionDenied'
-            ? {error: apiError, status: 'permissionDenied', weekStartDate: selectedWeekStartDate}
-            : {error: apiError, status: 'error', weekStartDate: selectedWeekStartDate},
+            ? {
+                contextKey: createViewContextKey(
+                  operationCampusId,
+                  request?.authGeneration ?? getAuthSessionGeneration(),
+                  selectedWeekStartDate,
+                ),
+                error: apiError,
+                status: 'permissionDenied',
+                weekStartDate: selectedWeekStartDate,
+              }
+            : {
+                contextKey: createViewContextKey(
+                  operationCampusId,
+                  request?.authGeneration ?? getAuthSessionGeneration(),
+                  selectedWeekStartDate,
+                ),
+                error: apiError,
+                status: 'error',
+                weekStartDate: selectedWeekStartDate,
+              },
         );
       }
     },
@@ -284,25 +349,77 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     }
 
     const selectedWeekStartDate = weekStartDateRef.current;
+    const selectedCampusId = campusIdRef.current;
+    const operationId = ++exportOperationRef.current;
     const operation = (async () => {
       let request: AdminWeeklyDevotionRequest | null = null;
       setExporting(true);
       setFeedback(null);
       try {
         request = await resolveRequest(selectedWeekStartDate);
-        if (!request || !mountedRef.current) {
+        if (
+          !request ||
+          !isCurrentExport(
+            operationId,
+            selectedCampusId,
+            selectedWeekStartDate,
+            exportOperationRef,
+            campusIdRef,
+            weekStartDateRef,
+            mountedRef,
+          ) ||
+          request.campusId !== selectedCampusId ||
+          request.weekStartDate !== selectedWeekStartDate ||
+          !isAuthSessionGenerationCurrent(request.authGeneration)
+        ) {
           return;
         }
         const exported = await adapter.exportWeek(request);
+        if (
+          !isCurrentExport(
+            operationId,
+            selectedCampusId,
+            selectedWeekStartDate,
+            exportOperationRef,
+            campusIdRef,
+            weekStartDateRef,
+            mountedRef,
+          ) ||
+          !isAuthSessionGenerationCurrent(request.authGeneration)
+        ) {
+          return;
+        }
         await shareExport(exported);
-        if (!mountedRef.current || !isAuthSessionGenerationCurrent(request.authGeneration)) {
+        if (
+          !isCurrentExport(
+            operationId,
+            selectedCampusId,
+            selectedWeekStartDate,
+            exportOperationRef,
+            campusIdRef,
+            weekStartDateRef,
+            mountedRef,
+          ) ||
+          !isAuthSessionGenerationCurrent(request.authGeneration)
+        ) {
           return;
         }
         const message = 'Excel 파일을 저장하고 공유 화면을 열었습니다.';
         setFeedback({message, tone: 'success'});
         AccessibilityInfo.announceForAccessibility(message);
       } catch (error) {
-        if (error instanceof StaleAuthSessionReadError || !mountedRef.current) {
+        if (
+          error instanceof StaleAuthSessionReadError ||
+          !isCurrentExport(
+            operationId,
+            selectedCampusId,
+            selectedWeekStartDate,
+            exportOperationRef,
+            campusIdRef,
+            weekStartDateRef,
+            mountedRef,
+          )
+        ) {
           return;
         }
         const apiError = normalizeError(error);
@@ -315,6 +432,11 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         }
         if (apiError.kind === 'permissionDenied') {
           setState({
+            contextKey: createViewContextKey(
+              selectedCampusId,
+              request?.authGeneration ?? getAuthSessionGeneration(),
+              selectedWeekStartDate,
+            ),
             error: apiError,
             status: 'permissionDenied',
             weekStartDate: selectedWeekStartDate,
@@ -389,6 +511,11 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
         onToggleDetails: (userId) =>
           setExpandedUserId((current) => (current === userId ? null : userId)),
         selectedWeekStartDate: weekStartDate,
+        selectedContextKey: createViewContextKey(
+          campusId,
+          getAuthSessionGeneration(),
+          weekStartDate,
+        ),
         state,
       })}
     </View>
@@ -400,15 +527,20 @@ function renderWeeklyState({
   onRetry,
   onToggleDetails,
   selectedWeekStartDate,
+  selectedContextKey,
   state,
 }: {
   expandedUserId: number | null;
   onRetry: () => void;
   onToggleDetails: (userId: number) => void;
   selectedWeekStartDate: string;
+  selectedContextKey: string;
   state: WeeklyState;
 }) {
-  if (state.weekStartDate !== selectedWeekStartDate) {
+  if (
+    state.contextKey !== selectedContextKey ||
+    state.weekStartDate !== selectedWeekStartDate
+  ) {
     return <Loading message="주차별 경건 현황을 불러오고 있어요." />;
   }
 
@@ -464,6 +596,7 @@ function renderWeeklyState({
     case 'success':
       return (
         <WeeklySuccess
+          key={state.contextKey}
           data={state.data}
           expandedUserId={expandedUserId}
           onToggleDetails={onToggleDetails}
@@ -483,6 +616,15 @@ function WeeklySuccess({
   expandedUserId: number | null;
   onToggleDetails: (userId: number) => void;
 }) {
+  const [submittedRenderLimit, setSubmittedRenderLimit] = useState(
+    MEMBER_RENDER_BATCH_SIZE,
+  );
+  const [missingRenderLimit, setMissingRenderLimit] = useState(
+    MEMBER_RENDER_BATCH_SIZE,
+  );
+  const visibleSubmittedMembers = data.submittedMembers.slice(0, submittedRenderLimit);
+  const visibleMissingMembers = data.missingMembers.slice(0, missingRenderLimit);
+
   return (
     <View style={styles.successContent}>
       <View accessibilityLabel="제출자 표" style={styles.section}>
@@ -492,41 +634,51 @@ function WeeklySuccess({
         {data.submittedMembers.length === 0 ? (
           <Text style={styles.sectionEmpty}>선택한 주차의 제출자가 없습니다.</Text>
         ) : (
-          <ScrollView
-            accessibilityLabel="제출자 표 가로 스크롤"
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator>
-            <View style={styles.table}>
-              <WeeklyTableHeader />
-              {data.submittedMembers.map((member) => (
-                <View key={member.userId}>
-                  <Pressable
-                    accessibilityHint="선택하면 월요일부터 일요일까지 일별 상세를 확인합니다."
-                    accessibilityLabel={formatSubmittedMemberAccessibilityLabel(member)}
-                    accessibilityRole="button"
-                    accessibilityState={{expanded: expandedUserId === member.userId}}
-                    onPress={() => onToggleDetails(member.userId)}
-                    style={({pressed}) => [styles.tableRow, pressed ? styles.pressed : null]}>
-                    <TableText name numberOfLines={1} value={member.name} />
-                    <TableText value={String(member.quietTimeCount)} />
-                    <TableText value={String(member.bibleReadingCount)} />
-                    <TableText value={String(member.prayerCount)} />
-                    <TableText value={`${member.saturdayLateMinutes}분`} />
-                    <TableText
-                      penalty
-                      value={`${formatWon(member.penalty?.amount ?? 0)} · ${formatPenaltyStatus(
-                        member.penalty?.status ?? null,
-                      )}`}
-                    />
-                  </Pressable>
-                  {expandedUserId === member.userId ? (
-                    <DailyDetails member={member} weekStartDate={data.weekStartDate} />
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          </ScrollView>
+          <>
+            <ScrollView
+              accessibilityLabel="제출자 표 가로 스크롤"
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator>
+              <View style={styles.table}>
+                <WeeklyTableHeader />
+                {visibleSubmittedMembers.map((member) => (
+                  <View key={member.userId}>
+                    <Pressable
+                      accessibilityHint="선택하면 월요일부터 일요일까지 일별 상세를 확인합니다."
+                      accessibilityLabel={formatSubmittedMemberAccessibilityLabel(member)}
+                      accessibilityRole="button"
+                      accessibilityState={{expanded: expandedUserId === member.userId}}
+                      onPress={() => onToggleDetails(member.userId)}
+                      style={({pressed}) => [styles.tableRow, pressed ? styles.pressed : null]}>
+                      <TableText name numberOfLines={1} value={member.name} />
+                      <TableText value={String(member.quietTimeCount)} />
+                      <TableText value={String(member.bibleReadingCount)} />
+                      <TableText value={String(member.prayerCount)} />
+                      <TableText value={`${member.saturdayLateMinutes}분`} />
+                      <TableText
+                        penalty
+                        value={`${formatWon(member.penalty?.amount ?? 0)} · ${formatPenaltyStatus(
+                          member.penalty?.status ?? null,
+                        )}`}
+                      />
+                    </Pressable>
+                    {expandedUserId === member.userId ? (
+                      <DailyDetails member={member} weekStartDate={data.weekStartDate} />
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+            {submittedRenderLimit < data.submittedMembers.length ? (
+              <MemberLoadMoreButton
+                label="제출자 더 보기"
+                onPress={() =>
+                  setSubmittedRenderLimit((current) => current + MEMBER_RENDER_BATCH_SIZE)
+                }
+              />
+            ) : null}
+          </>
         )}
       </View>
 
@@ -537,22 +689,44 @@ function WeeklySuccess({
         {data.missingMembers.length === 0 ? (
           <Text style={styles.sectionEmpty}>모든 활성 멤버가 제출했습니다.</Text>
         ) : (
-          data.missingMembers.map((member) => (
-            <View key={member.userId} style={styles.missingRow}>
-              <View style={styles.missingTextBlock}>
-                <Text ellipsizeMode="tail" numberOfLines={1} style={styles.missingName}>
-                  {member.name}
-                </Text>
-                <Text ellipsizeMode="tail" numberOfLines={1} style={styles.missingEmail}>
-                  {member.email}
-                </Text>
+          <>
+            {visibleMissingMembers.map((member) => (
+              <View key={member.userId} style={styles.missingRow}>
+                <View style={styles.missingTextBlock}>
+                  <Text ellipsizeMode="tail" numberOfLines={1} style={styles.missingName}>
+                    {member.name}
+                  </Text>
+                  <Text ellipsizeMode="tail" numberOfLines={1} style={styles.missingEmail}>
+                    {member.email}
+                  </Text>
+                </View>
+                <Text style={styles.missingBadge}>미제출</Text>
               </View>
-              <Text style={styles.missingBadge}>미제출</Text>
-            </View>
-          ))
+            ))}
+            {missingRenderLimit < data.missingMembers.length ? (
+              <MemberLoadMoreButton
+                label="미제출자 더 보기"
+                onPress={() =>
+                  setMissingRenderLimit((current) => current + MEMBER_RENDER_BATCH_SIZE)
+                }
+              />
+            ) : null}
+          </>
         )}
       </View>
     </View>
+  );
+}
+
+function MemberLoadMoreButton({label, onPress}: {label: string; onPress: () => void}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [styles.moreButton, pressed ? styles.pressed : null]}>
+      <Text style={styles.moreButtonText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -784,15 +958,16 @@ function toLocalDate(date: Date) {
 }
 
 function toWeeklyState(
+  contextKey: string,
   weekStartDate: string,
   data?: AdminWeeklyDevotion,
 ): WeeklyState {
   if (!data) {
-    return {status: 'loading', weekStartDate};
+    return {contextKey, status: 'loading', weekStartDate};
   }
   return data.activeMemberCount === 0
-    ? {status: 'empty', weekStartDate}
-    : {data, status: 'success', weekStartDate};
+    ? {contextKey, status: 'empty', weekStartDate}
+    : {contextKey, data, status: 'success', weekStartDate};
 }
 
 function isCurrentLoad(
@@ -800,13 +975,41 @@ function isCurrentLoad(
   selectedWeekStartDate: string,
   loadOperationRef: React.RefObject<number>,
   weekStartDateRef: React.RefObject<string>,
+  campusIdRef: React.RefObject<number>,
+  mountedRef: React.RefObject<boolean>,
+  expectedCampusId: number,
+) {
+  return (
+    mountedRef.current &&
+    campusIdRef.current === expectedCampusId &&
+    weekStartDateRef.current === selectedWeekStartDate &&
+    loadOperationRef.current === operationId
+  );
+}
+
+function isCurrentExport(
+  operationId: number,
+  selectedCampusId: number,
+  selectedWeekStartDate: string,
+  exportOperationRef: React.RefObject<number>,
+  campusIdRef: React.RefObject<number>,
+  weekStartDateRef: React.RefObject<string>,
   mountedRef: React.RefObject<boolean>,
 ) {
   return (
     mountedRef.current &&
-    weekStartDateRef.current === selectedWeekStartDate &&
-    loadOperationRef.current === operationId
+    exportOperationRef.current === operationId &&
+    campusIdRef.current === selectedCampusId &&
+    weekStartDateRef.current === selectedWeekStartDate
   );
+}
+
+function createViewContextKey(
+  campusId: number,
+  authGeneration: number,
+  weekStartDate: string,
+) {
+  return `${campusId}:${authGeneration}:${weekStartDate}`;
 }
 
 function getSystemNow() {
@@ -885,6 +1088,18 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {color: colors.textPrimary, fontSize: 16, fontWeight: '700'},
   sectionEmpty: {color: colors.textMuted, fontSize: 14, lineHeight: 20},
+  moreButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  moreButtonText: {color: colors.textPrimary, fontSize: 14, fontWeight: '600'},
   table: {minWidth: 620},
   tableRow: {
     alignItems: 'stretch',

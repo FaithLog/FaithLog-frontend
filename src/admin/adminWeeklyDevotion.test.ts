@@ -7,7 +7,6 @@ import type {
 } from '../api/adminWeeklyDevotionApi';
 import {
   AdminWeeklyDevotionCoordinator,
-  AdminWeeklyDevotionExportGate,
   formatAdminWeekRange,
   getAdminWeekStartDate,
   moveAdminWeek,
@@ -94,22 +93,6 @@ describe('AdminWeeklyDevotionCoordinator', () => {
     expect(coordinator.cacheSize).toBe(3);
     expect(coordinator.peek(createRequest('2026-06-01'))).toBeUndefined();
     expect(coordinator.peek(createRequest('2026-06-22'))).toBeDefined();
-  });
-});
-
-describe('AdminWeeklyDevotionExportGate', () => {
-  it('deduplicates repeated Excel taps until the first download settles', async () => {
-    const pending = deferred<{bytes: Uint8Array; fileName: string}>();
-    const exportWeek = vi.fn(() => pending.promise);
-    const gate = new AdminWeeklyDevotionExportGate(exportWeek);
-
-    const first = gate.run(createRequest(WEEK));
-    const second = gate.run(createRequest(WEEK));
-
-    expect(first).toBe(second);
-    expect(exportWeek).toHaveBeenCalledOnce();
-    pending.resolve({bytes: new Uint8Array([80, 75]), fileName: 'weekly.xlsx'});
-    await expect(first).resolves.toMatchObject({fileName: 'weekly.xlsx'});
   });
 });
 

@@ -305,6 +305,29 @@ describe('confirmed provisional binary transport', () => {
       return true;
     });
   });
+
+  it('classifies malformed success JSON as an invalid server response', async () => {
+    const transport = createProvisionalAdminWeeklyDevotionTransport({
+      apiBaseUrl: 'https://api.example.test',
+      contractConfirmed: true,
+      fetchImpl: vi.fn(async () =>
+        new Response('{broken-json', {
+          headers: {'Content-Type': 'application/json'},
+          status: 200,
+        }),
+      ),
+    });
+
+    await expect(transport.fetchWeek(REQUEST)).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(FaithLogApiError);
+      expect((error as FaithLogApiError).detail).toMatchObject({
+        code: 'INVALID_SERVER_RESPONSE',
+        kind: 'error',
+        status: 200,
+      });
+      return true;
+    });
+  });
 });
 
 function isContractPending(error: unknown) {

@@ -242,7 +242,12 @@ export function createProvisionalAdminWeeklyDevotionTransport({
           method: 'GET',
         });
         assertResponseStatus(response, request.authGeneration);
-        const payload: unknown = await response.json();
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          throw invalidServerResponse(response.status);
+        }
         const data = unwrapPossibleEnvelope(payload);
         return parseRequestedWeek(data, request.weekStartDate);
       });

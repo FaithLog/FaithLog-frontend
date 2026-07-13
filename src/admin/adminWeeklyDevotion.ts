@@ -1,7 +1,6 @@
 import type {
   AdminWeeklyDevotion,
   AdminWeeklyDevotionAdapter,
-  AdminWeeklyDevotionExport,
   AdminWeeklyDevotionRequest,
 } from '../api/adminWeeklyDevotionApi';
 
@@ -119,35 +118,6 @@ export class AdminWeeklyDevotionCoordinator {
       }
       this.cache.delete(oldestCompletedKey);
     }
-  }
-}
-
-export class AdminWeeklyDevotionExportGate {
-  private readonly exportWeek: (
-    request: AdminWeeklyDevotionRequest,
-  ) => Promise<AdminWeeklyDevotionExport>;
-  private inFlight: Promise<AdminWeeklyDevotionExport> | null = null;
-
-  constructor(
-    exportWeek: (
-      request: AdminWeeklyDevotionRequest,
-    ) => Promise<AdminWeeklyDevotionExport>,
-  ) {
-    this.exportWeek = exportWeek;
-  }
-
-  run(request: AdminWeeklyDevotionRequest) {
-    if (this.inFlight) {
-      return this.inFlight;
-    }
-
-    const promise = this.exportWeek(request).finally(() => {
-      if (this.inFlight === promise) {
-        this.inFlight = null;
-      }
-    });
-    this.inFlight = promise;
-    return promise;
   }
 }
 
