@@ -64,6 +64,7 @@ import type {
   MarkChargePaidResponse,
   MyDutyAssignment,
   PaymentAccount,
+  PaymentAccountCategory,
   PaymentAccountCreateRequest,
   PaymentCategory,
   PenaltyCalculationType,
@@ -415,7 +416,7 @@ type NotificationLogSortKey = 'createdAt' | 'sentAt' | 'sendStatus';
 type ServiceAdminUserSortKey = 'id' | 'name' | 'email' | 'role' | 'createdAt';
 type ServiceAdminCampusSortKey = 'id' | 'name' | 'region' | 'createdAt';
 type PaymentAccountQueryParams = {
-  accountType?: PaymentCategory;
+  accountType?: PaymentAccountCategory;
   includeInactive?: boolean;
 };
 type AdminCampusChargeQueryParams = {
@@ -430,7 +431,8 @@ type AdminCampusChargeQueryParams = {
 };
 
 const chargeStatuses = ['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const;
-const paymentCategories = ['PENALTY', 'COFFEE'] as const;
+const paymentCategories = ['PENALTY', 'COFFEE', 'MEAL'] as const;
+const paymentAccountCategories = ['PENALTY', 'COFFEE'] as const;
 const penaltyRuleTypes = ['QUIET_TIME', 'PRAYER', 'BIBLE_READING', 'SATURDAY_LATE'] as const;
 const penaltyCalculationTypes = ['MISSING_COUNT', 'LATE_MINUTE'] as const;
 const chargeSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
@@ -445,6 +447,10 @@ const userRoles = ['USER', 'MANAGER', 'ADMIN'] as const;
 
 function isPaymentCategory(value: unknown): value is PaymentCategory {
   return paymentCategories.includes(value as PaymentCategory);
+}
+
+function isPaymentAccountCategory(value: unknown): value is PaymentAccountCategory {
+  return paymentAccountCategories.includes(value as PaymentAccountCategory);
 }
 
 function isChargeStatus(value: unknown): value is ChargeStatus {
@@ -670,7 +676,7 @@ function toNullablePositiveInteger(value: unknown, label: string) {
 function toPaymentAccountCreateRequest(
   body: PaymentAccountCreateRequest,
 ): PaymentAccountCreateRequest {
-  if (!isPaymentCategory(body.accountType)) {
+  if (!isPaymentAccountCategory(body.accountType)) {
     throw new FaithLogApiError({
       kind: 'error',
       message: '계좌 유형이 올바르지 않습니다.',
@@ -751,7 +757,7 @@ function toPaymentAccountQuery(params: PaymentAccountQueryParams = {}) {
   const query = new URLSearchParams();
 
   if (params.accountType !== undefined) {
-    if (!isPaymentCategory(params.accountType)) {
+    if (!isPaymentAccountCategory(params.accountType)) {
       throw new FaithLogApiError({
         kind: 'error',
         message: '계좌 유형이 올바르지 않습니다.',

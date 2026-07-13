@@ -35,6 +35,7 @@ import type {
   MarkChargePaidResponse,
   MyDutyAssignment,
   PaymentAccount,
+  PaymentAccountCategory,
   PaymentCategory,
   PenaltyCalculationType,
   PenaltyRule,
@@ -79,7 +80,8 @@ const CAMPUS_ROLES = new Set<CampusRole>([
   'MINISTER',
 ]);
 const FCM_DEVICE_TYPES = new Set<FcmDeviceType>(['ANDROID', 'IOS', 'WEB']);
-const PAYMENT_CATEGORIES = new Set<PaymentCategory>(['PENALTY', 'COFFEE']);
+const PAYMENT_CATEGORIES = new Set<PaymentCategory>(['PENALTY', 'COFFEE', 'MEAL']);
+const PAYMENT_ACCOUNT_CATEGORIES = new Set<PaymentAccountCategory>(['PENALTY', 'COFFEE']);
 const CHARGE_STATUSES = new Set(['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const);
 const PENALTY_RULE_TYPES = new Set<PenaltyRuleType>([
   'QUIET_TIME',
@@ -653,7 +655,7 @@ function parsePaymentAccountValue(value: unknown): PaymentAccount {
   return {
     id: requirePositiveId(record.id),
     ...optionalPositiveId(record, 'campusId'),
-    accountType: requireEnum(record.accountType, PAYMENT_CATEGORIES),
+    accountType: requireEnum(record.accountType, PAYMENT_ACCOUNT_CATEGORIES),
     nickname: requireString(record.nickname, 200),
     bankName: requireString(record.bankName, 200),
     accountNumber: requireString(record.accountNumber, 200),

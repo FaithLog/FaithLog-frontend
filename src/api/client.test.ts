@@ -25,6 +25,7 @@ import {
   fetchAdminCampusCharges,
   fetchAdminCampusChargesForMyAccounts,
   fetchAdminPaymentAccounts,
+  fetchMyCharges,
   fetchPollDetail,
   fetchPollResults,
   fetchPolls,
@@ -1134,6 +1135,49 @@ describe('FaithLog API client', () => {
     expect(init?.body).toBeUndefined();
     expect(paid).toMatchObject({status: 'PAID', paidAt: '2026-07-13T12:00:00.000Z'});
     expect(paid).not.toHaveProperty('reason');
+  });
+
+  it('sends MEAL through the canonical member charge filter and parses the result', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        campusId: 2,
+        campusName: '분당 10캠',
+        region: '분당',
+        summary: {
+          canceledAmount: 0,
+          paidAmount: 0,
+          totalAmount: 8000,
+          unpaidAmount: 8000,
+          waivedAmount: 0,
+        },
+        items: [{
+          id: 9001,
+          paymentCategory: 'MEAL',
+          title: '점심 투표',
+          reason: '제육볶음',
+          amount: 8000,
+          status: 'UNPAID',
+          paidAt: null,
+          account: {
+            paymentAccountId: 10,
+            bankName: '신한은행',
+            accountNumber: '110-000-000000',
+            accountHolder: '밥 담당자',
+          },
+          source: {sourceId: 701, sourceType: 'POLL_RESPONSE'},
+        }],
+      })),
+    );
+
+    const result = await fetchMyCharges('access-token', 2, {
+      paymentCategory: 'MEAL',
+      status: 'UNPAID',
+    });
+    const [url] = fetchMock.mock.calls[0]!;
+
+    expect(new URL(String(url)).searchParams.get('paymentCategory')).toBe('MEAL');
+    expect(result.items[0]).toMatchObject({paymentCategory: 'MEAL', title: '점심 투표'});
   });
 
   it('requests admin charges for my accounts', async () => {

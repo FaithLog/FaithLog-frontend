@@ -305,7 +305,11 @@ export type ChargeCategorySummary = {
   totalAmount: number;
 };
 
-export type PaymentCategory = 'PENALTY' | 'COFFEE';
+export type PaymentCategory = 'PENALTY' | 'COFFEE' | 'MEAL';
+
+// MEAL accounts are user-owned and stay behind the dedicated duty-owner API.
+// Generic campus/admin account APIs remain limited to shared campus accounts.
+export type PaymentAccountCategory = Exclude<PaymentCategory, 'MEAL'>;
 
 export type ChargeStatus = 'UNPAID' | 'PAID' | 'WAIVED' | 'CANCELED';
 export type AdminWritableChargeStatus = Exclude<ChargeStatus, 'PAID'>;
@@ -402,7 +406,7 @@ export type AdminChargeStatusChangeResponse = Omit<ChargeItem, 'account' | 'dueD
 export type PaymentAccount = {
   id: number;
   campusId?: number;
-  accountType: PaymentCategory;
+  accountType: PaymentAccountCategory;
   nickname: string;
   bankName: string;
   accountNumber: string;
@@ -420,7 +424,7 @@ export type AdminPaymentAccount = PaymentAccount & {
 };
 
 export type PaymentAccountCreateRequest = {
-  accountType: PaymentCategory;
+  accountType: PaymentAccountCategory;
   nickname: string;
   bankName: string;
   accountNumber: string;

@@ -100,6 +100,7 @@ const PAGE_SIZE = 20;
 const categoryFilters: Array<{label: string; value: CategoryFilter}> = [
   {label: '벌금', value: 'PENALTY'},
   {label: '커피', value: 'COFFEE'},
+  {label: '밥', value: 'MEAL'},
 ];
 
 const statusFilters: Array<{label: string; value: StatusFilter}> = [
@@ -1129,6 +1130,12 @@ function getAccountMissingState(
   items: ChargeItem[],
   category: CategoryFilter,
 ): CategoryFilter | null {
+  const unpaidWithoutAccount = items.find((item) => item.status === 'UNPAID' && !item.account);
+
+  if (category === 'MEAL') {
+    return unpaidWithoutAccount?.paymentCategory ?? null;
+  }
+
   if (!accounts.some((account) => account.accountType === category)) {
     return category;
   }
@@ -1136,8 +1143,6 @@ function getAccountMissingState(
   if (accounts.length === 0) {
     return category;
   }
-
-  const unpaidWithoutAccount = items.find((item) => item.status === 'UNPAID' && !item.account);
 
   return unpaidWithoutAccount?.paymentCategory ?? null;
 }
@@ -1167,6 +1172,8 @@ function getPaymentCategoryLabel(category: PaymentCategory) {
       return '벌금';
     case 'COFFEE':
       return '커피';
+    case 'MEAL':
+      return '밥';
     default:
       return assertNever(category);
   }
@@ -1181,7 +1188,9 @@ function getPaymentChargeIcon(charge: ChargeItem): IconexIconName {
     return 'check';
   }
 
-  return charge.paymentCategory === 'COFFEE' ? 'coins' : 'wallet';
+  if (charge.paymentCategory === 'COFFEE') return 'coins';
+  if (charge.paymentCategory === 'MEAL') return 'receipt';
+  return 'wallet';
 }
 
 function getChargeStatusLabel(status: ChargeStatus) {

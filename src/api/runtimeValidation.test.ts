@@ -473,6 +473,37 @@ describe('runtime API response validation', () => {
     ).toEqual(mockDomainFixtures.notification.sendResponse);
   });
 
+  it('accepts MEAL charges in the canonical member list and paid-response contract', () => {
+    const mealCharge = {
+      ...mockDomainFixtures.billing.charges.items[0],
+      id: 9_001,
+      paymentCategory: 'MEAL',
+      title: '점심 투표 청구',
+      reason: '제육볶음',
+      source: {sourceId: 902, sourceType: 'POLL_RESPONSE'},
+    };
+    const parsedList = parseChargeList({
+      ...mockDomainFixtures.billing.charges,
+      items: [mealCharge],
+    });
+    const parsedPaid = responseParsers.parseMarkChargePaidResponse({
+      ...mealCharge,
+      account: undefined,
+      campusId: 1,
+      dueDate: undefined,
+      paidAt: '2026-07-14T03:00:00.000Z',
+      source: undefined,
+      status: 'PAID',
+      userId: 8,
+    });
+
+    expect(parsedList.items[0]).toMatchObject({
+      paymentCategory: 'MEAL',
+      source: {sourceType: 'POLL_RESPONSE'},
+    });
+    expect(parsedPaid).toMatchObject({paymentCategory: 'MEAL', status: 'PAID', userId: 8});
+  });
+
   it('normalizes a null campus invite code to an omitted optional field', () => {
     const parsed = parseCampusDetail({
       ...mockDomainFixtures.campus.detail,
@@ -637,5 +668,13 @@ describe('runtime API response validation', () => {
         Array.from({length: 1_001}, () => VALID_MEMBERSHIP),
       ),
     ).toThrow(INVALID_RESPONSE);
+  });
+
+  it('does not accept a user-owned MEAL account through generic account parsers', () => {
+    const genericAccount = mockDomainFixtures.billing.paymentAccounts[0];
+
+    expect(() => responseParsers.parsePaymentAccounts([
+      {...genericAccount, accountType: 'MEAL'},
+    ])).toThrow(INVALID_RESPONSE);
   });
 });
