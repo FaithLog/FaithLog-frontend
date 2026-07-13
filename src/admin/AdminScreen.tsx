@@ -1,4 +1,4 @@
-import {memo, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
+import {memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -583,6 +583,9 @@ export function AdminScreen({
   const [memberSearch, setMemberSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
+  const selectMember = useCallback((member: AdminCampusMember) => {
+    setSelectedMemberId(member.membershipId);
+  }, []);
   const [loadState, setLoadState] = useState<AdminLoadState>({status: 'loading'});
   const [inviteCodeState, setInviteCodeState] = useState<InviteCodeState>({status: 'idle'});
   const [inviteCodeCopyState, setInviteCodeCopyState] = useState<InviteCodeCopyState>({
@@ -2244,7 +2247,6 @@ export function AdminScreen({
   const selectedMember = selectedMemberId
     ? loadState.members.find((member) => member.membershipId === selectedMemberId) ?? null
     : null;
-
   if (!selectedMember && tab === 'members' && memberSection === 'list') {
     return (
       <AdminMemberListRoute
@@ -2262,7 +2264,7 @@ export function AdminScreen({
         onCopyInviteCode={copyInviteCode}
         onOpenUserMode={onBackToUserMode}
         onSelectFilter={setMemberFilter}
-        onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
+        onSelectMember={selectMember}
         onSelectTab={selectAdminTab}
       />
     );
@@ -9519,7 +9521,7 @@ function AdminMemberListRoute({
     <View style={styles.adminModeFrame}>
       <FlatList
         contentContainerStyle={[
-          styles.adminModeContent,
+          styles.adminVirtualizedContent,
           Platform.OS === 'android' ? {paddingBottom: contentBottomPadding} : null,
         ]}
         data={filteredMembers}
@@ -9533,7 +9535,7 @@ function AdminMemberListRoute({
         )}
         ListFooterComponent={<View style={styles.virtualizedMemberListFooter} />}
         ListHeaderComponent={(
-          <>
+          <View style={styles.adminVirtualizedHeader}>
             <AdminShellHeader
               activeTab="members"
               campusLabel={campusLabel}
@@ -9573,7 +9575,7 @@ function AdminMemberListRoute({
                 onSelect={onSelectFilter}
               />
             </View>
-          </>
+          </View>
         )}
         maxToRenderPerBatch={12}
         renderItem={({item}) => (
@@ -12537,6 +12539,14 @@ const styles = StyleSheet.create({
     paddingBottom: 96,
     paddingTop: 4,
   },
+  adminVirtualizedContent: {
+    flexGrow: 1,
+    paddingBottom: 96,
+    paddingTop: 4,
+  },
+  adminVirtualizedHeader: {
+    gap: spacing.gap,
+  },
   adminModeFrame: {
     flex: 1,
     marginHorizontal: 0,
@@ -13588,7 +13598,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,
     gap: spacing.gap,
-    marginTop: spacing.gap,
     padding: spacing.card,
     paddingBottom: 0,
   },

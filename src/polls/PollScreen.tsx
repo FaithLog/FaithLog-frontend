@@ -1130,7 +1130,7 @@ function CommentsPanel({
         <Empty title="아직 댓글이 없어요" message="첫 댓글을 남겨 투표 맥락을 공유해 주세요." />
       )}
       ListHeaderComponent={(
-        <>
+        <View style={styles.figmaListHeader}>
           {header}
           {actionError ? <ActionErrorCard error={actionError} /> : null}
           <View style={styles.figmaCommentCard}>
@@ -1171,7 +1171,7 @@ function CommentsPanel({
           ) : null}
         </View>
           </View>
-        </>
+        </View>
       )}
       maxToRenderPerBatch={10}
       renderItem={({item: comment}) => (
@@ -1303,20 +1303,29 @@ function ResultsPanel({
   if (!results) {
     return (
       <FlatList
-        contentContainerStyle={styles.figmaScreen}
+        contentContainerStyle={styles.figmaVirtualizedScreen}
         data={[]}
-        ListEmptyComponent={error ? (
-          <PollErrorState error={error} onRetry={onRetry} />
-        ) : (
-          <ErrorState
-            title="결과를 불러오지 못했습니다"
-            message="응답과 댓글은 사용할 수 있지만 결과 API 응답을 확인하지 못했습니다."
-            actionLabel="다시 불러오기"
-            actionAccessibilityLabel="투표 결과 다시 불러오기"
-            onActionPress={onRetry}
-          />
+        ListEmptyComponent={(
+          <View style={styles.figmaListEmptySpacing}>
+            {error ? (
+              <PollErrorState error={error} onRetry={onRetry} />
+            ) : (
+              <ErrorState
+                title="결과를 불러오지 못했습니다"
+                message="응답과 댓글은 사용할 수 있지만 결과 API 응답을 확인하지 못했습니다."
+                actionLabel="다시 불러오기"
+                actionAccessibilityLabel="투표 결과 다시 불러오기"
+                onActionPress={onRetry}
+              />
+            )}
+          </View>
         )}
-        ListHeaderComponent={<>{header}{actionError ? <ActionErrorCard error={actionError} /> : null}</>}
+        ListHeaderComponent={(
+          <View style={styles.figmaListHeader}>
+            {header}
+            {actionError ? <ActionErrorCard error={actionError} /> : null}
+          </View>
+        )}
         renderItem={null}
       />
     );
@@ -1328,7 +1337,7 @@ function ResultsPanel({
 
   return (
     <SectionList
-      contentContainerStyle={styles.figmaScreen}
+      contentContainerStyle={styles.figmaVirtualizedScreen}
       initialNumToRender={10}
       keyExtractor={(respondentChunk, index) =>
         respondentChunk.length > 0
@@ -1336,27 +1345,32 @@ function ResultsPanel({
           : `empty-${index}`
       }
       ListHeaderComponent={(
-        <>
+        <View style={styles.figmaListHeader}>
           {header}
           {actionError ? <ActionErrorCard error={actionError} /> : null}
-      <View style={styles.figmaCommentCard}>
-        <Text style={styles.figmaHeroTitle}>{`${results.targetMemberCount}명 중 ${results.respondedCount}명 응답`}</Text>
-        <View style={styles.chipRow}>
-          <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
-          <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
+          <View style={styles.figmaCommentCard}>
+            <Text style={styles.figmaHeroTitle}>{`${results.targetMemberCount}명 중 ${results.respondedCount}명 응답`}</Text>
+            <View style={styles.chipRow}>
+              <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
+              <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
+            </View>
+            <Body>
+              {detail.myResponse
+                ? `내 응답은 ${mySelectedLabels.join(', ') || '선택지 없음'}으로 저장됐어요.`
+                : '아직 저장된 내 응답이 없습니다.'}
+            </Body>
+          </View>
+          <Text style={styles.figmaSectionTitle}>선택지별 명단</Text>
         </View>
-        <Body>
-          {detail.myResponse
-            ? `내 응답은 ${mySelectedLabels.join(', ') || '선택지 없음'}으로 저장됐어요.`
-            : '아직 저장된 내 응답이 없습니다.'}
-        </Body>
-      </View>
-      <Text style={styles.figmaSectionTitle}>선택지별 명단</Text>
-        </>
       )}
       maxToRenderPerBatch={10}
-      renderItem={({item: respondentChunk, section}) => (
-        <View style={styles.figmaOptionRespondentBody}>
+      renderItem={({index, item: respondentChunk, section}) => (
+        <View
+          style={[
+            styles.figmaOptionRespondentBody,
+            index > 0 ? styles.figmaOptionRespondentBodyContinuation : null,
+            index === section.data.length - 1 ? styles.figmaOptionRespondentBodyLast : null,
+          ]}>
           {results.anonymous ? (
             <Body>익명 투표라 응답자 명단은 공개되지 않습니다.</Body>
           ) : respondentChunk.length === 0 ? (
@@ -2389,23 +2403,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
-  figmaOptionResultCard: {
-    backgroundColor: pollColors.card,
-    borderRadius: 18,
-    gap: 10,
-    padding: 18,
-  },
   figmaOptionRespondentBody: {
     backgroundColor: pollColors.card,
-    borderRadius: 18,
     gap: 10,
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  figmaOptionRespondentBodyContinuation: {
+    paddingTop: 0,
+  },
+  figmaOptionRespondentBodyLast: {
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    paddingBottom: 18,
   },
   figmaOptionResultHeader: {
     backgroundColor: pollColors.card,
-    borderRadius: 18,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     gap: 10,
-    padding: 18,
+    marginTop: 20,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+  },
+  figmaListEmptySpacing: {
+    marginTop: 20,
+  },
+  figmaListHeader: {
+    gap: 20,
   },
   figmaPollButton: {
     alignItems: 'center',
@@ -2460,6 +2485,10 @@ const styles = StyleSheet.create({
   },
   figmaScreen: {
     gap: 20,
+    paddingBottom: 96,
+    paddingTop: 2,
+  },
+  figmaVirtualizedScreen: {
     paddingBottom: 96,
     paddingTop: 2,
   },
