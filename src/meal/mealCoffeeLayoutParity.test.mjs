@@ -47,7 +47,8 @@ describe('meal and coffee duty layout parity', () => {
     expect(coffeeScreen).toContain('domainLabel="커피"');
     expect(dutyPageNav).toContain('accessibilityLabel={`${domainLabel} ${item.label} 페이지 열기`}');
     expect(dutyPageNav).toContain('accessibilityState={{selected: active}}');
-    expect(dutyPageNav).toContain('minHeight: 48');
+    expect(dutyPageNav).toContain('hitSlop={4}');
+    expect(dutyPageNav).toContain('minHeight: 40');
     expect(coffeeScreen).not.toContain('관리자 투표 생성과 같은 순서로');
     expect(mealPollCreate).not.toContain('커스텀 투표와 같은 순서로');
   });

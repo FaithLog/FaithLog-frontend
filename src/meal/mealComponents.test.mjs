@@ -308,7 +308,7 @@ describe('MEAL component behavior', () => {
     const deadlinePicker = findByLabel(renderer, '밥 투표 마감 일시 선택');
     expect(deadlinePicker.props.accessibilityRole).toBe('button');
     expect(deadlinePicker.props.style({pressed: false})).toEqual(expect.arrayContaining([
-      expect.objectContaining({minHeight: 82}),
+      expect.objectContaining({minHeight: 68}),
     ]));
     expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '밥 투표 마감 날짜')).toHaveLength(0);
     expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '밥 투표 마감 시간')).toHaveLength(0);
@@ -322,11 +322,13 @@ describe('MEAL component behavior', () => {
 
     const addOptionButton = findByLabel(renderer, '밥 투표 선택지 추가');
     expect(addOptionButton.props.style({pressed: false})).toEqual(expect.arrayContaining([
-      expect.objectContaining({height: 48}),
+      expect.objectContaining({height: 40}),
     ]));
+    expect(addOptionButton.props.hitSlop).toBe(4);
     expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.style({pressed: false})).toEqual(
-      expect.arrayContaining([expect.objectContaining({height: 48, width: 48})]),
+      expect.arrayContaining([expect.objectContaining({height: 40, width: 40})]),
     );
+    expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.hitSlop).toBe(4);
     expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.disabled).toBe(true);
     expect(findByLabel(renderer, '2번 밥 투표 선택지 삭제').props.disabled).toBe(true);
     await change(renderer, '밥 투표 선택지 1', '제육볶음');

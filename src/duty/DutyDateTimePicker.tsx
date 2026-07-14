@@ -71,6 +71,7 @@ export function DutyDateTimePickerModal({
             <Pressable
               accessibilityLabel="마감 일시 선택 닫기"
               accessibilityRole="button"
+              hitSlop={4}
               onPress={onClose}
               style={({pressed}) => [styles.iconButton, pressed ? styles.pressed : null]}>
               <Text style={styles.iconButtonText}>×</Text>
@@ -85,6 +86,7 @@ export function DutyDateTimePickerModal({
               <Pressable
                 accessibilityLabel="이전 달"
                 accessibilityRole="button"
+                hitSlop={4}
                 onPress={() => setMonthCursor(addMonths(monthCursor, -1))}
                 style={({pressed}) => [styles.iconButton, pressed ? styles.pressed : null]}>
                 <Text style={styles.calendarNavText}>‹</Text>
@@ -95,6 +97,7 @@ export function DutyDateTimePickerModal({
               <Pressable
                 accessibilityLabel="다음 달"
                 accessibilityRole="button"
+                hitSlop={4}
                 onPress={() => setMonthCursor(addMonths(monthCursor, 1))}
                 style={({pressed}) => [styles.iconButton, pressed ? styles.pressed : null]}>
                 <Text style={styles.calendarNavText}>›</Text>
@@ -115,6 +118,7 @@ export function DutyDateTimePickerModal({
                     accessibilityRole="button"
                     accessibilityState={{disabled, selected}}
                     disabled={disabled}
+                    hitSlop={{bottom: 2, left: 0, right: 0, top: 2}}
                     key={`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`}
                     onPress={() => selectDate(date)}
                     style={({pressed}) => [
@@ -159,6 +163,7 @@ export function DutyDateTimePickerModal({
             <Pressable
               accessibilityLabel="마감 일시 선택 취소"
               accessibilityRole="button"
+              hitSlop={2}
               onPress={onClose}
               style={({pressed}) => [styles.secondaryAction, pressed ? styles.pressed : null]}>
               <Text style={styles.secondaryActionText}>취소</Text>
@@ -168,6 +173,7 @@ export function DutyDateTimePickerModal({
               accessibilityRole="button"
               accessibilityState={{disabled: !canApply}}
               disabled={!canApply}
+              hitSlop={2}
               onPress={() => onApply(new Date(draftDate))}
               style={({pressed}) => [
                 styles.primaryAction,
@@ -209,6 +215,7 @@ function TimeStepper({
         <Pressable
           accessibilityLabel={`${label} 줄이기`}
           accessibilityRole="button"
+          hitSlop={4}
           onPress={onDecrement}
           style={({pressed}) => [styles.timeStepperButton, pressed ? styles.pressed : null]}>
           <Text style={styles.timeStepperButtonText}>−</Text>
@@ -217,6 +224,7 @@ function TimeStepper({
         <Pressable
           accessibilityLabel={`${label} 늘리기`}
           accessibilityRole="button"
+          hitSlop={4}
           onPress={onIncrement}
           style={({pressed}) => [styles.timeStepperButton, pressed ? styles.pressed : null]}>
           <Text style={styles.timeStepperButtonText}>+</Text>
@@ -265,9 +273,9 @@ const styles = StyleSheet.create({
   actions: {flexDirection: 'row', gap: 10},
   calendarDay: {
     alignItems: 'center', borderRadius: radius.control, justifyContent: 'center',
-    minHeight: 48, width: '14.285%',
+    minHeight: 44, width: '14.285%',
   },
-  calendarDayEmpty: {minHeight: 48, width: '14.285%'},
+  calendarDayEmpty: {minHeight: 44, width: '14.285%'},
   calendarDaySelected: {backgroundColor: colors.primary},
   calendarDayText: {color: colors.textPrimary, fontSize: 15, fontWeight: '800'},
   calendarDayTextSelected: {color: colors.surface},
@@ -288,23 +296,23 @@ const styles = StyleSheet.create({
   headerText: {flex: 1, gap: 6, minWidth: 0},
   iconButton: {
     alignItems: 'center', backgroundColor: colors.borderSoft, borderRadius: radius.item,
-    justifyContent: 'center', minHeight: 48, minWidth: 48,
+    justifyContent: 'center', minHeight: 40, minWidth: 40,
   },
   iconButtonText: {color: colors.textPrimary, fontSize: 22, fontWeight: '700'},
   label: {color: colors.textMuted, fontSize: 13, fontWeight: '800', lineHeight: 18},
   pressed: {opacity: 0.75},
   primaryAction: {
     alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.item,
-    flex: 1, justifyContent: 'center', minHeight: 54,
+    flex: 1, justifyContent: 'center', minHeight: 44,
   },
-  primaryActionText: {color: colors.surface, fontSize: 16, fontWeight: '800'},
+  primaryActionText: {color: colors.surface, fontSize: 14, fontWeight: '800'},
   scrim: {backgroundColor: 'rgba(25, 31, 40, 0.32)', flex: 1, justifyContent: 'flex-end'},
   scrollContent: {gap: spacing.card, paddingBottom: 4},
   secondaryAction: {
     alignItems: 'center', backgroundColor: colors.borderSoft, borderRadius: radius.item,
-    flex: 1, justifyContent: 'center', minHeight: 54,
+    flex: 1, justifyContent: 'center', minHeight: 44,
   },
-  secondaryActionText: {color: colors.textSecondary, fontSize: 16, fontWeight: '800'},
+  secondaryActionText: {color: colors.textSecondary, fontSize: 14, fontWeight: '800'},
   sheet: {
     backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     gap: spacing.card, maxHeight: '90%', padding: spacing.screenX,
@@ -313,7 +321,7 @@ const styles = StyleSheet.create({
   timeStepper: {flex: 1, gap: 8, minWidth: 126},
   timeStepperButton: {
     alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.control,
-    justifyContent: 'center', minHeight: 48, minWidth: 48,
+    justifyContent: 'center', minHeight: 40, minWidth: 40,
   },
   timeStepperButtonText: {color: colors.primary, fontSize: 20, fontWeight: '900', lineHeight: 22},
   timeStepperControls: {

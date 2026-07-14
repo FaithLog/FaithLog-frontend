@@ -74,7 +74,7 @@ describe('DutyDateTimePickerModal', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it('keeps every interactive control at least 48 points tall', async () => {
+  it('keeps compact visual controls with at least 48-point effective touch targets', async () => {
     let renderer;
     await act(async () => {
       renderer = create(React.createElement(DutyDateTimePickerModal, {
@@ -90,17 +90,26 @@ describe('DutyDateTimePickerModal', () => {
       '마감 일시 선택 닫기',
       '이전 달',
       '다음 달',
-      '2026년 7월 15일 선택',
       '시 줄이기',
       '시 늘리기',
       '분 줄이기',
       '분 늘리기',
+    ]) {
+      const control = findByLabel(renderer, label);
+      const visualHeight = flattenStyle(control.props.style({pressed: false})).minHeight;
+      expect(visualHeight).toBe(40);
+      expect(visualHeight + verticalHitSlop(control.props.hitSlop)).toBeGreaterThanOrEqual(48);
+    }
+
+    for (const label of [
+      '2026년 7월 15일 선택',
       '마감 일시 선택 취소',
       '마감 일시 적용',
     ]) {
-      expect(
-        flattenStyle(findByLabel(renderer, label).props.style({pressed: false})).minHeight,
-      ).toBeGreaterThanOrEqual(48);
+      const control = findByLabel(renderer, label);
+      const visualHeight = flattenStyle(control.props.style({pressed: false})).minHeight;
+      expect(visualHeight).toBe(44);
+      expect(visualHeight + verticalHitSlop(control.props.hitSlop)).toBeGreaterThanOrEqual(48);
     }
   });
 });
@@ -121,4 +130,9 @@ function flattenStyle(style) {
   return (Array.isArray(style) ? style : [style])
     .filter(Boolean)
     .reduce((result, entry) => ({...result, ...entry}), {});
+}
+
+function verticalHitSlop(hitSlop) {
+  if (typeof hitSlop === 'number') return hitSlop * 2;
+  return (hitSlop?.top ?? 0) + (hitSlop?.bottom ?? 0);
 }

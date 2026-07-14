@@ -73,7 +73,6 @@ export function DutyDateTimeField({
           disabled ? styles.disabled : null,
           pressed ? styles.pressed : null,
         ]}>
-        <Text style={styles.dateTimeLabel}>{label}</Text>
         <Text style={styles.dateTimeValue}>{value}</Text>
         <Text style={styles.dateTimeHint}>{hint}</Text>
       </Pressable>
@@ -123,7 +122,7 @@ export const dutyPollCreateStyles = StyleSheet.create({
   actions: {flexDirection: 'row', flexWrap: 'wrap', gap: spacing.gap},
   addButton: {
     alignItems: 'center', backgroundColor: '#E8F3FF', borderRadius: radius.control,
-    justifyContent: 'center', minHeight: 48, minWidth: 58, paddingHorizontal: 14,
+    justifyContent: 'center', minHeight: 40, minWidth: 58, paddingHorizontal: 14,
   },
   addButtonText: {color: colors.primary, fontSize: 13, fontWeight: '800'},
   disabled: {opacity: 0.48},
@@ -137,7 +136,7 @@ export const dutyPollCreateStyles = StyleSheet.create({
   optionRow: {alignItems: 'center', flexDirection: 'row', gap: 10},
   removeButton: {
     alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.control,
-    borderWidth: 1, justifyContent: 'center', minHeight: 48, minWidth: 48,
+    borderWidth: 1, justifyContent: 'center', minHeight: 40, minWidth: 40,
   },
   removeButtonText: {color: colors.textMuted, fontSize: 20, fontWeight: '700'},
   sectionHeader: {
@@ -150,10 +149,9 @@ export const dutyPollCreateStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   dateTimeField: {
     backgroundColor: colors.borderSoft, borderRadius: radius.item, gap: 6,
-    minHeight: 82, paddingHorizontal: 16, paddingVertical: 14,
+    minHeight: 68, paddingHorizontal: 16, paddingVertical: 10,
   },
   dateTimeHint: {color: colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 17},
-  dateTimeLabel: {color: colors.textMuted, fontSize: 13, fontWeight: '800', lineHeight: 18},
   dateTimeValue: {color: colors.textPrimary, fontSize: 18, fontWeight: '900', lineHeight: 25},
   description: {...typography.body, color: colors.textSecondary},
   disabled: {opacity: 0.48},
@@ -169,7 +167,7 @@ const styles = StyleSheet.create({
   title: {...typography.screenTitle, color: colors.textPrimary},
   toggle: {
     alignItems: 'center', backgroundColor: colors.borderSoft, borderRadius: radius.pill,
-    justifyContent: 'center', minHeight: 48, minWidth: 58, paddingHorizontal: 12,
+    justifyContent: 'center', minHeight: 40, minWidth: 58, paddingHorizontal: 12,
   },
   toggleActive: {backgroundColor: colors.primary},
   toggleRow: {alignItems: 'center', flexDirection: 'row', gap: spacing.gap, minHeight: 48},

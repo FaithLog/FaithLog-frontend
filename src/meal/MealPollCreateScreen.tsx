@@ -171,6 +171,7 @@ export function MealPollCreateScreen({
             accessibilityRole="button"
             accessibilityState={{disabled: saving}}
             disabled={saving}
+            hitSlop={4}
             onPress={addOption}
             style={({pressed}) => [
               createStyles.addOption,
@@ -200,6 +201,7 @@ export function MealPollCreateScreen({
                 accessibilityRole="button"
                 accessibilityState={{disabled: saving || options.length <= 2}}
                 disabled={saving || options.length <= 2}
+                hitSlop={4}
                 onPress={() => removeOption(index)}
                 style={({pressed}) => [
                   createStyles.removeOption,

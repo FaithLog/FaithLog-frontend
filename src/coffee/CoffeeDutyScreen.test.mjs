@@ -280,7 +280,9 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
       '마감 커피 투표 보기',
       '커피 투표 목록 새로고침',
     ]) {
-      expectTouchTarget(findByLabel(renderer, label));
+      const control = findByLabel(renderer, label);
+      expectTouchTarget(control);
+      expectVisualHeightAtMost(control, 40);
     }
     expect(findByLabel(renderer, '진행 중 커피 투표 보기').props.accessibilityState)
       .toEqual({selected: true});
@@ -294,6 +296,12 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
       '커피 주문 투표 생성',
     ]) {
       expectTouchTarget(findByLabel(renderer, label));
+    }
+    for (const label of [
+      '커피 메뉴 추가 모달 열기',
+      '커피 주문 투표 생성',
+    ]) {
+      expectVisualHeightAtMost(findByLabel(renderer, label), 40);
     }
     expect(findByLabel(renderer, '커피 투표 사용자 항목 추가 허용').props.accessibilityState)
       .toEqual({checked: true, disabled: true});
@@ -384,6 +392,15 @@ function expectTouchTarget(node) {
     : (node.props.hitSlop?.top ?? 0) + (node.props.hitSlop?.bottom ?? 0);
   expect(visualHeight + verticalHitSlop)
     .toBeGreaterThanOrEqual(48);
+}
+
+function expectVisualHeightAtMost(node, expectedMaximum) {
+  const raw = typeof node.props.style === 'function'
+    ? node.props.style({pressed: false})
+    : node.props.style;
+  const styles = flattenStyles(raw);
+  const visualHeight = Math.max(...styles.map((style) => style.minHeight ?? style.height ?? 0));
+  expect(visualHeight).toBeLessThanOrEqual(expectedMaximum);
 }
 
 function flattenStyles(value) {

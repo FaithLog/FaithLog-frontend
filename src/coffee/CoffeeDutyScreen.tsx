@@ -766,6 +766,7 @@ function CoffeePollCreator({
             accessibilityRole="button"
             accessibilityState={{disabled: busy}}
             disabled={busy}
+            hitSlop={4}
             onPress={() => setMenuPickerVisible(true)}
             style={({pressed}) => [
               styles.pollCreateAddOption,
@@ -796,6 +797,7 @@ function CoffeePollCreator({
                     accessibilityRole="button"
                     accessibilityState={{disabled: busy}}
                     disabled={busy}
+                    hitSlop={4}
                     onPress={() => onToggleMenu(menu.id)}
                     style={({pressed}) => [
                       styles.pollCreateRemoveOption,
@@ -957,6 +959,7 @@ function CoffeeMenuPickerModal({
             <Pressable
               accessibilityLabel="커피 메뉴 추가 모달 닫기"
               accessibilityRole="button"
+              hitSlop={4}
               onPress={onClose}
               style={({pressed}) => [styles.menuSheetClose, pressed ? styles.pressed : null]}>
               <Text style={styles.pollCreateRemoveOptionText}>x</Text>
@@ -968,6 +971,7 @@ function CoffeeMenuPickerModal({
               <Pressable
                 accessibilityLabel="커피 메뉴 다시 불러오기"
                 accessibilityRole="button"
+                hitSlop={4}
                 onPress={onRefresh}
                 style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
                 <Text style={styles.pollCreateAddOptionText}>새로고침</Text>
@@ -1280,6 +1284,7 @@ function CoffeePollTabButton({
       accessibilityLabel={`${label} 커피 투표 보기`}
       accessibilityRole="button"
       accessibilityState={{selected: active}}
+      hitSlop={4}
       onPress={onPress}
       style={({pressed}) => [
         styles.segmentedButton,
@@ -1701,9 +1706,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    minHeight: 74,
+    minHeight: 64,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 10,
   },
   coffeeMenuRowAdded: {
     backgroundColor: colors.borderSoft,
@@ -1725,9 +1730,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 18,
-    height: 48,
+    height: 40,
     justifyContent: 'center',
-    width: 48,
+    width: 40,
   },
   menuSheetEmpty: {
     gap: space.md,
@@ -1778,7 +1783,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#E8F3FF',
     borderRadius: 14,
-    height: 48,
+    height: 40,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 12,
@@ -1825,9 +1830,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 18,
-    height: 48,
+    height: 40,
     justifyContent: 'center',
-    width: 48,
+    width: 40,
   },
   pollCreateRemoveOptionText: {
     color: colors.textSecondary,
@@ -1991,7 +1996,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 4,
     minHeight: 48,
-    padding: space.md,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
   },
   selectRowActive: {
     backgroundColor: '#E8F3FF',
@@ -2008,8 +2014,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
-    minHeight: 48,
-    paddingVertical: space.sm,
+    minHeight: 40,
+    paddingVertical: 7,
   },
   segmentedButtonActive: {
     backgroundColor: colors.primary,

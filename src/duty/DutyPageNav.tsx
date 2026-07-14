@@ -28,6 +28,7 @@ export function DutyPageNav<Page extends string>({
             accessibilityLabel={`${domainLabel} ${item.label} 페이지 열기`}
             accessibilityRole="button"
             accessibilityState={{selected: active}}
+            hitSlop={4}
             key={item.id}
             onPress={() => onSelectPage(item.id)}
             style={({pressed}) => [
@@ -57,10 +58,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     flexGrow: 1,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 40,
     minWidth: '46%',
     paddingHorizontal: spacing.card,
-    paddingVertical: spacing.gap,
+    paddingVertical: 7,
   },
   pageNavButtonActive: {
     backgroundColor: colors.primary,
