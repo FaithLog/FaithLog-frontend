@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 
 import {Button, Card, Chip, Empty, Eyebrow, Title} from '../components/ui';
-import {mealApi, type MealApi, type MealPollListQuery} from './mealApi';
+import {mealApi, type MealApi} from './mealApi';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
 import type {MealPollList, MealPollStatus, MealPollSummary} from './mealTypes';
 import {
@@ -22,13 +22,6 @@ type MealPollListScreenProps = {
   onSessionExpired: (message: string) => void;
 };
 
-const filters: Array<{label: string; value: MealPollStatus | undefined}> = [
-  {label: '전체', value: undefined},
-  {label: '예정', value: 'SCHEDULED'},
-  {label: '진행 중', value: 'OPEN'},
-  {label: '종료', value: 'CLOSED'},
-];
-
 export function MealPollListScreen({
   api = mealApi,
   campusId,
@@ -37,8 +30,6 @@ export function MealPollListScreen({
   onSessionExpired,
 }: MealPollListScreenProps) {
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/meal-polls`);
-  const [status, setStatus] = useState<MealPollStatus | undefined>();
-  const [page, setPage] = useState(0);
   const [state, setState] = useState<MealLoadState<MealPollList>>({status: 'loading'});
 
   const load = useCallback(async () => {
@@ -52,27 +43,20 @@ export function MealPollListScreen({
     }
     const {accessToken, identity} = access.request;
     try {
-      const query: MealPollListQuery = {page, size: 20, sort: 'endsAt,desc', ...(status ? {status} : {})};
-      const result = await api.listPolls(accessToken, campusId, query);
+      const result = await api.listPolls(accessToken, campusId);
       if (!tracker.isSuccessCurrent(identity)) return;
       setState(result.content.length === 0 ? {status: 'empty'} : {status: 'success', data: result});
     } catch (error) {
       const apiError = getCurrentMealRequestError({error, fallback: '밥 투표 목록을 불러오지 못했습니다.', identity, onSessionExpired, tracker});
       if (apiError) setState({status: 'error', error: apiError});
     }
-  }, [api, campusId, onSessionExpired, page, status, tracker]);
+  }, [api, campusId, onSessionExpired, tracker]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   if (!scopeIsCommitted) return <MealLoading label="밥 투표 목록을 전환하는 중" />;
-
-  const selectStatus = (nextStatus: MealPollStatus | undefined) => {
-    if (status === nextStatus && page === 0) return;
-    setPage(0);
-    setStatus(nextStatus);
-  };
 
   return (
     <View style={mealStyles.page}>
@@ -85,17 +69,7 @@ export function MealPollListScreen({
           <Button accessibilityLabel="새 밥 투표 만들기" onPress={onCreate}>새 투표</Button>
         </View>
         <Text style={mealStyles.body}>진행 중인 투표와 지난 투표를 한곳에서 확인할 수 있어요.</Text>
-        <View style={mealStyles.actionRow}>
-          {filters.map((filter) => (
-            <Button
-              accessibilityLabel={`${filter.label} 밥 투표 보기`}
-              key={filter.label}
-              onPress={() => selectStatus(filter.value)}
-              variant={status === filter.value ? 'primary' : 'secondary'}>
-              {filter.label}
-            </Button>
-          ))}
-        </View>
+        <Button accessibilityLabel="밥 투표 목록 새로고침" onPress={() => void load()} variant="secondary">새로고침</Button>
       </Card>
       {state.status === 'loading' ? <MealLoading label="밥 투표를 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
@@ -107,25 +81,6 @@ export function MealPollListScreen({
           {state.data.content.map((poll) => (
             <MealPollCard key={poll.id} onOpen={() => onOpenDetail(poll.id)} poll={poll} />
           ))}
-          {state.data.totalPages > 1 ? (
-            <View style={mealStyles.actionRow}>
-              <Button
-                accessibilityLabel="이전 밥 투표 페이지"
-                disabled={page === 0}
-                onPress={() => setPage((current) => Math.max(0, current - 1))}
-                variant="secondary">
-                이전
-              </Button>
-              <Text style={mealStyles.meta}>{page + 1} / {state.data.totalPages} 페이지</Text>
-              <Button
-                accessibilityLabel="다음 밥 투표 페이지"
-                disabled={page + 1 >= state.data.totalPages}
-                onPress={() => setPage((current) => current + 1)}
-                variant="secondary">
-                다음
-              </Button>
-            </View>
-          ) : null}
         </View>
       ) : null}
     </View>
@@ -142,7 +97,7 @@ function MealPollCard({onOpen, poll}: {onOpen: () => void; poll: MealPollSummary
         </View>
         <Chip label={poll.settlementStatus === 'CHARGED' ? '청구 완료' : '미청구'} tone={poll.settlementStatus === 'CHARGED' ? 'success' : 'warning'} />
       </View>
-      <Text style={mealStyles.meta}>응답 {poll.totalResponseCount}명 · 마감 {new Date(poll.endsAt).toLocaleString()}</Text>
+      <Text style={mealStyles.meta}>마감 {new Date(poll.endsAt).toLocaleString()}</Text>
       <Button accessibilityLabel={`${poll.title} 밥 투표 상세 보기`} onPress={onOpen} variant="secondary">상세 보기</Button>
     </Card>
   );

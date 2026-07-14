@@ -82,7 +82,6 @@ export function buildMealPollCreateRequest(
   now = new Date(),
 ): MealPollCreateRequest {
   const title = draft.title.trim();
-  const description = draft.description.trim();
   const endsAt = new Date(draft.endsAt);
 
   if (!title) {
@@ -106,9 +105,9 @@ export function buildMealPollCreateRequest(
 
   return {
     title,
-    description,
+    isAnonymous: draft.isAnonymous,
     endsAt: endsAt.toISOString(),
-    options: options.map((content) => ({content})),
+    options: options.map((content, sortOrder) => ({content, sortOrder})),
     allowUserOptionAdd: draft.allowUserOptionAdd,
   };
 }
@@ -187,6 +186,11 @@ export function buildMealChargeRequest(
     paymentAccountId,
     groups: groups.map((group) => ({...group})),
   };
+}
+
+export function isMealPollFullyCharged(detail: MealPollDetail) {
+  const responding = detail.options.filter((option) => option.responseCount > 0);
+  return responding.length > 0 && responding.every((option) => option.charge.chargeStatus === 'CHARGED');
 }
 
 export function buildMealChargeConfirmation(

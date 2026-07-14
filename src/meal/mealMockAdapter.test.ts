@@ -189,7 +189,7 @@ describe('MEAL mock adapter flow', () => {
     expect(afterResponse.myResponse?.optionIds).toEqual([added.id]);
     expect(managementDetail.options.find((option) => option.optionId === added.id)?.responseCount)
       .toBe(1);
-    expect(managementDetail.totalResponseCount).toBe(6);
+    expect(managementDetail.options.reduce((sum, option) => sum + option.responseCount, 0)).toBe(6);
 
     await expect(
       addUserPollOption('mock-access-token', 1, 902, {content: '종료 후 추가'}),
@@ -197,9 +197,9 @@ describe('MEAL mock adapter flow', () => {
 
     const noUserOptions = await mealApi.createPoll('mock-access-token', 1, {
       title: '선택지 추가 금지 투표',
-      description: '',
+      isAnonymous: false,
       endsAt: '2027-07-20T03:00:00.000Z',
-      options: [{content: '한식'}, {content: '중식'}],
+      options: [{content: '한식', sortOrder: 0}, {content: '중식', sortOrder: 1}],
       allowUserOptionAdd: false,
     });
     await expect(
@@ -231,7 +231,8 @@ describe('MEAL mock adapter flow', () => {
     expect(actorBDetail.myResponse?.optionIds).toEqual([secondOptionId]);
     expect(management.options[0]?.responseCount).toBe(firstCount + 1);
     expect(management.options[1]?.responseCount).toBe(secondCount + 1);
-    expect(management.totalResponseCount).toBe(before.totalResponseCount + 2);
+    const beforeTotal = before.options.reduce((sum, option) => sum + option.responseCount, 0);
+    expect(management.options.reduce((sum, option) => sum + option.responseCount, 0)).toBe(beforeTotal + 2);
 
     await mealApi.closePoll(mealMockAccessTokens.activeDuty, 1, 901);
     const result = await mealApi.createCharges(mealMockAccessTokens.activeDuty, 1, 901, {
@@ -241,19 +242,19 @@ describe('MEAL mock adapter flow', () => {
         {optionId: secondOptionId, calculationType: 'PER_MEMBER', enteredAmount: 100},
       ],
     });
-    expect(result.chargedMemberCount).toBe(before.totalResponseCount + 2);
+    expect(result.chargedMemberCount).toBe(beforeTotal + 2);
   });
 
   it('creates a canonical payable MEAL charge for each recorded respondent', async () => {
     const poll = await mealApi.createPoll(mealMockAccessTokens.activeDuty, 1, {
       title: '응답자 밥 청구',
-      description: '',
+      isAnonymous: false,
       endsAt: '2027-07-20T03:00:00.000Z',
-      options: [{content: '제육볶음'}, {content: '김치찌개'}],
+      options: [{content: '제육볶음', sortOrder: 0}, {content: '김치찌개', sortOrder: 1}],
       allowUserOptionAdd: false,
     });
-    const firstOptionId = poll.options[0]?.optionId ?? 0;
-    const secondOptionId = poll.options[1]?.optionId ?? 0;
+    const firstOptionId = poll.options[0]?.id ?? 0;
+    const secondOptionId = poll.options[1]?.id ?? 0;
     await savePollResponse(mealMockAccessTokens.activeDuty, 1, poll.id, {
       optionIds: [firstOptionId],
     });
@@ -290,8 +291,8 @@ describe('MEAL mock adapter flow', () => {
       1,
       7,
     );
-    const ownerChargeBeforePaid = ownerSettlementBeforePaid.accounts[0]?.charges.find(
-      (item) => item.memberName === '두 번째 담당자' && item.amount === 8000,
+    const ownerChargeBeforePaid = ownerSettlementBeforePaid.members.find(
+      (item) => item.name === '두 번째 담당자' && item.unpaidAmount === 8000,
     );
     const memberSummaryBeforePaid = await fetchChargeSummary(
       mealMockAccessTokens.otherDuty,
@@ -336,9 +337,8 @@ describe('MEAL mock adapter flow', () => {
     expect(charge?.source?.sourceId).toBeGreaterThan(0);
     expect(charge?.account).toMatchObject({paymentAccountId: 10});
     expect(ownerChargeBeforePaid).toMatchObject({
-      chargeId: charge?.id,
-      memberName: '두 번째 담당자',
-      status: 'UNPAID',
+      name: '두 번째 담당자',
+      unpaidAmount: 8000,
     });
     expect(memberSummaryBeforePaid).toMatchObject({
       userId: 8,
@@ -402,8 +402,8 @@ describe('MEAL mock adapter flow', () => {
       userId: 8,
     });
     expect(afterPaid.items).toContainEqual(expect.objectContaining({id: charge?.id, status: 'PAID'}));
-    expect(ownerSettlementAfterPaid.accounts[0]?.charges).toContainEqual(
-      expect.objectContaining({chargeId: charge?.id, memberName: '두 번째 담당자', status: 'PAID'}),
+    expect(ownerSettlementAfterPaid.members).toContainEqual(
+      expect.objectContaining({name: '두 번째 담당자', paidAmount: 8000, unpaidAmount: 0}),
     );
     expect(memberSummaryAfterPaid).toMatchObject({
       userId: 8,
@@ -599,8 +599,8 @@ describe('MEAL mock adapter flow', () => {
     const closed = await mealApi.closePoll('mock-access-token', 1, 901);
 
     expect(closed.status).toBe('CLOSED');
-    expect(closed.settlementStatus).toBe('NOT_CHARGED');
-    expect(closed.options.every((option) => option.charge.chargeStatus === 'NOT_CHARGED')).toBe(true);
+    const closedDetail = await mealApi.getPollDetail('mock-access-token', 1, 901);
+    expect(closedDetail.options.every((option) => option.charge.chargeStatus === 'NOT_CHARGED')).toBe(true);
     await expect(mealApi.closePoll('mock-access-token', 1, 901)).rejects.toMatchObject({
       detail: {status: 409},
     });
@@ -645,8 +645,8 @@ describe('MEAL mock adapter flow', () => {
       actualTotalAmount: 10002,
       paymentAccountId: 10,
     });
-    expect(settlement.accounts).toHaveLength(1);
-    expect(settlement.accounts[0]?.account.ownerUserId).toBe(7);
+    expect(settlement.members.length).toBeGreaterThan(0);
+    expect(settlement.summary.totalAmount).toBe(26002);
     await expect(
       mealApi.createCharges('mock-access-token', 1, 902, {
         paymentAccountId: 10,
@@ -746,8 +746,8 @@ describe('MEAL mock adapter flow', () => {
     const otherSettlement = await mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1, 7);
     const hiddenDetail = await mealApi.getPollDetail(mealMockAccessTokens.activeDuty, 1, 902);
 
-    expect(ownSettlement.accounts[0]?.account.ownerUserId).toBe(8);
-    expect(otherSettlement.accounts).toEqual([]);
+    expect(ownSettlement.members.length).toBeGreaterThan(0);
+    expect(otherSettlement.members).toEqual([]);
     expect(hiddenDetail.options[0]?.charge).toMatchObject({
       chargeStatus: 'CHARGED',
       chargedByMe: false,

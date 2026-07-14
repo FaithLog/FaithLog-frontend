@@ -20,17 +20,22 @@ vi.mock('../api/client', () => {
 import {FaithLogApiError} from '../api/client';
 import {createMealApi, type MealRequestDispatcher} from './mealApi';
 
-describe('typed provisional MEAL API', () => {
-  it('fails closed before dispatch in production', async () => {
-    const {request, spy} = createRequestHarness([]);
+describe('typed confirmed MEAL API', () => {
+  it('uses the documented queryless production list and fails closed for undocumented query parameters', async () => {
+    const {request, spy} = createRequestHarness([{content: [], page: 0, size: 20, totalElements: 0, totalPages: 0}]);
     const api = createMealApi({isMockMode: () => false, request});
 
-    await expect(api.listPolls('token', 1, {})).rejects.toSatisfy((error) => {
-      expect(error).toBeInstanceOf(FaithLogApiError);
-      expect((error as FaithLogApiError).detail.code).toBe('API_CONTRACT_PENDING');
-      return true;
-    });
-    expect(spy).not.toHaveBeenCalled();
+    await api.listPolls('token', 1);
+    expect(spy.mock.calls[0]?.[0]).toBe('/api/v1/campuses/1/meal/polls');
+    let unsupportedQueryError: unknown;
+    try {
+      api.listPolls('token', 1, {status: 'CLOSED'});
+    } catch (error) {
+      unsupportedQueryError = error;
+    }
+    expect(unsupportedQueryError).toBeInstanceOf(FaithLogApiError);
+    expect((unsupportedQueryError as FaithLogApiError).detail.code).toBe('API_CONTRACT_PENDING');
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('uses the MEAL management list, never the general user poll list', async () => {
@@ -50,7 +55,7 @@ describe('typed provisional MEAL API', () => {
   it('uses backend-filtered own-account and own-settlement endpoints', async () => {
     const {request, spy} = createRequestHarness([
       [],
-      {accounts: [], summary: {actualTotalAmount: 0, chargedMemberCount: 0, requestedTotalAmount: 0, roundingAdjustment: 0}},
+      {campusId: 4, campusName: '캠퍼스', region: '서울', members: [], summary: {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0}},
     ]);
     const api = createMealApi({isMockMode: () => true, request});
 

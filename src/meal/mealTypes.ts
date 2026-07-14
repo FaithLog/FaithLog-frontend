@@ -9,6 +9,13 @@ export type MealDutyAssignment = {
   assignedAt?: string;
 };
 
+export type MealMyDutyAssignment = {
+  campusId: number;
+  userId: number;
+  dutyType: 'MEAL';
+  isActive: boolean;
+};
+
 export type MealDutyAssignRequest = {
   userId: number;
 };
@@ -38,17 +45,11 @@ export type MealCalculationType = 'PER_MEMBER' | 'GROUP_TOTAL';
 
 export type MealPollSummary = {
   id: number;
-  campusId: number;
   title: string;
-  description: string | null;
-  pollType: 'MEAL';
-  selectionType: 'SINGLE';
-  allowUserOptionAdd: boolean;
   startsAt: string;
   endsAt: string;
   status: MealPollStatus;
   settlementStatus: MealSettlementStatus;
-  totalResponseCount: number;
 };
 
 export type MealPollList = {
@@ -61,6 +62,15 @@ export type MealPollList = {
 
 export type MealNotCharged = {
   chargeStatus: 'NOT_CHARGED';
+  calculationType: null;
+  enteredAmount: null;
+  amountPerMember: null;
+  requestedTotalAmount: null;
+  actualTotalAmount: null;
+  roundingAdjustment: null;
+  paymentAccountId: null;
+  chargedByMe: false;
+  chargedAt: null;
 };
 
 export type MealCharged = {
@@ -71,7 +81,6 @@ export type MealCharged = {
   requestedTotalAmount: number;
   actualTotalAmount: number;
   roundingAdjustment: number;
-  chargedMemberCount: number;
   paymentAccountId: number | null;
   chargedByMe: boolean;
   chargedAt: string;
@@ -87,24 +96,55 @@ export type MealPollOptionDetail = {
   charge: MealOptionCharge;
 };
 
-export type MealPollDetail = MealPollSummary & {
+export type MealPollDetail = {
+  id: number;
+  campusId: number;
+  title: string;
+  pollType: 'MEAL';
+  selectionType: 'SINGLE';
+  isAnonymous: boolean;
+  allowUserOptionAdd: boolean;
+  startsAt: string;
+  endsAt: string;
+  status: MealPollStatus;
   options: MealPollOptionDetail[];
 };
 
 export type MealPollCreateRequest = {
   title: string;
-  description: string;
+  isAnonymous: boolean;
   endsAt: string;
-  options: Array<{content: string}>;
+  options: Array<{content: string; sortOrder: number}>;
   allowUserOptionAdd: boolean;
 };
 
 export type MealPollCreateDraft = {
   title: string;
-  description: string;
+  isAnonymous: boolean;
   endsAt: string;
   options: string[];
   allowUserOptionAdd: boolean;
+};
+
+export type MealPollMutationOption = {
+  id: number;
+  content: string;
+  sortOrder: number;
+  userAdded: boolean;
+};
+
+export type MealPollMutationResponse = {
+  id: number;
+  campusId: number;
+  title: string;
+  pollType: 'MEAL';
+  selectionType: 'SINGLE';
+  isAnonymous: boolean;
+  allowUserOptionAdd: boolean;
+  startsAt: string;
+  endsAt: string;
+  status: MealPollStatus;
+  options: MealPollMutationOption[];
 };
 
 export type MealChargeGroupRequest = {
@@ -167,7 +207,32 @@ export type MealAccountSettlement = {
   charges: MealSettlementCharge[];
 };
 
-export type MealSettlement = {
+export type MealSettlementLedger = {
   accounts: MealAccountSettlement[];
   summary: MealSettlementSummary;
+};
+
+export type MealSettlementMember = {
+  userId: number;
+  name: string;
+  email: string;
+  totalAmount: number;
+  unpaidAmount: number;
+  paidAmount: number;
+  waivedAmount: number;
+  canceledAmount: number;
+};
+
+export type MealSettlement = {
+  campusId: number;
+  campusName: string;
+  region: string;
+  summary: {
+    totalAmount: number;
+    unpaidAmount: number;
+    paidAmount: number;
+    waivedAmount: number;
+    canceledAmount: number;
+  };
+  members: MealSettlementMember[];
 };

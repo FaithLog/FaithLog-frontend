@@ -21,7 +21,7 @@ describe('MEAL product contract', () => {
     const request = buildMealPollCreateRequest(
       {
         allowUserOptionAdd: true,
-        description: '점심 메뉴를 골라 주세요.',
+        isAnonymous: false,
         endsAt: '2026-07-14T03:00:00.000Z',
         options: ['제육볶음', '김치찌개'],
         title: '화요일 점심',
@@ -31,9 +31,9 @@ describe('MEAL product contract', () => {
 
     expect(request).toEqual({
       title: '화요일 점심',
-      description: '점심 메뉴를 골라 주세요.',
+      isAnonymous: false,
       endsAt: '2026-07-14T03:00:00.000Z',
-      options: [{content: '제육볶음'}, {content: '김치찌개'}],
+      options: [{content: '제육볶음', sortOrder: 0}, {content: '김치찌개', sortOrder: 1}],
       allowUserOptionAdd: true,
     });
     expect(request).not.toHaveProperty('startsAt');
@@ -46,7 +46,7 @@ describe('MEAL product contract', () => {
     const now = new Date('2026-07-13T03:00:00.000Z');
     const base = {
       allowUserOptionAdd: false,
-      description: '',
+      isAnonymous: false,
       endsAt: '2026-07-13T03:00:00.000Z',
       options: ['제육볶음', '제육볶음'],
       title: '점심',
@@ -127,21 +127,19 @@ describe('MEAL product contract', () => {
       id: 101,
       campusId: 1,
       title: '점심',
-      description: null,
       pollType: 'MEAL',
       selectionType: 'SINGLE',
+      isAnonymous: false,
       allowUserOptionAdd: true,
       startsAt: '2026-07-13T01:00:00.000Z',
       endsAt: '2026-07-13T02:00:00.000Z',
       status: 'CLOSED',
-      settlementStatus: 'NOT_CHARGED',
-      totalResponseCount: 3,
       options: [{
         optionId: 1001,
         content: '제육볶음',
         responseCount: 3,
         userAdded: false,
-        charge: {chargeStatus: 'NOT_CHARGED'},
+        charge: {chargeStatus: 'NOT_CHARGED', calculationType: null, enteredAmount: null, amountPerMember: null, requestedTotalAmount: null, actualTotalAmount: null, roundingAdjustment: null, paymentAccountId: null, chargedByMe: false, chargedAt: null},
       }],
     };
     expect(buildMealChargeConfirmation(detail, {

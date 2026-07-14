@@ -14,6 +14,7 @@ import {
   calculateMealChargeGroup,
   createMealChargeSubmitGate,
   finishMealChargeSubmit,
+  isMealPollFullyCharged,
   MealLocalValidationError,
 } from './mealModel';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
@@ -96,7 +97,7 @@ export function MealPollChargeScreen({
           .map((option) => ({optionId: option.optionId, calculationType: 'PER_MEMBER', enteredAmount: ''})),
       );
       setState({status: 'success', accounts: activeAccounts, detail});
-      setTerminalReceipt(detail.settlementStatus === 'CHARGED' ? {source: 'reconciled'} : null);
+      setTerminalReceipt(isMealPollFullyCharged(detail) ? {source: 'reconciled'} : null);
       setRefreshWarning(false);
     } catch (error) {
       const apiError = getCurrentMealRequestError({error, fallback: '밥 청구 정보를 불러오지 못했습니다.', identity, onSessionExpired, tracker});
@@ -203,7 +204,7 @@ export function MealPollChargeScreen({
       const detail = await api.getPollDetail(access.request.accessToken, campusId, pollId);
       if (
         !tracker.isSuccessCurrent(access.request.identity) ||
-        detail.settlementStatus !== 'CHARGED'
+        !isMealPollFullyCharged(detail)
       ) {
         return false;
       }
@@ -232,11 +233,11 @@ export function MealPollChargeScreen({
     try {
       const [detail] = await Promise.all([
         api.getPollDetail(access.request.accessToken, campusId, pollId),
-        api.listPolls(access.request.accessToken, campusId, {page: 0, size: 20, sort: 'endsAt,desc'}),
+        api.listPolls(access.request.accessToken, campusId),
         api.getMySettlement(access.request.accessToken, campusId, currentUserId),
       ]);
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
-      if (detail.settlementStatus !== 'CHARGED') {
+      if (!isMealPollFullyCharged(detail)) {
         setRefreshWarning(true);
         return;
       }

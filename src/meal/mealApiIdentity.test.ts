@@ -23,8 +23,8 @@ import type {MealChargeRequest, MealPollCreateRequest} from './mealTypes';
 describe('MEAL request context identity', () => {
   it('rejects a self-duty response for another campus or user', async () => {
     const {api} = harness([
-      {assignmentId: 9, campusId: 2, dutyType: 'MEAL', isActive: true, userId: 7},
-      {assignmentId: 9, campusId: 1, dutyType: 'MEAL', isActive: true, userId: 999},
+      {campusId: 2, dutyType: 'MEAL', isActive: true, userId: 7},
+      {campusId: 1, dutyType: 'MEAL', isActive: true, userId: 999},
     ]);
 
     await expect(api.getMyDuty('token', 1, 7)).rejects.toMatchObject({
@@ -41,7 +41,7 @@ describe('MEAL request context identity', () => {
       [wrongAccount],
       wrongAccount,
       wrongAccount,
-      settlement(wrongAccount),
+      settlement({campusId: 2}),
     ]);
 
     await expect(api.getMyPaymentAccounts('token', 1, 7, true)).rejects.toMatchObject({
@@ -62,8 +62,8 @@ describe('MEAL request context identity', () => {
     const {api} = harness([
       {content: [mealPoll({campusId: 2})], page: 0, size: 20, totalElements: 1, totalPages: 1},
       mealDetail({campusId: 2}),
-      mealDetail({campusId: 2, id: 102, status: 'OPEN'}),
-      mealDetail({id: 999, status: 'CLOSED'}),
+      mealMutation({campusId: 2, id: 102, status: 'OPEN'}),
+      mealMutation({id: 999, status: 'CLOSED'}),
     ]);
 
     await expect(api.listPolls('token', 1, {page: 0, size: 20})).rejects.toMatchObject({
@@ -153,13 +153,13 @@ describe('MEAL request context identity', () => {
 
   it('reconstructs account and poll creation bodies and rejects malformed polls before dispatch', async () => {
     const account = mealAccount();
-    const createdPoll = mealDetail({status: 'OPEN'});
+    const createdPoll = mealMutation({status: 'OPEN'});
     const {api, requestSpy} = harness([account, createdPoll]);
     const accountWithExtra = {...accountCreate(), ownerUserId: 999};
     const pollWithExtra = {
       ...pollCreate(),
       startsAt: '2020-01-01T00:00:00.000Z',
-      options: [{content: '한식', internalId: 1}, {content: '중식', internalId: 2}],
+      options: [{content: '한식', sortOrder: 0, internalId: 1}, {content: '중식', sortOrder: 1, internalId: 2}],
     };
     await api.createPaymentAccount('token', 1, 7, accountWithExtra);
     await api.createPoll('token', 1, pollWithExtra);
@@ -171,7 +171,6 @@ describe('MEAL request context identity', () => {
       {...pollCreate(), allowUserOptionAdd: 'true'},
       {...pollCreate(), endsAt: 'invalid'},
       {...pollCreate(), options: [{content: '한식'}, {content: ' 한식 '}]},
-      {...pollCreate(), options: [{content: '한식'}]},
     ]) {
       const next = harness([]);
       expect(() => next.api.createPoll('token', 1, malformed as MealPollCreateRequest)).toThrow();
@@ -213,30 +212,45 @@ function accountCreate() {
 function mealPoll(patch: Record<string, unknown> = {}) {
   return {
     id: 101,
-    campusId: 1,
     title: '점심 투표',
-    description: null,
-    pollType: 'MEAL',
-    selectionType: 'SINGLE',
-    allowUserOptionAdd: true,
     startsAt: '2026-07-13T01:00:00.000Z',
     endsAt: '2026-07-14T01:00:00.000Z',
     status: 'CLOSED',
     settlementStatus: 'NOT_CHARGED',
-    totalResponseCount: 3,
     ...patch,
   };
 }
 
 function mealDetail(patch: Record<string, unknown> = {}) {
   return {
-    ...mealPoll(patch),
-    options: [{optionId: 1001, content: '제육볶음', responseCount: 3, userAdded: false, charge: {chargeStatus: 'NOT_CHARGED'}}],
+    id: 101,
+    campusId: 1,
+    title: '점심 투표',
+    pollType: 'MEAL',
+    selectionType: 'SINGLE',
+    isAnonymous: false,
+    allowUserOptionAdd: true,
+    startsAt: '2026-07-13T01:00:00.000Z',
+    endsAt: '2026-07-14T01:00:00.000Z',
+    status: 'CLOSED',
+    options: [{optionId: 1001, content: '제육볶음', responseCount: 3, userAdded: false, charge: notCharged()}],
+    ...patch,
+  };
+}
+
+function mealMutation(patch: Record<string, unknown> = {}) {
+  return {
+    id: 101, campusId: 1, templateId: null, title: '점심 투표', pollType: 'MEAL',
+    selectionType: 'SINGLE', isAnonymous: false, allowUserOptionAdd: true,
+    chargeGenerationType: 'NONE', paymentCategory: null, paymentAccountId: null,
+    startsAt: '2026-07-13T01:00:00.000Z', endsAt: '2027-07-14T01:00:00.000Z', status: 'OPEN',
+    options: [{id: 1001, content: '제육볶음', composeMenuCode: null, priceAmount: 0, sortOrder: 0, userAdded: false}],
+    ...patch,
   };
 }
 
 function pollCreate() {
-  return {title: '점심', description: '', endsAt: '2027-07-14T01:00:00.000Z', options: [{content: '한식'}, {content: '중식'}], allowUserOptionAdd: true};
+  return {title: '점심', isAnonymous: false, endsAt: '2027-07-14T01:00:00.000Z', options: [{content: '한식', sortOrder: 0}, {content: '중식', sortOrder: 1}], allowUserOptionAdd: true};
 }
 
 function chargeRequest(): MealChargeRequest {
@@ -256,9 +270,14 @@ function chargeResult() {
   };
 }
 
-function settlement(account: ReturnType<typeof mealAccount>) {
+function settlement(patch: Record<string, unknown> = {}) {
   return {
-    accounts: [{account, charges: [], summary: {chargedMemberCount: 0, requestedTotalAmount: 0, actualTotalAmount: 0, roundingAdjustment: 0}}],
-    summary: {chargedMemberCount: 0, requestedTotalAmount: 0, actualTotalAmount: 0, roundingAdjustment: 0},
+    campusId: 1, campusName: '캠퍼스', region: '서울', members: [],
+    summary: {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+    ...patch,
   };
+}
+
+function notCharged() {
+  return {chargeStatus: 'NOT_CHARGED', calculationType: null, enteredAmount: null, amountPerMember: null, requestedTotalAmount: null, actualTotalAmount: null, roundingAdjustment: null, paymentAccountId: null, chargedByMe: false, chargedAt: null};
 }

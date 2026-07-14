@@ -141,7 +141,7 @@ describe('MEAL component behavior', () => {
     expect(rendered(renderer)).toContain('재시도 성공');
 
     api.listPolls.mockResolvedValueOnce(pollList([]));
-    await press(renderer, '종료 밥 투표 보기');
+    await press(renderer, '밥 투표 목록 새로고침');
     expect(rendered(renderer)).toContain('표시할 밥 투표가 없습니다');
   });
 
@@ -613,70 +613,51 @@ describe('MEAL component behavior', () => {
     expect(confirm.props.accessibilityLabel).toBe('최종 청구 실행');
   });
 
-  it('paginates every poll page, resets filters to page zero, and labels SCHEDULED separately', async () => {
+  it('uses one queryless management list and labels SCHEDULED separately', async () => {
     const onOpenDetail = vi.fn();
-    const firstPage = Array.from({length: 20}, (_, index) => mealPoll({id: index + 1, title: `최근 투표 ${index + 1}`}));
     const api = createApi({
-      listPolls: vi.fn((_token, _campus, query) => {
-        if (query.status === 'SCHEDULED') {
-          return Promise.resolve(pollList([mealPoll({id: 300, status: 'SCHEDULED', title: '예정된 점심'})], 0, 1, 1));
-        }
-        return Promise.resolve(query.page === 0
-          ? pollList(firstPage, 0, 21, 2)
-          : pollList([mealPoll({id: 21, status: 'CLOSED', title: '아주 오래된 투표'})], 1, 21, 2));
-      }),
+      listPolls: vi.fn().mockResolvedValue(pollList([
+        mealPoll({id: 300, status: 'SCHEDULED', title: '예정된 점심'}),
+        mealPoll({id: 21, status: 'CLOSED', title: '아주 오래된 투표'}),
+      ])),
     });
     let renderer;
     await act(async () => {
       renderer = create(React.createElement(MealPollListScreen, {...listProps(api, 1), onOpenDetail}));
       await settle();
     });
-    await press(renderer, '종료 밥 투표 보기');
-    await press(renderer, '다음 밥 투표 페이지');
-    expect(api.listPolls).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({page: 1, status: 'CLOSED', sort: 'endsAt,desc'}));
+    expect(api.listPolls).toHaveBeenLastCalledWith('A1', 1);
     expect(rendered(renderer)).toContain('아주 오래된 투표');
     await press(renderer, '아주 오래된 투표 밥 투표 상세 보기');
     expect(onOpenDetail).toHaveBeenCalledWith(21);
 
-    await press(renderer, '예정 밥 투표 보기');
-    expect(api.listPolls).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({page: 0, status: 'SCHEDULED', sort: 'endsAt,desc'}));
     expect(rendered(renderer)).toContain('예정된 투표');
     expect(renderer.root.findAll((node) => node.type === 'Eyebrow' && nodeText(node) === '진행 중인 투표')).toHaveLength(0);
   });
 
-  it('keeps poll pagination latest-wins and avoids duplicate filter fetches', async () => {
-    const staleNextPage = deferred();
+  it('keeps manual queryless refresh latest-wins', async () => {
+    const first = deferred();
+    const second = deferred();
     const api = createApi({
-      listPolls: vi.fn((_token, _campus, query) => {
-        if (query.status === 'SCHEDULED') {
-          return Promise.resolve(pollList([mealPoll({id: 300, status: 'SCHEDULED', title: '최신 예정 투표'})]));
-        }
-        if (query.page === 1) return staleNextPage.promise;
-        return Promise.resolve(pollList([mealPoll({title: '첫 페이지'})], 0, 21, 2));
-      }),
+      listPolls: vi.fn()
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise),
     });
     let renderer;
     await act(async () => {
       renderer = create(React.createElement(MealPollListScreen, listProps(api, 1)));
+      first.resolve(pollList([mealPoll({title: '첫 결과'})]));
       await settle();
     });
     await act(async () => {
-      findByLabel(renderer, '다음 밥 투표 페이지').props.onPress();
-      await settle();
-      findByLabel(renderer, '예정 밥 투표 보기').props.onPress();
+      findByLabel(renderer, '밥 투표 목록 새로고침').props.onPress();
       await settle();
     });
-    expect(rendered(renderer)).toContain('최신 예정 투표');
-
     await act(async () => {
-      staleNextPage.resolve(pollList([mealPoll({id: 21, title: '폐기될 다음 페이지'})], 1, 21, 2));
+      second.resolve(pollList([mealPoll({id: 21, title: '새로고침 결과'})]));
       await settle();
     });
-    expect(rendered(renderer)).not.toContain('폐기될 다음 페이지');
-
-    const callsBeforeDuplicate = api.listPolls.mock.calls.length;
-    await press(renderer, '예정 밥 투표 보기');
-    expect(api.listPolls).toHaveBeenCalledTimes(callsBeforeDuplicate);
+    expect(rendered(renderer)).toContain('새로고침 결과');
   });
 
   it('shows chargedAt while preserving other-duty account privacy', async () => {
@@ -715,34 +696,21 @@ describe('MEAL component behavior', () => {
     expect(api.deactivatePaymentAccount).toHaveBeenCalledTimes(1);
   });
 
-  it('separates settlement account summaries from paginated charge detail', async () => {
-    const charges = Array.from({length: 60}, (_, index) => ({
-      chargeId: index + 1,
-      pollId: 100 + index,
-      pollTitle: `투표 ${index + 1}`,
-      optionContent: `메뉴 ${index + 1}`,
-      memberName: `멤버 ${index + 1}`,
-      amount: 1000,
-      status: 'UNPAID',
-      chargedAt: '2026-07-13T03:00:00.000Z',
-    }));
-    const summary = {chargedMemberCount: 60, requestedTotalAmount: 60000, actualTotalAmount: 60000, roundingAdjustment: 0};
+  it('renders the documented aggregate settlement summary and members', async () => {
+    const summary = {totalAmount: 60000, unpaidAmount: 60000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
     const api = createApi({
-      getMySettlement: vi.fn().mockResolvedValue({accounts: [{account: mealAccount(), charges, summary}], summary}),
+      getMySettlement: vi.fn().mockResolvedValue({
+        campusId: 1, campusName: '샘플 캠퍼스', region: '서울', summary,
+        members: [{userId: 8, name: '멤버 1', email: 'member@example.test', ...summary}],
+      }),
     });
     let renderer;
     await act(async () => {
       renderer = create(React.createElement(MealSettlementScreen, settlementProps(api)));
       await settle();
     });
-    expect(rendered(renderer)).not.toContain('멤버 1');
-    await press(renderer, '점심 계좌 정산 상세 보기');
     expect(rendered(renderer)).toContain('멤버 1');
-    expect(rendered(renderer)).toContain('멤버 25');
-    expect(rendered(renderer)).not.toContain('멤버 26');
-    await press(renderer, '다음 정산 내역 페이지');
-    expect(rendered(renderer)).not.toContain('멤버 25');
-    expect(rendered(renderer)).toContain('멤버 26');
+    expect(rendered(renderer)).toContain('60,000');
   });
 });
 
@@ -834,37 +802,41 @@ function authenticatedState() {
 function mealPoll(patch = {}) {
   return {
     id: 101,
-    campusId: 1,
     title: '점심 투표',
-    description: null,
-    pollType: 'MEAL',
-    selectionType: 'SINGLE',
-    allowUserOptionAdd: true,
     startsAt: '2026-07-13T01:00:00.000Z',
     endsAt: '2026-07-14T01:00:00.000Z',
     status: 'CLOSED',
     settlementStatus: 'NOT_CHARGED',
-    totalResponseCount: 3,
     ...patch,
   };
 }
 
 function mealDetail(patch = {}) {
   return {
-    ...mealPoll(patch),
+    id: 101,
+    campusId: 1,
+    title: '점심 투표',
+    pollType: 'MEAL',
+    selectionType: 'SINGLE',
+    isAnonymous: false,
+    allowUserOptionAdd: true,
+    startsAt: '2026-07-13T01:00:00.000Z',
+    endsAt: '2026-07-14T01:00:00.000Z',
+    status: 'CLOSED',
     options: [{
       optionId: 1001,
       content: '제육볶음',
       responseCount: 3,
       userAdded: false,
-      charge: {chargeStatus: 'NOT_CHARGED'},
+      charge: {chargeStatus: 'NOT_CHARGED', calculationType: null, enteredAmount: null, amountPerMember: null, requestedTotalAmount: null, actualTotalAmount: null, roundingAdjustment: null, paymentAccountId: null, chargedByMe: false, chargedAt: null},
     }],
+    ...patch,
   };
 }
 
 function chargedDetail({chargedByMe}) {
   return {
-    ...mealDetail({settlementStatus: 'CHARGED'}),
+    ...mealDetail(),
     options: [{
       optionId: 1001,
       content: '제육볶음',
@@ -880,7 +852,6 @@ function chargedDetail({chargedByMe}) {
         requestedTotalAmount: 10000,
         actualTotalAmount: 10002,
         roundingAdjustment: 2,
-        chargedMemberCount: 3,
         chargedAt: '2026-07-13T03:00:00.000Z',
       },
     }],

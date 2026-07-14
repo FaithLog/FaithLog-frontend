@@ -13,21 +13,21 @@ import {
 } from './mealRuntimeValidation';
 
 describe('MEAL runtime validation', () => {
-  it('accepts only an active MEAL self duty response', () => {
+  it('accepts active and inactive MEAL self duty responses without an assignment id', () => {
     expect(
-      parseMyMealDutyAssignment({assignmentId: 9, campusId: 1, dutyType: 'MEAL', isActive: true, userId: 7}),
-    ).toMatchObject({assignmentId: 9, dutyType: 'MEAL', isActive: true});
+      parseMyMealDutyAssignment({campusId: 1, dutyType: 'MEAL', isActive: true, userId: 7}),
+    ).toMatchObject({dutyType: 'MEAL', isActive: true});
+    expect(parseMyMealDutyAssignment({campusId: 1, dutyType: 'MEAL', isActive: false, userId: 7}).isActive).toBe(false);
     expect(() =>
-      parseMyMealDutyAssignment({assignmentId: 9, campusId: 1, dutyType: 'COFFEE', isActive: true, userId: 7}),
+      parseMyMealDutyAssignment({campusId: 1, dutyType: 'COFFEE', isActive: true, userId: 7}),
     ).toThrow('Invalid API response');
     expect(() =>
-      parseMyMealDutyAssignment({assignmentId: 9, campusId: 1, dutyType: 'MEAL', isActive: false, userId: 7}),
+      parseMyMealDutyAssignment({assignmentId: 9, campusId: 1, dutyType: 'MEAL', isActive: true, userId: 7}),
     ).toThrow('Invalid API response');
   });
 
   it('requires OPEN create responses and CLOSED manual-close responses', () => {
-    const open = mealDetail({chargeStatus: 'NOT_CHARGED'});
-    open.status = 'OPEN';
+    const open = mealMutation();
 
     expect(parseCreatedMealPollDetail(open).status).toBe('OPEN');
     expect(() => parseClosedMealPollDetail(open)).toThrow('Invalid API response');
@@ -64,49 +64,18 @@ describe('MEAL runtime validation', () => {
   it('keeps old CLOSED polls in the management payload and requires MEAL/SINGLE', () => {
     const poll = {
       id: 101,
-      campusId: 1,
       title: '지난달 점심',
-      description: null,
-      pollType: 'MEAL',
-      selectionType: 'SINGLE',
-      allowUserOptionAdd: true,
       startsAt: '2026-06-01T03:00:00.000Z',
       endsAt: '2026-06-01T04:00:00.000Z',
       status: 'CLOSED',
       settlementStatus: 'NOT_CHARGED',
-      totalResponseCount: 3,
     };
 
     expect(parseMealPollList({content: [poll], page: 0, size: 20, totalElements: 1, totalPages: 1}).content[0]).toEqual(poll);
     expect(() => parseMealPollList({content: [poll, {...poll}], page: 0, size: 20, totalElements: 2, totalPages: 1})).toThrowError(
       expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}),
     );
-    expect(() => parseMealPollList({content: [{...poll, pollType: 'COFFEE'}], page: 0, size: 20, totalElements: 1, totalPages: 1})).toThrow('Invalid API response');
-    expect(() => parseMealPollList({content: [{...poll, selectionType: 'MULTIPLE'}], page: 0, size: 20, totalElements: 1, totalPages: 1})).toThrow('Invalid API response');
-  });
-
-  it.each(['OPEN', 'SCHEDULED'])('rejects %s management summaries marked CHARGED', (status) => {
-    const poll = mealPollSummary({settlementStatus: 'CHARGED', status, totalResponseCount: 3});
-
-    expect(() => parseMealPollList({
-      content: [poll],
-      page: 0,
-      size: 20,
-      totalElements: 1,
-      totalPages: 1,
-    })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
-  });
-
-  it('rejects a CHARGED summary without any respondents', () => {
-    const poll = mealPollSummary({settlementStatus: 'CHARGED', totalResponseCount: 0});
-
-    expect(() => parseMealPollList({
-      content: [poll],
-      page: 0,
-      size: 20,
-      totalElements: 1,
-      totalPages: 1,
-    })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
+    expect(() => parseMealPollList({content: [{...poll, undocumented: true}], page: 0, size: 20, totalElements: 1, totalPages: 1})).toThrow('Invalid API response');
   });
 
   it('binds management list content to the requested status', () => {
@@ -153,7 +122,6 @@ describe('MEAL runtime validation', () => {
       requestedTotalAmount: 10000,
       actualTotalAmount: 10002,
       roundingAdjustment: 2,
-      chargedMemberCount: 3,
       chargedAt: '2026-07-13T03:00:00.000Z',
     });
 
@@ -170,7 +138,6 @@ describe('MEAL runtime validation', () => {
       requestedTotalAmount: 10000,
       actualTotalAmount: 10002,
       roundingAdjustment: 2,
-      chargedMemberCount: 3,
       chargedAt: '2026-07-13T03:00:00.000Z',
     });
 
@@ -184,12 +151,6 @@ describe('MEAL runtime validation', () => {
     ['duplicate option ids', (detail: ReturnType<typeof mealDetail>) => {
       detail.options.push({...detail.options[0]!});
     }],
-    ['response total mismatch', (detail: ReturnType<typeof mealDetail>) => {
-      detail.totalResponseCount = 4;
-    }],
-    ['charged member mismatch', (detail: ReturnType<typeof mealDetail>) => {
-      detail.options[0]!.charge.chargedMemberCount = 2;
-    }],
     ['invalid charged arithmetic', (detail: ReturnType<typeof mealDetail>) => {
       detail.options[0]!.charge.actualTotalAmount = 9999;
     }],
@@ -199,9 +160,8 @@ describe('MEAL runtime validation', () => {
         content: '김치찌개',
         responseCount: 1,
         userAdded: false,
-        charge: {chargeStatus: 'NOT_CHARGED'},
+        charge: notCharged(),
       });
-      detail.totalResponseCount = 4;
     }],
     ['charged zero-response option', (detail: ReturnType<typeof mealDetail>) => {
       detail.options.push({
@@ -219,7 +179,6 @@ describe('MEAL runtime validation', () => {
           requestedTotalAmount: 8000,
           actualTotalAmount: 8000,
           roundingAdjustment: 0,
-          chargedMemberCount: 1,
           chargedAt: '2026-07-13T03:00:00.000Z',
         },
       });
@@ -235,7 +194,6 @@ describe('MEAL runtime validation', () => {
       requestedTotalAmount: 10000,
       actualTotalAmount: 10002,
       roundingAdjustment: 2,
-      chargedMemberCount: 3,
       chargedAt: '2026-07-13T03:00:00.000Z',
     });
     mutate(detail);
@@ -271,24 +229,17 @@ describe('MEAL runtime validation', () => {
     })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
   });
 
-  it('validates settlement account/charge uniqueness and nested/global summaries', () => {
+  it('validates aggregate settlement member uniqueness and amount summaries', () => {
     const settlement = mealSettlement();
-    expect(parseMealSettlement(settlement).summary.actualTotalAmount).toBe(10002);
+    expect(parseMealSettlement(settlement).summary.totalAmount).toBe(10002);
 
     expect(() => parseMealSettlement({
       ...settlement,
-      accounts: [...settlement.accounts, {...settlement.accounts[0]}],
+      members: [...settlement.members, {...settlement.members[0]}],
     })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
     expect(() => parseMealSettlement({
       ...settlement,
-      summary: {...settlement.summary, roundingAdjustment: 1},
-    })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
-    expect(() => parseMealSettlement({
-      ...settlement,
-      accounts: [{
-        ...settlement.accounts[0],
-        summary: {...settlement.accounts[0]!.summary, actualTotalAmount: 10001},
-      }],
+      summary: {...settlement.summary, totalAmount: 10001},
     })).toThrowError(expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'}));
   });
 });
@@ -316,51 +267,27 @@ function chargeResult() {
 }
 
 function mealSettlement() {
-  const account = {
-    id: 10,
+  const summary = {totalAmount: 10002, unpaidAmount: 10002, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
+  return {
     campusId: 1,
-    ownerUserId: 7,
-    accountType: 'MEAL',
-    nickname: '점심 계좌',
-    bankName: '신한은행',
-    accountNumber: '110-000-000000',
-    accountHolder: '샘플 사용자',
-    isActive: true,
-    createdAt: '2026-07-13T03:00:00.000Z',
-    deactivatedAt: null,
+    campusName: '서울캠퍼스',
+    region: '서울',
+    summary,
+    members: [{userId: 7, name: '멤버', email: 'member@example.test', ...summary}],
   };
-  const charges = [3334, 3334, 3334].map((amount, index) => ({
-    chargeId: 8000 + index,
-    pollId: 101,
-    pollTitle: '점심',
-    optionContent: '제육볶음',
-    memberName: `멤버 ${index + 1}`,
-    amount,
-    status: 'UNPAID',
-    chargedAt: '2026-07-13T03:00:00.000Z',
-  }));
-  const summary = {
-    chargedMemberCount: 3,
-    requestedTotalAmount: 10000,
-    actualTotalAmount: 10002,
-    roundingAdjustment: 2,
-  };
-  return {accounts: [{account, charges, summary}], summary};
 }
 
 type MutableMealDetailFixture = {
   id: number;
   campusId: number;
   title: string;
-  description: null;
   pollType: string;
   selectionType: string;
+  isAnonymous: boolean;
   allowUserOptionAdd: boolean;
   startsAt: string;
   endsAt: string;
   status: string;
-  settlementStatus: string;
-  totalResponseCount: number;
   options: Array<{
     optionId: number;
     content: string;
@@ -375,22 +302,22 @@ function mealDetail(charge: Record<string, unknown>): MutableMealDetailFixture {
     id: 101,
     campusId: 1,
     title: '점심',
-    description: null,
     pollType: 'MEAL',
     selectionType: 'SINGLE',
+    isAnonymous: false,
     allowUserOptionAdd: true,
     startsAt: '2026-07-13T01:00:00.000Z',
     endsAt: '2026-07-13T02:00:00.000Z',
     status: 'CLOSED',
-    settlementStatus: charge.chargeStatus === 'CHARGED' ? 'CHARGED' : 'NOT_CHARGED',
-    totalResponseCount: 3,
     options: [
       {
         optionId: 1001,
         content: '제육볶음',
         responseCount: 3,
         userAdded: false,
-        charge: {paymentAccountId: null, ...charge},
+        charge: charge.chargeStatus === 'NOT_CHARGED'
+          ? notCharged()
+          : {paymentAccountId: null, ...charge},
       },
     ],
   };
@@ -399,17 +326,26 @@ function mealDetail(charge: Record<string, unknown>): MutableMealDetailFixture {
 function mealPollSummary(patch: Record<string, unknown> = {}) {
   return {
     id: 101,
-    campusId: 1,
     title: '점심',
-    description: null,
-    pollType: 'MEAL',
-    selectionType: 'SINGLE',
-    allowUserOptionAdd: true,
     startsAt: '2026-07-13T01:00:00.000Z',
     endsAt: '2026-07-13T02:00:00.000Z',
     status: 'CLOSED',
     settlementStatus: 'NOT_CHARGED',
-    totalResponseCount: 3,
     ...patch,
   };
+}
+
+function mealMutation() {
+  return {
+    id: 101, campusId: 1, templateId: null, title: '점심', pollType: 'MEAL',
+    selectionType: 'SINGLE', isAnonymous: false, allowUserOptionAdd: true,
+    chargeGenerationType: 'NONE', paymentCategory: null, paymentAccountId: null,
+    startsAt: '2026-07-13T01:00:00.000Z', endsAt: '2026-07-14T01:00:00.000Z',
+    status: 'OPEN',
+    options: [{id: 1001, content: '제육볶음', composeMenuCode: null, priceAmount: 0, sortOrder: 0, userAdded: false}],
+  };
+}
+
+function notCharged() {
+  return {chargeStatus: 'NOT_CHARGED', calculationType: null, enteredAmount: null, amountPerMember: null, requestedTotalAmount: null, actualTotalAmount: null, roundingAdjustment: null, paymentAccountId: null, chargedByMe: false, chargedAt: null};
 }

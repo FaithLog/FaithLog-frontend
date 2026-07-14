@@ -1,20 +1,19 @@
 import type {
-  MealAccountSettlement,
   MealCalculationType,
   MealChargeGroupResult,
   MealChargeResult,
   MealCharged,
   MealDutyAssignment,
+  MealMyDutyAssignment,
   MealPaymentAccount,
   MealPollDetail,
   MealPollList,
   MealPollOptionDetail,
   MealPollStatus,
   MealPollSummary,
+  MealPollMutationResponse,
   MealSettlement,
-  MealSettlementCharge,
   MealSettlementStatus,
-  MealSettlementSummary,
 } from './mealTypes';
 
 type UnknownRecord = Record<string, unknown>;
@@ -23,7 +22,6 @@ const INVALID_RESPONSE_MESSAGE = 'Invalid API response.';
 const pollStatuses = new Set<MealPollStatus>(['SCHEDULED', 'OPEN', 'CLOSED']);
 const settlementStatuses = new Set<MealSettlementStatus>(['NOT_CHARGED', 'CHARGED']);
 const calculationTypes = new Set<MealCalculationType>(['PER_MEMBER', 'GROUP_TOTAL']);
-const chargeStatuses = new Set(['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const);
 
 export class InvalidServerResponseError extends Error {
   readonly code = 'INVALID_SERVER_RESPONSE';
@@ -33,18 +31,24 @@ export class InvalidServerResponseError extends Error {
   }
 }
 
-export function parseMyMealDutyAssignment(value: unknown): MealDutyAssignment {
+export function parseMyMealDutyAssignment(value: unknown): MealMyDutyAssignment {
   return parseSafely(() => {
-    const duty = parseMealDuty(value, false);
-    if (!duty.isActive) invalidResponse();
-    return duty;
+    const record = requireRecord(value);
+    requireExactKeys(record, ['campusId', 'dutyType', 'isActive', 'userId']);
+    if (record.dutyType !== 'MEAL') invalidResponse();
+    return {
+      campusId: requirePositiveId(record.campusId),
+      userId: requirePositiveId(record.userId),
+      dutyType: 'MEAL',
+      isActive: requireBoolean(record.isActive),
+    };
   });
 }
 
 export function parseMyMealDutyAssignmentForContext(
   value: unknown,
   context: {campusId: number; userId: number},
-): MealDutyAssignment {
+): MealMyDutyAssignment {
   return parseSafely(() => {
     const duty = parseMyMealDutyAssignment(value);
     if (duty.campusId !== context.campusId || duty.userId !== context.userId) invalidResponse();
@@ -53,7 +57,7 @@ export function parseMyMealDutyAssignmentForContext(
 }
 
 export function parseMealDutyAssignment(value: unknown): MealDutyAssignment {
-  return parseSafely(() => parseMealDuty(value, true));
+  return parseSafely(() => parseMealDuty(value));
 }
 
 export function parseMealDutyAssignmentForContext(
@@ -154,8 +158,7 @@ export function parseMealPollListForContext(
       list.page !== context.page ||
       list.size !== context.size ||
       list.content.some((poll) =>
-        poll.campusId !== context.campusId ||
-        (context.status !== undefined && poll.status !== context.status))
+        context.status !== undefined && poll.status !== context.status)
     ) {
       invalidResponse();
     }
@@ -166,8 +169,21 @@ export function parseMealPollListForContext(
 export function parseMealPollDetail(value: unknown): MealPollDetail {
   return parseSafely(() => {
     const record = requireRecord(value);
+    requireExactKeys(record, [
+      'allowUserOptionAdd', 'campusId', 'endsAt', 'id', 'isAnonymous', 'options',
+      'pollType', 'selectionType', 'startsAt', 'status', 'title',
+    ]);
     const detail: MealPollDetail = {
-      ...parseMealPollSummary(record),
+      id: requirePositiveId(record.id),
+      campusId: requirePositiveId(record.campusId),
+      title: requireString(record.title),
+      pollType: requireExactValue(record.pollType, 'MEAL'),
+      selectionType: requireExactValue(record.selectionType, 'SINGLE'),
+      isAnonymous: requireBoolean(record.isAnonymous),
+      allowUserOptionAdd: requireBoolean(record.allowUserOptionAdd),
+      startsAt: requireDateTime(record.startsAt),
+      endsAt: requireDateTime(record.endsAt),
+      status: requireEnum(record.status, pollStatuses),
       options: requireArray(record.options).map(parseMealPollOption),
     };
     validateMealPollDetailSemantics(detail);
@@ -186,18 +202,18 @@ export function parseMealPollDetailForContext(
   });
 }
 
-export function parseCreatedMealPollDetail(value: unknown): MealPollDetail {
+export function parseCreatedMealPollDetail(value: unknown): MealPollMutationResponse {
   return parseSafely(() => {
-    const detail = parseMealPollDetail(value);
-    if (detail.status !== 'OPEN') invalidResponse();
-    return detail;
+    const poll = parseMealPollMutationResponse(value);
+    if (poll.status !== 'OPEN') invalidResponse();
+    return poll;
   });
 }
 
 export function parseCreatedMealPollDetailForContext(
   value: unknown,
   context: {campusId: number},
-): MealPollDetail {
+): MealPollMutationResponse {
   return parseSafely(() => {
     const detail = parseCreatedMealPollDetail(value);
     if (detail.campusId !== context.campusId) invalidResponse();
@@ -205,18 +221,18 @@ export function parseCreatedMealPollDetailForContext(
   });
 }
 
-export function parseClosedMealPollDetail(value: unknown): MealPollDetail {
+export function parseClosedMealPollDetail(value: unknown): MealPollMutationResponse {
   return parseSafely(() => {
-    const detail = parseMealPollDetail(value);
-    if (detail.status !== 'CLOSED') invalidResponse();
-    return detail;
+    const poll = parseMealPollMutationResponse(value);
+    if (poll.status !== 'CLOSED') invalidResponse();
+    return poll;
   });
 }
 
 export function parseClosedMealPollDetailForContext(
   value: unknown,
   context: {campusId: number; pollId: number},
-): MealPollDetail {
+): MealPollMutationResponse {
   return parseSafely(() => {
     const detail = parseClosedMealPollDetail(value);
     if (detail.campusId !== context.campusId || detail.id !== context.pollId) invalidResponse();
@@ -277,9 +293,13 @@ export function parseMealChargeResultForContext(
 export function parseMealSettlement(value: unknown): MealSettlement {
   return parseSafely(() => {
     const record = requireRecord(value);
+    requireExactKeys(record, ['campusId', 'campusName', 'members', 'region', 'summary']);
     const settlement: MealSettlement = {
-      accounts: requireArray(record.accounts).map(parseAccountSettlement),
-      summary: parseSettlementSummary(record.summary),
+      campusId: requirePositiveId(record.campusId),
+      campusName: requireString(record.campusName),
+      region: requireString(record.region),
+      summary: parseChargeAmountSummary(record.summary),
+      members: requireArray(record.members).map(parseMealSettlementMember),
     };
     validateMealSettlementSemantics(settlement);
     return settlement;
@@ -292,9 +312,7 @@ export function parseMealSettlementForContext(
 ): MealSettlement {
   return parseSafely(() => {
     const settlement = parseMealSettlement(value);
-    if (settlement.accounts.some((item) => !isOwnedAccount(item.account, context))) {
-      invalidResponse();
-    }
+    if (settlement.campusId !== context.campusId) invalidResponse();
     return settlement;
   });
 }
@@ -306,12 +324,12 @@ export function parseNull(value: unknown): null {
   return null;
 }
 
-function parseMealDuty(value: unknown, includeIdentity: boolean): MealDutyAssignment {
+function parseMealDuty(value: unknown): MealDutyAssignment {
   const record = requireRecord(value);
+  requireExactKeys(record, [
+    'assignedAt', 'assignmentId', 'campusId', 'dutyType', 'email', 'isActive', 'name', 'userId',
+  ]);
   if (record.dutyType !== 'MEAL') invalidResponse();
-
-  const name = includeIdentity ? requireString(record.name) : optionalString(record.name);
-  const email = includeIdentity ? requireString(record.email) : optionalString(record.email);
 
   return {
     assignmentId: requirePositiveId(record.assignmentId),
@@ -319,14 +337,18 @@ function parseMealDuty(value: unknown, includeIdentity: boolean): MealDutyAssign
     userId: requirePositiveId(record.userId),
     dutyType: 'MEAL',
     isActive: requireBoolean(record.isActive),
-    ...(name === undefined ? {} : {name}),
-    ...(email === undefined ? {} : {email}),
+    name: requireString(record.name),
+    email: requireString(record.email),
     ...(record.assignedAt === undefined ? {} : {assignedAt: requireDateTime(record.assignedAt)}),
   };
 }
 
 function parseMealPaymentAccount(value: unknown): MealPaymentAccount {
   const record = requireRecord(value);
+  requireExactKeys(record, [
+    'accountHolder', 'accountNumber', 'accountType', 'bankName', 'campusId', 'createdAt',
+    'deactivatedAt', 'id', 'isActive', 'nickname', 'ownerUserId',
+  ]);
   if (record.accountType !== 'MEAL') invalidResponse();
 
   return {
@@ -353,40 +375,47 @@ function isOwnedAccount(
 
 function parseMealPollSummary(value: unknown): MealPollSummary {
   const record = requireRecord(value);
-  if (record.pollType !== 'MEAL' || record.selectionType !== 'SINGLE') invalidResponse();
+  requireExactKeys(record, ['endsAt', 'id', 'settlementStatus', 'startsAt', 'status', 'title']);
 
-  const summary: MealPollSummary = {
+  return {
     id: requirePositiveId(record.id),
-    campusId: requirePositiveId(record.campusId),
     title: requireString(record.title),
-    description: requireNullableString(record.description),
-    pollType: 'MEAL',
-    selectionType: 'SINGLE',
-    allowUserOptionAdd: requireBoolean(record.allowUserOptionAdd),
     startsAt: requireDateTime(record.startsAt),
     endsAt: requireDateTime(record.endsAt),
     status: requireEnum(record.status, pollStatuses),
     settlementStatus: requireEnum(record.settlementStatus, settlementStatuses),
-    totalResponseCount: requireNonNegativeInteger(record.totalResponseCount),
   };
-
-  if (
-    summary.settlementStatus === 'CHARGED' &&
-    (summary.status !== 'CLOSED' || summary.totalResponseCount === 0)
-  ) {
-    invalidResponse();
-  }
-
-  return summary;
 }
 
 function parseMealPollOption(value: unknown): MealPollOptionDetail {
   const record = requireRecord(value);
+  requireExactKeys(record, ['charge', 'content', 'optionId', 'responseCount', 'userAdded']);
   const chargeRecord = requireRecord(record.charge);
   const chargeStatus = chargeRecord.chargeStatus;
   const responseCount = requireNonNegativeInteger(record.responseCount);
 
   if (chargeStatus !== 'NOT_CHARGED' && chargeStatus !== 'CHARGED') invalidResponse();
+
+  if (chargeStatus === 'NOT_CHARGED') {
+    requireExactKeys(chargeRecord, [
+      'actualTotalAmount', 'amountPerMember', 'calculationType', 'chargeStatus',
+      'chargedAt', 'chargedByMe', 'enteredAmount', 'paymentAccountId',
+      'requestedTotalAmount', 'roundingAdjustment',
+    ]);
+    if (
+      chargeRecord.calculationType !== null ||
+      chargeRecord.enteredAmount !== null ||
+      chargeRecord.amountPerMember !== null ||
+      chargeRecord.requestedTotalAmount !== null ||
+      chargeRecord.actualTotalAmount !== null ||
+      chargeRecord.roundingAdjustment !== null ||
+      chargeRecord.paymentAccountId !== null ||
+      chargeRecord.chargedByMe !== false ||
+      chargeRecord.chargedAt !== null
+    ) {
+      invalidResponse();
+    }
+  }
 
   return {
     optionId: requirePositiveId(record.optionId),
@@ -395,12 +424,73 @@ function parseMealPollOption(value: unknown): MealPollOptionDetail {
     userAdded: requireBoolean(record.userAdded),
     charge:
       chargeStatus === 'NOT_CHARGED'
-        ? {chargeStatus}
+        ? {
+            chargeStatus,
+            calculationType: null,
+            enteredAmount: null,
+            amountPerMember: null,
+            requestedTotalAmount: null,
+            actualTotalAmount: null,
+            roundingAdjustment: null,
+            paymentAccountId: null,
+            chargedByMe: false,
+            chargedAt: null,
+          }
         : parseCharged(chargeRecord),
   };
 }
 
+function parseMealPollMutationResponse(value: unknown): MealPollMutationResponse {
+  const record = requireRecord(value);
+  requireExactKeys(record, [
+    'allowUserOptionAdd', 'campusId', 'chargeGenerationType', 'endsAt', 'id',
+    'isAnonymous', 'options', 'paymentAccountId', 'paymentCategory', 'pollType',
+    'selectionType', 'startsAt', 'status', 'templateId', 'title',
+  ]);
+  if (
+    record.templateId !== null ||
+    record.chargeGenerationType !== 'NONE' ||
+    record.paymentCategory !== null ||
+    record.paymentAccountId !== null
+  ) {
+    invalidResponse();
+  }
+  const options = requireArray(record.options).map((value) => {
+    const option = requireRecord(value);
+    requireExactKeys(option, [
+      'composeMenuCode', 'content', 'id', 'priceAmount', 'sortOrder', 'userAdded',
+    ]);
+    if (option.composeMenuCode !== null || option.priceAmount !== 0) invalidResponse();
+    return {
+      id: requirePositiveId(option.id),
+      content: requireString(option.content),
+      sortOrder: requireNonNegativeInteger(option.sortOrder),
+      userAdded: requireBoolean(option.userAdded),
+    };
+  });
+  requireUniqueNumbers(options.map((option) => option.id));
+  requireUniqueNumbers(options.map((option) => option.sortOrder));
+  return {
+    id: requirePositiveId(record.id),
+    campusId: requirePositiveId(record.campusId),
+    title: requireString(record.title),
+    pollType: requireExactValue(record.pollType, 'MEAL'),
+    selectionType: requireExactValue(record.selectionType, 'SINGLE'),
+    isAnonymous: requireBoolean(record.isAnonymous),
+    allowUserOptionAdd: requireBoolean(record.allowUserOptionAdd),
+    startsAt: requireDateTime(record.startsAt),
+    endsAt: requireDateTime(record.endsAt),
+    status: requireEnum(record.status, pollStatuses),
+    options,
+  };
+}
+
 function parseCharged(record: UnknownRecord): MealCharged {
+  requireExactKeys(record, [
+    'actualTotalAmount', 'amountPerMember', 'calculationType', 'chargeStatus',
+    'chargedAt', 'chargedByMe', 'enteredAmount', 'paymentAccountId',
+    'requestedTotalAmount', 'roundingAdjustment',
+  ]);
   const chargedByMe = requireBoolean(record.chargedByMe);
   const paymentAccountId = requireNullablePositiveId(record.paymentAccountId);
   if (chargedByMe ? paymentAccountId === null : paymentAccountId !== null) invalidResponse();
@@ -413,7 +503,6 @@ function parseCharged(record: UnknownRecord): MealCharged {
     requestedTotalAmount: requirePositiveId(record.requestedTotalAmount),
     actualTotalAmount: requirePositiveId(record.actualTotalAmount),
     roundingAdjustment: requireNonNegativeInteger(record.roundingAdjustment),
-    chargedMemberCount: requirePositiveId(record.chargedMemberCount),
     paymentAccountId,
     chargedByMe,
     chargedAt: requireDateTime(record.chargedAt),
@@ -422,11 +511,7 @@ function parseCharged(record: UnknownRecord): MealCharged {
 
 function validateMealPollDetailSemantics(detail: MealPollDetail) {
   requireUniqueNumbers(detail.options.map((option) => option.optionId));
-  const totalResponseCount = safeSum(detail.options.map((option) => option.responseCount));
-  if (totalResponseCount !== detail.totalResponseCount) invalidResponse();
-
   const respondingOptions = detail.options.filter((option) => option.responseCount > 0);
-  if (detail.settlementStatus === 'CHARGED' && respondingOptions.length === 0) invalidResponse();
 
   if (
     detail.options.some(
@@ -437,20 +522,7 @@ function validateMealPollDetailSemantics(detail: MealPollDetail) {
   }
 
   for (const option of respondingOptions) {
-    if (
-      detail.settlementStatus === 'NOT_CHARGED' &&
-      option.charge.chargeStatus !== 'NOT_CHARGED'
-    ) {
-      invalidResponse();
-    }
-    if (
-      detail.settlementStatus === 'CHARGED' &&
-      option.charge.chargeStatus !== 'CHARGED'
-    ) {
-      invalidResponse();
-    }
     if (option.charge.chargeStatus === 'CHARGED') {
-      if (option.charge.chargedMemberCount !== option.responseCount) invalidResponse();
       validateMealChargeArithmetic(
         option.charge.calculationType,
         option.charge.enteredAmount,
@@ -461,6 +533,12 @@ function validateMealPollDetailSemantics(detail: MealPollDetail) {
         option.charge.roundingAdjustment,
       );
     }
+  }
+  if (
+    respondingOptions.some((option) => option.charge.chargeStatus === 'CHARGED') &&
+    respondingOptions.some((option) => option.charge.chargeStatus === 'NOT_CHARGED')
+  ) {
+    invalidResponse();
   }
 }
 
@@ -492,36 +570,9 @@ function validateMealChargeResultSemantics(result: MealChargeResult) {
 }
 
 function validateMealSettlementSemantics(settlement: MealSettlement) {
-  requireUniqueNumbers(settlement.accounts.map((item) => item.account.id));
-  const chargeIds = settlement.accounts.flatMap((item) => item.charges.map((charge) => charge.chargeId));
-  if (chargeIds.length > 1000) invalidResponse();
-  requireUniqueNumbers(chargeIds);
-
-  for (const item of settlement.accounts) {
-    validateSettlementSummary(item.summary);
-    if (item.summary.chargedMemberCount !== item.charges.length) invalidResponse();
-    if (safeSum(item.charges.map((charge) => charge.amount)) !== item.summary.actualTotalAmount) {
-      invalidResponse();
-    }
-  }
-
-  validateSettlementSummary(settlement.summary);
-  for (const key of [
-    'chargedMemberCount',
-    'requestedTotalAmount',
-    'actualTotalAmount',
-    'roundingAdjustment',
-  ] as const) {
-    if (safeSum(settlement.accounts.map((item) => item.summary[key])) !== settlement.summary[key]) {
-      invalidResponse();
-    }
-  }
-}
-
-function validateSettlementSummary(summary: MealSettlementSummary) {
-  if (safeAdd(summary.requestedTotalAmount, summary.roundingAdjustment) !== summary.actualTotalAmount) {
-    invalidResponse();
-  }
+  requireUniqueNumbers(settlement.members.map((member) => member.userId));
+  for (const member of settlement.members) validateChargeAmountSummary(member);
+  validateChargeAmountSummary(settlement.summary);
 }
 
 function validateMealChargeArithmetic(
@@ -593,37 +644,55 @@ function parseMealChargeGroupResult(value: unknown): MealChargeGroupResult {
   };
 }
 
-function parseSettlementSummary(value: unknown): MealSettlementSummary {
+function parseChargeAmountSummary(value: unknown) {
   const record = requireRecord(value);
+  requireExactKeys(record, [
+    'canceledAmount', 'paidAmount', 'totalAmount', 'unpaidAmount', 'waivedAmount',
+  ]);
+  return parseChargeAmounts(record);
+}
+
+function parseChargeAmounts(record: UnknownRecord) {
   return {
-    chargedMemberCount: requireNonNegativeInteger(record.chargedMemberCount),
-    requestedTotalAmount: requireNonNegativeInteger(record.requestedTotalAmount),
-    actualTotalAmount: requireNonNegativeInteger(record.actualTotalAmount),
-    roundingAdjustment: requireNonNegativeInteger(record.roundingAdjustment),
+    totalAmount: requireNonNegativeInteger(record.totalAmount),
+    unpaidAmount: requireNonNegativeInteger(record.unpaidAmount),
+    paidAmount: requireNonNegativeInteger(record.paidAmount),
+    waivedAmount: requireNonNegativeInteger(record.waivedAmount),
+    canceledAmount: requireNonNegativeInteger(record.canceledAmount),
   };
 }
 
-function parseAccountSettlement(value: unknown): MealAccountSettlement {
+function parseMealSettlementMember(value: unknown) {
   const record = requireRecord(value);
+  requireExactKeys(record, [
+    'canceledAmount', 'email', 'name', 'paidAmount', 'totalAmount', 'unpaidAmount',
+    'userId', 'waivedAmount',
+  ]);
   return {
-    account: parseMealPaymentAccount(record.account),
-    summary: parseSettlementSummary(record.summary),
-    charges: requireArray(record.charges).map(parseSettlementCharge),
+    userId: requirePositiveId(record.userId),
+    name: requireString(record.name),
+    email: requireString(record.email),
+    ...parseChargeAmounts(record),
   };
 }
 
-function parseSettlementCharge(value: unknown): MealSettlementCharge {
-  const record = requireRecord(value);
-  return {
-    chargeId: requirePositiveId(record.chargeId),
-    pollId: requirePositiveId(record.pollId),
-    pollTitle: requireString(record.pollTitle),
-    optionContent: requireString(record.optionContent),
-    memberName: requireString(record.memberName),
-    amount: requirePositiveId(record.amount),
-    status: requireEnum(record.status, chargeStatuses),
-    chargedAt: requireDateTime(record.chargedAt),
-  };
+function validateChargeAmountSummary(summary: {
+  canceledAmount: number;
+  paidAmount: number;
+  totalAmount: number;
+  unpaidAmount: number;
+  waivedAmount: number;
+}) {
+  if (
+    safeSum([
+      summary.unpaidAmount,
+      summary.paidAmount,
+      summary.waivedAmount,
+      summary.canceledAmount,
+    ]) !== summary.totalAmount
+  ) {
+    invalidResponse();
+  }
 }
 
 function parseSafely<T>(parse: () => T): T {
@@ -643,6 +712,16 @@ function requireRecord(value: unknown): UnknownRecord {
   return value as UnknownRecord;
 }
 
+function requireExactKeys(record: UnknownRecord, keys: readonly string[]) {
+  const expected = new Set(keys);
+  if (
+    Object.keys(record).length !== expected.size ||
+    Object.keys(record).some((key) => !expected.has(key))
+  ) {
+    invalidResponse();
+  }
+}
+
 function requireArray(value: unknown): unknown[] {
   if (!Array.isArray(value) || value.length > 1000) invalidResponse();
   return value;
@@ -651,14 +730,6 @@ function requireArray(value: unknown): unknown[] {
 function requireString(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) invalidResponse();
   return value;
-}
-
-function optionalString(value: unknown): string | undefined {
-  return value === undefined ? undefined : requireString(value);
-}
-
-function requireNullableString(value: unknown): string | null {
-  return value === null ? null : requireString(value);
 }
 
 function requireBoolean(value: unknown): boolean {
@@ -692,4 +763,9 @@ function requireNullableDateTime(value: unknown): string | null {
 function requireEnum<T extends string>(value: unknown, values: Set<T>): T {
   if (typeof value !== 'string' || !values.has(value as T)) invalidResponse();
   return value as T;
+}
+
+function requireExactValue<T extends string>(value: unknown, expected: T): T {
+  if (value !== expected) invalidResponse();
+  return expected;
 }

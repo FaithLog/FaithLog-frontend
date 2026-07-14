@@ -16,12 +16,14 @@ import type {
   MealChargeRequest,
   MealChargeResult,
   MealDutyAssignment,
+  MealMyDutyAssignment,
   MealDutyAssignRequest,
   MealPaymentAccount,
   MealPaymentAccountCreateRequest,
   MealPollCreateRequest,
   MealPollDetail,
   MealPollList,
+  MealPollMutationResponse,
   MealPollStatus,
   MealSettlement,
 } from './mealTypes';
@@ -52,7 +54,7 @@ export type MealPollListQuery = {
 };
 
 export type MealApi = {
-  getMyDuty(accessToken: string, campusId: unknown, currentUserId: unknown): Promise<MealDutyAssignment>;
+  getMyDuty(accessToken: string, campusId: unknown, currentUserId: unknown): Promise<MealMyDutyAssignment>;
   assignDuty(
     accessToken: string,
     campusId: unknown,
@@ -90,7 +92,7 @@ export type MealApi = {
     accessToken: string,
     campusId: unknown,
     body: MealPollCreateRequest,
-  ): Promise<MealPollDetail>;
+  ): Promise<MealPollMutationResponse>;
   getPollDetail(
     accessToken: string,
     campusId: unknown,
@@ -100,7 +102,7 @@ export type MealApi = {
     accessToken: string,
     campusId: unknown,
     pollId: unknown,
-  ): Promise<MealPollDetail>;
+  ): Promise<MealPollMutationResponse>;
   createCharges(
     accessToken: string,
     campusId: unknown,
@@ -114,11 +116,7 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
   const request: MealRequestDispatcher = dependencies.request ?? (<T>(path: string, options: MealRequestOptions<T>) =>
     apiRequest<T>(path, options));
   const isMockMode = dependencies.isMockMode ?? isMockModeEnabled;
-
-  const dispatch = async <T>(path: string, options: MealRequestOptions<T>) => {
-    requireConfirmedMealContract(isMockMode);
-    return request(path, options);
-  };
+  const dispatch = request;
 
   return {
     getMyDuty(accessToken, campusId, currentUserId) {
@@ -177,7 +175,6 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
           ownerUserId: expectedOwnerUserId,
         }), 'POST', {
           body: sanitizePaymentAccountRequest(body),
-          exposeServerErrorMessage: true,
         }),
       );
     },
@@ -202,6 +199,13 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
     },
     listPolls(accessToken, campusId, query = {}) {
       const expectedCampusId = positiveId(campusId, 'campusId');
+      if (!isMockMode() && Object.keys(query).length > 0) {
+        throw new FaithLogApiError({
+          kind: 'error',
+          code: 'API_CONTRACT_PENDING',
+          message: '문서화되지 않은 밥 투표 목록 조건은 사용할 수 없습니다.',
+        });
+      }
       const expectedPage = nonNegativeInteger(query.page ?? 0, 'page');
       const expectedSize = positiveId(query.size ?? 20, 'size');
       const params = new URLSearchParams();
@@ -209,8 +213,11 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
       params.set('page', String(expectedPage));
       params.set('size', String(expectedSize));
       params.set('sort', query.sort ?? 'endsAt,desc');
+      const path = isMockMode()
+        ? `${campusPath(expectedCampusId, 'meal', 'polls')}?${params}`
+        : campusPath(expectedCampusId, 'meal', 'polls');
       return dispatch(
-        `${campusPath(expectedCampusId, 'meal', 'polls')}?${params}`,
+        path,
         requestOptions(accessToken, (value) => parseMealPollListForContext(value, {
           campusId: expectedCampusId,
           page: expectedPage,
@@ -227,7 +234,6 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
           campusId: expectedCampusId,
         }), 'POST', {
           body: sanitizePollCreateRequest(body),
-          exposeServerErrorMessage: true,
         }),
       );
     },
@@ -265,7 +271,6 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
           pollId: expectedPollId,
         }), 'POST', {
           body: requestBody,
-          exposeServerErrorMessage: true,
         }),
       );
     },
@@ -284,16 +289,6 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
 }
 
 export const mealApi = createMealApi();
-
-function requireConfirmedMealContract(isMockMode: () => boolean) {
-  if (isMockMode()) return;
-
-  throw new FaithLogApiError({
-    kind: 'error',
-    code: 'API_CONTRACT_PENDING',
-    message: 'MEAL API 계약이 REST Docs로 확정될 때까지 mock 모드에서만 사용할 수 있습니다.',
-  });
-}
 
 function requestOptions<T>(
   accessToken: string,
@@ -349,26 +344,27 @@ function sanitizePollCreateRequest(body: MealPollCreateRequest): MealPollCreateR
   if (
     !body ||
     typeof body !== 'object' ||
-    typeof body.description !== 'string' ||
+    typeof body.isAnonymous !== 'boolean' ||
     typeof body.endsAt !== 'string' ||
     Number.isNaN(Date.parse(body.endsAt)) ||
     Date.parse(body.endsAt) <= Date.now() ||
     typeof body.allowUserOptionAdd !== 'boolean' ||
     !Array.isArray(body.options) ||
-    body.options.length < 2 ||
+    body.options.length < 1 ||
     body.options.length > 100
   ) {
     throw invalidMealRequest('투표 생성 정보를 확인해 주세요.');
   }
-  const options = body.options.map((option) => ({
+  const options = body.options.map((option, index) => ({
     content: requireText(option?.content, '선택지'),
+    sortOrder: index,
   }));
   if (new Set(options.map((option) => option.content.toLocaleLowerCase())).size !== options.length) {
     throw invalidMealRequest('서로 다른 선택지를 입력해 주세요.');
   }
   return {
     title: requireText(body.title, '제목'),
-    description: body.description.trim(),
+    isAnonymous: body.isAnonymous,
     endsAt: body.endsAt,
     options,
     allowUserOptionAdd: body.allowUserOptionAdd,

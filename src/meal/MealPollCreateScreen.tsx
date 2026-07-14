@@ -6,7 +6,7 @@ import {mealApi, type MealApi} from './mealApi';
 import {buildMealPollCreateRequest, formatMealLocalDeadline, parseMealLocalDeadline} from './mealModel';
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
-import type {MealPollDetail} from './mealTypes';
+import type {MealPollMutationResponse} from './mealTypes';
 import {getCurrentMealRequestError, MealErrorState, MealLoading, mealStyles, toMealApiError} from './mealScreenShared';
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
@@ -16,7 +16,7 @@ type MealPollCreateScreenProps = {
   api?: MealApi;
   campusId: number;
   onCancel: () => void;
-  onCreated: (poll: MealPollDetail) => void;
+  onCreated: (poll: MealPollMutationResponse) => void;
   onSessionExpired: (message: string) => void;
 };
 
@@ -31,7 +31,7 @@ export function MealPollCreateScreen({
   const mutationGate = useRef(createMealMutationGate()).current;
   const initialDeadline = useRef(formatMealLocalDeadline(new Date(Date.now() + 86_400_000))).current;
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const [endsDate, setEndsDate] = useState(initialDeadline.date);
   const [endsTime, setEndsTime] = useState(initialDeadline.time);
   const [options, setOptions] = useState(['', '']);
@@ -52,7 +52,7 @@ export function MealPollCreateScreen({
     let identity: MealRequestIdentity | null = null;
     try {
       const endsAt = parseMealLocalDeadline({date: endsDate, time: endsTime});
-      const request = buildMealPollCreateRequest({title, description, endsAt, options, allowUserOptionAdd});
+      const request = buildMealPollCreateRequest({title, isAnonymous, endsAt, options, allowUserOptionAdd});
       const access = await resolveMealRequestAccess(tracker, 'create', onSessionExpired);
       identity = access.status === 'ready' ? access.request.identity : access.identity;
       if (access.status === 'cancelled') return;
@@ -90,7 +90,9 @@ export function MealPollCreateScreen({
       </Card>
       <Card>
         <TextField accessibilityLabel="밥 투표 제목" label="제목" onChangeText={setTitle} value={title} />
-        <TextField accessibilityLabel="밥 투표 설명" label="설명" onChangeText={setDescription} value={description} />
+        <Button accessibilityLabel="밥 투표 익명 여부 전환" onPress={() => setIsAnonymous((current) => !current)} variant="secondary">
+          투표 방식 {isAnonymous ? '익명' : '실명'}
+        </Button>
         <TextField accessibilityLabel="밥 투표 마감 날짜" autoCapitalize="none" label="마감 날짜 (예: 2026년 7월 14일)" onChangeText={setEndsDate} value={endsDate} />
         <TextField accessibilityLabel="밥 투표 마감 시간" autoCapitalize="none" label="마감 시간 (24시간, 예: 18:00)" onChangeText={setEndsTime} value={endsTime} />
         <View style={mealStyles.fieldGroup}>

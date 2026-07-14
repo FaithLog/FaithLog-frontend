@@ -27,8 +27,28 @@ import type {
   MealPollDetail,
   MealPollSummary,
   MealSettlement,
+  MealSettlementLedger,
   MealSettlementCharge,
 } from '../meal/mealTypes';
+
+type MockMealPollSummary = MealPollSummary & {
+  allowUserOptionAdd: boolean;
+  campusId: number;
+  description: string | null;
+  isAnonymous: boolean;
+  pollType: 'MEAL';
+  selectionType: 'SINGLE';
+  totalResponseCount: number;
+};
+
+type MockMealPollDetail = Omit<MealPollDetail, 'options'> & {
+  description: string | null;
+  settlementStatus: 'NOT_CHARGED' | 'CHARGED';
+  totalResponseCount: number;
+  options: Array<Omit<MealPollDetail['options'][number], 'charge'> & {
+    charge: {chargeStatus: 'NOT_CHARGED'} | (Extract<MealPollDetail['options'][number]['charge'], {chargeStatus: 'CHARGED'}> & {chargedMemberCount?: number});
+  }>;
+};
 type MockScenario =
   | '401'
   | '403'
@@ -320,11 +340,12 @@ function resolveMockData(
     /^\/campuses\/\d+\/duty-assignments\/me\/meal$/.test(path)
   ) {
     const campusId = getCampusId(path);
-    const denied = authorizeMealDuty(mealActor, campusId);
+    const denied = authorizeCampusMember(mealActor, campusId);
     if (denied) return denied;
-    return mockMealState.duties.find(
-      (duty) => duty.campusId === campusId && duty.userId === mealActor?.userId && duty.isActive,
-    ) ?? mockForbidden('MEAL_DUTY_REQUIRED', '활성 밥 담당자만 이용할 수 있습니다.');
+    const duty = mockMealState.duties.find(
+      (item) => item.campusId === campusId && item.userId === mealActor?.userId,
+    );
+    return {campusId, userId: mealActor?.userId ?? 0, dutyType: 'MEAL', isActive: duty?.isActive ?? false};
   }
   if (
     route.method === 'GET' &&
@@ -409,7 +430,7 @@ function resolveMockData(
     const size = Number(route.searchParams.get('size') ?? 20);
     const start = page * size;
     return {
-      content: filtered.slice(start, start + size),
+      content: filtered.slice(start, start + size).map(toMealPollManagementListItem),
       page,
       size,
       totalElements: filtered.length,
@@ -1356,15 +1377,15 @@ function withoutApiPrefix(pathname: string) {
 type MockMealState = {
   accounts: MealPaymentAccount[];
   coffeeDuties: DutyAssignment[];
-  details: MealPollDetail[];
+  details: MockMealPollDetail[];
   duties: MealDutyAssignment[];
   legacyBilling: MockLegacyBillingState;
   memberChargeIssuedAt: Record<number, string>;
   memberCharges: Record<string, ChargeItem[]>;
   nextChargeItemId: number;
-  polls: MealPollSummary[];
+  polls: MockMealPollSummary[];
   responses: Record<string, {optionIds: number[]; pollId: number; respondedAt: string; responseId: number; userId: number}>;
-  settlement: MealSettlement;
+  settlement: MealSettlementLedger;
 };
 
 function createInitialMockMealState(): MockMealState {
@@ -1396,7 +1417,7 @@ function createInitialMockMealState(): MockMealState {
       deactivatedAt: '2026-07-01T03:00:00.000Z',
     },
   ];
-  const polls: MealPollSummary[] = [
+  const polls: MockMealPollSummary[] = [
     mealPollSummary({id: 901, title: '오늘 점심 메뉴', status: 'OPEN'}),
     mealPollSummary({
       id: 902,
@@ -1415,7 +1436,7 @@ function createInitialMockMealState(): MockMealState {
       totalResponseCount: 3,
     }),
   ];
-  const details: MealPollDetail[] = polls.map((poll) => ({
+  const details: MockMealPollDetail[] = polls.map((poll) => ({
     ...poll,
     options: poll.id === 903
       ? [
@@ -1551,7 +1572,7 @@ function mockMealMemberChargeKey(campusId: number, userId: number) {
   return `${campusId}:${userId}`;
 }
 
-function toGeneralMealPollSummary(poll: MealPollSummary, userId: number) {
+function toGeneralMealPollSummary(poll: MockMealPollSummary, userId: number) {
   return {
     id: poll.id,
     campusId: poll.campusId,
@@ -1567,7 +1588,7 @@ function toGeneralMealPollSummary(poll: MealPollSummary, userId: number) {
   };
 }
 
-function toGeneralMealPollDetail(detail: MealPollDetail, userId: number) {
+function toGeneralMealPollDetail(detail: MockMealPollDetail, userId: number) {
   return {
     ...toGeneralMealPollSummary(detail, userId),
     templateId: null,
@@ -1586,19 +1607,43 @@ function toGeneralMealPollDetail(detail: MealPollDetail, userId: number) {
   };
 }
 
-function toRequesterMealPollDetail(detail: MealPollDetail, userId: number): MealPollDetail {
+function toRequesterMealPollDetail(detail: MockMealPollDetail, userId: number): MealPollDetail {
   return {
-    ...detail,
+    id: detail.id,
+    campusId: detail.campusId,
+    title: detail.title,
+    pollType: detail.pollType,
+    selectionType: detail.selectionType,
+    isAnonymous: false,
+    allowUserOptionAdd: detail.allowUserOptionAdd,
+    startsAt: detail.startsAt,
+    endsAt: detail.endsAt,
+    status: detail.status,
     options: detail.options.map((option) => {
       const charge = option.charge;
-      if (charge.chargeStatus !== 'CHARGED') return option;
+      if (charge.chargeStatus !== 'CHARGED') return {
+        ...option,
+        charge: {
+          chargeStatus: 'NOT_CHARGED' as const,
+          calculationType: null,
+          enteredAmount: null,
+          amountPerMember: null,
+          requestedTotalAmount: null,
+          actualTotalAmount: null,
+          roundingAdjustment: null,
+          paymentAccountId: null,
+          chargedByMe: false,
+          chargedAt: null,
+        },
+      };
       const chargedByMe = charge.paymentAccountId !== null && mockMealState.accounts.some(
         (account) => account.id === charge.paymentAccountId && account.ownerUserId === userId,
       );
+      const {chargedMemberCount: _chargedMemberCount, ...documentedCharge} = charge;
       return {
         ...option,
         charge: {
-          ...charge,
+          ...documentedCharge,
           chargedByMe,
           paymentAccountId: chargedByMe ? charge.paymentAccountId : null,
         },
@@ -1607,12 +1652,51 @@ function toRequesterMealPollDetail(detail: MealPollDetail, userId: number): Meal
   };
 }
 
-function mealPollSummary(patch: Partial<MealPollSummary>): MealPollSummary {
+function toMealPollManagementListItem(poll: MockMealPollSummary): MealPollSummary {
+  return {
+    id: poll.id,
+    title: poll.title,
+    status: poll.status,
+    startsAt: poll.startsAt,
+    endsAt: poll.endsAt,
+    settlementStatus: poll.settlementStatus,
+  };
+}
+
+function toMealPollMutationResponse(detail: MockMealPollDetail) {
+  return {
+    id: detail.id,
+    campusId: detail.campusId,
+    templateId: null,
+    title: detail.title,
+    pollType: 'MEAL' as const,
+    selectionType: 'SINGLE' as const,
+    isAnonymous: detail.isAnonymous,
+    allowUserOptionAdd: detail.allowUserOptionAdd,
+    chargeGenerationType: 'NONE' as const,
+    paymentCategory: null,
+    paymentAccountId: null,
+    startsAt: detail.startsAt,
+    endsAt: detail.endsAt,
+    status: detail.status,
+    options: detail.options.map((option, sortOrder) => ({
+      id: option.optionId,
+      content: option.content,
+      composeMenuCode: null,
+      priceAmount: 0,
+      sortOrder,
+      userAdded: option.userAdded,
+    })),
+  };
+}
+
+function mealPollSummary(patch: Partial<MockMealPollSummary>): MockMealPollSummary {
   return {
     id: 901,
     campusId: 1,
     title: '점심 메뉴',
     description: '먹고 싶은 메뉴를 선택해 주세요.',
+    isAnonymous: false,
     pollType: 'MEAL',
     selectionType: 'SINGLE',
     allowUserOptionAdd: true,
@@ -1627,13 +1711,13 @@ function mealPollSummary(patch: Partial<MealPollSummary>): MealPollSummary {
 
 function createMockMealPoll(campusId: number, body: unknown) {
   const record = toRecord(body);
-  if (hasUnexpectedKeys(record, ['title', 'description', 'endsAt', 'options', 'allowUserOptionAdd'])) {
+  if (hasUnexpectedKeys(record, ['title', 'isAnonymous', 'endsAt', 'options', 'allowUserOptionAdd'])) {
     return mockBadRequest('MEAL_POLL_FIELDS_FORBIDDEN', '투표 생성 요청에 지원하지 않는 값이 포함되어 있습니다.');
   }
   if (
     typeof record.title !== 'string' ||
     !record.title.trim() ||
-    (record.description !== undefined && typeof record.description !== 'string') ||
+    typeof record.isAnonymous !== 'boolean' ||
     typeof record.endsAt !== 'string' ||
     Number.isNaN(Date.parse(record.endsAt)) ||
     Date.parse(record.endsAt) <= Date.now() ||
@@ -1643,10 +1727,13 @@ function createMockMealPoll(campusId: number, body: unknown) {
     return mockBadRequest('MEAL_POLL_CREATE_INVALID', '투표 생성 정보를 확인해 주세요.');
   }
   const options = record.options;
-  if (options.some((item) => hasUnexpectedKeys(toRecord(item), ['content']))) {
+  if (options.some((item) => hasUnexpectedKeys(toRecord(item), ['content', 'sortOrder']))) {
     return mockBadRequest('MEAL_POLL_OPTIONS_INVALID', '선택지 요청이 올바르지 않습니다.');
   }
-  const contents = options.map((item) => stringField(toRecord(item).content, ''));
+  const contents = options.map((item, index) => {
+    const option = toRecord(item);
+    return option.sortOrder === index ? stringField(option.content, '') : '';
+  });
   if (
     contents.length < 2 ||
     contents.some((content) => !content) ||
@@ -1660,17 +1747,15 @@ function createMockMealPoll(campusId: number, body: unknown) {
     campusId,
     id,
     title: record.title.trim(),
-    description:
-      typeof record.description === 'string' && record.description.trim()
-        ? record.description.trim()
-        : null,
+    description: null,
+    isAnonymous: record.isAnonymous,
     allowUserOptionAdd: record.allowUserOptionAdd,
     startsAt: now,
     endsAt: record.endsAt,
     status: 'OPEN',
     totalResponseCount: 0,
   });
-  const detail: MealPollDetail = {
+  const detail: MockMealPollDetail = {
     ...summary,
     options: contents.map((content, index) => ({
       optionId: id * 10 + index + 1,
@@ -1682,7 +1767,7 @@ function createMockMealPoll(campusId: number, body: unknown) {
   };
   mockMealState.polls.unshift(summary);
   mockMealState.details.unshift(detail);
-  return detail;
+  return toMealPollMutationResponse(detail);
 }
 
 function closeMockMealPoll(campusId: number, pollId: number | null) {
@@ -1697,7 +1782,7 @@ function closeMockMealPoll(campusId: number, pollId: number | null) {
   mockMealState.polls = mockMealState.polls.map((poll) =>
     poll.id === pollId ? {...poll, status: 'CLOSED'} : poll,
   );
-  return closed;
+  return toMealPollMutationResponse(closed);
 }
 
 function chargeMockMealPoll(campusId: number, userId: number, pollId: number | null, body: unknown) {
@@ -1775,7 +1860,7 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
     return mockBadRequest('MEAL_CHARGE_AMOUNT_OVERFLOW', '청구 금액이 처리 가능한 범위를 벗어났습니다.');
   }
   const chargedAt = new Date().toISOString();
-  const chargedDetail: MealPollDetail = {
+  const chargedDetail: MockMealPollDetail = {
     ...detail,
     settlementStatus: 'CHARGED',
     options: detail.options.map((option) => {
@@ -1785,7 +1870,12 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
             ...option,
             charge: {
               chargeStatus: 'CHARGED' as const,
-              ...result,
+              calculationType: result.calculationType,
+              enteredAmount: result.enteredAmount,
+              amountPerMember: result.amountPerMember,
+              requestedTotalAmount: result.requestedTotalAmount,
+              actualTotalAmount: result.actualTotalAmount,
+              roundingAdjustment: result.roundingAdjustment,
               chargedMemberCount: option.responseCount,
               paymentAccountId,
               chargedByMe: true,
@@ -1806,7 +1896,7 @@ function chargeMockMealPoll(campusId: number, userId: number, pollId: number | n
     account.id === paymentAccountId && account.campusId === campusId && account.ownerUserId === userId,
   );
   if (!activeAccount) return mockBadRequest('MEAL_PAYMENT_ACCOUNT_INVALID', '본인의 활성 MEAL 계좌를 선택해 주세요.');
-  let nextSettlement: MealSettlement;
+  let nextSettlement: MealSettlementLedger;
   let chargeMaterialization: ReturnType<typeof materializeMockMealCharges>;
   try {
     chargeMaterialization = materializeMockMealCharges(
@@ -1848,7 +1938,7 @@ function materializeMockMealCharges(
   current: Record<string, ChargeItem[]>,
   nextChargeItemId: number,
   account: MealPaymentAccount,
-  detail: MealPollDetail,
+  detail: MockMealPollDetail,
   groups: MealChargeGroupResult[],
   chargedAt: string,
 ) {
@@ -1929,7 +2019,7 @@ function claimNextMockChargeId(value: number) {
 
 function toMockMealSettlementCharge(
   chargeId: number,
-  detail: MealPollDetail,
+  detail: MockMealPollDetail,
   optionContent: string,
   memberName: string,
   amount: number,
@@ -1960,11 +2050,11 @@ function summarizeMealChargeGroups(groups: MealChargeGroupResult[]): MealChargeR
 }
 
 function appendMockMealSettlement(
-  settlement: MealSettlement,
+  settlement: MealSettlementLedger,
   account: MealPaymentAccount,
   charges: MealSettlementCharge[],
   summary: MealChargeResultSummary,
-): MealSettlement {
+): MealSettlementLedger {
   const existing = settlement.accounts.find((item) => item.account.id === account.id);
   const accountSettlement = existing
     ? {
@@ -2008,13 +2098,52 @@ function getMockMealSettlement(campusId: number, userId: number): MealSettlement
   const accounts = mockMealState.settlement.accounts.filter(
     (item) => item.account.campusId === campusId && item.account.ownerUserId === userId,
   );
+  const byMember = new Map<string, MealSettlementCharge[]>();
+  for (const charge of accounts.flatMap((item) => item.charges)) {
+    byMember.set(charge.memberName, [...(byMember.get(charge.memberName) ?? []), charge]);
+  }
+  const members = [...byMember.entries()].map(([memberName, charges], index) => {
+    const known = [7, 8, 9, 18]
+      .map((memberId) => getMockMealCampusMember(campusId, memberId))
+      .find((member) => member?.name === memberName);
+    const amounts = charges.reduce(
+      (summary, charge) => addMockChargeAmountSummaries(
+        summary,
+        mockAmountSummaryForStatus(charge.status, charge.amount),
+      ),
+      emptyMockChargeAmountSummary(),
+    );
+    return {
+      userId: known?.userId ?? 100_000 + index,
+      name: memberName,
+      email: known?.email ?? `meal.respondent.${index + 1}@example.test`,
+      ...amounts,
+    };
+  });
+  const summary = members.reduce(
+    (total, member) => addMockChargeAmountSummaries(total, member),
+    emptyMockChargeAmountSummary(),
+  );
   return {
-    accounts,
-    summary: accounts.reduce(
-      (summary, item) => addMealSettlementSummaries(summary, item.summary),
-      emptyMealSettlementSummary(),
-    ),
+    campusId,
+    campusName: campusId === 1 ? '서울캠퍼스' : `캠퍼스 ${campusId}`,
+    region: campusId === 1 ? '서울' : '기타',
+    summary,
+    members,
   };
+}
+
+function mockAmountSummaryForStatus(
+  status: MealSettlementCharge['status'],
+  amount: number,
+): ChargeAmountSummary {
+  const summary = emptyMockChargeAmountSummary();
+  switch (status) {
+    case 'UNPAID': return {...summary, totalAmount: amount, unpaidAmount: amount};
+    case 'PAID': return {...summary, totalAmount: amount, paidAmount: amount};
+    case 'WAIVED': return {...summary, totalAmount: amount, waivedAmount: amount};
+    case 'CANCELED': return {...summary, totalAmount: amount, canceledAmount: amount};
+  }
 }
 
 function getMockMemberChargeList(

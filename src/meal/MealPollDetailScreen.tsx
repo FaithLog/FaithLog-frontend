@@ -107,11 +107,13 @@ export function MealPollDetailScreen({
         if (apiError) setActionError(apiError);
         return;
       }
-      const closed = await api.closePoll(access.request.accessToken, campusId, pollId);
+      await api.closePoll(access.request.accessToken, campusId, pollId);
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
       mutationSucceeded = true;
       closedTerminalScopeRef.current = requestScope;
-      setState({status: 'success', data: closed});
+      setState((current) => current.status === 'success'
+        ? {status: 'success', data: {...current.data, status: 'CLOSED'}}
+        : current);
 
       const refreshAccess = await resolveMealRequestAccess(tracker, 'close-refresh', onSessionExpired);
       if (refreshAccess.status !== 'ready') {
@@ -191,8 +193,7 @@ export function MealPollDetailScreen({
           </View>
           <Chip label={getPollStatusLabel(detail.status)} tone={detail.status === 'CLOSED' ? 'default' : 'info'} />
         </View>
-        <Text style={mealStyles.body}>{detail.description || '설명 없음'}</Text>
-        <Text style={mealStyles.meta}>한 항목 선택 · 응답 {detail.totalResponseCount}명 · 새 선택지 추가 {detail.allowUserOptionAdd ? '가능' : '불가'}</Text>
+        <Text style={mealStyles.meta}>한 항목 선택 · {detail.isAnonymous ? '익명' : '실명'} · 새 선택지 추가 {detail.allowUserOptionAdd ? '가능' : '불가'}</Text>
       </Card>
 
       {detail.options.map((option) => (
@@ -205,7 +206,7 @@ export function MealPollDetailScreen({
             <Chip label={option.charge.chargeStatus === 'CHARGED' ? '청구 완료' : '미청구'} tone={option.charge.chargeStatus === 'CHARGED' ? 'success' : 'warning'} />
           </View>
           {option.responseCount === 0 ? <Text style={mealStyles.meta}>선택한 사람이 없어 정산에서 제외됩니다.</Text> : null}
-          {option.charge.chargeStatus === 'CHARGED' ? <ChargedSummary charge={option.charge} /> : null}
+          {option.charge.chargeStatus === 'CHARGED' ? <ChargedSummary charge={option.charge} responseCount={option.responseCount} /> : null}
         </Card>
       ))}
 
@@ -222,17 +223,17 @@ export function MealPollDetailScreen({
           <Button accessibilityLabel="밥 투표 청구 화면 열기" onPress={() => onOpenCharge(detail.id)}>청구하기</Button>
         ) : null}
       </View>
-      {detail.status === 'CLOSED' && detail.settlementStatus === 'NOT_CHARGED' ? (
+      {detail.status === 'CLOSED' && hasChargeableGroup ? (
         <Text style={mealStyles.meta}>투표를 종료해도 바로 청구되지 않습니다. 항목별 금액을 확인한 뒤 청구해 주세요.</Text>
       ) : null}
     </View>
   );
 }
 
-function ChargedSummary({charge}: {charge: MealCharged}) {
+function ChargedSummary({charge, responseCount}: {charge: MealCharged; responseCount: number}) {
   return (
     <View style={mealStyles.softBox}>
-      <Text style={mealStyles.body}>1인당 {formatWon(charge.amountPerMember)} · {charge.chargedMemberCount}명</Text>
+      <Text style={mealStyles.body}>1인당 {formatWon(charge.amountPerMember)} · {responseCount}명</Text>
       <Text style={mealStyles.body}>요청 {formatWon(charge.requestedTotalAmount)} · 실제 {formatWon(charge.actualTotalAmount)}</Text>
       {charge.roundingAdjustment > 0 ? <Text style={mealStyles.meta}>올림 차액 {formatWon(charge.roundingAdjustment)}</Text> : null}
       <Text style={mealStyles.meta}>청구 시각 {new Date(charge.chargedAt).toLocaleString()}</Text>
