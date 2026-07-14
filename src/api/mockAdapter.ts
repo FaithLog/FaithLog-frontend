@@ -685,37 +685,62 @@ function resolveMockData(
     route.method === 'GET' &&
     /^\/admin\/campuses\/\d+\/charges(?:\/my-accounts)?$/.test(path)
   ) {
-    return getMockAdminCampusCharges(admin.campusCharges, admin.memberCharges.userId);
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
+    if (campusId !== admin.campusCharges.campusId) {
+      return mockNotFound('CAMPUS_NOT_FOUND', '캠퍼스를 찾을 수 없습니다.');
+    }
+    return getMockAdminCampusCharges(
+      admin.campusCharges,
+      admin.memberCharges.userId,
+      route.searchParams,
+    );
   }
   if (
     route.method === 'GET' &&
     /^\/admin\/campuses\/\d+\/members\/\d+\/charges$/.test(path)
   ) {
-    return getMockAdminMemberCharges(admin.memberCharges);
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
+    const requestedUserId = getPathNumberBeforeSuffix(path, 'charges');
+    if (
+      requestedUserId === null ||
+      getMockMealCampusMember(campusId, requestedUserId) === undefined
+    ) {
+      return mockNotFound('MEMBER_NOT_FOUND', '멤버를 찾을 수 없습니다.');
+    }
+    return getMockAdminMemberCharges(
+      admin.memberCharges,
+      campusId,
+      requestedUserId,
+      route.searchParams,
+    );
   }
   if (route.method === 'PATCH' && /^\/admin\/charges\/\d+\/status$/.test(path)) {
     const chargeItemId = getPathNumberBeforeSuffix(path, 'status');
     const request = parseMockJsonBody(body);
     const status = getMockAdminChargeStatus(request);
-    const charge = mockMealState.legacyBilling.charges.items.find(
-      (item) => item.id === chargeItemId,
-    );
-
-    if (!charge || !chargeItemId || !status) {
-      return missingMockFixture;
-    }
+    if (!mealActor) return mockUnauthorized('AUTH_REQUIRED', '로그인이 필요합니다.');
+    if (!chargeItemId) return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
+    const canonical = findMockCanonicalAdminCharge(chargeItemId);
+    if (!canonical) return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
+    const denied = authorizeMealAdmin(mealActor, canonical.campusId);
+    if (denied) return denied;
+    if (!status) return mockBadRequest('BILLING_INVALID_STATUS', '변경할 상태를 확인해 주세요.');
 
     const paidAt = status === 'PAID' ? '2026-07-13T12:00:00.000Z' : null;
-    const transitioned = transitionMockLegacyChargeStatus(chargeItemId, status, paidAt);
+    const transitioned = transitionMockCanonicalAdminCharge(canonical, status, paidAt);
 
     if (!transitioned || isMockErrorResult(transitioned)) {
-      return transitioned ?? missingMockFixture;
+      return transitioned ?? mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
     }
 
     return {
       id: transitioned.id,
-      campusId: admin.memberCharges.campusId,
-      userId: admin.memberCharges.userId,
+      campusId: canonical.campusId,
+      userId: canonical.userId,
       paymentCategory: transitioned.paymentCategory,
       title: transitioned.title,
       ...(transitioned.reason === undefined ? {} : {reason: transitioned.reason}),
@@ -993,27 +1018,107 @@ function getMockAdminChargeStatus(value: unknown) {
     : null;
 }
 
-function getMockAdminMemberCharges(charges: AdminMemberChargeList): AdminMemberChargeList {
-  const legacyBilling = mockMealState.legacyBilling;
+function getMockAdminMemberCharges(
+  charges: AdminMemberChargeList,
+  campusId: number,
+  userId: number,
+  searchParams: URLSearchParams,
+): AdminMemberChargeList {
+  const member = getMockMealCampusMember(campusId, userId);
+  if (!member) throw new Error('Known mock campus member required');
+  const {items, summary} = getMockAdminMemberChargeState(campusId, userId, searchParams);
+  const campusIdentity = getMockChargeCampusIdentity(mockMealState.legacyBilling.charges, campusId);
+
   return {
     ...charges,
-    items: legacyBilling.charges.items,
-    summary: legacyBilling.charges.summary,
+    ...campusIdentity,
+    userId,
+    name: member.name,
+    email: member.email,
+    items,
+    summary,
   };
 }
 
 function getMockAdminCampusCharges(
   charges: AdminCampusChargeSummary,
   legacyUserId: number,
+  searchParams: URLSearchParams,
 ): AdminCampusChargeSummary {
-  const legacySummary = mockMealState.legacyBilling.charges.summary;
+  const campusId = charges.campusId;
+  const userIds = new Set<number>([legacyUserId]);
+  for (const key of Object.keys(mockMealState.memberCharges)) {
+    const parts = key.split(':');
+    const chargeCampusId = Number(parts[0] ?? Number.NaN);
+    const userId = Number(parts[1] ?? Number.NaN);
+    if (chargeCampusId === campusId && Number.isSafeInteger(userId) && userId > 0) {
+      userIds.add(userId);
+    }
+  }
+  const requestedUserId = Number(searchParams.get('userId'));
+  const keyword = (searchParams.get('keyword') ?? '').trim().toLocaleLowerCase();
+  const members = [...userIds].flatMap((userId) => {
+    const member = getMockMealCampusMember(campusId, userId);
+    if (
+      !member ||
+      (Number.isSafeInteger(requestedUserId) && requestedUserId > 0 && requestedUserId !== userId) ||
+      (keyword && !member.name.toLocaleLowerCase().includes(keyword) &&
+        !member.email.toLocaleLowerCase().includes(keyword))
+    ) {
+      return [];
+    }
+    const {summary} = getMockAdminMemberChargeState(campusId, userId, searchParams);
+    return summary.totalAmount === 0 ? [] : [{...member, ...summary}];
+  });
+  const summary = members.reduce<ChargeAmountSummary>(
+    (total, member) => addMockChargeAmountSummaries(total, member),
+    emptyMockChargeAmountSummary(),
+  );
+
+  return {...charges, summary, members};
+}
+
+function getMockAdminMemberChargeState(
+  campusId: number,
+  userId: number,
+  searchParams: URLSearchParams,
+) {
+  const legacyBilling = mockMealState.legacyBilling;
+  const ownsLegacy = campusId === legacyBilling.charges.campusId &&
+    userId === legacyBilling.summary.userId;
+  const requestedCategory = searchParams.get('paymentCategory');
+  const requestedStatus = searchParams.get('status');
+  const legacyCategoryMatches = requestedCategory === null || requestedCategory === 'PENALTY';
+  const legacyItems = ownsLegacy && legacyCategoryMatches
+    ? legacyBilling.charges.items.filter((charge) =>
+        requestedStatus === null || charge.status === requestedStatus,
+      )
+    : [];
+  const dynamicItems = (mockMealState.memberCharges[mockMealMemberChargeKey(campusId, userId)] ?? [])
+    .filter((charge) =>
+      (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
+      (requestedStatus === null || charge.status === requestedStatus),
+    );
+  const visibleItems = [...legacyItems, ...dynamicItems];
+  const sort = searchParams.get('sort') ?? 'createdAt,desc';
+  const sortedItems = [...visibleItems].sort((left, right) => {
+    if (sort.startsWith('amount,')) {
+      return sort.endsWith(',asc') ? left.amount - right.amount : right.amount - left.amount;
+    }
+    return sort.endsWith(',asc') ? left.id - right.id : right.id - left.id;
+  });
+  const pageValue = Number(searchParams.get('page') ?? 0);
+  const sizeValue = Number(searchParams.get('size') ?? 20);
+  const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
+  const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
+  const legacySummary = ownsLegacy && legacyCategoryMatches
+    ? filterMockChargeAmountSummary(legacyBilling.charges.summary, requestedStatus)
+    : emptyMockChargeAmountSummary();
+  const dynamicSummary = summarizeMockMemberCharges(dynamicItems);
 
   return {
-    ...charges,
-    summary: legacySummary,
-    members: charges.members.map((member) =>
-      member.userId === legacyUserId ? {...member, ...legacySummary} : member,
-    ),
+    items: sortedItems.slice(page * size, page * size + size),
+    summary: addMockChargeAmountSummaries(legacySummary, dynamicSummary),
   };
 }
 
@@ -1957,6 +2062,83 @@ function markMockLegacyChargePaid(
     status: transitioned.status,
     paidAt: transitioned.paidAt ?? null,
   };
+}
+
+type MockCanonicalAdminCharge = {
+  campusId: number;
+  charge: ChargeItem;
+  kind: 'legacy' | 'meal';
+  memberChargeKey?: string;
+  userId: number;
+};
+
+function findMockCanonicalAdminCharge(chargeItemId: number): MockCanonicalAdminCharge | null {
+  const legacyBilling = mockMealState.legacyBilling;
+  const legacyCharge = legacyBilling.charges.items.find((charge) => charge.id === chargeItemId);
+  if (legacyCharge) {
+    return {
+      campusId: legacyBilling.charges.campusId,
+      charge: legacyCharge,
+      kind: 'legacy',
+      userId: legacyBilling.summary.userId,
+    };
+  }
+
+  for (const [memberChargeKey, charges] of Object.entries(mockMealState.memberCharges)) {
+    const charge = charges.find((candidate) => candidate.id === chargeItemId);
+    if (!charge) continue;
+    const parts = memberChargeKey.split(':');
+    const campusId = Number(parts[0] ?? Number.NaN);
+    const userId = Number(parts[1] ?? Number.NaN);
+    if (
+      !Number.isSafeInteger(campusId) || campusId <= 0 ||
+      !Number.isSafeInteger(userId) || userId <= 0
+    ) {
+      throw new Error('Invalid canonical mock charge owner');
+    }
+    return {campusId, charge, kind: 'meal', memberChargeKey, userId};
+  }
+
+  return null;
+}
+
+function transitionMockCanonicalAdminCharge(
+  canonical: MockCanonicalAdminCharge,
+  targetStatus: ChargeItem['status'],
+  paidAt: string | null,
+) {
+  if (canonical.kind === 'legacy') {
+    return transitionMockLegacyChargeStatus(canonical.charge.id, targetStatus, paidAt);
+  }
+  const memberChargeKey = canonical.memberChargeKey;
+  if (!memberChargeKey) throw new Error('Canonical meal charge key required');
+  const charges = mockMealState.memberCharges[memberChargeKey] ?? [];
+  const chargeIndex = charges.findIndex((charge) => charge.id === canonical.charge.id);
+  const charge = charges[chargeIndex];
+  if (!charge) return null;
+  if (charge.status === targetStatus) {
+    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
+  }
+  const transitioned: ChargeItem = {
+    ...charge,
+    status: targetStatus,
+    paidAt: targetStatus === 'PAID' ? paidAt : null,
+  };
+  mockMealState.memberCharges[memberChargeKey] = charges.map((item, index) =>
+    index === chargeIndex ? transitioned : item,
+  );
+  mockMealState.settlement = {
+    ...mockMealState.settlement,
+    accounts: mockMealState.settlement.accounts.map((account) => ({
+      ...account,
+      charges: account.charges.map((settlementCharge) =>
+        settlementCharge.chargeId === transitioned.id
+          ? {...settlementCharge, status: targetStatus}
+          : settlementCharge,
+      ),
+    })),
+  };
+  return transitioned;
 }
 
 function transitionMockLegacyChargeStatus(

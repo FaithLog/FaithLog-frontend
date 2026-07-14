@@ -30,7 +30,11 @@ import {
   type AdminPollTemplateRequest,
 } from './adminPollApi';
 import {mockApiErrorFixtures, mockDomainFixtures} from './mockFixtures';
-import {resetMockAdapterStateForTests} from './mockAdapter';
+import {
+  executeMockRequest,
+  mealMockAccessTokens,
+  resetMockAdapterStateForTests,
+} from './mockAdapter';
 
 function expectApiError(error: unknown, expected: Partial<FaithLogApiError['detail']>) {
   expect(error).toBeInstanceOf(FaithLogApiError);
@@ -179,6 +183,97 @@ describe('FaithLog mock API adapter', () => {
     expect(adminAfterReset.items).toContainEqual(expect.objectContaining({id: 501, status: 'UNPAID'}));
     expect(adminAfterReset.summary).toMatchObject({totalAmount: 18000, unpaidAmount: 6000, paidAmount: 12000});
     expect(summaryAfterReset).toMatchObject({totalPaidAmount: 12000, monthlyUnpaidAmount: 6000});
+  });
+
+  it('enforces admin charge authentication, campus authorization, and member identity', async () => {
+    const request = (path: string, accessToken?: string) => executeMockRequest(path, {
+      ...(accessToken === undefined
+        ? {}
+        : {headers: {Authorization: `Bearer ${accessToken}`}}),
+      method: 'GET',
+    });
+
+    await expect(request('/api/v1/admin/campuses/1/charges')).resolves.toMatchObject({status: 401});
+    await expect(
+      request('/api/v1/admin/campuses/1/charges', mealMockAccessTokens.otherDuty),
+    ).resolves.toMatchObject({status: 403});
+    await expect(
+      request('/api/v1/admin/campuses/2/charges', mealMockAccessTokens.nonDutyAdmin),
+    ).resolves.toMatchObject({status: 404});
+
+    const otherMember = await request(
+      '/api/v1/admin/campuses/1/members/8/charges',
+      mealMockAccessTokens.nonDutyAdmin,
+    );
+    const otherMemberBody = await otherMember.json();
+
+    expect(otherMember.status).toBe(200);
+    expect(otherMemberBody).toMatchObject({data: {campusId: 1, userId: 8, items: []}});
+    expect(JSON.stringify(otherMemberBody)).not.toContain('"id":501');
+  });
+
+  it('authorizes admin charge mutations against the canonical charge owner', async () => {
+    const request = (chargeItemId: number, accessToken?: string) => executeMockRequest(
+      `/api/v1/admin/charges/${chargeItemId}/status`,
+      {
+        body: JSON.stringify({status: 'CANCELED'}),
+        headers: accessToken === undefined
+          ? {'Content-Type': 'application/json'}
+          : {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+        method: 'PATCH',
+      },
+    );
+
+    await expect(request(501)).resolves.toMatchObject({status: 401});
+    await expect(request(501, mealMockAccessTokens.otherDuty)).resolves.toMatchObject({status: 403});
+    await expect(
+      request(501, mealMockAccessTokens.otherCampusDuty),
+    ).resolves.toMatchObject({status: 404});
+    await expect(
+      request(999_999, mealMockAccessTokens.nonDutyAdmin),
+    ).resolves.toMatchObject({status: 404});
+    await expect(
+      request(501, mealMockAccessTokens.nonDutyAdmin),
+    ).resolves.toMatchObject({status: 200});
+  });
+
+  it('applies status and payment-category filters to admin summary and detail together', async () => {
+    const [paidSummary, paidDetail, coffeeSummary, coffeeDetail] = await Promise.all([
+      fetchAdminCampusChargesForMyAccounts(mealMockAccessTokens.nonDutyAdmin, 1, {status: 'PAID'}),
+      fetchAdminMemberCharges(mealMockAccessTokens.nonDutyAdmin, 1, 7, {status: 'PAID'}),
+      fetchAdminCampusChargesForMyAccounts(mealMockAccessTokens.nonDutyAdmin, 1, {
+        paymentCategory: 'COFFEE',
+      }),
+      fetchAdminMemberCharges(mealMockAccessTokens.nonDutyAdmin, 1, 7, {
+        paymentCategory: 'COFFEE',
+      }),
+    ]);
+
+    expect(paidSummary.summary).toEqual({
+      totalAmount: 12_000,
+      unpaidAmount: 0,
+      paidAmount: 12_000,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
+    expect(paidSummary.members).toEqual([
+      expect.objectContaining({userId: 7, totalAmount: 12_000, paidAmount: 12_000}),
+    ]);
+    expect(paidDetail.items).toEqual([]);
+    expect(paidDetail.summary).toEqual(paidSummary.summary);
+    expect(coffeeSummary.summary).toEqual({
+      totalAmount: 0,
+      unpaidAmount: 0,
+      paidAmount: 0,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
+    expect(coffeeSummary.members).toEqual([]);
+    expect(coffeeDetail.items).toEqual([]);
+    expect(coffeeDetail.summary).toEqual(coffeeSummary.summary);
   });
 
   it('returns parser-compatible options when mock poll templates are created and updated', async () => {
