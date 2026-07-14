@@ -15,11 +15,64 @@ export const adminMemberDutyFilters: Array<{
 
 const adminRoles = new Set(['MINISTER', 'ELDER', 'CAMPUS_LEADER']);
 
+type DutyRequestIdentity = {
+  campusId: number;
+  dutyType: 'COFFEE' | 'MEAL';
+  userId: number;
+};
+
+type DutyIdentity = Pick<
+  DutyAssignment,
+  'campusId' | 'dutyType' | 'isActive' | 'userId'
+>;
+
+export function isActiveDutyForRequest(
+  duty: DutyIdentity,
+  request: DutyRequestIdentity,
+) {
+  return duty.isActive &&
+    duty.campusId === request.campusId &&
+    duty.userId === request.userId &&
+    duty.dutyType === request.dutyType;
+}
+
+export function assertAdminDutyAssignmentsForCampus(
+  duties: DutyAssignment[],
+  members: AdminCampusMember[],
+  campusId: number,
+) {
+  const memberUserIds = new Set(
+    members
+      .filter((member) => member.campusId === campusId)
+      .map((member) => member.userId),
+  );
+  const identities = new Set<string>();
+
+  for (const duty of duties) {
+    if (
+      duty.campusId !== campusId ||
+      !memberUserIds.has(duty.userId) ||
+      (duty.dutyType !== 'COFFEE' && duty.dutyType !== 'MEAL')
+    ) {
+      throw new Error('Invalid duty assignment identity');
+    }
+    const identity = `${duty.campusId}:${duty.userId}:${duty.dutyType}`;
+    if (identities.has(identity)) {
+      throw new Error('Duplicate duty assignment identity');
+    }
+    identities.add(identity);
+  }
+
+  return duties;
+}
+
 export function filterAdminMembersByDuty(
   members: AdminCampusMember[],
   filter: AdminMemberFilter,
   duties: DutyAssignment[],
+  campusId: number,
 ) {
+  const validatedDuties = assertAdminDutyAssignmentsForCampus(duties, members, campusId);
   switch (filter) {
     case 'ALL':
       return members;
@@ -30,8 +83,12 @@ export function filterAdminMembersByDuty(
     case 'COFFEE':
     case 'MEAL': {
       const activeDutyUserIds = new Set(
-        duties
-          .filter((duty) => duty.isActive && duty.dutyType === filter)
+        validatedDuties
+          .filter((duty) => isActiveDutyForRequest(duty, {
+            campusId,
+            dutyType: filter,
+            userId: duty.userId,
+          }))
           .map((duty) => duty.userId),
       );
       return members.filter((member) => activeDutyUserIds.has(member.userId));

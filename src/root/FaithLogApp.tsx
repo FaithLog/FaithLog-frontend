@@ -62,6 +62,7 @@ import type {
   UserRole,
 } from '../api/types';
 import {AdminScreen} from '../admin/AdminScreen';
+import {isActiveDutyForRequest} from '../admin/adminMemberDutyFilter';
 import {ServiceAdminScreen} from '../admin/ServiceAdminScreen';
 import {
   type AuthFieldErrors,
@@ -4164,8 +4165,11 @@ function CoffeeDutyProfileRow({
 
         const duty = await fetchMyDutyAssignment(accessToken, state.selectedCampus.campusId);
         if (!mounted || !isAuthSessionRequestAllowed(requestGeneration)) return;
-        const canManage =
-          duty.dutyType === 'COFFEE' && duty.isActive && duty.userId === state.user.id;
+        const canManage = isActiveDutyForRequest(duty, {
+          campusId: state.selectedCampus.campusId,
+          dutyType: 'COFFEE',
+          userId: state.user.id,
+        });
 
         setCoffeeAccess({
           allowed: canManage,

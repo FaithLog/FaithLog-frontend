@@ -12,6 +12,7 @@ import type {
   ChargeList,
   ChargeSummary,
   DevotionMonthlySummary,
+  DutyAssignment,
   MarkChargePaidResponse,
   PaymentCategory,
   WeeklyDevotionSummary,
@@ -306,7 +307,7 @@ function resolveMockData(
     const campusId = getCampusId(path);
     const denied = authorizeCampusMember(mealActor, campusId);
     if (denied) return denied;
-    return admin.dutyAssignments.find(
+    return mockMealState.coffeeDuties.find(
       (duty) =>
         duty.campusId === campusId &&
         duty.userId === mealActor?.userId &&
@@ -873,8 +874,12 @@ function resolveMockData(
     const denied = authorizeMealAdmin(mealActor, campusId);
     if (denied) return denied;
     return [
-      ...admin.dutyAssignments.filter((duty) => duty.campusId === campusId),
-      ...mockMealState.duties.filter((duty) => duty.campusId === campusId),
+      ...mockMealState.coffeeDuties.filter(
+        (duty) => duty.campusId === campusId && duty.isActive,
+      ),
+      ...mockMealState.duties.filter(
+        (duty) => duty.campusId === campusId && duty.isActive,
+      ),
     ];
   }
   if (
@@ -937,12 +942,71 @@ function resolveMockData(
     route.method === 'PUT' &&
     /^\/admin\/campuses\/\d+\/duty-assignments\/coffee$/.test(path)
   ) {
-    return admin.dutyAssignments[0];
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
+    const request = toRecord(parseMockJsonBody(body));
+    if (
+      hasUnexpectedKeys(request, ['userId']) ||
+      typeof request.userId !== 'number' ||
+      !Number.isSafeInteger(request.userId) ||
+      request.userId <= 0
+    ) {
+      return mockBadRequest('COFFEE_DUTY_REQUEST_INVALID', '담당자 지정 요청이 올바르지 않습니다.');
+    }
+    const member = getMockMealCampusMember(campusId, request.userId);
+    if (!member) {
+      return mockNotFound('CAMPUS_MEMBER_NOT_FOUND', '캠퍼스 멤버를 찾을 수 없습니다.');
+    }
+    const duplicate = mockMealState.coffeeDuties.find(
+      (duty) =>
+        duty.campusId === campusId &&
+        duty.userId === request.userId &&
+        duty.isActive,
+    );
+    if (duplicate) {
+      return mockConflict('COFFEE_DUTY_ALREADY_ACTIVE', '이미 활성 커피 담당자입니다.');
+    }
+    mockMealState.coffeeDuties = mockMealState.coffeeDuties.map((duty) =>
+      duty.campusId === campusId && duty.isActive ? {...duty, isActive: false} : duty,
+    );
+    const assignment: DutyAssignment = {
+      assignmentId:
+        Math.max(
+          1201,
+          ...mockMealState.coffeeDuties.map((duty) => duty.assignmentId),
+          ...mockMealState.duties.map((duty) => duty.assignmentId),
+        ) + 1,
+      campusId,
+      userId: request.userId,
+      name: member.name,
+      email: member.email,
+      dutyType: 'COFFEE',
+      isActive: true,
+      assignedAt: new Date().toISOString(),
+    };
+    mockMealState.coffeeDuties.push(assignment);
+    return assignment;
   }
   if (
     route.method === 'DELETE' &&
     /^\/admin\/campuses\/\d+\/duty-assignments\/coffee\/\d+$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
+    const assignmentId = getLastPathNumber(path);
+    const assignmentIndex = mockMealState.coffeeDuties.findIndex(
+      (duty) => duty.assignmentId === assignmentId && duty.campusId === campusId,
+    );
+    if (assignmentIndex < 0) {
+      return mockNotFound('COFFEE_DUTY_NOT_FOUND', '커피 담당자 배정을 찾을 수 없습니다.');
+    }
+    const assignment = mockMealState.coffeeDuties[assignmentIndex];
+    if (!assignment?.isActive) {
+      return mockConflict('COFFEE_DUTY_ALREADY_INACTIVE', '이미 해제된 커피 담당자입니다.');
+    }
+    mockMealState.coffeeDuties[assignmentIndex] = {...assignment, isActive: false};
     return null;
   }
 
@@ -1291,6 +1355,7 @@ function withoutApiPrefix(pathname: string) {
 
 type MockMealState = {
   accounts: MealPaymentAccount[];
+  coffeeDuties: DutyAssignment[];
   details: MealPollDetail[];
   duties: MealDutyAssignment[];
   legacyBilling: MockLegacyBillingState;
@@ -1389,6 +1454,7 @@ function createInitialMockMealState(): MockMealState {
 
   return {
     accounts,
+    coffeeDuties: mockDomainFixtures.admin.dutyAssignments.map((duty) => ({...duty})),
     legacyBilling: createInitialMockLegacyBillingState(),
     memberChargeIssuedAt: {
       501: '2026-06-22T03:00:00.000Z',

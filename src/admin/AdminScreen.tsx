@@ -81,6 +81,7 @@ import {
   clearTokens,
   getAuthSessionGeneration,
   isAuthSessionGenerationCurrent,
+  isAuthSessionRequestAllowed,
   StaleAuthSessionReadError,
   saveStoredPrayerSeason,
 } from '../api/tokenStorage';
@@ -208,9 +209,18 @@ import {
 } from './penaltyRuleFlow';
 import {
   adminMemberDutyFilters,
+  assertAdminDutyAssignmentsForCampus,
   filterAdminMembersByDuty,
   type AdminMemberFilter,
 } from './adminMemberDutyFilter';
+import {
+  beginAdminLoad,
+  commitAdminLoadCampus,
+  createAdminLoadCoordinator,
+  invalidateAdminLoad,
+  isAdminLoadCurrent,
+  type AdminLoadIdentity,
+} from './adminLoadCoordinator';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -710,6 +720,8 @@ export function AdminScreen({
   const penaltyRuleRequestSequenceRef = useRef(0);
   const penaltyRuleSaveGateRef = useRef(createPenaltyRuleSaveGate());
   const mealDutyMutationGateRef = useRef(createMealMutationGate());
+  const adminLoadCoordinatorRef = useRef(createAdminLoadCoordinator(campusId));
+  const adminLoadMountedRef = useRef(true);
   penaltyRuleCampusIdRef.current = campusId;
   const [prayerState, setPrayerState] = useState<AdminPrayerState>({status: 'idle'});
   const [assignablePrayerMembersState, setAssignablePrayerMembersState] =
@@ -744,6 +756,10 @@ export function AdminScreen({
     mealDutyMutationGateRef.current,
     resetMealDutyActionForCampusChange,
   );
+
+  useLayoutEffect(() => {
+    commitAdminLoadCampus(adminLoadCoordinatorRef.current, campusId);
+  }, [campusId]);
 
   useLayoutEffect(() => {
     commitAdminChargeCampusIdentity({
@@ -829,29 +845,47 @@ export function AdminScreen({
     setPrayerGroupMembersForm(emptyPrayerGroupMembersForm);
   };
 
-  const loadPrayerBoardForActiveSeason = async (accessToken: string): Promise<AdminPrayerState> => {
-    const weekBoard = await prayerApi.getPrayerWeekBoard(accessToken, campusId, weekStartDate);
+  const loadPrayerBoardForActiveSeason = async (
+    accessToken: string,
+    operationCampusId = campusId,
+    operationWeekStartDate = weekStartDate,
+    canApply: () => boolean = () => true,
+  ): Promise<AdminPrayerState> => {
+    const weekBoard = await prayerApi.getPrayerWeekBoard(
+      accessToken,
+      operationCampusId,
+      operationWeekStartDate,
+    );
     const currentSeason = await getCurrentPrayerSeasonWithFallback(
       accessToken,
-      campusId,
+      operationCampusId,
       weekBoard,
     );
 
     if (!currentSeason) {
-      await clearStoredPrayerSeason(campusId);
-      clearPrayerSeasonState();
-      setAssignablePrayerMembersState({status: 'success', members: []});
+      if (canApply()) {
+        await clearStoredPrayerSeason(operationCampusId);
+      }
+      if (canApply()) {
+        clearPrayerSeasonState();
+        setAssignablePrayerMembersState({status: 'success', members: []});
+      }
       return {
         status: 'empty',
         board: toPrayerBoardWithoutCurrentSeason(weekBoard),
       };
     }
 
-    await saveStoredPrayerSeason(campusId, {
-      name: currentSeason.name,
-      seasonId: currentSeason.seasonId,
-      startDate: currentSeason.startDate,
-    });
+    if (canApply()) {
+      await saveStoredPrayerSeason(operationCampusId, {
+        name: currentSeason.name,
+        seasonId: currentSeason.seasonId,
+        startDate: currentSeason.startDate,
+      });
+    }
+    if (!canApply()) {
+      return {status: 'empty', board: toPrayerBoardWithoutCurrentSeason(weekBoard)};
+    }
     syncPrayerSeason(currentSeason);
 
     setAssignablePrayerMembersState({status: 'loading'});
@@ -875,7 +909,9 @@ export function AdminScreen({
           throw error;
         }),
     ]);
-    setAssignablePrayerMembersState({status: 'success', members: assignableMembers});
+    if (canApply()) {
+      setAssignablePrayerMembersState({status: 'success', members: assignableMembers});
+    }
 
     const board = mergePrayerBoardWithSeasonGroups(weekBoard, currentSeason, seasonGroups);
 
@@ -884,27 +920,53 @@ export function AdminScreen({
       : {status: 'success', board};
   };
 
+  const isCurrentAdminLoad = (loadIdentity: AdminLoadIdentity) =>
+    isAdminLoadCurrent(adminLoadCoordinatorRef.current, loadIdentity, {
+      currentGeneration: getAuthSessionGeneration(),
+      mounted: adminLoadMountedRef.current,
+      requestAllowed: isAuthSessionRequestAllowed(loadIdentity.generation),
+    });
+
   const loadAdmin = async () => {
+    const operationCampusId = campusId;
+    const operationWeekStartDate = weekStartDate;
+    const operationGeneration = getAuthSessionGeneration();
+    const loadIdentity = beginAdminLoad(
+      adminLoadCoordinatorRef.current,
+      operationCampusId,
+      operationGeneration,
+    );
+    if (!loadIdentity || !isCurrentAdminLoad(loadIdentity)) return;
     setLoadState({status: 'loading'});
     setPrayerState({status: 'loading'});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
 
-      if (!accessToken) {
+      if (!accessToken || !isCurrentAdminLoad(loadIdentity)) {
         return;
       }
 
       const [summary, members, duties, prayerBoardResult] = await Promise.all([
-        fetchAdminDashboardSummary(accessToken, campusId, {weekStartDate}),
-        fetchAdminCampusMembers(accessToken, campusId),
-        fetchDutyAssignments(accessToken, campusId),
-        loadPrayerBoardForActiveSeason(accessToken)
+        fetchAdminDashboardSummary(accessToken, operationCampusId, {
+          weekStartDate: operationWeekStartDate,
+        }),
+        fetchAdminCampusMembers(accessToken, operationCampusId),
+        fetchDutyAssignments(accessToken, operationCampusId),
+        loadPrayerBoardForActiveSeason(
+          accessToken,
+          operationCampusId,
+          operationWeekStartDate,
+          () => isCurrentAdminLoad(loadIdentity),
+        )
           .catch((error): AdminPrayerState => ({
             status: 'error',
             error: toApiError(error, '기도제목 주간 현황을 불러오지 못했습니다.'),
           })),
       ]);
+
+      if (!isCurrentAdminLoad(loadIdentity)) return;
+      const validatedDuties = assertAdminDutyAssignmentsForCampus(duties, members, operationCampusId);
 
       setPrayerState(prayerBoardResult);
 
@@ -914,8 +976,9 @@ export function AdminScreen({
         return;
       }
 
-      setLoadState({status: 'success', summary, members, duties});
+      setLoadState({status: 'success', summary, members, duties: validatedDuties});
     } catch (error) {
+      if (!isCurrentAdminLoad(loadIdentity)) return;
       const apiError = toApiError(error, '관리자 정보를 불러오지 못했습니다.');
       setLoadState({status: 'error', error: apiError});
       void handleAuthError(apiError, setAuthState);
@@ -963,9 +1026,12 @@ export function AdminScreen({
   };
 
   useEffect(() => {
+    adminLoadMountedRef.current = true;
     penaltyRuleMountedRef.current = true;
 
     return () => {
+      adminLoadMountedRef.current = false;
+      invalidateAdminLoad(adminLoadCoordinatorRef.current);
       penaltyRuleMountedRef.current = false;
       penaltyRuleRequestSequenceRef.current += 1;
       invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
@@ -2963,6 +3029,7 @@ export function AdminScreen({
       <AdminMemberListRoute
         actionError={actionError}
         bottomInset={androidShellInsets.bottomNavInset}
+        campusId={campusId}
         campusLabel={getCampusLabel(state)}
         contentBottomPadding={androidShellInsets.shellContentBottomPadding}
         duties={loadState.duties}
@@ -3220,6 +3287,7 @@ export function AdminScreen({
           actionState={actionState}
           activeMealDuties={activeMealDuties}
           coffeeDuty={coffeeDuty}
+          campusId={campusId}
           filter={memberFilter}
           globalRole={state.user.role}
           inviteCodeCopyState={inviteCodeCopyState}
@@ -10082,6 +10150,7 @@ function AdminMemberPage({
   actionState,
   activeMealDuties,
   coffeeDuty,
+  campusId,
   filter,
   globalRole,
   inviteCodeCopyState,
@@ -10105,6 +10174,7 @@ function AdminMemberPage({
   actionState: AdminActionState;
   activeMealDuties: DutyAssignment[];
   coffeeDuty: DutyAssignment | null;
+  campusId: number;
   filter: MemberFilter;
   globalRole: string;
   inviteCodeCopyState: InviteCodeCopyState;
@@ -10142,6 +10212,7 @@ function AdminMemberPage({
       />
       {section === 'list' ? (
         <AdminMembers
+          campusId={campusId}
           duties={[...(coffeeDuty ? [coffeeDuty] : []), ...activeMealDuties]}
           filter={filter}
           memberSearch={memberSearch}
@@ -10181,6 +10252,7 @@ function AdminMemberPage({
 }
 
 function AdminMembers({
+  campusId,
   duties,
   filter,
   memberSearch,
@@ -10189,6 +10261,7 @@ function AdminMembers({
   onSelectFilter,
   onSelectMember,
 }: {
+  campusId: number;
   duties: DutyAssignment[];
   filter: MemberFilter;
   memberSearch: string;
@@ -10198,7 +10271,7 @@ function AdminMembers({
   onSelectMember: (member: AdminCampusMember) => void;
 }) {
   const keyword = memberSearch.trim().toLowerCase();
-  const filteredMembers = filterAdminMembersByDuty(members, filter, duties).filter((member) =>
+  const filteredMembers = filterAdminMembersByDuty(members, filter, duties, campusId).filter((member) =>
     keyword
       ? `${member.name} ${member.email} ${member.campusRole}`.toLowerCase().includes(keyword)
       : true,
@@ -10238,6 +10311,7 @@ function AdminMembers({
 function AdminMemberListRoute({
   actionError,
   bottomInset,
+  campusId,
   campusLabel,
   contentBottomPadding,
   duties,
@@ -10256,6 +10330,7 @@ function AdminMemberListRoute({
 }: {
   actionError: ApiError | null;
   bottomInset: number;
+  campusId: number;
   campusLabel: string;
   contentBottomPadding: number;
   duties: DutyAssignment[];
@@ -10275,12 +10350,12 @@ function AdminMemberListRoute({
   const deferredSearch = useDeferredValue(memberSearch);
   const filteredMembers = useMemo(() => {
     const keyword = deferredSearch.trim().toLowerCase();
-    return filterAdminMembersByDuty(members, filter, duties).filter((member) =>
+    return filterAdminMembersByDuty(members, filter, duties, campusId).filter((member) =>
       keyword
         ? `${member.name} ${member.email} ${member.campusRole}`.toLowerCase().includes(keyword)
         : true,
     );
-  }, [deferredSearch, duties, filter, members]);
+  }, [campusId, deferredSearch, duties, filter, members]);
 
   return (
     <View style={styles.adminModeFrame}>

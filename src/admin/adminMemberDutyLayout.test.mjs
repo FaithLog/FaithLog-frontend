@@ -22,4 +22,11 @@ describe('admin member duty production layout', () => {
     expect(source.match(/다른 필터를 선택해 주세요\./g)).toHaveLength(2);
     expect(source).not.toContain('다른 역할 필터를 선택해 주세요.');
   });
+
+  it('binds the production admin load to the committed campus and request identity', () => {
+    expect(source).toContain('createAdminLoadCoordinator(campusId)');
+    expect(source).toContain('commitAdminLoadCampus(adminLoadCoordinatorRef.current, campusId)');
+    expect(source).toContain('isCurrentAdminLoad(loadIdentity)');
+    expect(source).toContain('assertAdminDutyAssignmentsForCampus(duties, members, operationCampusId)');
+  });
 });

@@ -23,4 +23,9 @@ describe('profile duty management entries', () => {
     expect(source).toContain('subtitle="커피 주문 투표 생성과 커피 정산 확인"');
     expect(source).toContain('subtitle="밥 투표, 내 계좌와 정산 관리"');
   });
+
+  it('checks the requested campus and user identity before showing coffee access', () => {
+    expect(source).toContain('isActiveDutyForRequest(duty, {');
+    expect(source).toContain("dutyType: 'COFFEE'");
+  });
 });

@@ -17,11 +17,14 @@ vi.mock('../api/tokenStorage', () => ({
 
 import {
   addUserPollOption,
+  assignCoffeeDuty,
   fetchChargeSummary,
   fetchDutyAssignments,
+  fetchMyDutyAssignment,
   fetchMyCharges,
   fetchPollDetail,
   markMyChargePaid,
+  revokeCoffeeDuty,
   savePollResponse,
 } from '../api/client';
 import {
@@ -85,6 +88,51 @@ describe('MEAL mock adapter flow', () => {
     await expect(mealResponse.json()).resolves.toMatchObject({
       data: {dutyType: 'MEAL', isActive: true, userId: 7},
     });
+  });
+
+  it('keeps coffee self lookup, admin list, assign, and revoke on one canonical state', async () => {
+    await expect(fetchMyDutyAssignment('mock-access-token', 1)).resolves.toMatchObject({
+      campusId: 1,
+      dutyType: 'COFFEE',
+      isActive: true,
+      userId: 7,
+    });
+    await expect(
+      assignCoffeeDuty('mock-access-token', 1, {userId: 7}),
+    ).rejects.toMatchObject({detail: {status: 409}});
+
+    const assigned = await assignCoffeeDuty('mock-access-token', 1, {userId: 8});
+    expect(assigned).toMatchObject({campusId: 1, dutyType: 'COFFEE', userId: 8});
+    const listed = await fetchDutyAssignments('mock-access-token', 1);
+    expect(listed.filter((duty) => duty.dutyType === 'COFFEE' && duty.isActive)).toEqual([
+      expect.objectContaining({assignmentId: assigned.assignmentId, userId: 8}),
+    ]);
+    await expect(
+      fetchMyDutyAssignment(mealMockAccessTokens.otherDuty, 1),
+    ).resolves.toMatchObject({campusId: 1, dutyType: 'COFFEE', userId: 8});
+
+    await revokeCoffeeDuty('mock-access-token', 1, assigned.assignmentId);
+    await expect(
+      revokeCoffeeDuty('mock-access-token', 1, assigned.assignmentId),
+    ).rejects.toMatchObject({detail: {status: 409}});
+    await expect(
+      fetchMyDutyAssignment(mealMockAccessTokens.otherDuty, 1),
+    ).rejects.toMatchObject({detail: {status: 403}});
+  });
+
+  it('validates coffee admin authorization, campus, member and assignment identity', async () => {
+    await expect(
+      assignCoffeeDuty(mealMockAccessTokens.otherDuty, 1, {userId: 7}),
+    ).rejects.toMatchObject({detail: {status: 403}});
+    await expect(
+      assignCoffeeDuty('mock-access-token', 1, {userId: 999}),
+    ).rejects.toMatchObject({detail: {status: 404}});
+    await expect(
+      revokeCoffeeDuty('mock-access-token', 1, 999_999),
+    ).rejects.toMatchObject({detail: {status: 404}});
+    await expect(
+      revokeCoffeeDuty('mock-access-token', 2, 1201),
+    ).rejects.toMatchObject({detail: {status: 404}});
   });
 
   it('returns only the current duty owner MEAL accounts, including inactive history', async () => {
