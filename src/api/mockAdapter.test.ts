@@ -48,12 +48,15 @@ function expectApiError(error: unknown, expected: Partial<FaithLogApiError['deta
 async function createOtherDutyMealCharge(amount = 8_000) {
   const poll = await mealApi.createPoll(mealMockAccessTokens.activeDuty, 1, {
     title: '관리자 청구 상태 테스트',
-    description: '',
+    isAnonymous: false,
     endsAt: '2027-07-20T03:00:00.000Z',
-    options: [{content: '비빔밥'}, {content: '국밥'}],
+    options: [
+      {content: '비빔밥', sortOrder: 0},
+      {content: '국밥', sortOrder: 1},
+    ],
     allowUserOptionAdd: false,
   });
-  const optionId = poll.options[0]?.optionId ?? 0;
+  const optionId = poll.options[0]?.id ?? 0;
   await savePollResponse(mealMockAccessTokens.otherDuty, 1, poll.id, {optionIds: [optionId]});
   await mealApi.closePoll(mealMockAccessTokens.activeDuty, 1, poll.id);
   await mealApi.createCharges(mealMockAccessTokens.activeDuty, 1, poll.id, {
@@ -566,8 +569,8 @@ describe('FaithLog mock API adapter', () => {
     expect(canceledDetail.items).toContainEqual(
       expect.objectContaining({id: charge.id, status: 'CANCELED'}),
     );
-    expect(canceledSettlement.accounts[0]?.charges).toContainEqual(
-      expect.objectContaining({chargeId: charge.id, status: 'CANCELED'}),
+    expect(canceledSettlement.members).toContainEqual(
+      expect.objectContaining({userId: 8, canceledAmount: 8_000, unpaidAmount: 0}),
     );
     await expect(patchMockAdminChargeStatus(charge.id, 'CANCELED')).resolves.toMatchObject({
       status: 409,
@@ -590,8 +593,8 @@ describe('FaithLog mock API adapter', () => {
 
     expect(paid).toMatchObject({id: charge.id, status: 'PAID', paidAt: expect.any(String)});
     expect(paidDetail.items).toContainEqual(expect.objectContaining({id: charge.id, status: 'PAID'}));
-    expect(paidSettlement.accounts[0]?.charges).toContainEqual(
-      expect.objectContaining({chargeId: charge.id, status: 'PAID'}),
+    expect(paidSettlement.members).toContainEqual(
+      expect.objectContaining({userId: 8, paidAmount: 8_000, unpaidAmount: 0}),
     );
     await expect(patchMockAdminChargeStatus(charge.id, 'WAIVED')).resolves.toMatchObject({status: 409});
   });
