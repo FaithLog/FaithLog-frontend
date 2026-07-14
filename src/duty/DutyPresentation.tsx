@@ -108,11 +108,13 @@ export function DutyEntityCard({
   statusLabel,
   statusTone = 'default',
   subtitle,
+  subtitleSelectable,
   title,
 }: PropsWithChildren<{
   statusLabel?: string;
   statusTone?: DutyTone;
   subtitle?: string;
+  subtitleSelectable?: boolean;
   title: string;
 }>) {
   return (
@@ -120,7 +122,9 @@ export function DutyEntityCard({
       <View style={dutyStyles.entityHeader}>
         <View style={dutyStyles.entityText}>
           <Text style={dutyStyles.entityTitle}>{title}</Text>
-          {subtitle ? <Text style={dutyStyles.meta}>{subtitle}</Text> : null}
+          {subtitle ? (
+            <Text selectable={subtitleSelectable} style={dutyStyles.meta}>{subtitle}</Text>
+          ) : null}
         </View>
         {statusLabel ? (
           <Text style={[dutyStyles.statusChip, dutyStyles[`${statusTone}Chip`]]}>

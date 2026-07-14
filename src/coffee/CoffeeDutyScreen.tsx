@@ -1586,19 +1586,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  accountDeleteConfirmButton: {
-    alignItems: 'center',
-    backgroundColor: colors.danger,
-    borderRadius: 18,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 54,
-  },
-  accountDeleteConfirmButtonText: {
-    color: colors.surface,
-    fontSize: 16,
-    fontWeight: '800',
-  },
   accountRowHeader: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1622,20 +1609,6 @@ const styles = StyleSheet.create({
   content: {
     gap: space.md,
     paddingBottom: 130,
-  },
-  closeButton: {
-    alignItems: 'center',
-    backgroundColor: '#FFF1F2',
-    borderRadius: 12,
-    height: 38,
-    justifyContent: 'center',
-    minWidth: 58,
-    paddingHorizontal: 12,
-  },
-  closeButtonText: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '800',
   },
   frame: {
     backgroundColor: colors.background,
@@ -1680,27 +1653,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 15,
     fontWeight: '700',
-  },
-  memberAmount: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  memberList: {
-    gap: space.sm,
-    marginTop: space.md,
-  },
-  memberName: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  memberRow: {
-    alignItems: 'center',
-    borderTopColor: colors.borderSoft,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: space.sm,
   },
   menuChip: {
     backgroundColor: colors.surface,
@@ -1806,32 +1758,6 @@ const styles = StyleSheet.create({
     margin: 0,
     padding: 0,
   },
-  dateTimeSelectCard: {
-    backgroundColor: colors.borderSoft,
-    borderRadius: 18,
-    gap: 6,
-    minHeight: 82,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  dateTimeSelectHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 17,
-  },
-  dateTimeSelectLabel: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
-  },
-  dateTimeSelectValue: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '900',
-    lineHeight: 25,
-  },
   deletePreviewBox: {
     backgroundColor: colors.borderSoft,
     borderRadius: 14,
@@ -1861,10 +1787,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     fontWeight: '800',
-  },
-  pollCreateCtaRow: {
-    flexDirection: 'row',
-    gap: 10,
   },
   pollCreateDescription: {
     color: colors.textSecondary,
@@ -1898,32 +1820,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
-  },
-  pollCreatePrimaryAction: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 18,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 54,
-  },
-  pollCreatePrimaryActionText: {
-    color: colors.surface,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  pollCreateSecondaryAction: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 18,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 54,
-  },
-  pollCreateSecondaryActionText: {
-    color: colors.textSecondary,
-    fontSize: 16,
-    fontWeight: '800',
   },
   pollCreateRemoveOption: {
     alignItems: 'center',
@@ -2063,23 +1959,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: space.sm,
   },
-  resultButton: {
-    backgroundColor: colors.borderSoft,
-    borderRadius: 8,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  resultButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  resultButtonText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  resultButtonTextActive: {
-    color: colors.surface,
-  },
   resultOption: {
     borderTopColor: colors.borderSoft,
     borderTopWidth: 1,
@@ -2090,10 +1969,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  resultPanel: {
-    gap: space.md,
-    marginTop: space.md,
   },
   sectionHeader: {
     alignItems: 'center',
@@ -2152,17 +2027,6 @@ const styles = StyleSheet.create({
     gap: space.sm,
     marginVertical: space.md,
   },
-  softButton: {
-    backgroundColor: colors.borderSoft,
-    borderRadius: 8,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  softButtonText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
   successBox: {
     backgroundColor: colors.mint,
     borderRadius: 8,
@@ -2191,25 +2055,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 22,
-  },
-  summaryHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: space.md,
-    justifyContent: 'space-between',
-  },
-  summaryActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: space.sm,
-  },
-  summaryIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 8,
-    height: 48,
-    justifyContent: 'center',
-    width: 48,
   },
   summaryTitle: {
     color: colors.textPrimary,

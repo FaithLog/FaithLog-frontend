@@ -424,6 +424,24 @@ describe('MEAL component behavior', () => {
     expect(api.createPaymentAccount).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the meal bank and account number selectable for copying', async () => {
+    const account = mealAccount();
+    const api = createApi({
+      getMyPaymentAccounts: vi.fn().mockResolvedValue([account]),
+    });
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
+      await settle();
+    });
+
+    const accountNumber = renderer.root.findAllByType('Text').find((node) => (
+      node.children.join('') === `${account.bankName} ${account.accountNumber}`
+    ));
+    expect(accountNumber).toBeTruthy();
+    expect(accountNumber.props.selectable).toBe(true);
+  });
+
   it('optimistically replaces the previous active account when refresh fails', async () => {
     const previous = mealAccount();
     const created = {...mealAccount(), id: 11, nickname: '저녁 계좌'};

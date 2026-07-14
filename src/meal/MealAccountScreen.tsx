@@ -245,6 +245,7 @@ const MemoizedMealAccountRow = memo(function MemoizedMealAccountRow({
       statusLabel={account.isActive ? '활성' : '비활성'}
       statusTone={account.isActive ? 'success' : 'default'}
       subtitle={`${account.bankName} ${account.accountNumber}`}
+      subtitleSelectable
       title={account.nickname}>
       <Text style={mealStyles.meta}>{account.accountHolder}</Text>
       {account.isActive ? (
