@@ -41,6 +41,7 @@ import {
   TextField,
 } from '../components/ui';
 import {colors, spacing} from '../theme';
+import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
 import {
@@ -621,54 +622,29 @@ function CoffeeAccountManagement({
         }}
       />
 
-      <DutyFormSection>
-        <DutySectionHeader description="커피 담당자가 받을 커피 금액 계좌만 등록합니다." eyebrow="계좌 등록" title="커피 정산 계좌 추가" />
-        <TextField
-          accessibilityLabel="커피 계좌 별칭"
-          editable={!busy}
-          label="별칭"
-          onChangeText={(nickname) => onChangeForm({nickname})}
-          placeholder="커피 계좌"
-          value={form.nickname}
-        />
-        <TextField
-          accessibilityLabel="커피 계좌 은행명"
-          editable={!busy}
-          label="은행"
-          onChangeText={(bankName) => onChangeForm({bankName})}
-          placeholder="카카오뱅크"
-          value={form.bankName}
-        />
-        <TextField
-          accessibilityLabel="커피 계좌번호"
-          editable={!busy}
-          label="계좌번호"
-          onChangeText={(accountNumber) => onChangeForm({accountNumber})}
-          placeholder="3333-33-333333"
-          value={form.accountNumber}
-        />
-        <TextField
-          accessibilityLabel="커피 계좌 예금주"
-          editable={!busy}
-          label="예금주"
-          onChangeText={(accountHolder) => onChangeForm({accountHolder})}
-          placeholder="커피 담당자"
-          value={form.accountHolder}
-        />
-        {saveState.status === 'success' ? (
+      <DutyAccountRegistrationForm
+        accountHolder={form.accountHolder}
+        accountNumber={form.accountNumber}
+        bankName={form.bankName}
+        busy={busy}
+        description="커피 담당자가 받을 커피 금액 계좌만 등록합니다."
+        domainLabel="커피"
+        feedback={saveState.status === 'success' ? (
           <View style={styles.successBox}>
             <Text style={styles.successText}>{saveState.nickname} 계좌를 등록했습니다.</Text>
           </View>
-        ) : null}
-        {saveState.status === 'error' ? <CoffeeInlineError message={saveState.message} /> : null}
-        <DutyActionButton
-          accessibilityLabel="커피 계좌 등록"
-          busy={busy}
-          label={busy ? '저장 중...' : '커피 계좌 저장'}
-          onPress={onSave}
-          variant="primary"
-        />
-      </DutyFormSection>
+        ) : saveState.status === 'error' ? (
+          <CoffeeInlineError message={saveState.message} />
+        ) : undefined}
+        nickname={form.nickname}
+        onAccountHolderChange={(accountHolder) => onChangeForm({accountHolder})}
+        onAccountNumberChange={(accountNumber) => onChangeForm({accountNumber})}
+        onBankNameChange={(bankName) => onChangeForm({bankName})}
+        onNicknameChange={(nickname) => onChangeForm({nickname})}
+        onSubmit={onSave}
+        submitAccessibilityLabel="커피 계좌 등록"
+        submitLabel={busy ? '저장 중...' : '계좌 저장'}
+      />
     </>
   );
 }

@@ -7,6 +7,7 @@ import {describe, expect, it} from 'vitest';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const mealScreen = fs.readFileSync(path.join(directory, 'MealDutyScreen.tsx'), 'utf8');
 const mealPollCreate = fs.readFileSync(path.join(directory, 'MealPollCreateScreen.tsx'), 'utf8');
+const mealAccount = fs.readFileSync(path.join(directory, 'MealAccountScreen.tsx'), 'utf8');
 const coffeeScreen = fs.readFileSync(
   path.join(directory, '..', 'coffee', 'CoffeeDutyScreen.tsx'),
   'utf8',
@@ -51,5 +52,11 @@ describe('meal and coffee duty layout parity', () => {
     expect(dutyPageNav).toContain('minHeight: 40');
     expect(coffeeScreen).not.toContain('관리자 투표 생성과 같은 순서로');
     expect(mealPollCreate).not.toContain('커스텀 투표와 같은 순서로');
+  });
+
+  it('uses one admin-style account registration form for coffee and meal', () => {
+    expect(coffeeScreen).toContain('<DutyAccountRegistrationForm');
+    expect(mealAccount).toContain('<DutyAccountRegistrationForm');
+    expect(coffeeScreen).not.toContain('placeholder="3333-33-333333"');
   });
 });

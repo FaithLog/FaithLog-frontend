@@ -398,6 +398,14 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
       await settle();
     });
+    expect(findByLabel(renderer, '밥 계좌 별칭').props).toMatchObject({
+      label: '별칭',
+      placeholder: '밥 계좌',
+    });
+    expect(findByLabel(renderer, '밥 계좌번호').props).toMatchObject({
+      keyboardType: 'number-pad',
+      placeholder: '3333-00-7777777',
+    });
     await change(renderer, '밥 계좌 별칭', '점심 계좌');
     await change(renderer, '밥 계좌 은행명', '신한은행');
     await change(renderer, '밥 계좌번호', '110000000000');

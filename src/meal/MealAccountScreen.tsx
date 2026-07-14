@@ -3,14 +3,13 @@ import {Text} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
-import {TextField} from '../components/ui';
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
+import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
 import {
   DutyActionButton,
   DutyAsyncState,
   DutyConfirmSheet,
   DutyEntityCard,
-  DutyFormSection,
   DutyPageSection,
   DutySectionHeader,
 } from '../duty/DutyPresentation';
@@ -202,14 +201,22 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
         <DutyActionButton accessibilityLabel="이전 밥 계좌 더 보기" label="계좌 더 보기" onPress={accountProgress.showMore} />
       ) : null}
 
-      <DutyFormSection>
-        <DutySectionHeader eyebrow="새 본인 계좌" title="정산 계좌 등록" />
-        <TextField accessibilityLabel="밥 계좌 별칭" editable={!saving} label="계좌 이름" onChangeText={setNickname} value={nickname} />
-        <TextField accessibilityLabel="밥 계좌 은행명" editable={!saving} label="은행" onChangeText={setBankName} value={bankName} />
-        <TextField accessibilityLabel="밥 계좌번호" editable={!saving} keyboardType="number-pad" label="계좌번호" onChangeText={setAccountNumber} value={accountNumber} />
-        <TextField accessibilityLabel="밥 계좌 예금주" editable={!saving} label="예금주" onChangeText={setAccountHolder} value={accountHolder} />
-        <DutyActionButton accessibilityLabel="본인 밥 계좌 등록" busy={saving} label={saving ? '저장 중...' : '계좌 등록'} onPress={() => void create()} variant="primary" />
-      </DutyFormSection>
+      <DutyAccountRegistrationForm
+        accountHolder={accountHolder}
+        accountNumber={accountNumber}
+        bankName={bankName}
+        busy={saving}
+        description="밥 담당자가 받을 밥 정산 계좌만 등록합니다."
+        domainLabel="밥"
+        nickname={nickname}
+        onAccountHolderChange={setAccountHolder}
+        onAccountNumberChange={setAccountNumber}
+        onBankNameChange={setBankName}
+        onNicknameChange={setNickname}
+        onSubmit={() => void create()}
+        submitAccessibilityLabel="본인 밥 계좌 등록"
+        submitLabel={saving ? '저장 중...' : '계좌 저장'}
+      />
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void load(false)} /> : null}
       {showBackButton ? (

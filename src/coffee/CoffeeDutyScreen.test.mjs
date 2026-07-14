@@ -230,6 +230,10 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     });
 
     await press(renderer, '커피 내 계좌 페이지 열기');
+    expect(findByLabel(renderer, '커피 계좌번호').props).toMatchObject({
+      keyboardType: 'number-pad',
+      placeholder: '3333-00-7777777',
+    });
     await change(renderer, '커피 계좌 별칭', '새 커피 계좌');
     await change(renderer, '커피 계좌 은행명', '테스트은행');
     await change(renderer, '커피 계좌번호', '111-222');
