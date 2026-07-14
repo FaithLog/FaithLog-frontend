@@ -5,7 +5,7 @@ import {colors, radius, spacing} from '../theme';
 export const pollCreateDesign = StyleSheet.create({
   actions: {flexDirection: 'row', gap: 10},
   addOption: {
-    alignItems: 'center', backgroundColor: '#E8F3FF', borderRadius: 14, height: 40,
+    alignItems: 'center', backgroundColor: '#E8F3FF', borderRadius: 14, height: 48,
     justifyContent: 'center', minWidth: 58, paddingHorizontal: 12,
   },
   addOptionText: {color: colors.primary, fontSize: 13, fontWeight: '800'},
@@ -57,7 +57,7 @@ export const pollCreateDesign = StyleSheet.create({
   primaryActionText: {color: colors.surface, fontSize: 16, fontWeight: '800'},
   removeOption: {
     alignItems: 'center', backgroundColor: colors.borderSoft, borderRadius: 18,
-    height: 36, justifyContent: 'center', width: 36,
+    height: 48, justifyContent: 'center', width: 48,
   },
   removeOptionText: {color: colors.textSecondary, fontSize: 20, fontWeight: '800', lineHeight: 22},
   secondaryAction: {

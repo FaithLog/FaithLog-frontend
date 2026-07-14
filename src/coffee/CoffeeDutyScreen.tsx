@@ -1,4 +1,4 @@
-import {memo, useEffect, useMemo, useState} from 'react';
+import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -149,6 +149,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
     formatLocalDateTimeInput(new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)),
   );
   const [createState, setCreateState] = useState<CoffeePollCreateState>({status: 'idle'});
+  const createPollInFlight = useRef(false);
   const [accountForm, setAccountForm] = useState<CoffeeAccountForm>(emptyCoffeeAccountForm);
   const [accountSaveState, setAccountSaveState] = useState<CoffeeAccountSaveState>({status: 'idle'});
   const [accountDeleteState, setAccountDeleteState] = useState<CoffeeAccountDeleteState>({status: 'idle'});
@@ -261,7 +262,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   );
 
   const createCoffeePoll = async () => {
-    if (loadState.status !== 'ready' || createState.status === 'creating') {
+    if (loadState.status !== 'ready' || createPollInFlight.current) {
       return;
     }
 
@@ -292,6 +293,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       return;
     }
 
+    createPollInFlight.current = true;
     setCreateState({status: 'creating'});
 
     try {
@@ -330,6 +332,8 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       await load();
     } catch (error) {
       setCreateState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+    } finally {
+      createPollInFlight.current = false;
     }
   };
 

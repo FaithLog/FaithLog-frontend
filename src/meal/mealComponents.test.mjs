@@ -297,6 +297,13 @@ describe('MEAL component behavior', () => {
     expect(optionToggle.props.accessibilityRole).toBe('switch');
     expect(optionToggle.props.accessibilityState).toEqual({checked: true, disabled: false});
 
+    const addOptionButton = findByLabel(renderer, '밥 투표 선택지 추가');
+    expect(addOptionButton.props.style({pressed: false})).toEqual(expect.arrayContaining([
+      expect.objectContaining({height: 48}),
+    ]));
+    expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.style({pressed: false})).toEqual(
+      expect.arrayContaining([expect.objectContaining({height: 48, width: 48})]),
+    );
     expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.disabled).toBe(true);
     expect(findByLabel(renderer, '2번 밥 투표 선택지 삭제').props.disabled).toBe(true);
     await change(renderer, '밥 투표 선택지 1', '제육볶음');
