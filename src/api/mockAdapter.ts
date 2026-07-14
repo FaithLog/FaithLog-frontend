@@ -754,7 +754,7 @@ function resolveMockData(
     }
     if (route.searchParams.get('paymentCategory') === 'MEAL') {
       return mockForbidden(
-        'MEAL_SETTLEMENT_DUTY_REQUIRED',
+        'BILLING_CHARGE_LIST_FORBIDDEN',
         '밥 정산은 활성 밥 담당자 전용 화면에서 확인해 주세요.',
       );
     }
@@ -780,7 +780,7 @@ function resolveMockData(
     }
     if (route.searchParams.get('paymentCategory') === 'MEAL') {
       return mockForbidden(
-        'MEAL_SETTLEMENT_DUTY_REQUIRED',
+        'BILLING_CHARGE_LIST_FORBIDDEN',
         '밥 정산은 활성 밥 담당자 전용 화면에서 확인해 주세요.',
       );
     }
@@ -800,7 +800,7 @@ function resolveMockData(
     const canonical = findMockCanonicalAdminCharge(chargeItemId);
     if (!canonical) return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
     if (canonical.charge.paymentCategory === 'MEAL') {
-      return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
+      return mockNotFound('BILLING_CHARGE_ITEM_NOT_FOUND', '청구를 찾을 수 없습니다.');
     }
     const denied = authorizeMealAdmin(mealActor, canonical.campusId);
     if (denied) return denied;

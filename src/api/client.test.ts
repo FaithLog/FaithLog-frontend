@@ -1256,6 +1256,29 @@ describe('FaithLog API client', () => {
     expect(requestUrl.searchParams.get('status')).toBe('UNPAID');
   });
 
+  it('rejects generic Admin MEAL reads and mutations with canonical backend codes before dispatch', async () => {
+    const attempts = [
+      () => fetchAdminCampusCharges('access-token', 2, {paymentCategory: 'MEAL'}),
+      () => fetchAdminCampusChargesForMyAccounts('access-token', 2, {paymentCategory: 'MEAL'}),
+      () => fetchAdminMemberCharges('access-token', 2, 7, {paymentCategory: 'MEAL'}),
+    ];
+    for (const attempt of attempts) {
+      await expect(attempt()).rejects.toMatchObject({detail: {
+        code: 'BILLING_CHARGE_LIST_FORBIDDEN',
+        kind: 'permissionDenied',
+        status: 403,
+      }});
+    }
+    await expect(changeAdminChargeStatus('access-token', 501, 'CANCELED', {
+      campusId: 2, userId: 7, paymentCategory: 'MEAL',
+    })).rejects.toMatchObject({detail: {
+      code: 'BILLING_CHARGE_ITEM_NOT_FOUND',
+      kind: 'error',
+      status: 404,
+    }});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([
     'createdAt',
     'userId',

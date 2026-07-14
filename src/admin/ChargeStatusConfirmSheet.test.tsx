@@ -48,12 +48,13 @@ describe('ChargeStatusConfirmSheet', () => {
   });
 
   it('keeps large content scrollable while actions stay fixed and focuses the title', async () => {
+    const onCancel = vi.fn();
     let renderer: ReturnType<typeof create>;
     await act(async () => {
       renderer = create(<ChargeStatusConfirmSheet
         error={{kind: 'conflict', message: '최신 상태를 다시 확인해 주세요.'}}
         loading={false}
-        onCancel={vi.fn()}
+        onCancel={onCancel}
         onConfirm={vi.fn()}
         target={{
           charge: {
@@ -74,8 +75,30 @@ describe('ChargeStatusConfirmSheet', () => {
     const scroll = renderer!.root.findByType(ScrollView);
     expect(scroll.findAllByType(Button)).toHaveLength(0);
     expect(renderer!.root.findAllByType(Button)).toHaveLength(2);
-    expect(renderer!.root.findAll((node) => node.type === View && node.props.style?.maxHeight === '90%')).toHaveLength(1);
+    const sheet = renderer!.root.findAll((node) => node.type === View && node.props.style?.maxHeight === '90%')[0]!;
     expect(renderer!.root.findByType(Modal).props.accessibilityViewIsModal).toBe(true);
+    expect(renderer!.root.findByType(Modal).props.onAccessibilityEscape).toBeUndefined();
+    await act(async () => sheet.props.onAccessibilityEscape());
+    expect(onCancel).toHaveBeenCalledTimes(1);
     expect(native.focus).toHaveBeenCalledWith(91);
+  });
+
+  it('does not expose an accessibility escape action while the mutation is busy', async () => {
+    const onCancel = vi.fn();
+    let renderer: ReturnType<typeof create>;
+    await act(async () => {
+      renderer = create(<ChargeStatusConfirmSheet
+        error={null}
+        loading
+        onCancel={onCancel}
+        onConfirm={vi.fn()}
+        target={{
+          charge: {id: 501, paymentCategory: 'PENALTY', title: '벌금', amount: 1000, status: 'UNPAID'},
+          status: 'PAID',
+        }} />, {createNodeMock: () => ({})});
+    });
+    const sheet = renderer!.root.findAll((node) => node.type === View && node.props.style?.maxHeight === '90%')[0]!;
+    expect(sheet.props.onAccessibilityEscape).toBeUndefined();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });

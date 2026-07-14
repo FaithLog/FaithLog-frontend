@@ -62,12 +62,14 @@ export function ChargeStatusConfirmSheet({
     <Modal
       accessibilityViewIsModal
       animationType="slide"
-      onAccessibilityEscape={loading ? undefined : onCancel}
       onRequestClose={loading ? undefined : onCancel}
       transparent
       visible={visible}>
       <View style={styles.backdrop}>
-        <View accessibilityViewIsModal style={styles.sheet}>
+        <View
+          accessibilityViewIsModal
+          onAccessibilityEscape={loading ? undefined : onCancel}
+          style={styles.sheet}>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"

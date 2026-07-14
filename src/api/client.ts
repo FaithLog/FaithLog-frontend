@@ -2627,7 +2627,9 @@ function createGenericAdminMealError(status: 403 | 404) {
   return new FaithLogApiError({
     kind: status === 403 ? 'permissionDenied' : 'error',
     status,
-    code: status === 403 ? 'MEAL_SETTLEMENT_DUTY_REQUIRED' : 'CHARGE_NOT_FOUND',
+    code: status === 403
+      ? 'BILLING_CHARGE_LIST_FORBIDDEN'
+      : 'BILLING_CHARGE_ITEM_NOT_FOUND',
     message: status === 403
       ? '밥 정산은 활성 밥 담당자 전용 화면에서 확인해 주세요.'
       : '청구를 찾을 수 없습니다.',

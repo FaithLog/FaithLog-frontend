@@ -259,6 +259,12 @@ describe('FaithLog mock API adapter', () => {
     ]);
     expect(summaryResponse.status).toBe(403);
     expect(detailResponse.status).toBe(403);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      code: 'BILLING_CHARGE_LIST_FORBIDDEN',
+    });
+    await expect(detailResponse.json()).resolves.toMatchObject({
+      code: 'BILLING_CHARGE_LIST_FORBIDDEN',
+    });
     const generic = await fetchAdminMemberCharges(
       mealMockAccessTokens.nonDutyAdmin, 1, 8,
     );
@@ -568,7 +574,11 @@ describe('FaithLog mock API adapter', () => {
     expect(settlement.members).toContainEqual(
       expect.objectContaining({userId: 8, unpaidAmount: 8_000}),
     );
-    await expect(patchMockAdminChargeStatus(charge.id, 'PAID')).resolves.toMatchObject({status: 404});
+    const mutationResponse = await patchMockAdminChargeStatus(charge.id, 'PAID');
+    expect(mutationResponse.status).toBe(404);
+    await expect(mutationResponse.json()).resolves.toMatchObject({
+      code: 'BILLING_CHARGE_ITEM_NOT_FOUND',
+    });
   });
 
   it('returns parser-compatible options when mock poll templates are created and updated', async () => {
