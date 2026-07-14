@@ -181,7 +181,7 @@ export function DutyActionButton({
       accessibilityRole="button"
       accessibilityState={{busy, disabled: unavailable, selected}}
       disabled={unavailable}
-      hitSlop={4}
+      hitSlop={compact ? 8 : 4}
       onPress={onPress}
       style={({pressed}) => [
         dutyStyles.actionButton,
@@ -312,7 +312,13 @@ export const dutyStyles = StyleSheet.create({
   },
   campusContext: {alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8, minWidth: 0},
   campusText: {color: colors.textSecondary, fontSize: 13, fontWeight: '700', lineHeight: 18},
-  compactActionButton: {flexShrink: 0},
+  compactActionButton: {
+    alignSelf: 'flex-start',
+    flexShrink: 0,
+    minHeight: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
   content: {gap: spacing.card, paddingBottom: 130},
   contextText: {color: colors.textSecondary, flexShrink: 1, fontSize: 13, fontWeight: '600'},
   dangerActionButton: {backgroundColor: colors.danger},

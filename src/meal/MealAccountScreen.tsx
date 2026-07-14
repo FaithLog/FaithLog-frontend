@@ -230,6 +230,7 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
         action={(
           <DutyActionButton
             accessibilityLabel="밥 계좌 추가 페이지 열기"
+            compact
             label="계좌 추가"
             onPress={() => {
               setActionError(null);

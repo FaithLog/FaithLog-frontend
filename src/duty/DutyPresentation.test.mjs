@@ -159,6 +159,29 @@ describe('shared duty presentation', () => {
     expect(button.props.hitSlop).toBe(4);
     expect(button.props.accessibilityState).toEqual({busy: true, disabled: true, selected: true});
   });
+
+  it('fits a compact duty action to its label while preserving a 48 point touch target', () => {
+    let renderer;
+    act(() => {
+      renderer = create(React.createElement(DutyActionButton, {
+        accessibilityLabel: '컴팩트 작업',
+        compact: true,
+        label: '계좌 추가',
+        onPress: vi.fn(),
+      }));
+    });
+    const button = renderer.root.findAllByType('Pressable')
+      .find((node) => node.props.accessibilityLabel === '컴팩트 작업');
+    const style = Object.assign({}, ...button.props.style({pressed: false}).filter(Boolean));
+    expect(style).toMatchObject({
+      alignSelf: 'flex-start',
+      flexShrink: 0,
+      minHeight: 32,
+      paddingVertical: 4,
+    });
+    expect(style.flexGrow).toBeUndefined();
+    expect(button.props.hitSlop).toBe(8);
+  });
 });
 
 function rendered(renderer) {

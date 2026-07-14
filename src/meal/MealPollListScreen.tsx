@@ -72,7 +72,7 @@ export function MealPollListScreen({
         eyebrow="밥 투표 관리"
         title="투표 목록"
       />
-      <DutyActionButton accessibilityLabel="밥 투표 목록 새로고침" label="새로고침" onPress={() => void load()} />
+      <DutyActionButton accessibilityLabel="밥 투표 목록 새로고침" compact label="새로고침" onPress={() => void load()} />
       {state.status === 'loading' ? <MealLoading label="밥 투표를 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
       {state.status === 'empty' ? (

@@ -7,7 +7,9 @@ import {describe, expect, it} from 'vitest';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const mealScreen = fs.readFileSync(path.join(directory, 'MealDutyScreen.tsx'), 'utf8');
 const mealPollCreate = fs.readFileSync(path.join(directory, 'MealPollCreateScreen.tsx'), 'utf8');
+const mealPollList = fs.readFileSync(path.join(directory, 'MealPollListScreen.tsx'), 'utf8');
 const mealAccount = fs.readFileSync(path.join(directory, 'MealAccountScreen.tsx'), 'utf8');
+const mealSettlement = fs.readFileSync(path.join(directory, 'MealSettlementScreen.tsx'), 'utf8');
 const coffeeScreen = fs.readFileSync(
   path.join(directory, '..', 'coffee', 'CoffeeDutyScreen.tsx'),
   'utf8',
@@ -58,5 +60,26 @@ describe('meal and coffee duty layout parity', () => {
     expect(coffeeScreen).toContain('<DutyAccountRegistrationForm');
     expect(mealAccount).toContain('<DutyAccountRegistrationForm');
     expect(coffeeScreen).not.toContain('placeholder="3333-33-333333"');
+  });
+
+  it('keeps account-add and refresh header actions compact in both duty domains', () => {
+    expect(mealAccount).toMatch(
+      /accessibilityLabel="밥 계좌 추가 페이지 열기"[\s\S]*?compact[\s\S]*?label="계좌 추가"/,
+    );
+    expect(coffeeScreen).toMatch(
+      /accessibilityLabel="커피 계좌 추가 페이지 열기"[\s\S]*?compact[\s\S]*?label="계좌 추가"/,
+    );
+    expect(coffeeScreen).toMatch(
+      /accessibilityLabel="커피 정산 새로고침"[\s\S]*?compact[\s\S]*?label="새로고침"/,
+    );
+    expect(coffeeScreen).toMatch(
+      /accessibilityLabel="커피 투표 목록 새로고침"[\s\S]*?compact[\s\S]*?label="새로고침"/,
+    );
+    expect(mealPollList).toMatch(
+      /accessibilityLabel="밥 투표 목록 새로고침"[\s\S]*?compact[\s\S]*?label="새로고침"/,
+    );
+    expect(mealSettlement).toMatch(
+      /accessibilityLabel="밥 정산 새로고침"[\s\S]*?compact[\s\S]*?label="새로고침"/,
+    );
   });
 });

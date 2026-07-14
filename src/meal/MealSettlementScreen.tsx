@@ -178,7 +178,7 @@ export function MealSettlementScreen({
       <DutySectionHeader
         action={(
           <DutyActionRow>
-            <DutyActionButton accessibilityLabel="밥 정산 새로고침" label="새로고침" onPress={() => void load()} />
+            <DutyActionButton accessibilityLabel="밥 정산 새로고침" compact label="새로고침" onPress={() => void load()} />
             <DutyActionButton
               accessibilityLabel="밥 전체 미납 알림 보내기 확인 열기"
               busy={reminderState.status === 'sending'}

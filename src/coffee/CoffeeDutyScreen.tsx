@@ -627,7 +627,7 @@ function CoffeeSettlementSummary({
       <DutySectionHeader
         action={(
           <DutyActionRow>
-            <DutyActionButton accessibilityLabel="커피 정산 새로고침" label="새로고침" onPress={onRefresh} />
+            <DutyActionButton accessibilityLabel="커피 정산 새로고침" compact label="새로고침" onPress={onRefresh} />
             <DutyActionButton
               accessibilityLabel="커피 전체 미납 알림 보내기 확인 열기"
               busy={reminderState.status === 'sending'}
@@ -767,6 +767,7 @@ function CoffeeAccountManagement({
           action={(
             <DutyActionButton
               accessibilityLabel="커피 계좌 추가 페이지 열기"
+              compact
               label="계좌 추가"
               onPress={() => setAccountPage('create')}
               variant="primary"
@@ -1312,7 +1313,7 @@ function CoffeePollManagement({
   return (
     <DutyPageSection>
       <DutySectionHeader
-        action={<DutyActionButton accessibilityLabel="커피 투표 목록 새로고침" label="새로고침" onPress={loadPolls} />}
+        action={<DutyActionButton accessibilityLabel="커피 투표 목록 새로고침" compact label="새로고침" onPress={loadPolls} />}
         description="커피 투표만 관리합니다. 일반 투표와 반복 템플릿은 관리자 화면에서 처리합니다."
         eyebrow="투표 관리"
         title="커피 투표 현황"
