@@ -46,7 +46,20 @@ import {
 import {colors, spacing} from '../theme';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
-import {DutyAsyncState, DutyPageScaffold} from '../duty/DutyPresentation';
+import {
+  DutyDateTimeField,
+  DutyPollCreateHeader,
+  DutyPollCreateShell,
+  DutyPollTypeCard,
+  DutyToggleField,
+} from '../duty/DutyPollCreate';
+import {
+  DutyActionButton,
+  DutyActionRow,
+  DutyAsyncState,
+  DutyFormSection,
+  DutyPageScaffold,
+} from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 
 type CoffeeDutyLoadState =
@@ -719,70 +732,47 @@ function CoffeePollCreator({
   const missingOwnedCoffeeAccount = state.accounts.length === 0;
 
   return (
-    <View style={styles.pollCreateShell}>
-      <View style={styles.pollCreateHeader}>
-        <Text style={styles.pollCreateTitle}>커피 투표 생성</Text>
-        <Text style={styles.pollCreateDescription}>
-          메뉴와 마감 시간을 정해 커피 주문 투표를 시작하세요.
-        </Text>
-      </View>
+    <DutyPollCreateShell>
+      <DutyPollCreateHeader
+        description="메뉴와 마감 시간을 정해 커피 주문 투표를 시작하세요."
+        title="커피 투표 생성"
+      />
+      <DutyPollTypeCard
+        description="커피 메뉴 가격으로 정산이 연결되고 사용자 항목 추가가 허용됩니다."
+        iconLabel="커"
+        title="커피 주문"
+      />
 
-      <Card>
-        <View style={styles.pollCreateTypeCardSelected}>
-          <View style={styles.pollCreateTypeIconMint}>
-            <Text style={styles.pollCreateTypeIconTextMint}>커</Text>
-          </View>
-          <View style={styles.headerText}>
-            <Text style={styles.pollCreateTypeTitle}>커피 주문</Text>
-            <Text style={styles.pollCreateTypeDescription}>
-              커피 메뉴 가격으로 정산이 연결되고 사용자 항목 추가가 허용됩니다.
-            </Text>
-          </View>
-          <View style={styles.pollCreateSelectPill}>
-            <Text style={styles.pollCreateSelectPillText}>고정</Text>
-          </View>
-        </View>
-      </Card>
-
-      <Card>
+      <DutyFormSection>
         <Eyebrow>투표 제목</Eyebrow>
         <TextField label="제목" onChangeText={onTitleChange} value={title} />
-      </Card>
+      </DutyFormSection>
 
-      <Card>
-        <Eyebrow>마감 일시</Eyebrow>
-        <Pressable
-          accessibilityLabel="커피 투표 마감 일시 선택"
-          accessibilityRole="button"
-          onPress={() => setDeadlinePickerVisible(true)}
-          style={({pressed}) => [styles.dateTimeSelectCard, pressed ? styles.pressed : null]}>
-          <Text style={styles.dateTimeSelectLabel}>마감 일시</Text>
-          <Text style={styles.dateTimeSelectValue}>
-            {formatDutyDateTimeLabel(
-              parseLocalDateTimeInput(deadlineText)
-                ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS),
-            )}
-          </Text>
-          <Text style={styles.dateTimeSelectHint}>
-            달력과 시간 선택으로 마감 시각을 정합니다.
-          </Text>
-        </Pressable>
-        <DutyDateTimePickerModal
-          minimumDate={new Date()}
-          onApply={(value) => {
-            onDeadlineChange(formatLocalDateTimeInput(value));
-            setDeadlinePickerVisible(false);
-          }}
-          onClose={() => setDeadlinePickerVisible(false)}
-          value={
-            parseLocalDateTimeInput(deadlineText)
-              ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)
-          }
-          visible={deadlinePickerVisible}
-        />
-      </Card>
+      <DutyDateTimeField
+        accessibilityLabel="커피 투표 마감 일시 선택"
+        disabled={busy}
+        label="마감 일시"
+        onPress={() => setDeadlinePickerVisible(true)}
+        value={formatDutyDateTimeLabel(
+          parseLocalDateTimeInput(deadlineText)
+            ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS),
+        )}
+      />
+      <DutyDateTimePickerModal
+        minimumDate={new Date()}
+        onApply={(value) => {
+          onDeadlineChange(formatLocalDateTimeInput(value));
+          setDeadlinePickerVisible(false);
+        }}
+        onClose={() => setDeadlinePickerVisible(false)}
+        value={
+          parseLocalDateTimeInput(deadlineText)
+            ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)
+        }
+        visible={deadlinePickerVisible}
+      />
 
-      <Card>
+      <DutyFormSection>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Eyebrow>선택지</Eyebrow>
@@ -839,9 +829,9 @@ function CoffeePollCreator({
             ) : null}
           </View>
         )}
-      </Card>
+      </DutyFormSection>
 
-      <Card>
+      <DutyFormSection>
         <Eyebrow>청구 계좌</Eyebrow>
         {missingOwnedCoffeeAccount ? (
           <>
@@ -879,26 +869,16 @@ function CoffeePollCreator({
             })}
           </View>
         )}
-      </Card>
+      </DutyFormSection>
 
-      <Card>
-        <Pressable
-          accessibilityLabel="커피 투표 사용자 항목 추가 허용"
-          accessibilityRole="switch"
-          accessibilityState={{checked: true}}
-          disabled={true}
-          style={styles.pollCreateToggleRow}>
-          <View style={styles.headerText}>
-            <Text style={styles.pollCreateTypeTitle}>일반 사용자 항목 추가</Text>
-            <Text style={styles.pollCreateTypeDescription}>
-              커피 투표는 사용자가 필요한 커피 항목을 추가할 수 있게 고정합니다.
-            </Text>
-          </View>
-          <View style={[styles.pollCreateToggle, styles.pollCreateToggleActive]}>
-            <Text style={[styles.pollCreateToggleText, styles.pollCreateToggleTextActive]}>ON</Text>
-          </View>
-        </Pressable>
-      </Card>
+      <DutyToggleField
+        accessibilityLabel="커피 투표 사용자 항목 추가 허용"
+        checked
+        description="커피 투표는 사용자가 필요한 커피 항목을 추가할 수 있게 고정합니다."
+        disabled
+        onPress={() => undefined}
+        title="일반 사용자 항목 추가"
+      />
 
       {createState.status === 'success' ? (
         <View style={styles.successBox}>
@@ -907,23 +887,17 @@ function CoffeePollCreator({
       ) : null}
       {createState.status === 'error' ? <CoffeeInlineError message={createState.message} /> : null}
 
-      <View style={styles.pollCreateCtaRow}>
-        <Pressable
+      <DutyActionRow>
+        <DutyActionButton
           accessibilityLabel="커피 주문 투표 생성"
-          accessibilityRole="button"
-          disabled={busy || missingOwnedCoffeeAccount}
+          busy={busy}
+          disabled={missingOwnedCoffeeAccount}
+          label={busy ? '생성 중...' : '투표 생성'}
           onPress={onCreate}
-          style={({pressed}) => [
-            styles.pollCreatePrimaryAction,
-            busy || missingOwnedCoffeeAccount ? styles.pollCreateActionDisabled : null,
-            pressed ? styles.pressed : null,
-          ]}>
-          <Text style={styles.pollCreatePrimaryActionText}>
-            {busy ? '생성 중...' : '투표 생성'}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+          variant="primary"
+        />
+      </DutyActionRow>
+    </DutyPollCreateShell>
   );
 }
 

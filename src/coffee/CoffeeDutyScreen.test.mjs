@@ -242,7 +242,9 @@ async function press(renderer, label) {
 }
 
 function findByLabel(renderer, label) {
-  return renderer.root.findByProps({accessibilityLabel: label});
+  const matches = renderer.root.findAll((node) => node.props.accessibilityLabel === label);
+  if (matches.length === 0) throw new Error(`No node found for ${label}`);
+  return matches.find((node) => typeof node.type === 'string') ?? matches[0];
 }
 
 function rendered(renderer) {

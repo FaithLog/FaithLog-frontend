@@ -1106,7 +1106,9 @@ function rendered(renderer) {
 }
 
 function findByLabel(renderer, accessibilityLabel) {
-  return renderer.root.find((node) => node.props.accessibilityLabel === accessibilityLabel);
+  const matches = renderer.root.findAll((node) => node.props.accessibilityLabel === accessibilityLabel);
+  if (matches.length === 0) throw new Error(`No node found for ${accessibilityLabel}`);
+  return matches.find((node) => typeof node.type === 'string') ?? matches[0];
 }
 
 function findByType(renderer, type, prop) {
