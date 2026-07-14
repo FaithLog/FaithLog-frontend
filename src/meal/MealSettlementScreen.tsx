@@ -1,7 +1,8 @@
-import {useCallback, useEffect, useState} from 'react';
+import {memo, useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 
 import {Button, Card, Chip, Empty, Eyebrow, Title} from '../components/ui';
+import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
 import {formatWon} from '../utils/money';
 import {mealApi, type MealApi} from './mealApi';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
@@ -34,6 +35,11 @@ export function MealSettlementScreen({
 }: MealSettlementScreenProps) {
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-settlement`);
   const [state, setState] = useState<MealLoadState<MealSettlement>>({status: 'loading'});
+  const memberCount = state.status === 'success' ? state.data.members.length : 0;
+  const memberProgress = useProgressiveRendering(
+    memberCount,
+    `${campusId}:${currentUserId}`,
+  );
 
   const load = useCallback(async () => {
     setState({status: 'loading'});
@@ -78,18 +84,14 @@ export function MealSettlementScreen({
             <Text style={mealStyles.meta}>미납 {formatWon(state.data.summary.unpaidAmount)} · 납부 {formatWon(state.data.summary.paidAmount)}</Text>
             <Text style={mealStyles.meta}>면제 {formatWon(state.data.summary.waivedAmount)} · 취소 {formatWon(state.data.summary.canceledAmount)}</Text>
           </Card>
-          {state.data.members.map((member) => (
-            <Card key={member.userId}>
-              <View style={mealStyles.rowBetween}>
-                <View style={{flex: 1}}>
-                  <Title>{member.name}</Title>
-                  <Text style={mealStyles.meta}>{member.email}</Text>
-                </View>
-                <Chip label={formatWon(member.totalAmount)} tone="info" />
-              </View>
-              <Text style={mealStyles.meta}>미납 {formatWon(member.unpaidAmount)} · 납부 {formatWon(member.paidAmount)} · 면제 {formatWon(member.waivedAmount)} · 취소 {formatWon(member.canceledAmount)}</Text>
-            </Card>
+          {getProgressiveItems(state.data.members, memberProgress.limit).map((member) => (
+            <MemoizedMealSettlementMemberRow key={member.userId} member={member} />
           ))}
+          {memberProgress.hasMore ? (
+            <Button accessibilityLabel="밥 정산 멤버 더 보기" onPress={memberProgress.showMore} variant="secondary">
+              멤버 더 보기
+            </Button>
+          ) : null}
         </>
       ) : null}
       {showBackButton ? (
@@ -98,3 +100,22 @@ export function MealSettlementScreen({
     </View>
   );
 }
+
+const MemoizedMealSettlementMemberRow = memo(function MemoizedMealSettlementMemberRow({
+  member,
+}: {
+  member: MealSettlement['members'][number];
+}) {
+  return (
+    <Card>
+      <View style={mealStyles.rowBetween}>
+        <View style={{flex: 1}}>
+          <Title>{member.name}</Title>
+          <Text style={mealStyles.meta}>{member.email}</Text>
+        </View>
+        <Chip label={formatWon(member.totalAmount)} tone="info" />
+      </View>
+      <Text style={mealStyles.meta}>미납 {formatWon(member.unpaidAmount)} · 납부 {formatWon(member.paidAmount)} · 면제 {formatWon(member.waivedAmount)} · 취소 {formatWon(member.canceledAmount)}</Text>
+    </Card>
+  );
+});

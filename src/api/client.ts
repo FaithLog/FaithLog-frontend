@@ -2519,6 +2519,9 @@ export function fetchAdminCampusCharges(
   campusId: unknown,
   params: AdminCampusChargeQueryParams = {},
 ) {
+  if (params.paymentCategory === 'MEAL') {
+    return Promise.reject(createGenericAdminMealError(403));
+  }
   const query = toSafeAdminCampusChargeQuery(params);
 
   return apiRequest<AdminCampusChargeSummary>(
@@ -2532,6 +2535,9 @@ export function fetchAdminCampusChargesForMyAccounts(
   campusId: unknown,
   params: AdminCampusChargeQueryParams = {},
 ) {
+  if (params.paymentCategory === 'MEAL') {
+    return Promise.reject(createGenericAdminMealError(403));
+  }
   const query = toSafeAdminCampusChargeQuery(params);
 
   return apiRequest<AdminCampusChargeSummary>(
@@ -2552,6 +2558,9 @@ export function fetchAdminMemberCharges(
     status?: ChargeStatus | 'ALL';
   } = {},
 ) {
+  if (params.paymentCategory === 'MEAL') {
+    return Promise.reject(createGenericAdminMealError(403));
+  }
   const query = toSafeChargeListQuery(params);
 
   return apiRequest<AdminMemberChargeList>(
@@ -2575,6 +2584,9 @@ export async function changeAdminChargeStatus(
     userId: number;
   },
 ) {
+  if (expected.paymentCategory === 'MEAL') {
+    throw createGenericAdminMealError(404);
+  }
   const body = buildAdminChargeStatusChangeRequest(status);
   const requestedChargeItemId = toPositiveIntegerPathSegment(
     chargeItemId,
@@ -2609,6 +2621,17 @@ export async function changeAdminChargeStatus(
       method: 'PATCH',
     },
   );
+}
+
+function createGenericAdminMealError(status: 403 | 404) {
+  return new FaithLogApiError({
+    kind: status === 403 ? 'permissionDenied' : 'error',
+    status,
+    code: status === 403 ? 'MEAL_SETTLEMENT_DUTY_REQUIRED' : 'CHARGE_NOT_FOUND',
+    message: status === 403
+      ? '밥 정산은 활성 밥 담당자 전용 화면에서 확인해 주세요.'
+      : '청구를 찾을 수 없습니다.',
+  });
 }
 
 export function fetchAdminMissingDevotionMembers(

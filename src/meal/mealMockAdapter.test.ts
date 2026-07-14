@@ -149,20 +149,28 @@ describe('MEAL mock adapter flow', () => {
       accountNumber: '1002-000-000000',
       accountHolder: '샘플 사용자',
     };
-    await expect(
-      mealApi.createPaymentAccount('mock-access-token', 1, 7, newAccount),
-    ).rejects.toMatchObject({detail: {status: 409}});
-
-    await mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, 10);
-    await mealApi.createPaymentAccount('mock-access-token', 1, 7, newAccount);
+    const replaced = await mealApi.createPaymentAccount(
+      'mock-access-token',
+      1,
+      7,
+      newAccount,
+    );
     const afterCreate = await mealApi.getMyPaymentAccounts('mock-access-token', 1, 7, true);
     expect(afterCreate.filter((account) => account.isActive)).toEqual([
       expect.objectContaining({nickname: '저녁 계좌'}),
     ]);
-    await mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, afterCreate[0]?.id ?? 0);
+    expect(afterCreate).toContainEqual(
+      expect.objectContaining({id: 10, isActive: false}),
+    );
+    const deactivated = await mealApi.deactivatePaymentAccount(
+      'mock-access-token',
+      1,
+      7,
+      replaced.id,
+    );
     await expect(
-      mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, afterCreate[0]?.id ?? 0),
-    ).rejects.toMatchObject({detail: {status: 409}});
+      mealApi.deactivatePaymentAccount('mock-access-token', 1, 7, replaced.id),
+    ).resolves.toEqual(deactivated);
   });
 
   it('adds a user MEAL option without auto-selecting it, then allows a separate response', async () => {

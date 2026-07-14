@@ -13,6 +13,17 @@ describe('admin member duty production layout', () => {
     expect(source).toContain('<AdminMealDutyManagement');
   });
 
+  it('bounds and memoizes coffee and meal duty rows without nesting a virtualized list', () => {
+    expect(source).toContain('MemoizedCoffeeDutyMemberRow');
+    expect(source).toContain('MemoizedMealDutyMemberRow');
+    expect(source).toContain('accessibilityLabel="커피 담당 멤버 더 보기"');
+    expect(source).toContain('accessibilityLabel="밥 담당 멤버 더 보기"');
+    const coffeePage = source.slice(source.indexOf('function AdminCoffeeDutyManagement'), source.indexOf('function AdminMealDutyManagement'));
+    const mealPage = source.slice(source.indexOf('function AdminMealDutyManagement'), source.indexOf('function InviteCodeCopyRow'));
+    expect(coffeePage).not.toContain('<FlatList');
+    expect(mealPage).not.toContain('<FlatList');
+  });
+
   it('passes active duty assignments to both the route-level list and regular member list', () => {
     expect(source).toMatch(/<AdminMemberListRoute[\s\S]*duties=\{loadState\.duties\}/);
     expect(source).toMatch(/<AdminMemberPage[\s\S]*activeMealDuties=\{activeMealDuties\}/);

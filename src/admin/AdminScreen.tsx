@@ -135,8 +135,6 @@ import {AdminWeeklyDevotionSection} from './AdminWeeklyDevotionSection';
 import {
   createAdminChargeMutationGate,
   getAdminChargeStatusActions,
-  getAdminChargeStatusConfirmation,
-  getAdminChargeStatusErrorMessage,
 } from './adminChargeStatus';
 import {
   applyAdminChargeFilterChange,
@@ -185,6 +183,11 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
+import {
+  ChargeStatusConfirmSheet,
+  type ChargeStatusConfirmTarget,
+} from './ChargeStatusConfirmSheet';
 import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
@@ -255,7 +258,7 @@ type AdminPrayerManagementSection = 'status' | 'groups' | 'period';
 type AdminPrayerGroupFlow = 'list' | 'details' | 'members';
 type AdminCompactButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type ChargeStatusFilter = ChargeStatus | 'ALL';
-type PaymentCategoryFilter = PaymentCategory | 'ALL';
+type PaymentCategoryFilter = PaymentAccountCategory | 'ALL';
 type AdminSettlementSection = 'charges' | 'accounts' | 'penaltyRules';
 type NotificationSendStatusFilter = AdminNotificationSendStatus | 'ALL';
 type NotificationTypeFilter = AdminNotificationType | 'ALL';
@@ -386,10 +389,7 @@ type AdminChargeFilters = {
   userId: string;
 };
 
-type ChargeStatusConfirm = {
-  charge: ChargeItem;
-  status: AdminChargeStatusTarget;
-} | null;
+type ChargeStatusConfirm = ChargeStatusConfirmTarget;
 
 type PaymentAccountState =
   | {status: 'idle'}
@@ -499,7 +499,6 @@ const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
 const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
   {id: 'PENALTY', label: '벌금'},
   {id: 'COFFEE', label: '커피'},
-  {id: 'MEAL', label: '밥'},
 ];
 
 const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
@@ -10234,6 +10233,7 @@ function AdminMemberPage({
       ) : section === 'coffee' ? (
         <AdminCoffeeDutyManagement
           actionState={actionState}
+          campusId={campusId}
           coffeeDuty={coffeeDuty}
           members={members}
           onAssignCoffee={onAssignCoffee}
@@ -10243,6 +10243,7 @@ function AdminMemberPage({
         <AdminMealDutyManagement
           actionState={actionState}
           activeMealDuties={activeMealDuties}
+          campusId={campusId}
           members={members}
           onAssignMeal={onAssignMeal}
           onRevokeMeal={onRevokeMeal}
@@ -10445,18 +10446,29 @@ const MemoizedMemberRow = memo(function MemoizedMemberRow({
 
 function AdminCoffeeDutyManagement({
   actionState,
+  campusId,
   coffeeDuty,
   members,
   onAssignCoffee,
   onRevokeCoffee,
 }: {
   actionState: AdminActionState;
+  campusId: number;
   coffeeDuty: DutyAssignment | null;
   members: AdminCampusMember[];
   onAssignCoffee: (member: AdminCampusMember) => void;
   onRevokeCoffee: (assignment: DutyAssignment) => void;
 }) {
   const busy = actionState.status !== 'idle';
+  const progress = useProgressiveRendering(members.length, `coffee:${campusId}`);
+  const assignRef = useRef(onAssignCoffee);
+  const revokeRef = useRef(onRevokeCoffee);
+  useLayoutEffect(() => {
+    assignRef.current = onAssignCoffee;
+    revokeRef.current = onRevokeCoffee;
+  }, [onAssignCoffee, onRevokeCoffee]);
+  const assign = useCallback((member: AdminCampusMember) => assignRef.current(member), []);
+  const revoke = useCallback((assignment: DutyAssignment) => revokeRef.current(assignment), []);
 
   return (
     <>
@@ -10471,41 +10483,20 @@ function AdminCoffeeDutyManagement({
       </Card>
       <Card>
         <Eyebrow>담당자 지정</Eyebrow>
-        {members.map((member) => {
-          const assigned = coffeeDuty?.userId === member.userId;
-
-          return (
-            <View key={member.membershipId} style={styles.roleRow}>
-              <View style={styles.roleRowHeader}>
-                <Avatar name={member.name} role={member.campusRole} />
-                <View style={styles.headerText}>
-                  <Text style={styles.memberName}>{member.name}</Text>
-                  <Text style={styles.memberMeta}>{member.email}</Text>
-                </View>
-                <Chip label={assigned ? '담당' : member.campusRole} tone={assigned ? 'success' : 'default'} />
-              </View>
-              <View style={styles.actionRow}>
-                {assigned && coffeeDuty ? (
-                  <Button
-                    accessibilityLabel={`${member.name} 커피 담당자 해제`}
-                    disabled={busy}
-                    onPress={() => onRevokeCoffee(coffeeDuty)}
-                    variant="danger">
-                    {actionState.status === 'revokingCoffee' ? '해제 중...' : '해제'}
-                  </Button>
-                ) : (
-                  <Button
-                    accessibilityLabel={`${member.name} 커피 담당자로 지정`}
-                    disabled={busy}
-                    onPress={() => onAssignCoffee(member)}
-                    variant="secondary">
-                    {actionState.status === 'assigningCoffee' ? '지정 중...' : '지정'}
-                  </Button>
-                )}
-              </View>
-            </View>
-          );
-        })}
+        {getProgressiveItems(members, progress.limit).map((member) => (
+          <MemoizedCoffeeDutyMemberRow
+            actionState={actionState}
+            busy={busy}
+            coffeeDuty={coffeeDuty}
+            key={member.membershipId}
+            member={member}
+            onAssign={assign}
+            onRevoke={revoke}
+          />
+        ))}
+        {progress.hasMore ? (
+          <Button accessibilityLabel="커피 담당 멤버 더 보기" onPress={progress.showMore} variant="secondary">멤버 더 보기</Button>
+        ) : null}
       </Card>
     </>
   );
@@ -10514,12 +10505,14 @@ function AdminCoffeeDutyManagement({
 function AdminMealDutyManagement({
   actionState,
   activeMealDuties,
+  campusId,
   members,
   onAssignMeal,
   onRevokeMeal,
 }: {
   actionState: AdminActionState;
   activeMealDuties: DutyAssignment[];
+  campusId: number;
   members: AdminCampusMember[];
   onAssignMeal: (member: AdminCampusMember) => void;
   onRevokeMeal: (assignment: DutyAssignment) => void;
@@ -10528,6 +10521,15 @@ function AdminMealDutyManagement({
   const activeMealDutyByUserId = new Map(
     activeMealDuties.map((assignment) => [assignment.userId, assignment]),
   );
+  const progress = useProgressiveRendering(members.length, `meal:${campusId}`);
+  const assignRef = useRef(onAssignMeal);
+  const revokeRef = useRef(onRevokeMeal);
+  useLayoutEffect(() => {
+    assignRef.current = onAssignMeal;
+    revokeRef.current = onRevokeMeal;
+  }, [onAssignMeal, onRevokeMeal]);
+  const assign = useCallback((member: AdminCampusMember) => assignRef.current(member), []);
+  const revoke = useCallback((assignment: DutyAssignment) => revokeRef.current(assignment), []);
 
   return (
     <>
@@ -10540,54 +10542,106 @@ function AdminMealDutyManagement({
       </Card>
       <Card>
         <Eyebrow>담당자 조회 및 지정</Eyebrow>
-        {members.map((member) => {
+        {getProgressiveItems(members, progress.limit).map((member) => {
           const assignment = activeMealDutyByUserId.get(member.userId) ?? null;
-
-          return (
-            <View key={member.membershipId} style={styles.roleRow}>
-              <View style={styles.roleRowHeader}>
-                <Avatar name={member.name} role={member.campusRole} />
-                <View style={styles.headerText}>
-                  <Text style={styles.memberName}>{member.name}</Text>
-                  <Text style={styles.memberMeta}>{member.email}</Text>
-                </View>
-                <Chip
-                  label={assignment ? '밥 담당' : member.campusRole}
-                  tone={assignment ? 'success' : 'default'}
-                />
-              </View>
-              <View style={styles.actionRow}>
-                {assignment ? (
-                  <Button
-                    accessibilityLabel={`${member.name} 밥 담당자 해제`}
-                    disabled={busy}
-                    onPress={() => onRevokeMeal(assignment)}
-                    variant="danger">
-                    {actionState.status === 'revokingMeal' &&
-                    actionState.assignmentId === assignment.assignmentId
-                      ? '해제 중...'
-                      : '해제'}
-                  </Button>
-                ) : (
-                  <Button
-                    accessibilityLabel={`${member.name} 밥 담당자로 지정`}
-                    disabled={busy}
-                    onPress={() => onAssignMeal(member)}
-                    variant="secondary">
-                    {actionState.status === 'assigningMeal' &&
-                    actionState.userId === member.userId
-                      ? '지정 중...'
-                      : '지정'}
-                  </Button>
-                )}
-              </View>
-            </View>
-          );
+          return <MemoizedMealDutyMemberRow
+            actionState={actionState}
+            assignment={assignment}
+            busy={busy}
+            key={member.membershipId}
+            member={member}
+            onAssign={assign}
+            onRevoke={revoke}
+          />;
         })}
+        {progress.hasMore ? (
+          <Button accessibilityLabel="밥 담당 멤버 더 보기" onPress={progress.showMore} variant="secondary">멤버 더 보기</Button>
+        ) : null}
       </Card>
     </>
   );
 }
+
+const MemoizedCoffeeDutyMemberRow = memo(function MemoizedCoffeeDutyMemberRow({
+  actionState,
+  busy,
+  coffeeDuty,
+  member,
+  onAssign,
+  onRevoke,
+}: {
+  actionState: AdminActionState;
+  busy: boolean;
+  coffeeDuty: DutyAssignment | null;
+  member: AdminCampusMember;
+  onAssign: (member: AdminCampusMember) => void;
+  onRevoke: (assignment: DutyAssignment) => void;
+}) {
+  const assigned = coffeeDuty?.userId === member.userId;
+  return (
+    <View style={styles.roleRow}>
+      <View style={styles.roleRowHeader}>
+        <Avatar name={member.name} role={member.campusRole} />
+        <View style={styles.headerText}>
+          <Text style={styles.memberName}>{member.name}</Text>
+          <Text style={styles.memberMeta}>{member.email}</Text>
+        </View>
+        <Chip label={assigned ? '담당' : member.campusRole} tone={assigned ? 'success' : 'default'} />
+      </View>
+      <View style={styles.actionRow}>
+        {assigned && coffeeDuty ? (
+          <Button accessibilityLabel={`${member.name} 커피 담당자 해제`} disabled={busy} onPress={() => onRevoke(coffeeDuty)} variant="danger">
+            {actionState.status === 'revokingCoffee' ? '해제 중...' : '해제'}
+          </Button>
+        ) : (
+          <Button accessibilityLabel={`${member.name} 커피 담당자로 지정`} disabled={busy} onPress={() => onAssign(member)} variant="secondary">
+            {actionState.status === 'assigningCoffee' ? '지정 중...' : '지정'}
+          </Button>
+        )}
+      </View>
+    </View>
+  );
+});
+
+const MemoizedMealDutyMemberRow = memo(function MemoizedMealDutyMemberRow({
+  actionState,
+  assignment,
+  busy,
+  member,
+  onAssign,
+  onRevoke,
+}: {
+  actionState: AdminActionState;
+  assignment: DutyAssignment | null;
+  busy: boolean;
+  member: AdminCampusMember;
+  onAssign: (member: AdminCampusMember) => void;
+  onRevoke: (assignment: DutyAssignment) => void;
+}) {
+  return (
+    <View style={styles.roleRow}>
+      <View style={styles.roleRowHeader}>
+        <Avatar name={member.name} role={member.campusRole} />
+        <View style={styles.headerText}>
+          <Text style={styles.memberName}>{member.name}</Text>
+          <Text style={styles.memberMeta}>{member.email}</Text>
+        </View>
+        <Chip label={assignment ? '밥 담당' : member.campusRole} tone={assignment ? 'success' : 'default'} />
+      </View>
+      <View style={styles.actionRow}>
+        {assignment ? (
+          <Button accessibilityLabel={`${member.name} 밥 담당자 해제`} disabled={busy} onPress={() => onRevoke(assignment)} variant="danger">
+            {actionState.status === 'revokingMeal' && actionState.assignmentId === assignment.assignmentId ? '해제 중...' : '해제'}
+          </Button>
+        ) : (
+          <Button accessibilityLabel={`${member.name} 밥 담당자로 지정`} disabled={busy} onPress={() => onAssign(member)} variant="secondary">
+            {actionState.status === 'assigningMeal' && actionState.userId === member.userId ? '지정 중...' : '지정'}
+          </Button>
+        )}
+      </View>
+    </View>
+  );
+});
 
 function InviteCodeCopyRow({
   copyState,
@@ -11018,76 +11072,6 @@ function NotificationSentSheet({
           <Button accessibilityLabel="알림 발송 완료 모달 닫기" onPress={onClose}>
             확인
           </Button>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function ChargeStatusConfirmSheet({
-  error,
-  loading,
-  onCancel,
-  onConfirm,
-  target,
-}: {
-  error: ApiError | null;
-  loading: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  target: ChargeStatusConfirm;
-}) {
-  const visible = target !== null;
-  const confirmation = target
-    ? getAdminChargeStatusConfirmation(
-        target.charge,
-        target.status,
-        getAdminChargeContractCapabilities(),
-      )
-    : null;
-
-  return (
-    <Modal
-      animationType="slide"
-      transparent
-      visible={visible}
-      onRequestClose={loading ? undefined : onCancel}>
-      <View style={styles.sheetBackdrop}>
-        <View style={styles.sheet}>
-          <Title>{confirmation?.title ?? '청구 상태 변경'}</Title>
-          {confirmation?.messages.map((message) => (
-            <Body key={message}>{message}</Body>
-          ))}
-          {target ? (
-            <>
-              <ListRow label="현재 상태" value={getChargeStatusLabel(target.charge.status)} />
-              <ListRow label="변경 상태" value={getChargeStatusLabel(target.status)} />
-              <ListRow label="금액" value={formatWon(target.charge.amount)} />
-            </>
-          ) : null}
-          {error ? (
-            <View accessibilityRole="alert" style={styles.inlineError}>
-              <Text style={styles.inlineErrorText}>
-                {getAdminChargeStatusErrorMessage(error)}
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.actionRow}>
-            <Button
-              accessibilityLabel="청구 상태 변경 실행"
-              disabled={loading}
-              onPress={onConfirm}
-              variant={target?.status === 'CANCELED' ? 'danger' : 'primary'}>
-              {loading ? '변경 중...' : '변경'}
-            </Button>
-            <Button
-              accessibilityLabel="청구 상태 변경 취소"
-              disabled={loading}
-              onPress={onCancel}
-              variant="secondary">
-              취소
-            </Button>
-          </View>
         </View>
       </View>
     </Modal>

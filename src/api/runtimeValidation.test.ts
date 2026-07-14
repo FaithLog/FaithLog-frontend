@@ -4,6 +4,7 @@ import {mockDomainFixtures} from './mockFixtures';
 import * as responseParsers from './runtimeValidation';
 import {
   parseAdminDashboardSummary,
+  parseAdminMemberChargeList,
   parseAdminChargeStatusChangeResponse,
   parseAdminNotificationResponse,
   parseCampusDetail,
@@ -605,6 +606,20 @@ describe('runtime API response validation', () => {
     expect(() =>
       parseAdminChargeStatusChangeResponse({...paidResponse, paidAt: null}),
     ).toThrow(INVALID_RESPONSE);
+  });
+
+  it('rejects MEAL charges at generic admin list and status boundaries', () => {
+    expect(() => parseAdminMemberChargeList({
+      ...mockDomainFixtures.admin.memberCharges,
+      items: [{
+        ...mockDomainFixtures.admin.memberCharges.items[0],
+        paymentCategory: 'MEAL',
+      }],
+    })).toThrow(INVALID_RESPONSE);
+    expect(() => parseAdminChargeStatusChangeResponse({
+      ...mockDomainFixtures.admin.chargeStatusChange,
+      paymentCategory: 'MEAL',
+    })).toThrow(INVALID_RESPONSE);
   });
 
   it.each([

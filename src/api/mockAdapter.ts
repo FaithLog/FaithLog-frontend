@@ -365,12 +365,6 @@ function resolveMockData(
     const campusId = getCampusId(path);
     const denied = authorizeMealDuty(mealActor, campusId);
     if (denied) return denied;
-    if (mockMealState.accounts.some((account) => account.campusId === campusId && account.ownerUserId === mealActor?.userId && account.isActive)) {
-      return mockConflict(
-        'MEAL_ACTIVE_ACCOUNT_EXISTS',
-        '기존 활성 MEAL 계좌를 비활성화한 뒤 새 계좌를 등록해 주세요.',
-      );
-    }
     const bodyRecord = toRecord(parseMockJsonBody(body));
     const accountFields = ['nickname', 'bankName', 'accountNumber', 'accountHolder'] as const;
     if (
@@ -379,6 +373,7 @@ function resolveMockData(
     ) {
       return mockBadRequest('MEAL_ACCOUNT_FIELDS_REQUIRED', '계좌 정보를 모두 입력해 주세요.');
     }
+    const createdAt = new Date().toISOString();
     const account: MealPaymentAccount = {
       id: Math.max(0, ...mockMealState.accounts.map((item) => item.id)) + 1,
       campusId,
@@ -389,9 +384,16 @@ function resolveMockData(
       accountNumber: stringField(bodyRecord.accountNumber, '110-000-000000'),
       accountHolder: stringField(bodyRecord.accountHolder, '샘플 사용자'),
       isActive: true,
-      createdAt: new Date().toISOString(),
+      createdAt,
       deactivatedAt: null,
     };
+    mockMealState.accounts = mockMealState.accounts.map((current) =>
+      current.campusId === campusId &&
+      current.ownerUserId === mealActor?.userId &&
+      current.isActive
+        ? {...current, isActive: false, deactivatedAt: createdAt}
+        : current,
+    );
     mockMealState.accounts.unshift(account);
     return account;
   }
@@ -408,9 +410,7 @@ function resolveMockData(
     );
     const account = mockMealState.accounts[index];
     if (!account) return mockNotFound('MEAL_ACCOUNT_NOT_FOUND', '계좌를 찾을 수 없습니다.');
-    if (!account.isActive) {
-      return mockConflict('MEAL_ACCOUNT_ALREADY_INACTIVE', '이미 비활성화된 계좌입니다.');
-    }
+    if (!account.isActive) return account;
     const deactivated = {...account, isActive: false, deactivatedAt: new Date().toISOString()};
     mockMealState.accounts[index] = deactivated;
     return deactivated;
@@ -752,6 +752,12 @@ function resolveMockData(
     if (campusId !== admin.campusCharges.campusId) {
       return mockNotFound('CAMPUS_NOT_FOUND', '캠퍼스를 찾을 수 없습니다.');
     }
+    if (route.searchParams.get('paymentCategory') === 'MEAL') {
+      return mockForbidden(
+        'MEAL_SETTLEMENT_DUTY_REQUIRED',
+        '밥 정산은 활성 밥 담당자 전용 화면에서 확인해 주세요.',
+      );
+    }
     return getMockAdminCampusCharges(
       admin.campusCharges,
       admin.memberCharges.userId,
@@ -772,6 +778,12 @@ function resolveMockData(
     ) {
       return mockNotFound('MEMBER_NOT_FOUND', '멤버를 찾을 수 없습니다.');
     }
+    if (route.searchParams.get('paymentCategory') === 'MEAL') {
+      return mockForbidden(
+        'MEAL_SETTLEMENT_DUTY_REQUIRED',
+        '밥 정산은 활성 밥 담당자 전용 화면에서 확인해 주세요.',
+      );
+    }
     return getMockAdminMemberCharges(
       admin.memberCharges,
       campusId,
@@ -787,6 +799,9 @@ function resolveMockData(
     if (!chargeItemId) return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
     const canonical = findMockCanonicalAdminCharge(chargeItemId);
     if (!canonical) return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
+    if (canonical.charge.paymentCategory === 'MEAL') {
+      return mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
+    }
     const denied = authorizeMealAdmin(mealActor, canonical.campusId);
     if (denied) return denied;
     if (!status) return mockBadRequest('BILLING_INVALID_STATUS', '변경할 상태를 확인해 주세요.');
@@ -1253,9 +1268,7 @@ function getMockAdminMemberChargeState(
   const legacyItems = ownsLegacy
     ? legacyBilling.charges.items.filter(matchesFilters)
     : [];
-  const dynamicItems = (mockMealState.memberCharges[mockMealMemberChargeKey(campusId, userId)] ?? [])
-    .filter(matchesFilters);
-  const visibleItems = [...legacyItems, ...dynamicItems];
+  const visibleItems = legacyItems;
   const {direction, key} = getMockSort(searchParams, mockChargeItemSortKeys, 'createdAt');
   const sortedItems = [...visibleItems].sort((left, right) => {
     const difference = compareMockChargeItems(left, right, key);

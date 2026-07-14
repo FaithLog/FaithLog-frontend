@@ -274,6 +274,36 @@ describe('MEAL component behavior', () => {
     expect(api.createPaymentAccount).toHaveBeenCalledTimes(1);
   });
 
+  it('optimistically replaces the previous active account when refresh fails', async () => {
+    const previous = mealAccount();
+    const created = {...mealAccount(), id: 11, nickname: '저녁 계좌'};
+    const api = createApi({
+      createPaymentAccount: vi.fn().mockResolvedValue(created),
+      getMyPaymentAccounts: vi.fn()
+        .mockResolvedValueOnce([previous])
+        .mockRejectedValueOnce(new Error('refresh unavailable')),
+    });
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
+      await settle();
+    });
+    await change(renderer, '밥 계좌 별칭', '저녁 계좌');
+    await change(renderer, '밥 계좌 은행명', '신한은행');
+    await change(renderer, '밥 계좌번호', '110000000001');
+    await change(renderer, '밥 계좌 예금주', '샘플 사용자');
+    await press(renderer, '본인 밥 계좌 등록');
+
+    const output = rendered(renderer);
+    const accountStateLabels = renderer.root
+      .findAll((node) => node.type === 'Chip')
+      .map((node) => node.props.label);
+    expect(accountStateLabels).toEqual(['활성', '비활성']);
+    expect(output).toContain('저녁 계좌');
+    expect(output).toContain('비활성');
+    expect(output).toContain('처리는 완료됐어요');
+  });
+
   it('single-flights account deactivation and keeps its success terminal', async () => {
     const deactivateRequest = deferred();
     const inactive = {...mealAccount(), isActive: false, deactivatedAt: '2026-07-13T05:00:00.000Z'};
@@ -711,6 +741,30 @@ describe('MEAL component behavior', () => {
     });
     expect(rendered(renderer)).toContain('멤버 1');
     expect(rendered(renderer)).toContain('60,000');
+  });
+
+  it('progressively renders large settlement member collections without a nested list', async () => {
+    const summary = {totalAmount: 1000, unpaidAmount: 1000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
+    const members = Array.from({length: 30}, (_, index) => ({
+      userId: index + 1,
+      name: `정산 멤버 ${index + 1}`,
+      email: `member${index + 1}@example.test`,
+      ...summary,
+    }));
+    const api = createApi({getMySettlement: vi.fn().mockResolvedValue({
+      campusId: 1, campusName: '샘플 캠퍼스', region: '서울', summary, members,
+    })});
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealSettlementScreen, settlementProps(api)));
+      await settle();
+    });
+
+    expect(rendered(renderer)).toContain('정산 멤버 24');
+    expect(rendered(renderer)).not.toContain('정산 멤버 25');
+    expect(renderer.root.findAll((node) => node.type === 'FlatList')).toHaveLength(0);
+    await press(renderer, '밥 정산 멤버 더 보기');
+    expect(rendered(renderer)).toContain('정산 멤버 30');
   });
 });
 

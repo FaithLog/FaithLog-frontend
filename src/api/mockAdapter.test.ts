@@ -231,7 +231,7 @@ describe('FaithLog mock API adapter', () => {
     },
   );
 
-  it('does not reopen weekly devotion for a successful non-penalty cancellation', async () => {
+  it('hides MEAL charges from generic admin reads and rejects their mutation', async () => {
     const charge = await createOtherDutyMealCharge();
     const beforeWeekly = await fetchWeeklyDevotionSummary(
       'mock-access-token',
@@ -239,12 +239,30 @@ describe('FaithLog mock API adapter', () => {
       '2026-06-22',
     );
 
-    await changeAdminChargeStatus(
-      mealMockAccessTokens.nonDutyAdmin,
-      charge.id,
-      'CANCELED',
+    await expect(changeAdminChargeStatus(
+      mealMockAccessTokens.nonDutyAdmin, charge.id, 'CANCELED',
       {campusId: 1, userId: 8, paymentCategory: 'MEAL'},
+    )).rejects.toMatchObject({detail: {status: 404}});
+    await expect(fetchAdminCampusChargesForMyAccounts(
+      mealMockAccessTokens.nonDutyAdmin, 1, {paymentCategory: 'MEAL'},
+    )).rejects.toMatchObject({detail: {status: 403}});
+    await expect(fetchAdminMemberCharges(
+      mealMockAccessTokens.nonDutyAdmin, 1, 8, {paymentCategory: 'MEAL'},
+    )).rejects.toMatchObject({detail: {status: 403}});
+    const [summaryResponse, detailResponse] = await Promise.all([
+      executeMockRequest('/api/v1/admin/campuses/1/charges/my-accounts?paymentCategory=MEAL', {
+        headers: {Authorization: `Bearer ${mealMockAccessTokens.nonDutyAdmin}`}, method: 'GET',
+      }),
+      executeMockRequest('/api/v1/admin/campuses/1/members/8/charges?paymentCategory=MEAL', {
+        headers: {Authorization: `Bearer ${mealMockAccessTokens.nonDutyAdmin}`}, method: 'GET',
+      }),
+    ]);
+    expect(summaryResponse.status).toBe(403);
+    expect(detailResponse.status).toBe(403);
+    const generic = await fetchAdminMemberCharges(
+      mealMockAccessTokens.nonDutyAdmin, 1, 8,
     );
+    expect(generic.items).not.toContainEqual(expect.objectContaining({id: charge.id}));
 
     const afterWeekly = await fetchWeeklyDevotionSummary(
       'mock-access-token',
@@ -479,34 +497,32 @@ describe('FaithLog mock API adapter', () => {
     ]);
 
     expect(firstPage.members).toEqual([
-      expect.objectContaining({userId: 8, name: '두 번째 담당자', totalAmount: 8_000}),
-    ]);
-    expect(secondPage.members).toEqual([
       expect.objectContaining({userId: 7, name: '샘플 사용자', totalAmount: 18_000}),
     ]);
+    expect(secondPage.members).toEqual([]);
     expect(firstPage.summary).toEqual(secondPage.summary);
-    expect(firstPage.summary).toMatchObject({totalAmount: 26_000, unpaidAmount: 14_000});
+    expect(firstPage.summary).toMatchObject({totalAmount: 18_000, unpaidAmount: 6_000});
   });
 
   it.each([
-    ['createdAt', 'asc', [7, 8]],
-    ['createdAt', 'desc', [8, 7]],
-    ['userId', 'asc', [7, 8]],
-    ['userId', 'desc', [8, 7]],
-    ['name', 'asc', [8, 7]],
-    ['name', 'desc', [7, 8]],
-    ['email', 'asc', [7, 8]],
-    ['email', 'desc', [8, 7]],
-    ['totalAmount', 'asc', [8, 7]],
-    ['totalAmount', 'desc', [7, 8]],
-    ['unpaidAmount', 'asc', [7, 8]],
-    ['unpaidAmount', 'desc', [8, 7]],
-    ['paidAmount', 'asc', [8, 7]],
-    ['paidAmount', 'desc', [7, 8]],
-    ['waivedAmount', 'asc', [7, 8]],
-    ['waivedAmount', 'desc', [7, 8]],
-    ['canceledAmount', 'asc', [7, 8]],
-    ['canceledAmount', 'desc', [7, 8]],
+    ['createdAt', 'asc', [7]],
+    ['createdAt', 'desc', [7]],
+    ['userId', 'asc', [7]],
+    ['userId', 'desc', [7]],
+    ['name', 'asc', [7]],
+    ['name', 'desc', [7]],
+    ['email', 'asc', [7]],
+    ['email', 'desc', [7]],
+    ['totalAmount', 'asc', [7]],
+    ['totalAmount', 'desc', [7]],
+    ['unpaidAmount', 'asc', [7]],
+    ['unpaidAmount', 'desc', [7]],
+    ['paidAmount', 'asc', [7]],
+    ['paidAmount', 'desc', [7]],
+    ['waivedAmount', 'asc', [7]],
+    ['waivedAmount', 'desc', [7]],
+    ['canceledAmount', 'asc', [7]],
+    ['canceledAmount', 'desc', [7]],
   ] as const)(
     'sorts admin campus member rows by %s,%s',
     async (key, direction, expectedUserIds) => {
@@ -543,60 +559,16 @@ describe('FaithLog mock API adapter', () => {
     },
   );
 
-  it('updates a canonical dynamic MEAL charge and settlement through the admin PATCH boundary', async () => {
+  it('keeps a dynamic MEAL charge exclusive to duty-owner settlement', async () => {
     const charge = await createOtherDutyMealCharge(8_000);
+    const generic = await fetchAdminMemberCharges(mealMockAccessTokens.nonDutyAdmin, 1, 8);
+    const settlement = await mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1, 7);
 
-    const canceled = await changeAdminChargeStatus(
-      mealMockAccessTokens.nonDutyAdmin,
-      charge.id,
-      'CANCELED',
-      {campusId: 1, userId: 8, paymentCategory: 'MEAL'},
+    expect(generic.items).toEqual([]);
+    expect(settlement.members).toContainEqual(
+      expect.objectContaining({userId: 8, unpaidAmount: 8_000}),
     );
-    const [canceledDetail, canceledSettlement] = await Promise.all([
-      fetchAdminMemberCharges(mealMockAccessTokens.nonDutyAdmin, 1, 8, {
-        paymentCategory: 'MEAL',
-      }),
-      mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1, 7),
-    ]);
-
-    expect(canceled).toMatchObject({
-      id: charge.id,
-      campusId: 1,
-      userId: 8,
-      paymentCategory: 'MEAL',
-      status: 'CANCELED',
-    });
-    expect(canceledDetail.items).toContainEqual(
-      expect.objectContaining({id: charge.id, status: 'CANCELED'}),
-    );
-    expect(canceledSettlement.members).toContainEqual(
-      expect.objectContaining({userId: 8, canceledAmount: 8_000, unpaidAmount: 0}),
-    );
-    await expect(patchMockAdminChargeStatus(charge.id, 'CANCELED')).resolves.toMatchObject({
-      status: 409,
-    });
-    await expect(patchMockAdminChargeStatus(charge.id, 'PAID')).resolves.toMatchObject({status: 409});
-    await expect(patchMockAdminChargeStatus(charge.id, 'UNPAID')).resolves.toMatchObject({status: 200});
-
-    const paid = await changeAdminChargeStatus(
-      mealMockAccessTokens.nonDutyAdmin,
-      charge.id,
-      'PAID',
-      {campusId: 1, userId: 8, paymentCategory: 'MEAL'},
-    );
-    const [paidDetail, paidSettlement] = await Promise.all([
-      fetchAdminMemberCharges(mealMockAccessTokens.nonDutyAdmin, 1, 8, {
-        paymentCategory: 'MEAL',
-      }),
-      mealApi.getMySettlement(mealMockAccessTokens.activeDuty, 1, 7),
-    ]);
-
-    expect(paid).toMatchObject({id: charge.id, status: 'PAID', paidAt: expect.any(String)});
-    expect(paidDetail.items).toContainEqual(expect.objectContaining({id: charge.id, status: 'PAID'}));
-    expect(paidSettlement.members).toContainEqual(
-      expect.objectContaining({userId: 8, paidAmount: 8_000, unpaidAmount: 0}),
-    );
-    await expect(patchMockAdminChargeStatus(charge.id, 'WAIVED')).resolves.toMatchObject({status: 409});
+    await expect(patchMockAdminChargeStatus(charge.id, 'PAID')).resolves.toMatchObject({status: 404});
   });
 
   it('returns parser-compatible options when mock poll templates are created and updated', async () => {

@@ -1178,8 +1178,16 @@ function parseAdminCampusChargeSummaryValue(
 
 function parseAdminMemberChargeListValue(value: unknown): AdminMemberChargeList {
   const record = requireRecord(value);
+  const chargeList = parseChargeListValue(record);
+  const items = chargeList.items.map((item) => {
+    if (item.paymentCategory === 'MEAL') {
+      throw new Error('MEAL charges are not part of generic admin billing.');
+    }
+    return item;
+  });
   return {
-    ...parseChargeListValue(record),
+    ...chargeList,
+    items,
     userId: requirePositiveId(record.userId),
     name: requireString(record.name, 200),
     email: requireString(record.email, 320),
@@ -1624,6 +1632,9 @@ export function parseAdminChargeStatusChangeResponse(
   return parseSafely(() => {
     const record = requireRecord(value);
     const response = parseChargeMutationValue(record);
+    if (response.paymentCategory === 'MEAL') {
+      throw new Error('MEAL charges are not part of generic admin billing.');
+    }
 
     return response.status === 'PAID'
       ? {...response, paidAt: requireDateTime(record.paidAt)}

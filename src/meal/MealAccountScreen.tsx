@@ -1,9 +1,10 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {memo, useCallback, useEffect, useRef, useState} from 'react';
 import {Modal, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {Button, Card, Chip, Empty, Eyebrow, TextField, Title} from '../components/ui';
+import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
 import {mealApi, type MealApi} from './mealApi';
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
@@ -39,6 +40,11 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
   const [deactivationTarget, setDeactivationTarget] = useState<MealPaymentAccount | null>(null);
+  const accountCount = state.status === 'success' ? state.data.length : 0;
+  const accountProgress = useProgressiveRendering(
+    accountCount,
+    `${campusId}:${currentUserId}`,
+  );
 
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setState({status: 'loading'});
@@ -95,7 +101,17 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
       });
       if (!tracker.isSuccessCurrent(identity)) return;
       setState((current) => current.status === 'success'
-        ? {status: 'success', data: [created, ...current.data]}
+        ? {
+            status: 'success',
+            data: [
+              created,
+              ...current.data
+                .filter((account) => account.id !== created.id)
+                .map((account) => account.isActive
+                  ? {...account, isActive: false, deactivatedAt: created.createdAt}
+                  : account),
+            ],
+          }
         : {status: 'success', data: [created]});
       setNickname('');
       setBankName('');
@@ -165,21 +181,19 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
       {state.status === 'loading' ? <MealLoading label="내 밥 계좌를 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
       {state.status === 'empty' ? <Empty title="등록한 밥 계좌가 없습니다" message="아래에서 청구에 사용할 본인 계좌를 등록해 주세요." /> : null}
-      {state.status === 'success' ? state.data.map((account) => (
-        <Card key={account.id}>
-          <View style={mealStyles.rowBetween}>
-            <View style={{flex: 1}}>
-              <Title>{account.nickname}</Title>
-              <Text selectable style={mealStyles.body}>{account.bankName} {account.accountNumber}</Text>
-              <Text style={mealStyles.meta}>{account.accountHolder}</Text>
-            </View>
-            <Chip label={account.isActive ? '활성' : '비활성'} tone={account.isActive ? 'success' : 'default'} />
-          </View>
-          {account.isActive ? (
-            <Button accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={saving} onPress={() => setDeactivationTarget(account)} variant="danger">비활성화</Button>
-          ) : null}
-        </Card>
+      {state.status === 'success' ? getProgressiveItems(state.data, accountProgress.limit).map((account) => (
+        <MemoizedMealAccountRow
+          account={account}
+          busy={saving}
+          key={account.id}
+          onDeactivate={setDeactivationTarget}
+        />
       )) : null}
+      {state.status === 'success' && accountProgress.hasMore ? (
+        <Button accessibilityLabel="이전 밥 계좌 더 보기" onPress={accountProgress.showMore} variant="secondary">
+          계좌 더 보기
+        </Button>
+      ) : null}
 
       <Card>
         <Eyebrow>새 본인 계좌</Eyebrow>
@@ -217,3 +231,29 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
     </View>
   );
 }
+
+const MemoizedMealAccountRow = memo(function MemoizedMealAccountRow({
+  account,
+  busy,
+  onDeactivate,
+}: {
+  account: MealPaymentAccount;
+  busy: boolean;
+  onDeactivate: (account: MealPaymentAccount) => void;
+}) {
+  return (
+    <Card>
+      <View style={mealStyles.rowBetween}>
+        <View style={{flex: 1}}>
+          <Title>{account.nickname}</Title>
+          <Text selectable style={mealStyles.body}>{account.bankName} {account.accountNumber}</Text>
+          <Text style={mealStyles.meta}>{account.accountHolder}</Text>
+        </View>
+        <Chip label={account.isActive ? '활성' : '비활성'} tone={account.isActive ? 'success' : 'default'} />
+      </View>
+      {account.isActive ? (
+        <Button accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={busy} onPress={() => onDeactivate(account)} variant="danger">비활성화</Button>
+      ) : null}
+    </Card>
+  );
+});
