@@ -36,6 +36,8 @@ type MealAccountScreenProps = {
   showBackButton?: boolean;
 };
 
+type MealAccountView = 'create' | 'list';
+
 export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBack, onSessionExpired, showBackButton = true}: MealAccountScreenProps) {
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-accounts`);
   const mutationGate = useRef(createMealMutationGate()).current;
@@ -47,6 +49,7 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
+  const [view, setView] = useState<MealAccountView>('list');
   const [deactivationTarget, setDeactivationTarget] = useState<MealPaymentAccount | null>(null);
   const accountCount = state.status === 'success' ? state.data.length : 0;
   const accountProgress = useProgressiveRendering(
@@ -64,7 +67,12 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
       return false;
     }
     try {
-      const accounts = await api.getMyPaymentAccounts(access.request.accessToken, campusId, currentUserId, true);
+      const accounts = (await api.getMyPaymentAccounts(
+        access.request.accessToken,
+        campusId,
+        currentUserId,
+        true,
+      )).filter((account) => account.isActive);
       if (!tracker.isSuccessCurrent(access.request.identity)) return false;
       setState(accounts.length === 0 ? {status: 'empty'} : {status: 'success', data: accounts});
       setRefreshWarning(false);
@@ -79,6 +87,15 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setView('list');
+    setNickname('');
+    setBankName('');
+    setAccountNumber('');
+    setAccountHolder('');
+    setActionError(null);
+  }, [campusId, currentUserId]);
 
   if (!scopeIsCommitted) return <MealLoading label="내 밥 계좌 화면을 전환하는 중" />;
 
@@ -108,23 +125,12 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
         accountHolder,
       });
       if (!tracker.isSuccessCurrent(identity)) return;
-      setState((current) => current.status === 'success'
-        ? {
-            status: 'success',
-            data: [
-              created,
-              ...current.data
-                .filter((account) => account.id !== created.id)
-                .map((account) => account.isActive
-                  ? {...account, isActive: false, deactivatedAt: created.createdAt}
-                  : account),
-            ],
-          }
-        : {status: 'success', data: [created]});
+      setState({status: 'success', data: [created]});
       setNickname('');
       setBankName('');
       setAccountNumber('');
       setAccountHolder('');
+      setView('list');
       if (!await load(false) && tracker.isSuccessCurrent(identity)) setRefreshWarning(true);
     } catch (error) {
       if (identity === null) return;
@@ -151,19 +157,21 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
       identity = access.status === 'ready' ? access.request.identity : access.identity;
       if (access.status === 'cancelled') return;
       if (access.status === 'error') {
-        const apiError = getCurrentMealRequestError({error: access.error, fallback: '내 밥 계좌를 비활성화하지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
+        const apiError = getCurrentMealRequestError({error: access.error, fallback: '내 밥 계좌를 삭제하지 못했습니다.', identity: access.identity, onSessionExpired, tracker});
         if (apiError) setActionError(apiError);
         return;
       }
       const deactivated = await api.deactivatePaymentAccount(access.request.accessToken, campusId, currentUserId, accountId);
       if (!tracker.isSuccessCurrent(identity)) return;
-      setState((current) => current.status === 'success'
-        ? {status: 'success', data: current.data.map((account) => account.id === accountId ? deactivated : account)}
-        : current);
+      setState((current) => {
+        if (current.status !== 'success') return current;
+        const remaining = current.data.filter((account) => account.id !== deactivated.id);
+        return remaining.length > 0 ? {status: 'success', data: remaining} : {status: 'empty'};
+      });
       if (!await load(false) && tracker.isSuccessCurrent(identity)) setRefreshWarning(true);
     } catch (error) {
       if (identity === null) return;
-      const apiError = getCurrentMealRequestError({error, fallback: '내 밥 계좌를 비활성화하지 못했습니다.', identity, onSessionExpired, tracker});
+      const apiError = getCurrentMealRequestError({error, fallback: '내 밥 계좌를 삭제하지 못했습니다.', identity, onSessionExpired, tracker});
       if (apiError) setActionError(apiError);
     } finally {
       finishMealMutation(mutationGate, operationId);
@@ -178,9 +186,58 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
     void deactivate(target.id);
   };
 
+  if (view === 'create') {
+    return (
+      <DutyPageSection>
+        <DutySectionHeader
+          action={(
+            <DutyActionButton
+              accessibilityLabel="밥 계좌 목록으로 돌아가기"
+              disabled={saving}
+              label="뒤로"
+              onPress={() => setView('list')}
+              variant="secondary"
+            />
+          )}
+          description="관리자 계좌 등록과 같은 순서로 정보를 입력합니다."
+          eyebrow="내 계좌"
+          title="밥 계좌 추가"
+        />
+        <DutyAccountRegistrationForm
+          accountHolder={accountHolder}
+          accountNumber={accountNumber}
+          bankName={bankName}
+          busy={saving}
+          description="밥 담당자가 받을 밥 정산 계좌만 등록합니다."
+          domainLabel="밥"
+          feedback={actionError ? <MealErrorState error={actionError} /> : undefined}
+          nickname={nickname}
+          onAccountHolderChange={setAccountHolder}
+          onAccountNumberChange={setAccountNumber}
+          onBankNameChange={setBankName}
+          onNicknameChange={setNickname}
+          onSubmit={() => void create()}
+          submitAccessibilityLabel="본인 밥 계좌 등록"
+          submitLabel={saving ? '저장 중...' : '계좌 저장'}
+        />
+      </DutyPageSection>
+    );
+  }
+
   return (
     <DutyPageSection>
       <DutySectionHeader
+        action={(
+          <DutyActionButton
+            accessibilityLabel="밥 계좌 추가 페이지 열기"
+            label="계좌 추가"
+            onPress={() => {
+              setActionError(null);
+              setView('create');
+            }}
+            variant="primary"
+          />
+        )}
         description="밥 정산금을 받을 내 계좌를 관리할 수 있어요."
         eyebrow="내 계좌"
         title="정산 계좌 관리"
@@ -201,22 +258,6 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
         <DutyActionButton accessibilityLabel="이전 밥 계좌 더 보기" label="계좌 더 보기" onPress={accountProgress.showMore} />
       ) : null}
 
-      <DutyAccountRegistrationForm
-        accountHolder={accountHolder}
-        accountNumber={accountNumber}
-        bankName={bankName}
-        busy={saving}
-        description="밥 담당자가 받을 밥 정산 계좌만 등록합니다."
-        domainLabel="밥"
-        nickname={nickname}
-        onAccountHolderChange={setAccountHolder}
-        onAccountNumberChange={setAccountNumber}
-        onBankNameChange={setBankName}
-        onNicknameChange={setNickname}
-        onSubmit={() => void create()}
-        submitAccessibilityLabel="본인 밥 계좌 등록"
-        submitLabel={saving ? '저장 중...' : '계좌 저장'}
-      />
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void load(false)} /> : null}
       {showBackButton ? (
@@ -225,13 +266,13 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
 
       <DutyConfirmSheet
         busy={saving}
-        cancelAccessibilityLabel="계좌 비활성화 취소"
-        confirmAccessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 비활성화 확인`}
-        confirmLabel="비활성화"
-        message="비활성화하면 앞으로 이 계좌로 새 청구를 만들 수 없으며 되돌릴 수 없습니다."
+        cancelAccessibilityLabel="계좌 삭제 취소"
+        confirmAccessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 삭제 확인`}
+        confirmLabel="삭제"
+        message="삭제하면 앞으로 이 계좌로 새 청구를 만들 수 없습니다."
         onCancel={() => setDeactivationTarget(null)}
         onConfirm={confirmDeactivate}
-        title="이 계좌를 비활성화할까요?"
+        title="이 계좌를 삭제할까요?"
         visible={deactivationTarget !== null}
       />
     </DutyPageSection>
@@ -249,15 +290,13 @@ const MemoizedMealAccountRow = memo(function MemoizedMealAccountRow({
 }) {
   return (
     <DutyEntityCard
-      statusLabel={account.isActive ? '활성' : '비활성'}
-      statusTone={account.isActive ? 'success' : 'default'}
+      statusLabel="활성"
+      statusTone="success"
       subtitle={`${account.bankName} ${account.accountNumber}`}
       subtitleSelectable
       title={account.nickname}>
       <Text style={mealStyles.meta}>{account.accountHolder}</Text>
-      {account.isActive ? (
-        <DutyActionButton accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={busy} label="비활성화" onPress={() => onDeactivate(account)} variant="danger" />
-      ) : null}
+      <DutyActionButton accessibilityLabel={`${account.nickname} 밥 계좌 삭제`} disabled={busy} label="삭제" onPress={() => onDeactivate(account)} variant="danger" />
     </DutyEntityCard>
   );
 });

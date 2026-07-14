@@ -398,6 +398,8 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
       await settle();
     });
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '밥 계좌번호')).toHaveLength(0);
+    await press(renderer, '밥 계좌 추가 페이지 열기');
     expect(findByLabel(renderer, '밥 계좌 별칭').props).toMatchObject({
       label: '별칭',
       placeholder: '밥 계좌',
@@ -429,6 +431,8 @@ describe('MEAL component behavior', () => {
       createRequest.resolve(mealAccount());
       await settle();
     });
+    expect(findByLabel(renderer, '밥 계좌 추가 페이지 열기')).toBeTruthy();
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '밥 계좌번호')).toHaveLength(0);
     expect(rendered(renderer)).toContain('처리는 완료됐어요');
     await press(renderer, '최신 상태 다시 불러오기');
     expect(api.createPaymentAccount).toHaveBeenCalledTimes(1);
@@ -466,6 +470,7 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
       await settle();
     });
+    await press(renderer, '밥 계좌 추가 페이지 열기');
     await change(renderer, '밥 계좌 별칭', '저녁 계좌');
     await change(renderer, '밥 계좌 은행명', '신한은행');
     await change(renderer, '밥 계좌번호', '110000000001');
@@ -477,9 +482,9 @@ describe('MEAL component behavior', () => {
       .findAllByType(DutyEntityCard)
       .map((node) => node.props.statusLabel)
       .filter(Boolean);
-    expect(accountStateLabels).toEqual(['활성', '비활성']);
+    expect(accountStateLabels).toEqual(['활성']);
     expect(output).toContain('저녁 계좌');
-    expect(output).toContain('비활성');
+    expect(output).not.toContain('점심 계좌');
     expect(output).toContain('처리는 완료됐어요');
   });
 
@@ -497,9 +502,9 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
       await settle();
     });
-    await press(renderer, '점심 계좌 밥 계좌 비활성화');
+    await press(renderer, '점심 계좌 밥 계좌 삭제');
     expect(api.deactivatePaymentAccount).not.toHaveBeenCalled();
-    const button = findByLabel(renderer, '점심 계좌 비활성화 확인');
+    const button = findByLabel(renderer, '점심 계좌 삭제 확인');
     await act(async () => {
       button.props.onPress();
       button.props.onPress();
@@ -510,7 +515,7 @@ describe('MEAL component behavior', () => {
       deactivateRequest.resolve(inactive);
       await settle();
     });
-    expect(rendered(renderer)).toContain('비활성');
+    expect(rendered(renderer)).toContain('등록한 밥 계좌가 없습니다');
     expect(rendered(renderer)).toContain('처리는 완료됐어요');
     expect(api.deactivatePaymentAccount).toHaveBeenCalledTimes(1);
   });
@@ -531,6 +536,7 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealAccountScreen, accountProps(api, 1)));
       await settle();
     });
+    await press(renderer, '밥 계좌 추가 페이지 열기');
     await change(renderer, '밥 계좌 별칭', '점심 계좌');
     await change(renderer, '밥 계좌 은행명', '신한은행');
     await change(renderer, '밥 계좌번호', '110000000000');
@@ -889,15 +895,15 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealAccountScreen, accountProps(api)));
       await settle();
     });
-    await press(renderer, '점심 계좌 밥 계좌 비활성화');
+    await press(renderer, '점심 계좌 밥 계좌 삭제');
     expect(renderer.root.findAllByType(DutyConfirmSheet)).toHaveLength(1);
-    await press(renderer, '계좌 비활성화 취소');
+    await press(renderer, '계좌 삭제 취소');
     expect(api.deactivatePaymentAccount).not.toHaveBeenCalled();
 
     api.deactivatePaymentAccount.mockResolvedValue({...mealAccount(), isActive: false, deactivatedAt: '2026-07-14T01:00:00.000Z'});
     api.getMyPaymentAccounts.mockResolvedValueOnce([{...mealAccount(), isActive: false, deactivatedAt: '2026-07-14T01:00:00.000Z'}]);
-    await press(renderer, '점심 계좌 밥 계좌 비활성화');
-    const confirm = findByLabel(renderer, '점심 계좌 비활성화 확인');
+    await press(renderer, '점심 계좌 밥 계좌 삭제');
+    const confirm = findByLabel(renderer, '점심 계좌 삭제 확인');
     await act(async () => {
       confirm.props.onPress();
       confirm.props.onPress();

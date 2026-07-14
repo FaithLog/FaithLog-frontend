@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   closeAdminPoll: vi.fn(),
   createAdminPoll: vi.fn(),
   createCoffeeDutyPaymentAccount: vi.fn(),
+  deactivateCoffeeDutyPaymentAccount: vi.fn(),
   fetchAdminCampusChargesForMyAccounts: vi.fn(),
   fetchAdminPaymentAccounts: vi.fn(),
   fetchAdminPollResults: vi.fn(),
@@ -85,7 +86,7 @@ vi.mock('../api/client', () => {
   }
   return {
     createCoffeeDutyPaymentAccount: mocks.createCoffeeDutyPaymentAccount,
-    deactivateCoffeeDutyPaymentAccount: vi.fn(),
+    deactivateCoffeeDutyPaymentAccount: mocks.deactivateCoffeeDutyPaymentAccount,
     FaithLogApiError: TestFaithLogApiError,
     fetchAdminCampusChargesForMyAccounts: mocks.fetchAdminCampusChargesForMyAccounts,
     fetchAdminPaymentAccounts: mocks.fetchAdminPaymentAccounts,
@@ -230,6 +231,9 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     });
 
     await press(renderer, '커피 내 계좌 페이지 열기');
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '커피 계좌 새로고침')).toHaveLength(0);
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '커피 계좌번호')).toHaveLength(0);
+    await press(renderer, '커피 계좌 추가 페이지 열기');
     expect(findByLabel(renderer, '커피 계좌번호').props).toMatchObject({
       keyboardType: 'number-pad',
       placeholder: '3333-00-7777777',
@@ -253,6 +257,28 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
       resolveCreate({...coffeeAccount(), id: 11, nickname: '새 커피 계좌'});
       await settle();
     });
+    expect(findByLabel(renderer, '커피 계좌 추가 페이지 열기')).toBeTruthy();
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '커피 계좌번호')).toHaveLength(0);
+    expect(rendered(renderer)).not.toContain('새 커피 계좌 계좌를 등록했습니다.');
+  });
+
+  it('removes a coffee account without rendering a success alert', async () => {
+    mocks.deactivateCoffeeDutyPaymentAccount.mockResolvedValue(undefined);
+    mocks.fetchAdminPaymentAccounts
+      .mockResolvedValueOnce([coffeeAccount()])
+      .mockResolvedValueOnce([]);
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
+      await settle();
+    });
+
+    await press(renderer, '커피 내 계좌 페이지 열기');
+    await press(renderer, 'QA 커피 계좌 계좌 삭제');
+    await press(renderer, '커피 계좌 삭제 확인');
+
+    expect(mocks.deactivateCoffeeDutyPaymentAccount).toHaveBeenCalledTimes(1);
+    expect(rendered(renderer)).not.toContain('QA 커피 계좌 계좌를 삭제했습니다.');
   });
 
   it('uses the shared calendar and time picker without changing the deadline on cancel', async () => {

@@ -260,6 +260,7 @@ type AdminCompactButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type ChargeStatusFilter = ChargeStatus | 'ALL';
 type PaymentCategoryFilter = PaymentAccountCategory | 'ALL';
 type AdminSettlementSection = 'charges' | 'accounts' | 'penaltyRules';
+type PaymentAccountView = 'create' | 'list';
 type NotificationSendStatusFilter = AdminNotificationSendStatus | 'ALL';
 type NotificationTypeFilter = AdminNotificationType | 'ALL';
 
@@ -697,6 +698,7 @@ export function AdminScreen({
   });
   const [paymentAccountForm, setPaymentAccountForm] =
     useState<PaymentAccountForm>(emptyPaymentAccountForm);
+  const [paymentAccountView, setPaymentAccountView] = useState<PaymentAccountView>('list');
   const [selectedPaymentAccount, setSelectedPaymentAccount] =
     useState<PaymentAccount | null>(null);
   const [knownOwnedCoffeeAccountIds, setKnownOwnedCoffeeAccountIds] = useState<Set<number>>(
@@ -1129,6 +1131,7 @@ export function AdminScreen({
     setSelectedNotificationLogId(null);
     setPaymentAccountState({status: 'idle'});
     setPaymentAccountForm(emptyPaymentAccountForm);
+    setPaymentAccountView('list');
     setSelectedPaymentAccount(null);
     setKnownOwnedCoffeeAccountIds(new Set());
     setPaymentAccountDeactivateTarget(null);
@@ -1499,6 +1502,7 @@ export function AdminScreen({
       invalidatePaymentContextCache(campusId);
 
       setPaymentAccountForm(emptyPaymentAccountForm);
+      setPaymentAccountView('list');
       if (paymentAccountForm.accountType === 'COFFEE') {
         setKnownOwnedCoffeeAccountIds((current) => {
           const next = new Set(current);
@@ -3143,6 +3147,7 @@ export function AdminScreen({
             setSettlementSection('accounts');
             setSelectedPaymentAccount(null);
             setActionError(null);
+            setPaymentAccountView('create');
             setPaymentAccountForm((current) => ({
               ...current,
               accountType: 'COFFEE',
@@ -3236,6 +3241,7 @@ export function AdminScreen({
               }
               resetPenaltyRuleFlow();
               setSettlementSection(section);
+              setPaymentAccountView('list');
               setSelectedPaymentAccount(null);
               setActionError(null);
             };
@@ -3262,6 +3268,15 @@ export function AdminScreen({
           onOpenMemberCharges={openMemberCharges}
           onRequestDeletePaymentAccount={setPaymentAccountDeleteTarget}
           onRequestDeactivatePaymentAccount={setPaymentAccountDeactivateTarget}
+          onOpenPaymentAccountCreate={() => {
+            setSelectedPaymentAccount(null);
+            setActionError(null);
+            setPaymentAccountView('create');
+          }}
+          onBackPaymentAccountList={() => {
+            setActionError(null);
+            setPaymentAccountView('list');
+          }}
           onSelectPaymentAccount={setSelectedPaymentAccount}
           onRequestStatusChange={requestChargeStatusChange}
           onRetryPaymentAccounts={() => void loadPaymentAccounts()}
@@ -3276,6 +3291,7 @@ export function AdminScreen({
           paymentAccountCopyFeedback={accountCopyFeedback}
           paymentAccountCopyOpacity={accountCopyOpacity}
           paymentAccountState={paymentAccountState}
+          paymentAccountView={paymentAccountView}
           penaltyRuleForm={penaltyRuleForm}
           penaltyRuleState={penaltyRuleState}
           section={settlementSection}
@@ -8694,6 +8710,8 @@ function AdminSettlement({
   onOpenPenaltyRuleCreate,
   onOpenChargeReminderConfirm,
   onOpenMemberCharges,
+  onOpenPaymentAccountCreate,
+  onBackPaymentAccountList,
   onRequestDeletePaymentAccount,
   onRequestDeactivatePaymentAccount,
   onRequestStatusChange,
@@ -8710,6 +8728,7 @@ function AdminSettlement({
   paymentAccountCopyFeedback,
   paymentAccountCopyOpacity,
   paymentAccountState,
+  paymentAccountView,
   penaltyRuleForm,
   penaltyRuleState,
   section,
@@ -8736,6 +8755,8 @@ function AdminSettlement({
   onOpenPenaltyRuleCreate: () => void;
   onOpenChargeReminderConfirm: (paymentCategory: PaymentAccountCategory) => void;
   onOpenMemberCharges: (member: AdminChargeMemberRef) => void;
+  onOpenPaymentAccountCreate: () => void;
+  onBackPaymentAccountList: () => void;
   onRequestDeletePaymentAccount: (account: PaymentAccount) => void;
   onRequestDeactivatePaymentAccount: (account: PaymentAccount) => void;
   onRequestStatusChange: (charge: ChargeItem, status: AdminChargeStatusTarget) => void;
@@ -8755,6 +8776,7 @@ function AdminSettlement({
   paymentAccountCopyFeedback: AccountCopyFeedback;
   paymentAccountCopyOpacity: Animated.Value;
   paymentAccountState: PaymentAccountState;
+  paymentAccountView: PaymentAccountView;
   penaltyRuleForm: PenaltyRuleDraft;
   penaltyRuleState: PenaltyRuleState;
   section: AdminSettlementSection;
@@ -8764,11 +8786,12 @@ function AdminSettlement({
   const busy = actionState.status !== 'idle';
   const chargeDetailOpen = section === 'charges' && detailState.status !== 'idle';
   const penaltyRuleFormOpen = section === 'penaltyRules' && penaltyRuleFlow.route !== 'list';
+  const paymentAccountCreateOpen = section === 'accounts' && paymentAccountView === 'create';
   const sectionHint = getSettlementSectionHint(section);
 
   return (
     <>
-      {chargeDetailOpen || penaltyRuleFormOpen ? null : (
+      {chargeDetailOpen || penaltyRuleFormOpen || paymentAccountCreateOpen ? null : (
         <View style={styles.settlementTabBlock}>
           <FigmaSegmentedControl
             items={settlementSections}
@@ -8805,15 +8828,18 @@ function AdminSettlement({
           knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
           onActivateAccount={onActivatePaymentAccount}
           onChangeForm={onChangePaymentAccountForm}
+          onBackCreate={onBackPaymentAccountList}
           onBackToList={() => onSelectPaymentAccount(null)}
           onRequestDelete={onRequestDeletePaymentAccount}
           onRequestDeactivate={onRequestDeactivatePaymentAccount}
           onCopyAccount={onCopyPaymentAccount}
           onRetry={onRetryPaymentAccounts}
           onSave={onSavePaymentAccount}
+          onOpenCreate={onOpenPaymentAccountCreate}
           onSelectAccount={onSelectPaymentAccount}
           selectedAccount={selectedPaymentAccount}
           state={paymentAccountState}
+          view={paymentAccountView}
         />
       ) : (
         <AdminPenaltyRules
@@ -8984,15 +9010,18 @@ function AdminPaymentAccounts({
   knownOwnedCoffeeAccountIds,
   onActivateAccount,
   onChangeForm,
+  onBackCreate,
   onBackToList,
   onCopyAccount,
   onRequestDelete,
   onRequestDeactivate,
   onRetry,
   onSave,
+  onOpenCreate,
   onSelectAccount,
   selectedAccount,
   state,
+  view,
 }: {
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
@@ -9002,15 +9031,18 @@ function AdminPaymentAccounts({
   knownOwnedCoffeeAccountIds: Set<number>;
   onActivateAccount: (account: PaymentAccount) => void;
   onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
+  onBackCreate: () => void;
   onBackToList: () => void;
   onCopyAccount: (account: PaymentAccount) => void;
   onRequestDelete: (account: PaymentAccount) => void;
   onRequestDeactivate: (account: PaymentAccount) => void;
   onRetry: () => void;
   onSave: () => void;
+  onOpenCreate: () => void;
   onSelectAccount: (account: PaymentAccount) => void;
   selectedAccount: PaymentAccount | null;
   state: PaymentAccountState;
+  view: PaymentAccountView;
 }) {
   const [accountPage, setAccountPage] = useState<'overview' | 'penaltyAccounts'>('overview');
 
@@ -9043,9 +9075,97 @@ function AdminPaymentAccounts({
     );
   }
 
+  if (view === 'create') {
+    return (
+      <>
+        <View style={styles.penaltyRuleListHeader}>
+          <SettlementSectionHeader
+            description="관리자 계좌 등록과 같은 순서로 정보를 입력합니다."
+            title="계좌 추가"
+          />
+          <AdminCompactButton
+            accessibilityLabel="관리자 납부 계좌 목록으로 돌아가기"
+            disabled={busy}
+            onPress={onBackCreate}
+            variant="secondary">
+            뒤로
+          </AdminCompactButton>
+        </View>
+        <View style={styles.figmaFormCard}>
+          <FigmaSegmentedControl
+            items={paymentAccountTypeOptions}
+            selectedId={form.accountType}
+            onSelect={(accountType) => onChangeForm({accountType})}
+          />
+          <View style={styles.filterGrid}>
+            <View style={styles.filterField}>
+              <TextField
+                accessibilityLabel="납부 계좌 별칭"
+                label="별칭"
+                onChangeText={(nickname) => onChangeForm({nickname})}
+                placeholder="48캠 벌금 계좌"
+                value={form.nickname}
+              />
+            </View>
+            <View style={styles.filterField}>
+              <TextField
+                accessibilityLabel="납부 계좌 은행명"
+                label="은행"
+                onChangeText={(bankName) => onChangeForm({bankName})}
+                placeholder="카카오뱅크"
+                value={form.bankName}
+              />
+            </View>
+          </View>
+          <TextField
+            accessibilityLabel="납부 계좌번호"
+            label="계좌번호"
+            onChangeText={(accountNumber) => onChangeForm({accountNumber})}
+            placeholder="3333-00-7777777"
+            value={form.accountNumber}
+          />
+          <View style={styles.filterGrid}>
+            <View style={styles.filterField}>
+              <TextField
+                accessibilityLabel="납부 계좌 예금주"
+                label="예금주"
+                onChangeText={(accountHolder) => onChangeForm({accountHolder})}
+                placeholder="회계"
+                value={form.accountHolder}
+              />
+            </View>
+          </View>
+          <Pressable
+            accessibilityLabel="관리자 납부 계좌 등록"
+            accessibilityRole="button"
+            accessibilityState={{disabled: busy}}
+            disabled={busy}
+            onPress={onSave}
+            style={({pressed}) => [
+              styles.paymentAccountSubmitButton,
+              busy ? styles.adminCompactButtonDisabled : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={styles.paymentAccountSubmitButtonText}>
+              {busy ? '저장 중...' : '계좌 저장'}
+            </Text>
+          </Pressable>
+        </View>
+      </>
+    );
+  }
+
   return (
     <>
-      <SettlementSectionHeader title="계좌 관리" />
+      <View style={styles.penaltyRuleListHeader}>
+        <SettlementSectionHeader title="계좌 관리" />
+        <AdminCompactButton
+          accessibilityLabel="관리자 납부 계좌 추가 페이지 열기"
+          disabled={busy}
+          onPress={onOpenCreate}>
+          계좌 추가
+        </AdminCompactButton>
+      </View>
       {renderPaymentAccountList({
         busy,
         currentUserId,
@@ -9056,67 +9176,6 @@ function AdminPaymentAccounts({
         onSelectAccount,
         state,
       })}
-      <SettlementSectionHeader title="계좌 등록" />
-      <View style={styles.figmaFormCard}>
-        <FigmaSegmentedControl
-          items={paymentAccountTypeOptions}
-          selectedId={form.accountType}
-          onSelect={(accountType) => onChangeForm({accountType})}
-        />
-        <View style={styles.filterGrid}>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="납부 계좌 별칭"
-              label="별칭"
-              onChangeText={(nickname) => onChangeForm({nickname})}
-              placeholder="48캠 벌금 계좌"
-              value={form.nickname}
-            />
-          </View>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="납부 계좌 은행명"
-              label="은행"
-              onChangeText={(bankName) => onChangeForm({bankName})}
-              placeholder="카카오뱅크"
-              value={form.bankName}
-            />
-          </View>
-        </View>
-        <TextField
-          accessibilityLabel="납부 계좌번호"
-          label="계좌번호"
-          onChangeText={(accountNumber) => onChangeForm({accountNumber})}
-          placeholder="3333-00-7777777"
-          value={form.accountNumber}
-        />
-        <View style={styles.filterGrid}>
-          <View style={styles.filterField}>
-            <TextField
-              accessibilityLabel="납부 계좌 예금주"
-              label="예금주"
-              onChangeText={(accountHolder) => onChangeForm({accountHolder})}
-              placeholder="회계"
-              value={form.accountHolder}
-            />
-          </View>
-        </View>
-        <Pressable
-          accessibilityLabel="관리자 납부 계좌 등록"
-          accessibilityRole="button"
-          accessibilityState={{disabled: busy}}
-          disabled={busy}
-          onPress={onSave}
-          style={({pressed}) => [
-            styles.paymentAccountSubmitButton,
-            busy ? styles.adminCompactButtonDisabled : null,
-            pressed ? styles.pressed : null,
-          ]}>
-          <Text style={styles.paymentAccountSubmitButtonText}>
-            {busy ? '저장 중...' : '계좌 저장'}
-          </Text>
-        </Pressable>
-      </View>
     </>
   );
 }

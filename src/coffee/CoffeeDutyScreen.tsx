@@ -348,9 +348,9 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
     }
   };
 
-  const saveCoffeeAccount = async () => {
+  const saveCoffeeAccount = async (): Promise<boolean> => {
     if (accountSaveState.status === 'saving') {
-      return;
+      return false;
     }
 
     const nickname = accountForm.nickname.trim();
@@ -360,7 +360,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
 
     if (!nickname || !bankName || !accountNumber || !accountHolder) {
       setAccountSaveState({status: 'error', message: '계좌 정보를 모두 입력해 주세요.'});
-      return;
+      return false;
     }
 
     setAccountSaveState({status: 'saving'});
@@ -369,7 +369,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       const accessToken = await resolveAccessToken(setAuthState);
 
       if (!accessToken) {
-        return;
+        return false;
       }
 
       const account = await createCoffeeDutyPaymentAccount(accessToken, campusId, {
@@ -387,8 +387,10 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       setKnownOwnedCoffeeAccountIds(nextKnownOwnedCoffeeAccountIds);
       setSelectedAccountId(account.id);
       await load(nextKnownOwnedCoffeeAccountIds);
+      return true;
     } catch (error) {
       setAccountSaveState({status: 'error', message: getCoffeeDutyErrorMessage(error)});
+      return false;
     }
   };
 
@@ -460,7 +462,6 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
               form={accountForm}
               onChangeForm={(patch) => setAccountForm((current) => ({...current, ...patch}))}
               onDeleteAccount={deleteCoffeeAccount}
-              onRefresh={() => void load()}
               onSave={saveCoffeeAccount}
               saveState={accountSaveState}
               state={loadState}
@@ -551,7 +552,6 @@ function CoffeeAccountManagement({
   form,
   onChangeForm,
   onDeleteAccount,
-  onRefresh,
   onSave,
   saveState,
   state,
@@ -560,19 +560,70 @@ function CoffeeAccountManagement({
   form: CoffeeAccountForm;
   onChangeForm: (patch: Partial<CoffeeAccountForm>) => void;
   onDeleteAccount: (account: PaymentAccount) => void;
-  onRefresh: () => void;
-  onSave: () => void;
+  onSave: () => Promise<boolean>;
   saveState: CoffeeAccountSaveState;
   state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
 }) {
   const busy = saveState.status === 'saving' || deleteState.status === 'deleting';
+  const [accountPage, setAccountPage] = useState<'create' | 'list'>('list');
   const [deleteTarget, setDeleteTarget] = useState<PaymentAccount | null>(null);
+
+  const saveAccount = async () => {
+    if (await onSave()) setAccountPage('list');
+  };
+
+  if (accountPage === 'create') {
+    return (
+      <DutyPageSection>
+        <DutySectionHeader
+          action={(
+            <DutyActionButton
+              accessibilityLabel="커피 계좌 목록으로 돌아가기"
+              disabled={busy}
+              label="뒤로"
+              onPress={() => setAccountPage('list')}
+              variant="secondary"
+            />
+          )}
+          description="관리자 계좌 등록과 같은 순서로 정보를 입력합니다."
+          eyebrow="내 계좌"
+          title="커피 계좌 추가"
+        />
+        <DutyAccountRegistrationForm
+          accountHolder={form.accountHolder}
+          accountNumber={form.accountNumber}
+          bankName={form.bankName}
+          busy={busy}
+          description="커피 담당자가 받을 커피 금액 계좌만 등록합니다."
+          domainLabel="커피"
+          feedback={saveState.status === 'error' ? (
+            <CoffeeInlineError message={saveState.message} />
+          ) : undefined}
+          nickname={form.nickname}
+          onAccountHolderChange={(accountHolder) => onChangeForm({accountHolder})}
+          onAccountNumberChange={(accountNumber) => onChangeForm({accountNumber})}
+          onBankNameChange={(bankName) => onChangeForm({bankName})}
+          onNicknameChange={(nickname) => onChangeForm({nickname})}
+          onSubmit={() => void saveAccount()}
+          submitAccessibilityLabel="커피 계좌 등록"
+          submitLabel={busy ? '저장 중...' : '계좌 저장'}
+        />
+      </DutyPageSection>
+    );
+  }
 
   return (
     <>
       <DutyPageSection>
         <DutySectionHeader
-          action={<DutyActionButton accessibilityLabel="커피 계좌 새로고침" label="새로고침" onPress={onRefresh} />}
+          action={(
+            <DutyActionButton
+              accessibilityLabel="커피 계좌 추가 페이지 열기"
+              label="계좌 추가"
+              onPress={() => setAccountPage('create')}
+              variant="primary"
+            />
+          )}
           description="커피 정산에 사용할 내 계좌를 관리할 수 있어요."
           eyebrow="내 계좌"
           title="정산 계좌 관리"
@@ -601,11 +652,6 @@ function CoffeeAccountManagement({
             ))}
           </View>
         )}
-        {deleteState.status === 'success' ? (
-          <View style={styles.successBox}>
-            <Text style={styles.successText}>{deleteState.nickname} 계좌를 삭제했습니다.</Text>
-          </View>
-        ) : null}
         {deleteState.status === 'error' ? <CoffeeInlineError message={deleteState.message} /> : null}
       </DutyPageSection>
       <CoffeeAccountDeleteConfirmModal
@@ -620,30 +666,6 @@ function CoffeeAccountManagement({
           onDeleteAccount(deleteTarget);
           setDeleteTarget(null);
         }}
-      />
-
-      <DutyAccountRegistrationForm
-        accountHolder={form.accountHolder}
-        accountNumber={form.accountNumber}
-        bankName={form.bankName}
-        busy={busy}
-        description="커피 담당자가 받을 커피 금액 계좌만 등록합니다."
-        domainLabel="커피"
-        feedback={saveState.status === 'success' ? (
-          <View style={styles.successBox}>
-            <Text style={styles.successText}>{saveState.nickname} 계좌를 등록했습니다.</Text>
-          </View>
-        ) : saveState.status === 'error' ? (
-          <CoffeeInlineError message={saveState.message} />
-        ) : undefined}
-        nickname={form.nickname}
-        onAccountHolderChange={(accountHolder) => onChangeForm({accountHolder})}
-        onAccountNumberChange={(accountNumber) => onChangeForm({accountNumber})}
-        onBankNameChange={(bankName) => onChangeForm({bankName})}
-        onNicknameChange={(nickname) => onChangeForm({nickname})}
-        onSubmit={onSave}
-        submitAccessibilityLabel="커피 계좌 등록"
-        submitLabel={busy ? '저장 중...' : '계좌 저장'}
       />
     </>
   );
