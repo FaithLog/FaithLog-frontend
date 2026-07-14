@@ -99,8 +99,10 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
     () => new Set(),
   );
   const [feedback, setFeedback] = useState<Feedback>(null);
-  const runtimeAdapter = useMemo(createRuntimeAdapter, []);
-  const adapter = dependencies?.adapter ?? runtimeAdapter;
+  const adapter = useMemo(
+    () => dependencies?.adapter ?? createRuntimeAdapter(),
+    [dependencies?.adapter],
+  );
   const shareExport =
     dependencies?.shareExport ?? saveAndShareAdminWeeklyDevotionExport;
   const coordinator = useMemo(() => new AdminWeeklyDevotionCoordinator(adapter), [adapter]);
@@ -445,10 +447,7 @@ export function AdminWeeklyDevotionSection({campusId, dependencies, setAuthState
             weekStartDate: selectedWeekStartDate,
           });
         }
-        const message =
-          apiError.code === 'API_CONTRACT_PENDING'
-            ? '현재 Excel 다운로드를 사용할 수 없습니다.'
-            : 'Excel 파일을 저장하거나 공유하지 못했습니다.';
+        const message = 'Excel 파일을 저장하거나 공유하지 못했습니다.';
         setFeedback({message, tone: 'error'});
         AccessibilityInfo.announceForAccessibility(message);
       }
@@ -589,17 +588,9 @@ function renderWeeklyState({
         <ErrorState
           actionAccessibilityLabel="주차별 경건 현황 오류 후 다시 시도"
           actionLabel="다시 시도"
-          message={
-            state.error.code === 'API_CONTRACT_PENDING'
-              ? '현재 이 기능을 사용할 수 없습니다. 잠시 후 다시 확인해 주세요.'
-              : '잠시 후 다시 시도해 주세요.'
-          }
+          message="잠시 후 다시 시도해 주세요."
           onActionPress={onRetry}
-          title={
-            state.error.code === 'API_CONTRACT_PENDING'
-              ? '기능 준비 중입니다'
-              : '현황을 불러오지 못했습니다'
-          }
+          title="현황을 불러오지 못했습니다"
         />
       );
     case 'success':

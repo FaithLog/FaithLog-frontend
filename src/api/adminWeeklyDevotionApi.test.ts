@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('./client', () => ({
   DEFAULT_REQUEST_TIMEOUT_MS: 15_000,
+  getApiBaseUrl: vi.fn(() => 'https://configured-api.example.test'),
   authenticatedTransportRequest: vi.fn(
     async <T,>({
       accessToken,
@@ -17,11 +18,21 @@ import {FaithLogApiError} from './apiError';
 import {authenticatedTransportRequest} from './client';
 import {
   ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS,
+  createAdminWeeklyDevotionTransport,
   createMockAdminWeeklyDevotionAdapter,
   createProductionAdminWeeklyDevotionAdapter,
-  createProvisionalAdminWeeklyDevotionTransport,
   parseAdminWeeklyDevotion,
+  parseAdminWeeklyDevotionEnvelope,
 } from './adminWeeklyDevotionApi';
+
+function createDailyChecks() {
+  return Array.from({length: 7}, (_, index) => ({
+    bibleReading: index < 4,
+    prayer: index < 6,
+    quietTime: index < 5,
+    recordDate: `2026-07-${String(13 + index).padStart(2, '0')}`,
+  }));
+}
 
 const VALID_WEEK = {
   activeMemberCount: 3,
@@ -33,14 +44,7 @@ const VALID_WEEK = {
   submittedMembers: [
     {
       bibleReadingCount: 4,
-      dailyChecks: [
-        {
-          bibleReading: true,
-          prayer: true,
-          quietTime: true,
-          recordDate: '2026-07-13',
-        },
-      ],
+      dailyChecks: createDailyChecks(),
       email: 'member@example.test',
       name: '홍제출',
       penalty: {amount: 2500, chargeItemId: 10, status: 'UNPAID'},
@@ -52,7 +56,12 @@ const VALID_WEEK = {
     },
     {
       bibleReadingCount: 7,
-      dailyChecks: [],
+      dailyChecks: createDailyChecks().map((check) => ({
+        ...check,
+        bibleReading: true,
+        prayer: true,
+        quietTime: true,
+      })),
       email: 'paid@example.test',
       name: '박납부',
       penalty: {amount: 0, chargeItemId: 11, status: 'PAID'},
@@ -68,6 +77,37 @@ const VALID_WEEK = {
   weekStartDate: '2026-07-13',
 };
 
+function toRestDocsEnvelope(data = VALID_WEEK) {
+  return {
+    success: true,
+    code: 'SUCCESS',
+    message: '요청이 성공했습니다.',
+    data: {
+      ...data,
+      submittedMembers: data.submittedMembers.map((member) => ({
+        ...member,
+        dailyChecks: member.dailyChecks.map((check, index) => {
+          const wireCheck: {
+            bibleReadingChecked: boolean;
+            id: number | null;
+            prayerChecked: boolean;
+            quietTimeChecked: boolean;
+            recordDate: string;
+          } = {
+            bibleReadingChecked: check.bibleReading,
+            id: index + 1,
+            prayerChecked: check.prayer,
+            quietTimeChecked: check.quietTime,
+            recordDate: check.recordDate,
+          };
+          return wireCheck;
+        }),
+      })),
+    },
+    timestamp: '2026-07-13T23:02:35.598003Z',
+  };
+}
+
 const REQUEST = {
   accessToken: 'admin-access-token',
   authGeneration: 4,
@@ -75,7 +115,7 @@ const REQUEST = {
   weekStartDate: '2026-07-13',
 };
 
-describe('admin weekly devotion provisional validator', () => {
+describe('admin weekly devotion validator', () => {
   it('keeps submitted counts, actual penalty state, daily detail, and missing members', () => {
     expect(parseAdminWeeklyDevotion(VALID_WEEK)).toEqual(VALID_WEEK);
   });
@@ -85,7 +125,7 @@ describe('admin weekly devotion provisional validator', () => {
     {...VALID_WEEK, submittedCount: -1},
     {...VALID_WEEK, submittedMembers: [{...VALID_WEEK.submittedMembers[0], penalty: {}}]},
     {...VALID_WEEK, missingMembers: [{userId: 3, name: '이름'}]},
-  ])('fails closed for an invalid provisional response', (value) => {
+  ])('fails closed for an invalid response', (value) => {
     expect(() => parseAdminWeeklyDevotion(value)).toThrow(FaithLogApiError);
   });
 
@@ -137,6 +177,52 @@ describe('admin weekly devotion provisional validator', () => {
     },
   ])('fails closed for duplicate identities, invalid weekly counts, or duplicate days', (value) => {
     expect(() => parseAdminWeeklyDevotion(value)).toThrow(FaithLogApiError);
+  });
+
+  it('parses the exact REST Docs envelope and normalizes checked wire fields', () => {
+    expect(parseAdminWeeklyDevotionEnvelope(toRestDocsEnvelope(), REQUEST.weekStartDate))
+      .toEqual(VALID_WEEK);
+  });
+
+  it.each([
+    VALID_WEEK,
+    {...toRestDocsEnvelope(), success: false},
+    {...toRestDocsEnvelope(), code: ''},
+    {...toRestDocsEnvelope(), data: null},
+    {...toRestDocsEnvelope(), timestamp: 'not-a-date'},
+  ])('rejects a bare or malformed production envelope', (value) => {
+    expect(() => parseAdminWeeklyDevotionEnvelope(value, REQUEST.weekStartDate))
+      .toThrow(FaithLogApiError);
+  });
+
+  it.each([
+    createDailyChecks().slice(0, 6),
+    createDailyChecks().map((check, index) =>
+      index === 6 ? {...check, recordDate: '2026-07-18'} : check),
+    createDailyChecks().map((check, index) =>
+      index === 6 ? {...check, recordDate: '2026-07-20'} : check),
+  ])('requires exactly Monday through Sunday daily rows', (dailyChecks) => {
+    const invalid = {
+      ...VALID_WEEK,
+      submittedMembers: [
+        {...VALID_WEEK.submittedMembers[0], dailyChecks},
+        VALID_WEEK.submittedMembers[1],
+      ],
+    };
+    expect(() => parseAdminWeeklyDevotion(invalid)).toThrow(FaithLogApiError);
+  });
+
+  it('accepts a nullable REST Docs daily row id without exposing it to the UI model', () => {
+    const envelope = toRestDocsEnvelope();
+    envelope.data.submittedMembers[0]!.dailyChecks[0]!.id = null;
+
+    expect(parseAdminWeeklyDevotionEnvelope(envelope, REQUEST.weekStartDate)
+      .submittedMembers[0]!.dailyChecks[0]).toEqual({
+      bibleReading: true,
+      prayer: true,
+      quietTime: true,
+      recordDate: '2026-07-13',
+    });
   });
 });
 
@@ -210,24 +296,30 @@ describe('admin weekly devotion adapters', () => {
     });
   });
 
-  it('fails closed before calling a provisional production endpoint', async () => {
-    const fetchImpl = vi.fn(async (_input: string, _init?: RequestInit) => new Response());
+  it('uses the configured production origin and the confirmed REST Docs envelope', async () => {
+    const fetchImpl = vi.fn(async (_input: string, _init?: RequestInit) =>
+      new Response(JSON.stringify(toRestDocsEnvelope()), {
+        headers: {'Content-Type': 'application/json;charset=UTF-8'},
+        status: 200,
+      }));
     const adapter = createProductionAdminWeeklyDevotionAdapter({fetchImpl});
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
 
-    try {
-      expect(ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS).toBe('pending');
-      await expect(adapter.fetchWeek(REQUEST)).rejects.toSatisfy(isContractPending);
-      await expect(adapter.exportWeek(REQUEST)).rejects.toSatisfy(isContractPending);
-      expect(fetchImpl).not.toHaveBeenCalled();
-      expect(setTimeoutSpy).not.toHaveBeenCalled();
-    } finally {
-      setTimeoutSpy.mockRestore();
-    }
+    expect(ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS).toBe('confirmed');
+    await expect(adapter.fetchWeek(REQUEST)).resolves.toEqual(VALID_WEEK);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://configured-api.example.test/api/v1/admin/campuses/33/devotions/weeks/2026-07-13/members',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Accept: 'application/json',
+          Authorization: 'Bearer admin-access-token',
+        }),
+        method: 'GET',
+      }),
+    );
   });
 });
 
-describe('confirmed provisional binary transport', () => {
+describe('confirmed admin weekly devotion transport', () => {
   it.each(['members', 'export'] as const)(
     'times out a pending %s request as retryable offline state',
     async (operation) => {
@@ -237,9 +329,8 @@ describe('confirmed provisional binary transport', () => {
           async (_input: string, _init?: RequestInit) =>
             new Promise<Response>(() => undefined),
         );
-        const transport = createProvisionalAdminWeeklyDevotionTransport({
+        const transport = createAdminWeeklyDevotionTransport({
           apiBaseUrl: 'https://api.example.test',
-          contractConfirmed: true,
           fetchImpl,
           requestTimeoutMs: 1_000,
         });
@@ -281,9 +372,8 @@ describe('confirmed provisional binary transport', () => {
         }
         return new Promise<Response>(() => undefined);
       });
-      const transport = createProvisionalAdminWeeklyDevotionTransport({
+      const transport = createAdminWeeklyDevotionTransport({
         apiBaseUrl: 'https://api.example.test',
-        contractConfirmed: true,
         fetchImpl,
         requestTimeoutMs: 1_000,
       });
@@ -318,9 +408,8 @@ describe('confirmed provisional binary transport', () => {
       vi.spyOn(response, 'arrayBuffer').mockImplementation(
         async () => new Promise<ArrayBuffer>(() => undefined),
       );
-      const transport = createProvisionalAdminWeeklyDevotionTransport({
+      const transport = createAdminWeeklyDevotionTransport({
         apiBaseUrl: 'https://api.example.test',
-        contractConfirmed: true,
         fetchImpl: vi.fn(async () => response),
         requestTimeoutMs: 1_000,
       });
@@ -352,9 +441,8 @@ describe('confirmed provisional binary transport', () => {
         status: 200,
       }),
     );
-    const transport = createProvisionalAdminWeeklyDevotionTransport({
+    const transport = createAdminWeeklyDevotionTransport({
       apiBaseUrl: 'https://api.example.test',
-      contractConfirmed: true,
       fetchImpl,
     });
 
@@ -376,12 +464,12 @@ describe('confirmed provisional binary transport', () => {
   });
 
   it.each([
+    [400, 'error'],
     [401, 'sessionExpired'],
     [403, 'permissionDenied'],
   ] as const)('separates HTTP %i as %s', async (status, kind) => {
-    const transport = createProvisionalAdminWeeklyDevotionTransport({
+    const transport = createAdminWeeklyDevotionTransport({
       apiBaseUrl: 'https://api.example.test',
-      contractConfirmed: true,
       fetchImpl: vi.fn(async (_input: string, _init?: RequestInit) =>
         new Response(null, {status}),
       ),
@@ -396,7 +484,7 @@ describe('confirmed provisional binary transport', () => {
 
   it('rejects a members payload whose week does not match the requested cache key', async () => {
     const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify({
+      new Response(JSON.stringify(toRestDocsEnvelope({
         ...VALID_WEEK,
         weekStartDate: '2026-07-20',
         weekEndDate: '2026-07-26',
@@ -406,14 +494,13 @@ describe('confirmed provisional binary transport', () => {
         missingCount: 0,
         activeMemberCount: 0,
         totalPenaltyAmount: 0,
-      }), {
+      })), {
         headers: {'Content-Type': 'application/json'},
         status: 200,
       }),
     );
-    const transport = createProvisionalAdminWeeklyDevotionTransport({
+    const transport = createAdminWeeklyDevotionTransport({
       apiBaseUrl: 'https://api.example.test',
-      contractConfirmed: true,
       fetchImpl,
     });
 
@@ -427,9 +514,8 @@ describe('confirmed provisional binary transport', () => {
   });
 
   it('classifies malformed success JSON as an invalid server response', async () => {
-    const transport = createProvisionalAdminWeeklyDevotionTransport({
+    const transport = createAdminWeeklyDevotionTransport({
       apiBaseUrl: 'https://api.example.test',
-      contractConfirmed: true,
       fetchImpl: vi.fn(async () =>
         new Response('{broken-json', {
           headers: {'Content-Type': 'application/json'},
@@ -449,12 +535,3 @@ describe('confirmed provisional binary transport', () => {
     });
   });
 });
-
-function isContractPending(error: unknown) {
-  expect(error).toBeInstanceOf(FaithLogApiError);
-  expect((error as FaithLogApiError).detail).toMatchObject({
-    code: 'API_CONTRACT_PENDING',
-    kind: 'error',
-  });
-  return true;
-}

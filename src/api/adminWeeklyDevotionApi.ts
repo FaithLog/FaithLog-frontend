@@ -2,11 +2,12 @@ import {FaithLogApiError} from './apiError';
 import {
   authenticatedTransportRequest,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  getApiBaseUrl,
 } from './client';
 import type {ChargeStatus} from './types';
 import type {AuthSessionGeneration} from './tokenStorage';
 
-export const ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS = 'pending' as const;
+export const ADMIN_WEEKLY_DEVOTION_CONTRACT_STATUS = 'confirmed' as const;
 
 export type AdminWeeklyDevotionDailyCheck = {
   bibleReading: boolean;
@@ -51,6 +52,36 @@ export type AdminWeeklyDevotion = {
   weekStartDate: string;
 };
 
+export type AdminWeeklyDevotionDailyCheckDto = {
+  bibleReadingChecked: boolean;
+  id: number | null;
+  prayerChecked: boolean;
+  quietTimeChecked: boolean;
+  recordDate: string;
+};
+
+export type AdminWeeklyDevotionSubmittedMemberDto = Omit<
+  AdminWeeklyDevotionSubmittedMember,
+  'dailyChecks'
+> & {
+  dailyChecks: AdminWeeklyDevotionDailyCheckDto[];
+};
+
+export type AdminWeeklyDevotionDataDto = Omit<
+  AdminWeeklyDevotion,
+  'submittedMembers'
+> & {
+  submittedMembers: AdminWeeklyDevotionSubmittedMemberDto[];
+};
+
+export type AdminWeeklyDevotionResponseDto = {
+  code: 'SUCCESS';
+  data: AdminWeeklyDevotionDataDto;
+  message: string;
+  success: true;
+  timestamp: string;
+};
+
 export type AdminWeeklyDevotionRequest = {
   accessToken: string;
   authGeneration: number;
@@ -72,7 +103,6 @@ export type AdminWeeklyDevotionAdapter = {
 
 type TransportOptions = {
   apiBaseUrl: string;
-  contractConfirmed: boolean;
   fetchImpl?: FetchImplementation;
   requestTimeoutMs?: number;
 };
@@ -127,15 +157,13 @@ export function parseAdminWeeklyDevotion(value: unknown): AdminWeeklyDevotion {
     assertUniqueMemberIds(submittedMembers, missingMembers);
 
     for (const member of submittedMembers) {
-      const seenDates = new Set<string>();
-      for (const check of member.dailyChecks) {
-        if (check.recordDate < weekStartDate || check.recordDate > weekEndDate) {
-          throw new Error('Daily check outside selected week');
+      if (member.dailyChecks.length !== 7) {
+        throw new Error('Incomplete daily checks');
+      }
+      for (const [index, check] of member.dailyChecks.entries()) {
+        if (check.recordDate !== addDays(weekStartDate, index)) {
+          throw new Error('Daily checks must be Monday through Sunday');
         }
-        if (seenDates.has(check.recordDate)) {
-          throw new Error('Duplicate daily check');
-        }
-        seenDates.add(check.recordDate);
       }
     }
 
@@ -155,6 +183,71 @@ export function parseAdminWeeklyDevotion(value: unknown): AdminWeeklyDevotion {
   } catch {
     throw invalidServerResponse();
   }
+}
+
+export function parseAdminWeeklyDevotionEnvelope(
+  value: unknown,
+  requestedWeekStartDate: string,
+): AdminWeeklyDevotion {
+  try {
+    const response = parseAdminWeeklyDevotionResponseDto(value);
+
+    return parseRequestedWeek(
+      {
+        ...response.data,
+        submittedMembers: response.data.submittedMembers.map(
+          normalizeSubmittedMemberDto,
+        ),
+      },
+      requestedWeekStartDate,
+    );
+  } catch {
+    throw invalidServerResponse();
+  }
+}
+
+function parseAdminWeeklyDevotionResponseDto(
+  value: unknown,
+): AdminWeeklyDevotionResponseDto {
+  const envelope = requireRecord(value);
+  if (envelope.success !== true || envelope.code !== 'SUCCESS') {
+    throw new Error('Invalid success envelope');
+  }
+  return {
+    code: 'SUCCESS',
+    data: parseAdminWeeklyDevotionDataDto(envelope.data),
+    message: requireString(envelope.message, 'message'),
+    success: true,
+    timestamp: requireDateTime(envelope.timestamp, 'timestamp'),
+  };
+}
+
+function parseAdminWeeklyDevotionDataDto(
+  value: unknown,
+): AdminWeeklyDevotionDataDto {
+  const record = requireRecord(value);
+  return {
+    activeMemberCount: requireNonNegativeInteger(
+      record.activeMemberCount,
+      'activeMemberCount',
+    ),
+    missingCount: requireNonNegativeInteger(record.missingCount, 'missingCount'),
+    missingMembers: requireArray(record.missingMembers, parseMissingMember),
+    submittedCount: requireNonNegativeInteger(
+      record.submittedCount,
+      'submittedCount',
+    ),
+    submittedMembers: requireArray(
+      record.submittedMembers,
+      parseSubmittedMemberDto,
+    ),
+    totalPenaltyAmount: requireNonNegativeInteger(
+      record.totalPenaltyAmount,
+      'totalPenaltyAmount',
+    ),
+    weekEndDate: requireDate(record.weekEndDate, 'weekEndDate'),
+    weekStartDate: requireMonday(record.weekStartDate, 'weekStartDate'),
+  };
 }
 
 export function createMockAdminWeeklyDevotionAdapter(): AdminWeeklyDevotionAdapter {
@@ -182,30 +275,21 @@ export function createMockAdminWeeklyDevotionAdapter(): AdminWeeklyDevotionAdapt
 export function createProductionAdminWeeklyDevotionAdapter(
   options: ProductionAdapterOptions = {},
 ): AdminWeeklyDevotionAdapter {
-  return createProvisionalAdminWeeklyDevotionTransport({
-    apiBaseUrl: 'https://contract-pending.invalid',
-    contractConfirmed: false,
+  return createAdminWeeklyDevotionTransport({
+    apiBaseUrl: getApiBaseUrl(),
     ...(options.fetchImpl ? {fetchImpl: options.fetchImpl} : {}),
   });
 }
 
-export function createProvisionalAdminWeeklyDevotionTransport({
+export function createAdminWeeklyDevotionTransport({
   apiBaseUrl,
-  contractConfirmed,
   fetchImpl = (input, init) => fetch(input, init),
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 }: TransportOptions): AdminWeeklyDevotionAdapter {
-  const assertConfirmed = () => {
-    if (!contractConfirmed) {
-      throw contractPendingError();
-    }
-  };
-
   return {
     exportWeek: async (request) => {
-      assertConfirmed();
       return authenticateRequest(request, async (accessToken) => {
-        const path = buildProvisionalPath(request, 'export');
+        const path = buildAdminWeeklyDevotionPath(request, 'export');
         return requestWithTimeout(
           fetchImpl,
           `${normalizeBaseUrl(apiBaseUrl)}${path}`,
@@ -243,9 +327,8 @@ export function createProvisionalAdminWeeklyDevotionTransport({
       });
     },
     fetchWeek: async (request) => {
-      assertConfirmed();
       return authenticateRequest(request, async (accessToken) => {
-        const path = buildProvisionalPath(request, 'members');
+        const path = buildAdminWeeklyDevotionPath(request, 'members');
         return requestWithTimeout(
           fetchImpl,
           `${normalizeBaseUrl(apiBaseUrl)}${path}`,
@@ -259,18 +342,87 @@ export function createProvisionalAdminWeeklyDevotionTransport({
           requestTimeoutMs,
           async (response) => {
             assertResponseStatus(response, request.authGeneration);
+            if (
+              response.headers.get('Content-Type')?.split(';')[0]?.trim() !==
+              'application/json'
+            ) {
+              throw invalidServerResponse(response.status);
+            }
             let payload: unknown;
             try {
               payload = await response.json();
             } catch {
               throw invalidServerResponse(response.status);
             }
-            const data = unwrapPossibleEnvelope(payload);
-            return parseRequestedWeek(data, request.weekStartDate);
+            return parseAdminWeeklyDevotionEnvelope(
+              payload,
+              request.weekStartDate,
+            );
           },
         );
       });
     },
+  };
+}
+
+function parseSubmittedMemberDto(
+  value: unknown,
+): AdminWeeklyDevotionSubmittedMemberDto {
+  const member = requireRecord(value);
+  return {
+    bibleReadingCount: requireWeeklyCount(
+      member.bibleReadingCount,
+      'bibleReadingCount',
+    ),
+    dailyChecks: requireArray(member.dailyChecks, parseDailyCheckDto, 7),
+    email: requireString(member.email, 'email'),
+    name: requireString(member.name, 'name'),
+    penalty: member.penalty === null ? null : parsePenalty(member.penalty),
+    prayerCount: requireWeeklyCount(member.prayerCount, 'prayerCount'),
+    quietTimeCount: requireWeeklyCount(
+      member.quietTimeCount,
+      'quietTimeCount',
+    ),
+    saturdayLateMinutes: requireNonNegativeInteger(
+      member.saturdayLateMinutes,
+      'saturdayLateMinutes',
+    ),
+    submittedAt: requireDateTime(member.submittedAt, 'submittedAt'),
+    userId: requirePositiveInteger(member.userId, 'userId'),
+  };
+}
+
+function parseDailyCheckDto(value: unknown): AdminWeeklyDevotionDailyCheckDto {
+  const record = requireRecord(value);
+  const id = record.id === null
+    ? null
+    : requirePositiveInteger(record.id, 'id');
+  return {
+    bibleReadingChecked: requireBoolean(
+      record.bibleReadingChecked,
+      'bibleReadingChecked',
+    ),
+    id,
+    prayerChecked: requireBoolean(record.prayerChecked, 'prayerChecked'),
+    quietTimeChecked: requireBoolean(
+      record.quietTimeChecked,
+      'quietTimeChecked',
+    ),
+    recordDate: requireDate(record.recordDate, 'recordDate'),
+  };
+}
+
+function normalizeSubmittedMemberDto(
+  member: AdminWeeklyDevotionSubmittedMemberDto,
+): AdminWeeklyDevotionSubmittedMember {
+  return {
+    ...member,
+    dailyChecks: member.dailyChecks.map((check) => ({
+      bibleReading: check.bibleReadingChecked,
+      prayer: check.prayerChecked,
+      quietTime: check.quietTimeChecked,
+      recordDate: check.recordDate,
+    })),
   };
 }
 
@@ -509,7 +661,7 @@ function resolveMockScenario(authGeneration: number) {
   });
 }
 
-function buildProvisionalPath(
+function buildAdminWeeklyDevotionPath(
   request: AdminWeeklyDevotionRequest,
   suffix: 'export' | 'members',
 ) {
@@ -566,13 +718,6 @@ function normalizeBaseUrl(value: string) {
   return url.toString().replace(/\/+$/, '');
 }
 
-function unwrapPossibleEnvelope(value: unknown) {
-  if (!isRecord(value)) {
-    return value;
-  }
-  return value.success === true && 'data' in value ? value.data : value;
-}
-
 function getAttachmentFileName(value: string | null) {
   if (!value) {
     return null;
@@ -592,14 +737,6 @@ function getAttachmentFileName(value: string | null) {
 function sanitizeFileName(value: string) {
   const fileName = value.split(/[\\/]/).pop()?.trim();
   return fileName && /^[a-zA-Z0-9._-]+\.xlsx$/i.test(fileName) ? fileName : null;
-}
-
-function contractPendingError() {
-  return new FaithLogApiError({
-    kind: 'error',
-    code: 'API_CONTRACT_PENDING',
-    message: '백엔드 REST Docs 계약 확정 후 연결할 예정입니다.',
-  });
 }
 
 function invalidServerResponse(status?: number) {

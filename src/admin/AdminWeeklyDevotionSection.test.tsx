@@ -151,10 +151,10 @@ describe('AdminWeeklyDevotionSection runtime behavior', () => {
     expect(shareExport).toHaveBeenCalledOnce();
   });
 
-  it('never renders or announces internal contract terminology', async () => {
+  it('never renders or announces internal diagnostic terminology', async () => {
     const adapter = createAdapter();
     const pendingError = new FaithLogApiError({
-      code: 'API_CONTRACT_PENDING',
+      code: 'INTERNAL_DIAGNOSTIC',
       kind: 'error',
       message: 'internal contract detail',
     });
