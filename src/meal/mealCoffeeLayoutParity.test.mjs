@@ -7,7 +7,6 @@ import {describe, expect, it} from 'vitest';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const mealScreen = fs.readFileSync(path.join(directory, 'MealDutyScreen.tsx'), 'utf8');
 const mealPollCreate = fs.readFileSync(path.join(directory, 'MealPollCreateScreen.tsx'), 'utf8');
-const mealStyles = fs.readFileSync(path.join(directory, 'mealScreenShared.tsx'), 'utf8');
 const coffeeScreen = fs.readFileSync(
   path.join(directory, '..', 'coffee', 'CoffeeDutyScreen.tsx'),
   'utf8',
@@ -18,17 +17,14 @@ const dutyPageNav = fs.readFileSync(
 );
 
 describe('meal and coffee duty layout parity', () => {
-  it('uses the same management-screen header and keyboard shell primitives', () => {
-    for (const primitive of [
-      'KeyboardAvoidingView',
-      'FaithLogHeaderTopRow',
-      'FaithLogHeaderPillButton',
-    ]) {
-      expect(mealScreen).toContain(primitive);
-      expect(coffeeScreen).toContain(primitive);
-    }
-    expect(mealScreen).toContain('<Text style={mealStyles.kicker}>밥 담당자</Text>');
-    expect(mealScreen).toContain('<Text style={mealStyles.screenTitle}>밥 정산 관리</Text>');
+  it('delegates the common header, keyboard shell, and content rhythm to one scaffold', () => {
+    expect(mealScreen).toContain('<DutyPageScaffold');
+    expect(coffeeScreen).toContain('<DutyPageScaffold');
+    expect(mealScreen).not.toContain('<KeyboardAvoidingView');
+    expect(coffeeScreen).not.toContain('<KeyboardAvoidingView');
+    expect(coffeeScreen).not.toContain('<ScrollView');
+    expect(mealScreen).toContain('domainLabel="밥"');
+    expect(coffeeScreen).toContain('domainLabel="커피"');
   });
 
   it('keeps the four meal responsibilities split into wrapping two-column navigation', () => {

@@ -1,7 +1,13 @@
 import {useCallback, useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 
-import {Button, Card, Chip, Empty, Eyebrow, Title} from '../components/ui';
+import {
+  DutyActionButton,
+  DutyAsyncState,
+  DutyEntityCard,
+  DutyPageSection,
+  DutySectionHeader,
+} from '../duty/DutyPresentation';
 import {mealApi, type MealApi} from './mealApi';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
 import type {MealPollList, MealPollStatus, MealPollSummary} from './mealTypes';
@@ -59,22 +65,25 @@ export function MealPollListScreen({
   if (!scopeIsCommitted) return <MealLoading label="밥 투표 목록을 전환하는 중" />;
 
   return (
-    <View style={mealStyles.page}>
-      <Card>
-        <View style={mealStyles.rowBetween}>
-          <View>
-            <Eyebrow>밥 투표 관리</Eyebrow>
-            <Title>투표 목록</Title>
-          </View>
-          <Button accessibilityLabel="새 밥 투표 만들기" onPress={onCreate}>새 투표</Button>
-        </View>
-        <Text style={mealStyles.body}>진행 중인 투표와 지난 투표를 한곳에서 확인할 수 있어요.</Text>
-        <Button accessibilityLabel="밥 투표 목록 새로고침" onPress={() => void load()} variant="secondary">새로고침</Button>
-      </Card>
+    <DutyPageSection>
+      <DutySectionHeader
+        action={<DutyActionButton accessibilityLabel="새 밥 투표 만들기" label="새 투표" onPress={onCreate} variant="primary" />}
+        description="진행 중인 투표와 지난 투표를 한곳에서 확인할 수 있어요."
+        eyebrow="밥 투표 관리"
+        title="투표 목록"
+      />
+      <DutyActionButton accessibilityLabel="밥 투표 목록 새로고침" label="새로고침" onPress={() => void load()} />
       {state.status === 'loading' ? <MealLoading label="밥 투표를 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
       {state.status === 'empty' ? (
-        <Empty title="표시할 밥 투표가 없습니다" message="새 투표를 만들면 이곳에서 진행 상태를 확인할 수 있어요." actionLabel="새 투표" onActionPress={onCreate} />
+        <DutyAsyncState
+          actionAccessibilityLabel="새 밥 투표 만들기"
+          actionLabel="새 투표"
+          message="새 투표를 만들면 이곳에서 진행 상태를 확인할 수 있어요."
+          onAction={onCreate}
+          status="empty"
+          title="표시할 밥 투표가 없습니다"
+        />
       ) : null}
       {state.status === 'success' ? (
         <View style={mealStyles.list}>
@@ -83,23 +92,20 @@ export function MealPollListScreen({
           ))}
         </View>
       ) : null}
-    </View>
+    </DutyPageSection>
   );
 }
 
 function MealPollCard({onOpen, poll}: {onOpen: () => void; poll: MealPollSummary}) {
   return (
-    <Card>
-      <View style={mealStyles.rowBetween}>
-        <View style={{flex: 1}}>
-          <Eyebrow>{getPollStatusCopy(poll.status).eyebrow}</Eyebrow>
-          <Title>{poll.title}</Title>
-        </View>
-        <Chip label={poll.settlementStatus === 'CHARGED' ? '청구 완료' : '미청구'} tone={poll.settlementStatus === 'CHARGED' ? 'success' : 'warning'} />
-      </View>
+    <DutyEntityCard
+      statusLabel={poll.settlementStatus === 'CHARGED' ? '청구 완료' : '미청구'}
+      statusTone={poll.settlementStatus === 'CHARGED' ? 'success' : 'warning'}
+      subtitle={getPollStatusCopy(poll.status).eyebrow}
+      title={poll.title}>
       <Text style={mealStyles.meta}>마감 {new Date(poll.endsAt).toLocaleString()}</Text>
-      <Button accessibilityLabel={`${poll.title} 밥 투표 상세 보기`} onPress={onOpen} variant="secondary">상세 보기</Button>
-    </Card>
+      <DutyActionButton accessibilityLabel={`${poll.title} 밥 투표 상세 보기`} label="상세 보기" onPress={onOpen} />
+    </DutyEntityCard>
   );
 }
 

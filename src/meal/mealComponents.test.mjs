@@ -80,6 +80,13 @@ import {MealPollListScreen} from './MealPollListScreen';
 import {MealSettlementScreen} from './MealSettlementScreen';
 import {MealErrorState, toMealApiError} from './mealScreenShared';
 import {InvalidServerResponseError} from './mealRuntimeValidation';
+import {
+  DutyConfirmSheet,
+  DutyEntityCard,
+  DutyMetricSurface,
+  DutyPageSection,
+  DutySectionHeader,
+} from '../duty/DutyPresentation';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -171,6 +178,9 @@ describe('MEAL component behavior', () => {
     api.listPolls.mockResolvedValueOnce(pollList([mealPoll({title: '재시도 성공'})]));
     await press(renderer, '목록 갱신 실행');
     expect(rendered(renderer)).toContain('재시도 성공');
+    expect(renderer.root.findAllByType(DutyPageSection).length).toBeGreaterThan(0);
+    expect(renderer.root.findAllByType(DutySectionHeader).length).toBeGreaterThan(0);
+    expect(renderer.root.findAllByType(DutyEntityCard).length).toBeGreaterThan(0);
 
     api.listPolls.mockResolvedValueOnce(pollList([]));
     await press(renderer, '밥 투표 목록 새로고침');
@@ -428,8 +438,9 @@ describe('MEAL component behavior', () => {
 
     const output = rendered(renderer);
     const accountStateLabels = renderer.root
-      .findAll((node) => node.type === 'Chip')
-      .map((node) => node.props.label);
+      .findAllByType(DutyEntityCard)
+      .map((node) => node.props.statusLabel)
+      .filter(Boolean);
     expect(accountStateLabels).toEqual(['활성', '비활성']);
     expect(output).toContain('저녁 계좌');
     expect(output).toContain('비활성');
@@ -843,6 +854,7 @@ describe('MEAL component behavior', () => {
       await settle();
     });
     await press(renderer, '점심 계좌 밥 계좌 비활성화');
+    expect(renderer.root.findAllByType(DutyConfirmSheet)).toHaveLength(1);
     await press(renderer, '계좌 비활성화 취소');
     expect(api.deactivatePaymentAccount).not.toHaveBeenCalled();
 
@@ -873,6 +885,8 @@ describe('MEAL component behavior', () => {
     });
     expect(rendered(renderer)).toContain('멤버 1');
     expect(rendered(renderer)).toContain('60,000');
+    expect(renderer.root.findAllByType(DutyMetricSurface)).toHaveLength(1);
+    expect(renderer.root.findAllByType(DutyEntityCard).length).toBeGreaterThan(0);
   });
 
   it('progressively renders large settlement member collections without a nested list', async () => {

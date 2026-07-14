@@ -1,8 +1,15 @@
 import {memo, useCallback, useEffect, useState} from 'react';
-import {Text, View} from 'react-native';
+import {Text} from 'react-native';
 
-import {Button, Card, Chip, Empty, Eyebrow, Title} from '../components/ui';
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
+import {
+  DutyActionButton,
+  DutyAsyncState,
+  DutyEntityCard,
+  DutyMetricSurface,
+  DutyPageSection,
+  DutySectionHeader,
+} from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 import {mealApi, type MealApi} from './mealApi';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
@@ -67,37 +74,34 @@ export function MealSettlementScreen({
   if (!scopeIsCommitted) return <MealLoading label="내 밥 정산 화면을 전환하는 중" />;
 
   return (
-    <View style={mealStyles.page}>
-      <Card>
-        <Eyebrow>내 정산</Eyebrow>
-        <Title>밥 정산 현황</Title>
-        <Text style={mealStyles.body}>내 밥 계좌에 연결된 청구의 요약과 멤버별 상태를 확인할 수 있어요.</Text>
-      </Card>
+    <DutyPageSection>
+      <DutySectionHeader
+        action={<DutyActionButton accessibilityLabel="밥 정산 새로고침" label="새로고침" onPress={() => void load()} />}
+        description="내 밥 계좌에 연결된 청구의 요약과 멤버별 상태를 확인할 수 있어요."
+        eyebrow="내 정산"
+        title="밥 정산 현황"
+      />
       {state.status === 'loading' ? <MealLoading label="내 밥 정산을 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
-      {state.status === 'empty' ? <Empty title="밥 정산 내역이 없습니다" message="내 계좌로 청구한 내역이 이곳에 표시됩니다." actionLabel="다시 불러오기" onActionPress={load} /> : null}
+      {state.status === 'empty' ? <DutyAsyncState actionLabel="다시 불러오기" message="내 계좌로 청구한 내역이 이곳에 표시됩니다." onAction={load} status="empty" title="밥 정산 내역이 없습니다" /> : null}
       {state.status === 'success' ? (
         <>
-          <Card>
-            <Eyebrow>전체 합계</Eyebrow>
-            <Title>{formatWon(state.data.summary.totalAmount)}</Title>
+          <DutyMetricSurface label="전체 합계" value={formatWon(state.data.summary.totalAmount)}>
             <Text style={mealStyles.meta}>미납 {formatWon(state.data.summary.unpaidAmount)} · 납부 {formatWon(state.data.summary.paidAmount)}</Text>
             <Text style={mealStyles.meta}>면제 {formatWon(state.data.summary.waivedAmount)} · 취소 {formatWon(state.data.summary.canceledAmount)}</Text>
-          </Card>
+          </DutyMetricSurface>
           {getProgressiveItems(state.data.members, memberProgress.limit).map((member) => (
             <MemoizedMealSettlementMemberRow key={member.userId} member={member} />
           ))}
           {memberProgress.hasMore ? (
-            <Button accessibilityLabel="밥 정산 멤버 더 보기" onPress={memberProgress.showMore} variant="secondary">
-              멤버 더 보기
-            </Button>
+            <DutyActionButton accessibilityLabel="밥 정산 멤버 더 보기" label="멤버 더 보기" onPress={memberProgress.showMore} />
           ) : null}
         </>
       ) : null}
       {showBackButton ? (
-        <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+        <DutyActionButton accessibilityLabel="밥 정산 관리 홈으로 돌아가기" label="돌아가기" onPress={onBack} />
       ) : null}
-    </View>
+    </DutyPageSection>
   );
 }
 
@@ -107,15 +111,8 @@ const MemoizedMealSettlementMemberRow = memo(function MemoizedMealSettlementMemb
   member: MealSettlement['members'][number];
 }) {
   return (
-    <Card>
-      <View style={mealStyles.rowBetween}>
-        <View style={{flex: 1}}>
-          <Title>{member.name}</Title>
-          <Text style={mealStyles.meta}>{member.email}</Text>
-        </View>
-        <Chip label={formatWon(member.totalAmount)} tone="info" />
-      </View>
+    <DutyEntityCard statusLabel={formatWon(member.totalAmount)} statusTone="info" subtitle={member.email} title={member.name}>
       <Text style={mealStyles.meta}>미납 {formatWon(member.unpaidAmount)} · 납부 {formatWon(member.paidAmount)} · 면제 {formatWon(member.waivedAmount)} · 취소 {formatWon(member.canceledAmount)}</Text>
-    </Card>
+    </DutyEntityCard>
   );
 });

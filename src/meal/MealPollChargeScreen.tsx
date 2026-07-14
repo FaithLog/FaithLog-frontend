@@ -3,7 +3,8 @@ import {Modal, ScrollView, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
-import {Button, Card, Chip, Empty, Eyebrow, TextField, Title} from '../components/ui';
+import {Card, Chip, Empty, Eyebrow, TextField, Title} from '../components/ui';
+import {DutyActionButton} from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 import {mealApi} from './mealApi';
 import type {MealApi} from './mealApi';
@@ -282,13 +283,14 @@ export function MealPollChargeScreen({
           <Empty title="활성 밥 계좌가 없습니다" message="내 계좌 화면에서 밥 정산 계좌를 먼저 등록해 주세요." />
         ) : (
           state.accounts.map((account) => (
-            <Button
+            <DutyActionButton
               accessibilityLabel={`${account.nickname} 밥 청구 공통 계좌 선택`}
               key={account.id}
+              label={`${account.nickname} · ${account.bankName}`}
               onPress={() => setSelectedAccountId(account.id)}
-              variant={selectedAccountId === account.id ? 'primary' : 'secondary'}>
-              {account.nickname} · {account.bankName}
-            </Button>
+              selected={selectedAccountId === account.id}
+              variant={selectedAccountId === account.id ? 'primary' : 'secondary'}
+            />
           ))
         )}
       </Card>
@@ -311,13 +313,14 @@ export function MealPollChargeScreen({
             </View>
             <View style={mealStyles.actionRow}>
               {(['PER_MEMBER', 'GROUP_TOTAL'] as const).map((type) => (
-                <Button
+                <DutyActionButton
                   accessibilityLabel={`${option.content} ${type === 'PER_MEMBER' ? '1인당' : '전체 금액'} 계산 선택`}
                   key={type}
+                  label={type === 'PER_MEMBER' ? '1인당' : '그룹 총액'}
                   onPress={() => updateDraft(option.optionId, {calculationType: type})}
-                  variant={draft?.calculationType === type ? 'primary' : 'secondary'}>
-                  {type === 'PER_MEMBER' ? '1인당' : '그룹 총액'}
-                </Button>
+                  selected={draft?.calculationType === type}
+                  variant={draft?.calculationType === type ? 'primary' : 'secondary'}
+                />
               ))}
             </View>
             <TextField
@@ -346,9 +349,9 @@ export function MealPollChargeScreen({
       ) : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void refreshAfterCharge()} /> : null}
       <View style={mealStyles.actionRow}>
-        <Button accessibilityLabel="밥 투표 상세로 돌아가기" onPress={onBack} variant="secondary">뒤로</Button>
+        <DutyActionButton accessibilityLabel="밥 투표 상세로 돌아가기" label="뒤로" onPress={onBack} />
         {!terminalReceipt ? (
-          <Button accessibilityLabel="밥 청구 최종 확인 열기" disabled={state.accounts.length === 0 || chargeableOptions.length === 0} onPress={openConfirmation}>최종 확인</Button>
+          <DutyActionButton accessibilityLabel="밥 청구 최종 확인 열기" disabled={state.accounts.length === 0 || chargeableOptions.length === 0} label="최종 확인" onPress={openConfirmation} variant="primary" />
         ) : null}
       </View>
 
@@ -370,8 +373,8 @@ export function MealPollChargeScreen({
               <Text style={mealStyles.body}>완료 후에는 계좌나 금액을 바꾸거나 다시 청구할 수 없습니다.</Text>
             </ScrollView>
             <View style={mealStyles.actionRow}>
-              <Button accessibilityLabel="최종 청구 취소" disabled={submitting} onPress={() => setConfirmationVisible(false)} variant="secondary">취소</Button>
-              <Button accessibilityLabel="최종 청구 실행" disabled={submitting} onPress={() => void submit()}>{submitting ? '청구 중...' : '청구하기'}</Button>
+              <DutyActionButton accessibilityLabel="최종 청구 취소" disabled={submitting} label="취소" onPress={() => setConfirmationVisible(false)} />
+              <DutyActionButton accessibilityLabel="최종 청구 실행" busy={submitting} label={submitting ? '청구 중...' : '청구하기'} onPress={() => void submit()} variant="primary" />
             </View>
           </View>
         </View>

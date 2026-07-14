@@ -96,6 +96,12 @@ vi.mock('../api/client', () => {
 });
 
 import {CoffeeDutyScreen} from './CoffeeDutyScreen';
+import {
+  DutyEntityCard,
+  DutyMetricSurface,
+  DutyPageSection,
+  DutySectionHeader,
+} from '../duty/DutyPresentation';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -126,13 +132,17 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(findByLabel(renderer, '커피 투표 페이지 열기').props.accessibilityState).toEqual({selected: true});
     expect(findByLabel(renderer, '커피 투표 생성 페이지 열기').props.accessibilityState).toEqual({selected: false});
     expect(mocks.fetchAdminPolls).toHaveBeenCalledTimes(1);
+    expect(renderer.root.findAllByType(DutyPageSection).length).toBeGreaterThan(0);
+    expect(renderer.root.findAllByType(DutySectionHeader).length).toBeGreaterThan(0);
     expect(mocks.fetchMyDutyAssignment.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.fetchAdminPolls.mock.invocationCallOrder[0]);
 
     await press(renderer, '커피 내 계좌 페이지 열기');
     expect(rendered(renderer)).toContain('QA 커피 계좌');
+    expect(renderer.root.findAllByType(DutyEntityCard).length).toBeGreaterThan(0);
     await press(renderer, '커피 정산 페이지 열기');
     expect(rendered(renderer)).toContain('12,000원');
+    expect(renderer.root.findAllByType(DutyMetricSurface)).toHaveLength(1);
     expect(mocks.fetchMyDutyAssignment).toHaveBeenCalledTimes(1);
     expect(mocks.fetchAdminPaymentAccounts).toHaveBeenCalledTimes(1);
     expect(renderer.root.findAllByType('ScrollView')).toHaveLength(0);
@@ -178,6 +188,39 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(findByLabel(renderer, '시 늘리기').props.accessibilityRole).toBe('button');
     await press(renderer, '마감 일시 선택 취소');
     expect(rendered(renderer)).toBe(before);
+  });
+
+  it('keeps duty-native poll and form controls at least 48 points with selected state', async () => {
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
+      await settle();
+    });
+
+    for (const label of [
+      '커피 투표 페이지 열기',
+      '커피 투표 생성 페이지 열기',
+      '진행 중 커피 투표 보기',
+      '마감 커피 투표 보기',
+      '커피 투표 목록 새로고침',
+    ]) {
+      expectTouchTarget(findByLabel(renderer, label));
+    }
+    expect(findByLabel(renderer, '진행 중 커피 투표 보기').props.accessibilityState)
+      .toEqual({selected: true});
+
+    await press(renderer, '커피 투표 생성 페이지 열기');
+    for (const label of [
+      '커피 투표 마감 일시 선택',
+      '커피 메뉴 추가 모달 열기',
+      'QA 커피 계좌 커피 계좌 선택',
+      '커피 투표 사용자 항목 추가 허용',
+      '커피 주문 투표 생성',
+    ]) {
+      expectTouchTarget(findByLabel(renderer, label));
+    }
+    expect(findByLabel(renderer, '커피 투표 사용자 항목 추가 허용').props.accessibilityState)
+      .toEqual({checked: true, disabled: true});
   });
 });
 
@@ -245,6 +288,20 @@ function findByLabel(renderer, label) {
   const matches = renderer.root.findAll((node) => node.props.accessibilityLabel === label);
   if (matches.length === 0) throw new Error(`No node found for ${label}`);
   return matches.find((node) => typeof node.type === 'string') ?? matches[0];
+}
+
+function expectTouchTarget(node) {
+  const raw = typeof node.props.style === 'function'
+    ? node.props.style({pressed: false})
+    : node.props.style;
+  const styles = flattenStyles(raw);
+  expect(Math.max(...styles.map((style) => style.minHeight ?? style.height ?? 0)))
+    .toBeGreaterThanOrEqual(48);
+}
+
+function flattenStyles(value) {
+  if (Array.isArray(value)) return value.flatMap(flattenStyles);
+  return value ? [value] : [];
 }
 
 function rendered(renderer) {

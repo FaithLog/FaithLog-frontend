@@ -12,7 +12,7 @@ import {MealPollDetailScreen} from './MealPollDetailScreen';
 import {MealPollListScreen} from './MealPollListScreen';
 import {MealSettlementScreen} from './MealSettlementScreen';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
-import {getCurrentMealRequestError, MealErrorState, MealLoading, mealStyles} from './mealScreenShared';
+import {getCurrentMealRequestError, MealErrorState, MealLoading} from './mealScreenShared';
 import {useMealRequestTracker} from './useMealRequestTracker';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;

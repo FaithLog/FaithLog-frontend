@@ -1,10 +1,19 @@
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
-import {Modal, Text, View} from 'react-native';
+import {Text} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
-import {Button, Card, Chip, Empty, Eyebrow, TextField, Title} from '../components/ui';
+import {TextField} from '../components/ui';
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
+import {
+  DutyActionButton,
+  DutyAsyncState,
+  DutyConfirmSheet,
+  DutyEntityCard,
+  DutyFormSection,
+  DutyPageSection,
+  DutySectionHeader,
+} from '../duty/DutyPresentation';
 import {mealApi, type MealApi} from './mealApi';
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
@@ -171,16 +180,16 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
   };
 
   return (
-    <View style={mealStyles.page}>
-      <Card>
-        <Eyebrow>내 계좌</Eyebrow>
-        <Title>정산 계좌 관리</Title>
-        <Text style={mealStyles.body}>밥 정산금을 받을 내 계좌를 관리할 수 있어요.</Text>
-      </Card>
+    <DutyPageSection>
+      <DutySectionHeader
+        description="밥 정산금을 받을 내 계좌를 관리할 수 있어요."
+        eyebrow="내 계좌"
+        title="정산 계좌 관리"
+      />
 
       {state.status === 'loading' ? <MealLoading label="내 밥 계좌를 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
-      {state.status === 'empty' ? <Empty title="등록한 밥 계좌가 없습니다" message="아래에서 청구에 사용할 본인 계좌를 등록해 주세요." /> : null}
+      {state.status === 'empty' ? <DutyAsyncState title="등록한 밥 계좌가 없습니다" message="아래에서 청구에 사용할 본인 계좌를 등록해 주세요." status="empty" /> : null}
       {state.status === 'success' ? getProgressiveItems(state.data, accountProgress.limit).map((account) => (
         <MemoizedMealAccountRow
           account={account}
@@ -190,45 +199,35 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
         />
       )) : null}
       {state.status === 'success' && accountProgress.hasMore ? (
-        <Button accessibilityLabel="이전 밥 계좌 더 보기" onPress={accountProgress.showMore} variant="secondary">
-          계좌 더 보기
-        </Button>
+        <DutyActionButton accessibilityLabel="이전 밥 계좌 더 보기" label="계좌 더 보기" onPress={accountProgress.showMore} />
       ) : null}
 
-      <Card>
-        <Eyebrow>새 본인 계좌</Eyebrow>
+      <DutyFormSection>
+        <DutySectionHeader eyebrow="새 본인 계좌" title="정산 계좌 등록" />
         <TextField accessibilityLabel="밥 계좌 별칭" label="계좌 이름" onChangeText={setNickname} value={nickname} />
         <TextField accessibilityLabel="밥 계좌 은행명" label="은행" onChangeText={setBankName} value={bankName} />
         <TextField accessibilityLabel="밥 계좌번호" keyboardType="number-pad" label="계좌번호" onChangeText={setAccountNumber} value={accountNumber} />
         <TextField accessibilityLabel="밥 계좌 예금주" label="예금주" onChangeText={setAccountHolder} value={accountHolder} />
-        <Button accessibilityLabel="본인 밥 계좌 등록" disabled={saving} onPress={() => void create()}>{saving ? '저장 중...' : '계좌 등록'}</Button>
-      </Card>
+        <DutyActionButton accessibilityLabel="본인 밥 계좌 등록" busy={saving} label={saving ? '저장 중...' : '계좌 등록'} onPress={() => void create()} variant="primary" />
+      </DutyFormSection>
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void load(false)} /> : null}
       {showBackButton ? (
-        <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+        <DutyActionButton accessibilityLabel="밥 정산 관리 홈으로 돌아가기" label="돌아가기" onPress={onBack} />
       ) : null}
 
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setDeactivationTarget(null)}
-        transparent
-        visible={deactivationTarget !== null}>
-        <View style={mealStyles.sheetBackdrop}>
-          <View style={mealStyles.sheet}>
-            <View accessible accessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 비활성화 안내`}>
-              <Eyebrow>계좌 비활성화</Eyebrow>
-              <Title>이 계좌를 비활성화할까요?</Title>
-              <Text style={mealStyles.body}>비활성화하면 앞으로 이 계좌로 새 청구를 만들 수 없으며 되돌릴 수 없습니다.</Text>
-            </View>
-            <View style={mealStyles.actionRow}>
-              <Button accessibilityLabel="계좌 비활성화 취소" disabled={saving} onPress={() => setDeactivationTarget(null)} variant="secondary">취소</Button>
-              <Button accessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 비활성화 확인`} disabled={saving} onPress={confirmDeactivate} variant="danger">비활성화</Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
+      <DutyConfirmSheet
+        busy={saving}
+        cancelAccessibilityLabel="계좌 비활성화 취소"
+        confirmAccessibilityLabel={`${deactivationTarget?.nickname ?? '선택한 계좌'} 비활성화 확인`}
+        confirmLabel="비활성화"
+        message="비활성화하면 앞으로 이 계좌로 새 청구를 만들 수 없으며 되돌릴 수 없습니다."
+        onCancel={() => setDeactivationTarget(null)}
+        onConfirm={confirmDeactivate}
+        title="이 계좌를 비활성화할까요?"
+        visible={deactivationTarget !== null}
+      />
+    </DutyPageSection>
   );
 }
 
@@ -242,18 +241,15 @@ const MemoizedMealAccountRow = memo(function MemoizedMealAccountRow({
   onDeactivate: (account: MealPaymentAccount) => void;
 }) {
   return (
-    <Card>
-      <View style={mealStyles.rowBetween}>
-        <View style={{flex: 1}}>
-          <Title>{account.nickname}</Title>
-          <Text selectable style={mealStyles.body}>{account.bankName} {account.accountNumber}</Text>
-          <Text style={mealStyles.meta}>{account.accountHolder}</Text>
-        </View>
-        <Chip label={account.isActive ? '활성' : '비활성'} tone={account.isActive ? 'success' : 'default'} />
-      </View>
+    <DutyEntityCard
+      statusLabel={account.isActive ? '활성' : '비활성'}
+      statusTone={account.isActive ? 'success' : 'default'}
+      subtitle={`${account.bankName} ${account.accountNumber}`}
+      title={account.nickname}>
+      <Text style={mealStyles.meta}>{account.accountHolder}</Text>
       {account.isActive ? (
-        <Button accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={busy} onPress={() => onDeactivate(account)} variant="danger">비활성화</Button>
+        <DutyActionButton accessibilityLabel={`${account.nickname} 밥 계좌 비활성화`} disabled={busy} label="비활성화" onPress={() => onDeactivate(account)} variant="danger" />
       ) : null}
-    </Card>
+    </DutyEntityCard>
   );
 });

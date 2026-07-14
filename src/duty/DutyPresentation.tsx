@@ -194,12 +194,14 @@ export function DutyActionButton({
 }
 
 export function DutyAsyncState({
+  actionAccessibilityLabel,
   actionLabel,
   message,
   onAction,
   status,
   title,
 }: {
+  actionAccessibilityLabel?: string;
   actionLabel?: string;
   message: string;
   onAction?: () => void;
@@ -220,7 +222,7 @@ export function DutyAsyncState({
       <Text style={dutyStyles.body}>{message}</Text>
       {actionLabel && onAction ? (
         <DutyActionButton
-          accessibilityLabel={actionLabel}
+          accessibilityLabel={actionAccessibilityLabel ?? actionLabel}
           label={actionLabel}
           onPress={onAction}
           variant={status === 'error' ? 'primary' : 'secondary'}
@@ -232,6 +234,7 @@ export function DutyAsyncState({
 
 export function DutyConfirmSheet({
   busy = false,
+  cancelAccessibilityLabel,
   cancelLabel = '취소',
   children,
   confirmAccessibilityLabel,
@@ -243,6 +246,7 @@ export function DutyConfirmSheet({
   visible,
 }: PropsWithChildren<{
   busy?: boolean;
+  cancelAccessibilityLabel?: string;
   cancelLabel?: string;
   confirmAccessibilityLabel: string;
   confirmLabel: string;
@@ -260,7 +264,7 @@ export function DutyConfirmSheet({
           {children}
           <DutyActionRow>
             <DutyActionButton
-              accessibilityLabel={`${title} ${cancelLabel}`}
+              accessibilityLabel={cancelAccessibilityLabel ?? `${title} ${cancelLabel}`}
               disabled={busy}
               label={cancelLabel}
               onPress={onCancel}

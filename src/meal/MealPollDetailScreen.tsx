@@ -3,7 +3,8 @@ import {Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
-import {Button, Card, Chip, Eyebrow, Title} from '../components/ui';
+import {Card, Chip, Eyebrow, Title} from '../components/ui';
+import {DutyActionButton} from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 import {mealApi, type MealApi} from './mealApi';
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
@@ -213,14 +214,12 @@ export function MealPollDetailScreen({
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void load()} /> : null}
       <View style={mealStyles.actionRow}>
-        <Button accessibilityLabel="밥 투표 목록으로 돌아가기" onPress={onBack} variant="secondary">목록</Button>
+        <DutyActionButton accessibilityLabel="밥 투표 목록으로 돌아가기" label="목록" onPress={onBack} />
         {detail.status === 'OPEN' ? (
-          <Button accessibilityLabel="밥 투표 수동 종료" disabled={closing} onPress={() => void closePoll()} variant="danger">
-            {closing ? '종료 중...' : '투표 종료'}
-          </Button>
+          <DutyActionButton accessibilityLabel="밥 투표 수동 종료" busy={closing} label={closing ? '종료 중...' : '투표 종료'} onPress={() => void closePoll()} variant="danger" />
         ) : null}
         {detail.status === 'CLOSED' && hasChargeableGroup ? (
-          <Button accessibilityLabel="밥 투표 청구 화면 열기" onPress={() => onOpenCharge(detail.id)}>청구하기</Button>
+          <DutyActionButton accessibilityLabel="밥 투표 청구 화면 열기" label="청구하기" onPress={() => onOpenCharge(detail.id)} variant="primary" />
         ) : null}
       </View>
       {detail.status === 'CLOSED' && hasChargeableGroup ? (

@@ -2,7 +2,8 @@ import {StyleSheet, Text} from 'react-native';
 
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
-import {Button, Card, Loading, Title} from '../components/ui';
+import {Card, Title} from '../components/ui';
+import {DutyActionButton, DutyAsyncState} from '../duty/DutyPresentation';
 import {colors, radius, spacing} from '../theme';
 import {
   getMealErrorPresentation,
@@ -20,21 +21,22 @@ export type MealLoadState<T> =
 export function MealErrorState({error, onRetry}: {error: ApiError; onRetry?: () => void}) {
   const presentation = getMealErrorPresentation(error);
 
-  return (
-    <Card>
-      <Title>{presentation.title}</Title>
-      <Text style={mealStyles.body}>{presentation.message}</Text>
-      {onRetry && presentation.retryable ? (
-        <Button accessibilityLabel={`${presentation.actionLabel} 실행`} onPress={onRetry}>
-          {presentation.actionLabel}
-        </Button>
-      ) : null}
-    </Card>
-  );
+  return <DutyAsyncState
+    {...(onRetry && presentation.retryable
+      ? {
+          actionAccessibilityLabel: `${presentation.actionLabel} 실행`,
+          actionLabel: presentation.actionLabel,
+          onAction: onRetry,
+        }
+      : {})}
+    message={presentation.message}
+    status="error"
+    title={presentation.title}
+  />;
 }
 
 export function MealLoading({label}: {label: string}) {
-  return <Loading message={label} />;
+  return <DutyAsyncState message={label} status="loading" />;
 }
 
 export function MealRefreshWarning({onRetry}: {onRetry: () => void}) {
@@ -42,9 +44,7 @@ export function MealRefreshWarning({onRetry}: {onRetry: () => void}) {
     <Card>
       <Title>처리는 완료됐어요</Title>
       <Text style={mealStyles.body}>최신 상태를 불러오지 못했습니다. 다시 불러와 확인해 주세요.</Text>
-      <Button accessibilityLabel="최신 상태 다시 불러오기" onPress={onRetry}>
-        다시 불러오기
-      </Button>
+      <DutyActionButton accessibilityLabel="최신 상태 다시 불러오기" label="다시 불러오기" onPress={onRetry} />
     </Card>
   );
 }

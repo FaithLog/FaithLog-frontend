@@ -35,11 +35,8 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
-import {IconexIcon} from '../components/IconexIcon';
 import {
   Body,
-  Button,
-  Card,
   Eyebrow,
   TextField,
 } from '../components/ui';
@@ -57,8 +54,13 @@ import {
   DutyActionButton,
   DutyActionRow,
   DutyAsyncState,
+  DutyConfirmSheet,
+  DutyEntityCard,
   DutyFormSection,
+  DutyMetricSurface,
   DutyPageScaffold,
+  DutyPageSection,
+  DutySectionHeader,
 } from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 
@@ -513,41 +515,33 @@ function CoffeeSettlementSummary({
   const memberCount = charges?.members.filter((member) => member.unpaidAmount > 0).length ?? 0;
 
   return (
-    <Card>
-      <View style={styles.summaryHeader}>
-        <View>
-          <Text style={styles.kicker}>커피 정산</Text>
-          <Text style={styles.summaryTitle}>{formatWon(unpaidAmount)}</Text>
-        </View>
-        <View style={styles.summaryActions}>
-          <Pressable
-            accessibilityLabel="커피 정산 새로고침"
-            accessibilityRole="button"
-            onPress={onRefresh}
-            style={({pressed}) => [styles.softButton, pressed ? styles.pressed : null]}>
-            <Text style={styles.softButtonText}>새로고침</Text>
-          </Pressable>
-          <View style={styles.summaryIcon}>
-            <IconexIcon color={colors.primary} name="coins" size={24} strokeWidth={1.8} />
-          </View>
-        </View>
-      </View>
-      <Text style={styles.summaryBody}>
-        미납 {memberCount}명 · 커피 계좌 {state.accounts.length}개 · 담당자 {state.assignment.name}
-      </Text>
+    <DutyPageSection>
+      <DutySectionHeader
+        action={<DutyActionButton accessibilityLabel="커피 정산 새로고침" label="새로고침" onPress={onRefresh} />}
+        description="내 커피 계좌에 연결된 청구와 미납 현황을 확인할 수 있어요."
+        eyebrow="내 정산"
+        title="커피 정산 현황"
+      />
+      <DutyMetricSurface label="미납 합계" value={formatWon(unpaidAmount)}>
+        <Text style={styles.summaryBody}>
+          미납 {memberCount}명 · 커피 계좌 {state.accounts.length}개 · 담당자 {state.assignment.name}
+        </Text>
+      </DutyMetricSurface>
       {charges?.members.length ? (
-        <View style={styles.memberList}>
+        <View style={styles.optionList}>
           {charges.members.slice(0, 5).map((member) => (
-            <View key={member.userId} style={styles.memberRow}>
-              <Text style={styles.memberName}>{member.name}</Text>
-              <Text style={styles.memberAmount}>{formatWon(member.unpaidAmount)}</Text>
-            </View>
+            <DutyEntityCard
+              key={member.userId}
+              statusLabel={formatWon(member.unpaidAmount)}
+              statusTone="warning"
+              title={member.name}
+            />
           ))}
         </View>
       ) : (
-        <Text style={styles.summaryBody}>표시할 커피 미납 내역이 없습니다.</Text>
+        <DutyAsyncState message="표시할 커피 미납 내역이 없습니다." status="empty" />
       )}
-    </Card>
+    </DutyPageSection>
   );
 }
 
@@ -575,52 +569,34 @@ function CoffeeAccountManagement({
 
   return (
     <>
-      <Card>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.kicker}>커피 계좌</Text>
-            <Text style={styles.sectionTitle}>활성 계좌</Text>
-          </View>
-          <Pressable
-            accessibilityLabel="커피 계좌 새로고침"
-            accessibilityRole="button"
-            onPress={onRefresh}
-            style={({pressed}) => [styles.softButton, pressed ? styles.pressed : null]}>
-            <Text style={styles.softButtonText}>새로고침</Text>
-          </Pressable>
-        </View>
+      <DutyPageSection>
+        <DutySectionHeader
+          action={<DutyActionButton accessibilityLabel="커피 계좌 새로고침" label="새로고침" onPress={onRefresh} />}
+          description="커피 정산에 사용할 내 계좌를 관리할 수 있어요."
+          eyebrow="내 계좌"
+          title="정산 계좌 관리"
+        />
         {state.accounts.length === 0 ? (
-          <Text style={styles.summaryBody}>등록된 커피 계좌가 없습니다.</Text>
+          <DutyAsyncState message="아래에서 청구에 사용할 본인 계좌를 등록해 주세요." status="empty" title="등록된 커피 계좌가 없습니다" />
         ) : (
           <View style={styles.optionList}>
             {state.accounts.map((account) => (
-              <View key={account.id} style={styles.selectRow}>
-                <View style={styles.accountRowHeader}>
-                  <View style={styles.headerText}>
-                    <Text style={styles.selectTitle}>{account.nickname}</Text>
-                    <Text style={styles.selectMeta}>
-                      {account.bankName} {account.accountNumber}
-                    </Text>
-                    <Text style={styles.selectMeta}>예금주 {account.accountHolder}</Text>
-                  </View>
-                  <Pressable
-                    accessibilityLabel={`${account.nickname} 계좌 삭제`}
-                    accessibilityRole="button"
-                    disabled={busy}
-                    onPress={() => setDeleteTarget(account)}
-                    style={({pressed}) => [
-                      styles.accountDeleteButton,
-                      busy ? styles.pollCreateActionDisabled : null,
-                      pressed ? styles.pressed : null,
-                    ]}>
-                    <Text style={styles.accountDeleteButtonText}>
-                      {deleteState.status === 'deleting' && deleteState.accountId === account.id
-                        ? '삭제 중'
-                        : '삭제'}
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
+              <DutyEntityCard
+                key={account.id}
+                statusLabel="활성"
+                statusTone="success"
+                subtitle={`${account.bankName} ${account.accountNumber}`}
+                title={account.nickname}>
+                <Text style={styles.selectMeta}>예금주 {account.accountHolder}</Text>
+                <DutyActionButton
+                  accessibilityLabel={`${account.nickname} 계좌 삭제`}
+                  busy={deleteState.status === 'deleting' && deleteState.accountId === account.id}
+                  disabled={busy && !(deleteState.status === 'deleting' && deleteState.accountId === account.id)}
+                  label={deleteState.status === 'deleting' && deleteState.accountId === account.id ? '삭제 중' : '삭제'}
+                  onPress={() => setDeleteTarget(account)}
+                  variant="danger"
+                />
+              </DutyEntityCard>
             ))}
           </View>
         )}
@@ -630,7 +606,7 @@ function CoffeeAccountManagement({
           </View>
         ) : null}
         {deleteState.status === 'error' ? <CoffeeInlineError message={deleteState.message} /> : null}
-      </Card>
+      </DutyPageSection>
       <CoffeeAccountDeleteConfirmModal
         account={deleteTarget}
         busy={deleteState.status === 'deleting'}
@@ -645,12 +621,8 @@ function CoffeeAccountManagement({
         }}
       />
 
-      <Card>
-        <Text style={styles.kicker}>계좌 등록</Text>
-        <Text style={styles.sectionTitle}>커피 정산 계좌 추가</Text>
-        <Text style={styles.summaryBody}>
-          커피 담당자가 받을 커피 금액 계좌만 등록합니다.
-        </Text>
+      <DutyFormSection>
+        <DutySectionHeader description="커피 담당자가 받을 커피 금액 계좌만 등록합니다." eyebrow="계좌 등록" title="커피 정산 계좌 추가" />
         <TextField
           accessibilityLabel="커피 계좌 별칭"
           label="별칭"
@@ -685,13 +657,14 @@ function CoffeeAccountManagement({
           </View>
         ) : null}
         {saveState.status === 'error' ? <CoffeeInlineError message={saveState.message} /> : null}
-        <Button
+        <DutyActionButton
           accessibilityLabel="커피 계좌 등록"
-          disabled={busy}
-          onPress={onSave}>
-          {busy ? '저장 중...' : '커피 계좌 저장'}
-        </Button>
-      </Card>
+          busy={busy}
+          label={busy ? '저장 중...' : '커피 계좌 저장'}
+          onPress={onSave}
+          variant="primary"
+        />
+      </DutyFormSection>
     </>
   );
 }
@@ -836,13 +809,12 @@ function CoffeePollCreator({
         {missingOwnedCoffeeAccount ? (
           <>
             <CoffeeInlineError message="커피 투표를 만들려면 내가 만든 커피 계좌를 먼저 등록해 주세요." />
-            <Button
+            <DutyActionButton
               accessibilityLabel="커피 계좌 등록 화면으로 이동"
               disabled={busy}
+              label="계좌 등록"
               onPress={onOpenAccounts}
-              variant="secondary">
-              계좌 등록
-            </Button>
+            />
           </>
         ) : (
           <View style={styles.optionList}>
@@ -913,59 +885,22 @@ function CoffeeAccountDeleteConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onCancel}
-      transparent={true}
+    <DutyConfirmSheet
+      busy={busy}
+      cancelAccessibilityLabel="커피 계좌 삭제 취소"
+      confirmAccessibilityLabel="커피 계좌 삭제 확인"
+      confirmLabel="삭제"
+      message={account ? `${account.nickname} 계좌는 새 커피 정산에 사용할 수 없게 됩니다.` : '선택한 커피 계좌를 삭제합니다.'}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      title="커피 계좌를 삭제할까요?"
       visible={Boolean(account)}>
-      <View style={styles.modalScrim}>
-        <View style={styles.menuSheet}>
-          <Text style={styles.pollCreateTitle}>커피 계좌를 삭제할까요?</Text>
-          <Text style={styles.pollCreateDescription}>
-            {account
-              ? `${account.nickname} 계좌는 새 커피 정산에 사용할 수 없게 됩니다.`
-              : '선택한 커피 계좌를 삭제합니다.'}
-          </Text>
-          {account ? (
-            <View style={styles.deletePreviewBox}>
-              <Text style={styles.selectTitle}>{account.nickname}</Text>
-              <Text style={styles.selectMeta}>
-                {account.bankName} {account.accountNumber}
-              </Text>
-              <Text style={styles.selectMeta}>예금주 {account.accountHolder}</Text>
-            </View>
-          ) : null}
-          <View style={styles.pollCreateCtaRow}>
-            <Pressable
-              accessibilityLabel="커피 계좌 삭제 취소"
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={onCancel}
-              style={({pressed}) => [
-                styles.pollCreateSecondaryAction,
-                busy ? styles.pollCreateActionDisabled : null,
-                pressed ? styles.pressed : null,
-              ]}>
-              <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="커피 계좌 삭제 확인"
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={onConfirm}
-              style={({pressed}) => [
-                styles.accountDeleteConfirmButton,
-                busy ? styles.pollCreateActionDisabled : null,
-                pressed ? styles.pressed : null,
-              ]}>
-              <Text style={styles.accountDeleteConfirmButtonText}>
-                {busy ? '삭제 중...' : '삭제'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
+      {account ? (
+        <DutyEntityCard subtitle={`${account.bankName} ${account.accountNumber}`} title={account.nickname}>
+          <Text style={styles.selectMeta}>예금주 {account.accountHolder}</Text>
+        </DutyEntityCard>
+      ) : null}
+    </DutyConfirmSheet>
   );
 }
 
@@ -1053,6 +988,7 @@ const CoffeeMenuPickerRow = memo(function CoffeeMenuPickerRow({
     <Pressable
       accessibilityLabel={`${menu.name} 메뉴 ${added ? '추가됨' : '추가'}`}
       accessibilityRole="button"
+      accessibilityState={{disabled: added, selected: added}}
       disabled={added}
       onPress={() => onSelect(menu.id)}
       style={({pressed}) => [
@@ -1202,23 +1138,13 @@ function CoffeePollManagement({
       : {closed: 0, ongoing: 0};
 
   return (
-    <Card>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.kicker}>투표 관리</Text>
-          <Text style={styles.sectionTitle}>커피 투표 현황</Text>
-        </View>
-        <Pressable
-          accessibilityLabel="커피 투표 목록 새로고침"
-          accessibilityRole="button"
-          onPress={loadPolls}
-          style={({pressed}) => [styles.softButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.softButtonText}>새로고침</Text>
-        </Pressable>
-      </View>
-      <Text style={styles.summaryBody}>
-        커피 투표만 관리합니다. 일반 투표와 반복 템플릿은 관리자 화면에서 처리합니다.
-      </Text>
+    <DutyPageSection>
+      <DutySectionHeader
+        action={<DutyActionButton accessibilityLabel="커피 투표 목록 새로고침" label="새로고침" onPress={loadPolls} />}
+        description="커피 투표만 관리합니다. 일반 투표와 반복 템플릿은 관리자 화면에서 처리합니다."
+        eyebrow="투표 관리"
+        title="커피 투표 현황"
+      />
 
       <View style={styles.segmentedControl}>
         <CoffeePollTabButton
@@ -1236,53 +1162,37 @@ function CoffeePollManagement({
       </View>
 
       {listState.status === 'loading' ? (
-        <Text style={styles.summaryBody}>커피 투표를 불러오고 있어요.</Text>
+        <DutyAsyncState message="커피 투표를 불러오고 있어요." status="loading" />
       ) : listState.status === 'error' ? (
-        <CoffeeInlineError message={listState.message} />
+        <DutyAsyncState actionLabel="다시 불러오기" message={listState.message} onAction={() => void loadPolls()} status="error" title="커피 투표를 불러오지 못했습니다" />
       ) : polls.length === 0 ? (
-        <Text style={styles.summaryBody}>표시할 커피 투표가 없습니다.</Text>
+        <DutyAsyncState message="새 투표를 만들면 이곳에서 진행 상태를 확인할 수 있어요." status="empty" title="표시할 커피 투표가 없습니다" />
       ) : (
         <View style={styles.optionList}>
           {polls.map((poll) => (
-            <View key={poll.id} style={styles.pollManageRow}>
-              <View style={styles.pollManageText}>
-                <Text numberOfLines={1} style={styles.selectTitle}>
-                  {poll.title}
-                </Text>
-                <Text style={styles.selectMeta}>
-                  {getPollStatusLabel(poll.status)} · {formatDateTime(poll.endsAt)}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityLabel={`${poll.title} 결과 보기`}
-                accessibilityRole="button"
-                onPress={() => void loadResults(poll)}
-                style={({pressed}) => [
-                  styles.resultButton,
-                  selectedPollId === poll.id ? styles.resultButtonActive : null,
-                  pressed ? styles.pressed : null,
-                ]}>
-                <Text
-                  style={[
-                    styles.resultButtonText,
-                    selectedPollId === poll.id ? styles.resultButtonTextActive : null,
-                  ]}>
-                  결과
-                </Text>
-              </Pressable>
+            <DutyEntityCard
+              key={poll.id}
+              statusLabel={getPollStatusLabel(poll.status)}
+              statusTone={isEndedPoll(poll, Date.now()) ? 'default' : 'success'}
+              subtitle={`마감 ${formatDateTime(poll.endsAt)}`}
+              title={poll.title}>
+              <DutyActionRow>
+                <DutyActionButton
+                  accessibilityLabel={`${poll.title} 결과 보기`}
+                  label="결과"
+                  onPress={() => void loadResults(poll)}
+                  selected={selectedPollId === poll.id}
+                />
               {!isEndedPoll(poll, Date.now()) ? (
-                <Pressable
+                <DutyActionButton
                   accessibilityLabel={`${poll.title} 투표 종료`}
-                  accessibilityRole="button"
+                  label="종료"
                   onPress={() => setCloseTarget(poll)}
-                  style={({pressed}) => [
-                    styles.closeButton,
-                    pressed ? styles.pressed : null,
-                  ]}>
-                  <Text style={styles.closeButtonText}>종료</Text>
-                </Pressable>
+                  variant="danger"
+                />
               ) : null}
-            </View>
+              </DutyActionRow>
+            </DutyEntityCard>
           ))}
         </View>
       )}
@@ -1301,7 +1211,7 @@ function CoffeePollManagement({
         onConfirm={closeCoffeePoll}
         poll={closeTarget}
       />
-    </Card>
+    </DutyPageSection>
   );
 }
 
@@ -1317,58 +1227,18 @@ function CoffeePollCloseConfirmModal({
   poll: PollSummary | null;
 }) {
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onCancel}
-      transparent={true}
+    <DutyConfirmSheet
+      busy={busy}
+      cancelAccessibilityLabel="커피 투표 종료 취소"
+      confirmAccessibilityLabel="커피 투표 종료 확인"
+      confirmLabel="투표 종료"
+      message={poll ? `${poll.title} 투표를 즉시 마감합니다. 종료 후에는 응답을 추가할 수 없습니다.` : '선택한 커피 투표를 종료합니다.'}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      title="커피 투표를 종료할까요?"
       visible={Boolean(poll)}>
-      <View style={styles.modalScrim}>
-        <View style={styles.menuSheet}>
-          <Text style={styles.pollCreateTitle}>커피 투표를 종료할까요?</Text>
-          <Text style={styles.pollCreateDescription}>
-            {poll
-              ? `${poll.title} 투표를 즉시 마감합니다. 종료 후에는 응답을 추가할 수 없습니다.`
-              : '선택한 커피 투표를 종료합니다.'}
-          </Text>
-          {poll ? (
-            <View style={styles.deletePreviewBox}>
-              <Text style={styles.selectTitle}>{poll.title}</Text>
-              <Text style={styles.selectMeta}>
-                {getPollStatusLabel(poll.status)} · {formatDateTime(poll.endsAt)}
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.pollCreateCtaRow}>
-            <Pressable
-              accessibilityLabel="커피 투표 종료 취소"
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={onCancel}
-              style={({pressed}) => [
-                styles.pollCreateSecondaryAction,
-                busy ? styles.pollCreateActionDisabled : null,
-                pressed ? styles.pressed : null,
-              ]}>
-              <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="커피 투표 종료 확인"
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={onConfirm}
-              style={({pressed}) => [
-                styles.accountDeleteConfirmButton,
-                busy ? styles.pollCreateActionDisabled : null,
-                pressed ? styles.pressed : null,
-              ]}>
-              <Text style={styles.accountDeleteConfirmButtonText}>
-                {busy ? '종료 중...' : '투표 종료'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
+      {poll ? <DutyEntityCard subtitle={`${getPollStatusLabel(poll.status)} · ${formatDateTime(poll.endsAt)}`} title={poll.title} /> : null}
+    </DutyConfirmSheet>
   );
 }
 
@@ -1387,6 +1257,7 @@ function CoffeePollTabButton({
     <Pressable
       accessibilityLabel={`${label} 커피 투표 보기`}
       accessibilityRole="button"
+      accessibilityState={{selected: active}}
       onPress={onPress}
       style={({pressed}) => [
         styles.segmentedButton,
@@ -1406,25 +1277,22 @@ function CoffeePollResultPanel({state}: {state: CoffeePollResultState}) {
   }
 
   if (state.status === 'loading') {
-    return <Text style={styles.summaryBody}>투표 결과를 불러오고 있어요.</Text>;
+    return <DutyAsyncState message="투표 결과를 불러오고 있어요." status="loading" />;
   }
 
   if (state.status === 'error') {
-    return <CoffeeInlineError message={state.message} />;
+    return <DutyAsyncState message={state.message} status="error" title="투표 결과를 불러오지 못했습니다" />;
   }
 
   return (
-    <View style={styles.resultPanel}>
-      <Text style={styles.inputLabel}>{state.results.title}</Text>
-      <Text style={styles.selectMeta}>
-        응답 {state.results.respondedCount}명 · 미응답 {state.results.notRespondedCount}명
-      </Text>
+    <DutyFormSection>
+      <DutySectionHeader
+        description={`응답 ${state.results.respondedCount}명 · 미응답 ${state.results.notRespondedCount}명`}
+        eyebrow="투표 결과"
+        title={state.results.title}
+      />
       {state.results.optionResults.map((option) => (
-        <View key={option.id} style={styles.resultOption}>
-          <View style={styles.resultOptionHeader}>
-            <Text style={styles.selectTitle}>{option.content}</Text>
-            <Text style={styles.memberAmount}>{option.responseCount}명</Text>
-          </View>
+        <DutyEntityCard key={option.id} statusLabel={`${option.responseCount}명`} statusTone="info" title={option.content}>
           {state.results.anonymous ? (
             <Text style={styles.selectMeta}>익명 투표라 응답자 명단은 표시하지 않습니다.</Text>
           ) : option.respondents.length === 0 ? (
@@ -1440,9 +1308,9 @@ function CoffeePollResultPanel({state}: {state: CoffeePollResultState}) {
               ))}
             </View>
           )}
-        </View>
+        </DutyEntityCard>
       ))}
-    </View>
+    </DutyFormSection>
   );
 }
 
@@ -1883,9 +1751,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 18,
-    height: 36,
+    height: 48,
     justifyContent: 'center',
-    width: 36,
+    width: 48,
   },
   menuSheetEmpty: {
     gap: space.md,
@@ -1962,7 +1830,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#E8F3FF',
     borderRadius: 14,
-    height: 40,
+    height: 48,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 12,
@@ -2039,9 +1907,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 18,
-    height: 36,
+    height: 48,
     justifyContent: 'center',
-    width: 36,
+    width: 48,
   },
   pollCreateRemoveOptionText: {
     color: colors.textSecondary,
@@ -2225,6 +2093,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     gap: 4,
+    minHeight: 48,
     padding: space.md,
   },
   selectRowActive: {
@@ -2242,6 +2111,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
+    minHeight: 48,
     paddingVertical: space.sm,
   },
   segmentedButtonActive: {
