@@ -11,8 +11,10 @@ import type {
   ChargeItem,
   ChargeList,
   ChargeSummary,
+  DevotionMonthlySummary,
   MarkChargePaidResponse,
   PaymentCategory,
+  WeeklyDevotionSummary,
 } from './types';
 import {calculateMealChargeGroup} from '../meal/mealModel';
 import type {
@@ -93,13 +95,19 @@ type MockErrorResult = {
 
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
 let mockMealState = createInitialMockMealState();
+let mockWeeklyDevotion = createMockWeeklyDevotionState();
+let mockMonthlyDevotion = createMockMonthlyDevotionState();
 
 export function resetMockAdapterStateForTests() {
   mockMealState = createInitialMockMealState();
+  mockWeeklyDevotion = createMockWeeklyDevotionState();
+  mockMonthlyDevotion = createMockMonthlyDevotionState();
 }
 
 export function resetMealMockStateForTests() {
   mockMealState = createInitialMockMealState();
+  mockWeeklyDevotion = createMockWeeklyDevotionState();
+  mockMonthlyDevotion = createMockMonthlyDevotionState();
 }
 
 export async function executeMockRequest(path: string, init: RequestInit): Promise<Response> {
@@ -234,7 +242,7 @@ function resolveMockData(
     route.method === 'GET' &&
     /^\/campuses\/\d+\/devotions\/me\/weeks\/\d{4}-\d{2}-\d{2}$/.test(path)
   ) {
-    return devotion.weekly;
+    return mockWeeklyDevotion;
   }
   if (
     route.method === 'PUT' &&
@@ -246,13 +254,13 @@ function resolveMockData(
     route.method === 'PUT' &&
     /^\/campuses\/\d+\/devotions\/me\/weeks\/\d{4}-\d{2}-\d{2}$/.test(path)
   ) {
-    return devotion.weekly;
+    return mockWeeklyDevotion;
   }
   if (
     route.method === 'GET' &&
     /^\/campuses\/\d+\/devotions\/me\/monthly-summary$/.test(path)
   ) {
-    return devotion.monthly;
+    return mockMonthlyDevotion;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/charges\/me\/summary$/.test(path)) {
     const campusId = getCampusId(path);
@@ -752,6 +760,13 @@ function resolveMockData(
     if (!transitioned || isMockErrorResult(transitioned)) {
       return transitioned ?? mockNotFound('CHARGE_NOT_FOUND', '청구를 찾을 수 없습니다.');
     }
+
+    reopenMockWeeklyDevotionAfterCancellation(
+      canonical.charge,
+      transitioned.status,
+      canonical.campusId,
+      canonical.userId,
+    );
 
     return {
       id: transitioned.id,
@@ -1401,6 +1416,49 @@ function createInitialMockLegacyBillingState(): MockLegacyBillingState {
       ...summary,
       monthlyByCategory: summary.monthlyByCategory.map((category) => ({...category})),
     },
+  };
+}
+
+function createMockWeeklyDevotionState(): WeeklyDevotionSummary {
+  return {
+    ...mockDomainFixtures.devotion.weekly,
+    dailyChecks: mockDomainFixtures.devotion.weekly.dailyChecks.map((check) => ({...check})),
+  };
+}
+
+function createMockMonthlyDevotionState(): DevotionMonthlySummary {
+  return {
+    ...mockDomainFixtures.devotion.monthly,
+    devotion: {...mockDomainFixtures.devotion.monthly.devotion},
+    weeklyRecords: mockDomainFixtures.devotion.monthly.weeklyRecords.map((week) => ({...week})),
+  };
+}
+
+function reopenMockWeeklyDevotionAfterCancellation(
+  charge: ChargeItem,
+  status: ChargeItem['status'],
+  campusId: number,
+  userId: number,
+) {
+  if (
+    status !== 'CANCELED' ||
+    charge.paymentCategory !== 'PENALTY' ||
+    charge.source?.sourceType !== 'DEVOTION_RECORD' ||
+    charge.source.sourceId !== mockWeeklyDevotion.weeklyRecordId ||
+    campusId !== mockWeeklyDevotion.campusId ||
+    userId !== mockWeeklyDevotion.userId
+  ) {
+    return;
+  }
+
+  mockWeeklyDevotion = {...mockWeeklyDevotion, submittedAt: null};
+  mockMonthlyDevotion = {
+    ...mockMonthlyDevotion,
+    weeklyRecords: mockMonthlyDevotion.weeklyRecords.map((week) =>
+      week.weeklyRecordId === charge.source?.sourceId
+        ? {...week, submittedAt: null}
+        : week,
+    ),
   };
 }
 
@@ -2327,12 +2385,18 @@ function validateMockAdminChargeTransition(
   targetStatus: ChargeItem['status'],
 ) {
   if (previousStatus === targetStatus) {
-    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
+    return mockConflict(
+      'BILLING_CHARGE_STATUS_TRANSITION_CONFLICT',
+      '허용되지 않는 청구 상태 전이입니다.',
+    );
   }
   if (previousStatus === 'UNPAID' || targetStatus === 'UNPAID') {
     return null;
   }
-  return mockConflict('CHARGE_STATUS_CONFLICT', '완료된 청구는 미납 상태로만 복구할 수 있습니다.');
+  return mockConflict(
+    'BILLING_CHARGE_STATUS_TRANSITION_CONFLICT',
+    '허용되지 않는 청구 상태 전이입니다.',
+  );
 }
 
 function moveMockChargeAmount(

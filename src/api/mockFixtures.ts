@@ -148,7 +148,7 @@ const weeklyDevotionSummary: WeeklyDevotionSummary = {
   prayerCount: 5,
   bibleReadingCount: 3,
   saturdayLateMinutes: 0,
-  submittedAt: null,
+  submittedAt: '2026-06-28T12:00:00.000Z',
   dailyChecks: [
     {
       id: 1001,
@@ -610,7 +610,7 @@ export const mockDomainFixtures = {
           weeklyRecordId: 101,
           weekStartDate: '2026-06-22',
           weekEndDate: '2026-06-28',
-          submittedAt: null,
+          submittedAt: '2026-06-28T12:00:00.000Z',
           quietTimeCount: 4,
           prayerCount: 5,
           bibleReadingCount: 3,

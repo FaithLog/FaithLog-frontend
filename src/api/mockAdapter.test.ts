@@ -16,10 +16,12 @@ import {
   changeAdminChargeStatus,
   FaithLogApiError,
   fetchChargeSummary,
+  fetchDevotionMonthlySummary,
   fetchAdminCampusChargesForMyAccounts,
   fetchAdminMemberCharges,
   fetchMyCharges,
   fetchPrayerWeek,
+  fetchWeeklyDevotionSummary,
   loginUser,
   markMyChargePaid,
   savePollResponse,
@@ -125,7 +127,7 @@ describe('FaithLog mock API adapter', () => {
     expect(mockDomainFixtures).toHaveProperty('notification');
   });
 
-  it('supports the provisional PAID payload only in mock mode with paidAt', async () => {
+  it('supports the confirmed PAID payload in mock mode with paidAt', async () => {
     const changed = await changeAdminChargeStatus('mock-access-token', 501, 'PAID', {
       campusId: 1,
       userId: 7,
@@ -144,6 +146,128 @@ describe('FaithLog mock API adapter', () => {
       expect.objectContaining({id: 501, status: 'PAID', paidAt: changed.paidAt}),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reopens only the linked weekly devotion after a successful devotion penalty cancellation', async () => {
+    const beforeWeekly = await fetchWeeklyDevotionSummary(
+      'mock-access-token',
+      1,
+      '2026-06-22',
+    );
+    const beforeMonthly = await fetchDevotionMonthlySummary(
+      'mock-access-token',
+      1,
+      {year: 2026, month: 6},
+    );
+    const preservedDailyChecks = structuredClone(beforeWeekly.dailyChecks);
+
+    expect(beforeWeekly.submittedAt).toEqual(expect.any(String));
+    expect(beforeMonthly.weeklyRecords[0]?.submittedAt).toEqual(expect.any(String));
+
+    await changeAdminChargeStatus('mock-access-token', 501, 'CANCELED', {
+      campusId: 1,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+
+    const [afterWeekly, afterMonthly] = await Promise.all([
+      fetchWeeklyDevotionSummary('mock-access-token', 1, '2026-06-22'),
+      fetchDevotionMonthlySummary('mock-access-token', 1, {year: 2026, month: 6}),
+    ]);
+
+    expect(afterWeekly.submittedAt).toBeNull();
+    expect(afterWeekly.dailyChecks).toEqual(preservedDailyChecks);
+    expect(afterMonthly.weeklyRecords[0]?.submittedAt).toBeNull();
+
+    resetMockAdapterStateForTests();
+    const [resetWeekly, resetMonthly] = await Promise.all([
+      fetchWeeklyDevotionSummary('mock-access-token', 1, '2026-06-22'),
+      fetchDevotionMonthlySummary('mock-access-token', 1, {year: 2026, month: 6}),
+    ]);
+    expect(resetWeekly.submittedAt).toBe(beforeWeekly.submittedAt);
+    expect(resetMonthly.weeklyRecords[0]?.submittedAt).toBe(beforeWeekly.submittedAt);
+  });
+
+  it.each([
+    ['WAIVED devotion penalty', 'PENALTY', 'DEVOTION_RECORD', 'WAIVED'],
+    ['CANCELED poll penalty', 'PENALTY', 'POLL_RESPONSE', 'CANCELED'],
+  ] as const)(
+    'does not reopen weekly devotion for %s',
+    async (_label, paymentCategory, sourceType, status) => {
+      const charge = mockDomainFixtures.admin.memberCharges.items[0];
+      if (!charge) throw new Error('Expected the linked mock charge fixture.');
+      const originalPaymentCategory = charge.paymentCategory;
+      const originalSource = charge.source;
+
+      charge.paymentCategory = paymentCategory;
+      charge.source = {sourceId: 101, sourceType};
+      resetMockAdapterStateForTests();
+
+      try {
+        const beforeWeekly = await fetchWeeklyDevotionSummary(
+          'mock-access-token',
+          1,
+          '2026-06-22',
+        );
+
+        await expect(patchMockAdminChargeStatus(501, status)).resolves.toMatchObject({status: 200});
+
+        const [afterWeekly, afterMonthly] = await Promise.all([
+          fetchWeeklyDevotionSummary('mock-access-token', 1, '2026-06-22'),
+          fetchDevotionMonthlySummary('mock-access-token', 1, {year: 2026, month: 6}),
+        ]);
+
+        expect(afterWeekly.submittedAt).toBe(beforeWeekly.submittedAt);
+        expect(afterMonthly.weeklyRecords[0]?.submittedAt).toBe(beforeWeekly.submittedAt);
+      } finally {
+        charge.paymentCategory = originalPaymentCategory;
+        if (originalSource === undefined) delete charge.source;
+        else charge.source = originalSource;
+        resetMockAdapterStateForTests();
+      }
+    },
+  );
+
+  it('does not reopen weekly devotion for a successful non-penalty cancellation', async () => {
+    const charge = await createOtherDutyMealCharge();
+    const beforeWeekly = await fetchWeeklyDevotionSummary(
+      'mock-access-token',
+      1,
+      '2026-06-22',
+    );
+
+    await changeAdminChargeStatus(
+      mealMockAccessTokens.nonDutyAdmin,
+      charge.id,
+      'CANCELED',
+      {campusId: 1, userId: 8, paymentCategory: 'MEAL'},
+    );
+
+    const afterWeekly = await fetchWeeklyDevotionSummary(
+      'mock-access-token',
+      1,
+      '2026-06-22',
+    );
+    expect(afterWeekly.submittedAt).toBe(beforeWeekly.submittedAt);
+  });
+
+  it('does not reopen devotion when an invalid status transition returns the canonical conflict', async () => {
+    const beforeWeekly = await fetchWeeklyDevotionSummary(
+      'mock-access-token',
+      1,
+      '2026-06-22',
+    );
+    const response = await patchMockAdminChargeStatus(501, 'UNPAID');
+    const body = await response.json();
+    const afterWeekly = await fetchWeeklyDevotionSummary(
+      'mock-access-token',
+      1,
+      '2026-06-22',
+    );
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({code: 'BILLING_CHARGE_STATUS_TRANSITION_CONFLICT'});
+    expect(afterWeekly.submittedAt).toBe(beforeWeekly.submittedAt);
   });
 
   it('shares an admin CANCELED transition with the member list and blocks member payment', async () => {
