@@ -226,11 +226,9 @@ export function isMockModeEnabled() {
 }
 
 export function getAdminChargeContractCapabilities(): AdminChargeContractCapabilities {
-  const provisionalContractsEnabled = isMockModeEnabled();
-
   return {
-    devotionPenaltyReopenEnabled: provisionalContractsEnabled,
-    paidStatusEnabled: provisionalContractsEnabled,
+    devotionPenaltyReopenEnabled: true,
+    paidStatusEnabled: true,
   };
 }
 
@@ -2582,18 +2580,6 @@ export async function changeAdminChargeStatus(
     chargeItemId,
     'chargeItemId',
   );
-
-  if (
-    body.status === 'PAID' &&
-    !getAdminChargeContractCapabilities().paidStatusEnabled
-  ) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      code: 'API_CONTRACT_PENDING',
-      message:
-        '관리자 납부 완료 API 계약이 아직 REST Docs로 확정되지 않아 요청을 보내지 않았습니다.',
-    });
-  }
 
   return apiRequest<AdminChargeStatusChangeResponse>(
     buildApiPath(

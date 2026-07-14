@@ -70,6 +70,7 @@ describe('admin charge status flow', () => {
       getAdminChargeStatusConfirmation(
         {...unpaidPenalty, paymentCategory: 'COFFEE', title: '커피 청구'},
         'CANCELED',
+        {devotionPenaltyReopenEnabled: true},
       ).messages,
     ).toEqual(['청구가 취소됩니다.']);
     expect(
@@ -81,6 +82,13 @@ describe('admin charge status flow', () => {
     expect(getAdminChargeStatusConfirmation(unpaidPenalty, 'WAIVED').messages).not.toContain(
       '해당 사용자는 그 주의 경건생활을 다시 수정하고 제출할 수 있습니다.',
     );
+    expect(
+      getAdminChargeStatusConfirmation(
+        {...unpaidPenalty, source: {sourceType: 'POLL_RESPONSE', sourceId: 41}},
+        'CANCELED',
+        {devotionPenaltyReopenEnabled: true},
+      ).messages,
+    ).toEqual(['청구가 취소됩니다.']);
   });
 
   it('keeps status errors distinct without exposing internal or remote messages', () => {

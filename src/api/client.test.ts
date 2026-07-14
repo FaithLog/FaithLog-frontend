@@ -973,10 +973,10 @@ describe('FaithLog API client', () => {
     }
   });
 
-  it('keeps provisional PAID action, transport, and devotion reopen behind one capability boundary', () => {
+  it('enables the confirmed PAID and devotion reopen contract in production and mock modes', () => {
     expect(getAdminChargeContractCapabilities()).toEqual({
-      devotionPenaltyReopenEnabled: false,
-      paidStatusEnabled: false,
+      devotionPenaltyReopenEnabled: true,
+      paidStatusEnabled: true,
     });
 
     process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
@@ -987,7 +987,46 @@ describe('FaithLog API client', () => {
     });
   });
 
-  it('fails production PAID closed with API_CONTRACT_PENDING and sends no request', async () => {
+  it('sends the confirmed production PAID request and requires paidAt in the response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 501,
+        campusId: 2,
+        userId: 7,
+        paymentCategory: 'PENALTY',
+        title: '경건생활 벌금',
+        amount: 3_000,
+        status: 'PAID',
+        paidAt: '2026-07-14T01:02:03.000Z',
+      })),
+    );
+
+    const changed = await changeAdminChargeStatus('access-token', 501, 'PAID', {
+      campusId: 2,
+      userId: 7,
+      paymentCategory: 'PENALTY',
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+
+    expect(String(url)).toContain('/api/v1/admin/charges/501/status');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(String(init?.body))).toEqual({status: 'PAID'});
+    expect(changed).toMatchObject({
+      id: 501,
+      status: 'PAID',
+      paidAt: '2026-07-14T01:02:03.000Z',
+    });
+  });
+
+  it('keeps terminal to PAID as the canonical 409 conflict', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(409, envelope(null, {
+        success: false,
+        code: 'BILLING_CHARGE_STATUS_TRANSITION_CONFLICT',
+        message: '허용되지 않는 청구 상태 전이입니다.',
+      })),
+    );
+
     await expect(
       changeAdminChargeStatus('access-token', 501, 'PAID', {
         campusId: 2,
@@ -995,11 +1034,13 @@ describe('FaithLog API client', () => {
         paymentCategory: 'PENALTY',
       }),
     ).rejects.toSatisfy((error) => {
-      expectApiError(error, {kind: 'error', code: 'API_CONTRACT_PENDING'});
+      expectApiError(error, {
+        kind: 'conflict',
+        status: 409,
+        code: 'BILLING_CHARGE_STATUS_TRANSITION_CONFLICT',
+      });
       return true;
     });
-
-    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([
