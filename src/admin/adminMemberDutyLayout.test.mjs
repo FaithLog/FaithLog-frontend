@@ -17,4 +17,9 @@ describe('admin member duty production layout', () => {
     expect(source).toMatch(/<AdminMemberListRoute[\s\S]*duties=\{loadState\.duties\}/);
     expect(source).toMatch(/<AdminMemberPage[\s\S]*activeMealDuties=\{activeMealDuties\}/);
   });
+
+  it('uses neutral empty copy for role and duty filters', () => {
+    expect(source.match(/다른 필터를 선택해 주세요\./g)).toHaveLength(2);
+    expect(source).not.toContain('다른 역할 필터를 선택해 주세요.');
+  });
 });

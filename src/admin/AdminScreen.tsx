@@ -10221,7 +10221,7 @@ function AdminMembers({
       />
       <SegmentedControl items={adminMemberDutyFilters} selectedId={filter} onSelect={onSelectFilter} />
       {filteredMembers.length === 0 ? (
-        <Empty title="조건에 맞는 멤버가 없습니다" message="다른 역할 필터를 선택해 주세요." />
+        <Empty title="조건에 맞는 멤버가 없습니다" message="다른 필터를 선택해 주세요." />
       ) : (
         filteredMembers.map((member) => (
           <MemberRow
@@ -10295,7 +10295,7 @@ function AdminMemberListRoute({
         keyExtractor={(member) => String(member.membershipId)}
         ListEmptyComponent={(
           <View style={styles.virtualizedMemberListBody}>
-            <Empty title="조건에 맞는 멤버가 없습니다" message="다른 역할 필터를 선택해 주세요." />
+            <Empty title="조건에 맞는 멤버가 없습니다" message="다른 필터를 선택해 주세요." />
           </View>
         )}
         ListFooterComponent={<View style={styles.virtualizedMemberListFooter} />}
