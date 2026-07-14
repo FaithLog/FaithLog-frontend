@@ -833,7 +833,7 @@ function parsePollOptionValue(value: unknown, index = 0): PollOption {
         ? null
         : requireString(composeMenuCodeValue, 128),
     priceAmount: requireNonNegativeInteger(priceAmountValue),
-    sortOrder: requirePositiveInteger(sortOrderValue),
+    sortOrder: requireNonNegativeInteger(sortOrderValue),
     ...optionalBoolean(record, 'userAdded'),
   };
 }

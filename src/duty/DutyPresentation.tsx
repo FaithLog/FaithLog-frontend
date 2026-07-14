@@ -181,6 +181,7 @@ export function DutyActionButton({
       accessibilityRole="button"
       accessibilityState={{busy, disabled: unavailable, selected}}
       disabled={unavailable}
+      hitSlop={4}
       onPress={onPress}
       style={({pressed}) => [
         dutyStyles.actionButton,
@@ -293,10 +294,10 @@ export const dutyStyles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: radius.control,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 40,
     minWidth: 48,
     paddingHorizontal: 16,
-    paddingVertical: 11,
+    paddingVertical: 7,
   },
   actionButtonText: {fontSize: 14, fontWeight: '800', lineHeight: 20, textAlign: 'center'},
   actionRow: {flexDirection: 'row', flexWrap: 'wrap', gap: spacing.gap},

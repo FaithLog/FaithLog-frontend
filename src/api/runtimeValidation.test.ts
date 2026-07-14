@@ -474,6 +474,26 @@ describe('runtime API response validation', () => {
     ).toEqual(mockDomainFixtures.notification.sendResponse);
   });
 
+  it('accepts the backend MEAL poll option order starting at zero', () => {
+    const detail = mockDomainFixtures.poll.detail;
+    const parsed = parsePollDetail({
+      ...detail,
+      pollType: 'MEAL',
+      templateId: null,
+      chargeGenerationType: 'NONE',
+      paymentCategory: null,
+      paymentAccountId: null,
+      options: detail.options.map((option, index) => ({
+        ...option,
+        composeMenuCode: null,
+        priceAmount: 0,
+        sortOrder: index,
+      })),
+    });
+
+    expect(parsed.options.map((option) => option.sortOrder)).toEqual([0, 1]);
+  });
+
   it('accepts MEAL charges in the canonical member list and paid-response contract', () => {
     const mealCharge = {
       ...mockDomainFixtures.billing.charges.items[0],

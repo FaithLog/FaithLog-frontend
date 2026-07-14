@@ -140,7 +140,7 @@ describe('shared duty presentation', () => {
     }
   });
 
-  it('gives every duty action at least a 48 point target and preserves selected/disabled/busy state', () => {
+  it('renders a shorter duty action while preserving a 48 point touch target and state', () => {
     let renderer;
     act(() => {
       renderer = create(React.createElement(DutyActionButton, {
@@ -155,7 +155,8 @@ describe('shared duty presentation', () => {
     const button = renderer.root.findAllByType('Pressable')
       .find((node) => node.props.accessibilityLabel === '선택 작업');
     const style = button.props.style({pressed: false});
-    expect(Math.max(...style.filter(Boolean).map((item) => item.minHeight ?? item.height ?? 0))).toBeGreaterThanOrEqual(48);
+    expect(Math.max(...style.filter(Boolean).map((item) => item.minHeight ?? item.height ?? 0))).toBe(40);
+    expect(button.props.hitSlop).toBe(4);
     expect(button.props.accessibilityState).toEqual({busy: true, disabled: true, selected: true});
   });
 });

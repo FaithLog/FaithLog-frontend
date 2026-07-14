@@ -266,7 +266,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(rendered(renderer)).toBe(before);
   });
 
-  it('keeps duty-native poll and form controls at least 48 points with selected state', async () => {
+  it('keeps duty-native touch targets at least 48 points with selected state', async () => {
     let renderer;
     await act(async () => {
       renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
@@ -378,7 +378,11 @@ function expectTouchTarget(node) {
     ? node.props.style({pressed: false})
     : node.props.style;
   const styles = flattenStyles(raw);
-  expect(Math.max(...styles.map((style) => style.minHeight ?? style.height ?? 0)))
+  const visualHeight = Math.max(...styles.map((style) => style.minHeight ?? style.height ?? 0));
+  const verticalHitSlop = typeof node.props.hitSlop === 'number'
+    ? node.props.hitSlop * 2
+    : (node.props.hitSlop?.top ?? 0) + (node.props.hitSlop?.bottom ?? 0);
+  expect(visualHeight + verticalHitSlop)
     .toBeGreaterThanOrEqual(48);
 }
 
