@@ -51,6 +51,7 @@ import {
   TextField,
 } from '../components/ui';
 import {colors, spacing} from '../theme';
+import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
 import {formatWon} from '../utils/money';
 
@@ -776,18 +777,27 @@ function CoffeePollCreator({
           onPress={() => setDeadlinePickerVisible(true)}
           style={({pressed}) => [styles.dateTimeSelectCard, pressed ? styles.pressed : null]}>
           <Text style={styles.dateTimeSelectLabel}>마감 일시</Text>
-          <Text style={styles.dateTimeSelectValue}>{formatDateTimePickerLabel(deadlineText)}</Text>
+          <Text style={styles.dateTimeSelectValue}>
+            {formatDutyDateTimeLabel(
+              parseLocalDateTimeInput(deadlineText)
+                ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS),
+            )}
+          </Text>
           <Text style={styles.dateTimeSelectHint}>
             달력과 시간 선택으로 마감 시각을 정합니다.
           </Text>
         </Pressable>
-        <CoffeeDateTimePickerModal
+        <DutyDateTimePickerModal
+          minimumDate={new Date()}
           onApply={(value) => {
-            onDeadlineChange(value);
+            onDeadlineChange(formatLocalDateTimeInput(value));
             setDeadlinePickerVisible(false);
           }}
           onClose={() => setDeadlinePickerVisible(false)}
-          value={deadlineText}
+          value={
+            parseLocalDateTimeInput(deadlineText)
+              ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)
+          }
           visible={deadlinePickerVisible}
         />
       </Card>
@@ -1112,205 +1122,6 @@ const CoffeeMenuPickerRow = memo(function CoffeeMenuPickerRow({
     </Pressable>
   );
 });
-
-function CoffeeDateTimePickerModal({
-  onApply,
-  onClose,
-  value,
-  visible,
-}: {
-  onApply: (value: string) => void;
-  onClose: () => void;
-  value: string;
-  visible: boolean;
-}) {
-  const initialDate = parseLocalDateTimeInput(value) ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS);
-  const [draftDate, setDraftDate] = useState(initialDate);
-  const [monthCursor, setMonthCursor] = useState(
-    new Date(initialDate.getFullYear(), initialDate.getMonth(), 1),
-  );
-
-  useEffect(() => {
-    if (!visible) {
-      return;
-    }
-
-    const nextDate = parseLocalDateTimeInput(value) ?? new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS);
-    setDraftDate(nextDate);
-    setMonthCursor(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
-  }, [value, visible]);
-
-  const calendarDays = getCalendarDays(monthCursor);
-  const selectDate = (date: Date) => {
-    setDraftDate(
-      new Date(
-        date.getFullYear(),
-        date.getMonth(),
-        date.getDate(),
-        draftDate.getHours(),
-        draftDate.getMinutes(),
-      ),
-    );
-  };
-  const updateTime = (hours: number, minutes: number) => {
-    setDraftDate(
-      new Date(
-        draftDate.getFullYear(),
-        draftDate.getMonth(),
-        draftDate.getDate(),
-        normalizeTimePart(hours, 24),
-        normalizeTimePart(minutes, 60),
-      ),
-    );
-  };
-
-  return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent={true}
-      visible={visible}>
-      <View style={styles.modalScrim}>
-        <View style={styles.menuSheet}>
-          <View style={styles.menuSheetHeader}>
-            <View style={styles.headerText}>
-              <Text style={styles.pollCreateTitle}>마감 일시 선택</Text>
-              <Text style={styles.pollCreateDescription}>
-                달력에서 날짜를 고르고 시간을 조정하세요.
-              </Text>
-            </View>
-            <Pressable
-              accessibilityLabel="마감 일시 선택 닫기"
-              accessibilityRole="button"
-              onPress={onClose}
-              style={({pressed}) => [styles.menuSheetClose, pressed ? styles.pressed : null]}>
-              <Text style={styles.pollCreateRemoveOptionText}>x</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.calendarHeader}>
-            <Pressable
-              accessibilityLabel="이전 달"
-              accessibilityRole="button"
-              onPress={() => setMonthCursor(addMonths(monthCursor, -1))}
-              style={({pressed}) => [styles.calendarNavButton, pressed ? styles.pressed : null]}>
-              <Text style={styles.calendarNavText}>‹</Text>
-            </Pressable>
-            <Text style={styles.calendarTitle}>
-              {monthCursor.getFullYear()}년 {monthCursor.getMonth() + 1}월
-            </Text>
-            <Pressable
-              accessibilityLabel="다음 달"
-              accessibilityRole="button"
-              onPress={() => setMonthCursor(addMonths(monthCursor, 1))}
-              style={({pressed}) => [styles.calendarNavButton, pressed ? styles.pressed : null]}>
-              <Text style={styles.calendarNavText}>›</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.calendarGrid}>
-            {['일', '월', '화', '수', '목', '금', '토'].map((day) => (
-              <Text key={day} style={styles.calendarWeekday}>
-                {day}
-              </Text>
-            ))}
-            {calendarDays.map((date, index) =>
-              date ? (
-                <Pressable
-                  accessibilityLabel={`${date.getDate()}일 선택`}
-                  accessibilityRole="button"
-                  key={date.toISOString()}
-                  onPress={() => selectDate(date)}
-                  style={({pressed}) => [
-                    styles.calendarDay,
-                    isSameCalendarDate(date, draftDate) ? styles.calendarDaySelected : null,
-                    pressed ? styles.pressed : null,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.calendarDayText,
-                      isSameCalendarDate(date, draftDate) ? styles.calendarDayTextSelected : null,
-                    ]}>
-                    {date.getDate()}
-                  </Text>
-                </Pressable>
-              ) : (
-                <View key={`empty-${index}`} style={styles.calendarDayEmpty} />
-              ),
-            )}
-          </View>
-
-          <View style={styles.timePickerRow}>
-            <TimeStepper
-              label="시"
-              onDecrement={() => updateTime(draftDate.getHours() - 1, draftDate.getMinutes())}
-              onIncrement={() => updateTime(draftDate.getHours() + 1, draftDate.getMinutes())}
-              value={String(draftDate.getHours()).padStart(2, '0')}
-            />
-            <TimeStepper
-              label="분"
-              onDecrement={() => updateTime(draftDate.getHours(), draftDate.getMinutes() - 5)}
-              onIncrement={() => updateTime(draftDate.getHours(), draftDate.getMinutes() + 5)}
-              value={String(draftDate.getMinutes()).padStart(2, '0')}
-            />
-          </View>
-
-          <View style={styles.pollCreateCtaRow}>
-            <Pressable
-              accessibilityLabel="마감 일시 선택 취소"
-              accessibilityRole="button"
-              onPress={onClose}
-              style={({pressed}) => [styles.pollCreateSecondaryAction, pressed ? styles.pressed : null]}>
-              <Text style={styles.pollCreateSecondaryActionText}>취소</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="마감 일시 적용"
-              accessibilityRole="button"
-              onPress={() => onApply(formatLocalDateTimeInput(draftDate))}
-              style={({pressed}) => [styles.pollCreatePrimaryAction, pressed ? styles.pressed : null]}>
-              <Text style={styles.pollCreatePrimaryActionText}>적용</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function TimeStepper({
-  label,
-  onDecrement,
-  onIncrement,
-  value,
-}: {
-  label: string;
-  onDecrement: () => void;
-  onIncrement: () => void;
-  value: string;
-}) {
-  return (
-    <View style={styles.timeStepper}>
-      <Text style={styles.dateTimeSelectLabel}>{label}</Text>
-      <View style={styles.timeStepperControls}>
-        <Pressable
-          accessibilityLabel={`${label} 줄이기`}
-          accessibilityRole="button"
-          onPress={onDecrement}
-          style={({pressed}) => [styles.timeStepperButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.timeStepperButtonText}>−</Text>
-        </Pressable>
-        <Text style={styles.timeStepperValue}>{value}</Text>
-        <Pressable
-          accessibilityLabel={`${label} 늘리기`}
-          accessibilityRole="button"
-          onPress={onIncrement}
-          style={({pressed}) => [styles.timeStepperButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.timeStepperButtonText}>+</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
 
 function CoffeePollManagement({
   campusId,
@@ -1808,56 +1619,6 @@ function parseLocalDateTimeInput(value: string) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatDateTimePickerLabel(value: string) {
-  const date = parseLocalDateTimeInput(value);
-
-  if (!date) {
-    return '마감 일시 선택';
-  }
-
-  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(
-    date.getDate(),
-  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(
-    date.getMinutes(),
-  ).padStart(2, '0')}`;
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
-}
-
-function getCalendarDays(monthCursor: Date) {
-  const firstDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
-  const lastDate = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0).getDate();
-  const days: Array<Date | null> = [];
-
-  for (let index = 0; index < firstDay.getDay(); index += 1) {
-    days.push(null);
-  }
-
-  for (let day = 1; day <= lastDate; day += 1) {
-    days.push(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), day));
-  }
-
-  while (days.length % 7 !== 0) {
-    days.push(null);
-  }
-
-  return days;
-}
-
-function isSameCalendarDate(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
-function normalizeTimePart(value: number, max: number) {
-  return ((value % max) + max) % max;
-}
-
 function getCoffeePollsByTab(
   polls: PollSummary[],
   tab: CoffeePollStatusTab,
@@ -2151,65 +1912,6 @@ const styles = StyleSheet.create({
   coffeeMenuRowAdded: {
     backgroundColor: colors.borderSoft,
     opacity: 0.72,
-  },
-  calendarDay: {
-    alignItems: 'center',
-    borderRadius: 14,
-    height: 38,
-    justifyContent: 'center',
-    width: '14.285%',
-  },
-  calendarDayEmpty: {
-    height: 38,
-    width: '14.285%',
-  },
-  calendarDaySelected: {
-    backgroundColor: colors.primary,
-  },
-  calendarDayText: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  calendarDayTextSelected: {
-    color: colors.surface,
-  },
-  calendarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    rowGap: 6,
-  },
-  calendarHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  calendarNavButton: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 18,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  calendarNavText: {
-    color: colors.textPrimary,
-    fontSize: 26,
-    fontWeight: '800',
-    lineHeight: 28,
-  },
-  calendarTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  calendarWeekday: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '900',
-    lineHeight: 18,
-    textAlign: 'center',
-    width: '14.285%',
   },
   menuSheet: {
     backgroundColor: colors.surface,
@@ -2683,46 +2385,5 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 24,
     fontWeight: '800',
-  },
-  timePickerRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.md,
-  },
-  timeStepper: {
-    flex: 1,
-    gap: 8,
-    minWidth: 126,
-  },
-  timeStepperButton: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
-  },
-  timeStepperButtonText: {
-    color: colors.primary,
-    fontSize: 20,
-    fontWeight: '900',
-    lineHeight: 22,
-  },
-  timeStepperControls: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 18,
-    flexDirection: 'row',
-    gap: 10,
-    padding: 8,
-  },
-  timeStepperValue: {
-    color: colors.textPrimary,
-    flex: 1,
-    fontSize: 21,
-    fontWeight: '900',
-    lineHeight: 28,
-    minWidth: 40,
-    textAlign: 'center',
   },
 });

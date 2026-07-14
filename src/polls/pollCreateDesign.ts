@@ -11,13 +11,11 @@ export const pollCreateDesign = StyleSheet.create({
   addOptionText: {color: colors.primary, fontSize: 13, fontWeight: '800'},
   deadlineCard: {
     backgroundColor: colors.borderSoft, borderRadius: radius.item, gap: 10,
-    paddingHorizontal: 16, paddingVertical: 14,
+    minHeight: 82, paddingHorizontal: 16, paddingVertical: 14,
   },
-  deadlineDateField: {flexBasis: 190, flexGrow: 2, minWidth: 170},
-  deadlineFields: {flexDirection: 'row', flexWrap: 'wrap', gap: 10},
   deadlineHint: {color: colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 17},
   deadlineLabel: {color: colors.textMuted, fontSize: 13, fontWeight: '800', lineHeight: 18},
-  deadlineTimeField: {flexBasis: 110, flexGrow: 1, minWidth: 108},
+  deadlineValue: {color: colors.textPrimary, fontSize: 18, fontWeight: '900', lineHeight: 25},
   description: {color: colors.textSecondary, fontSize: 15, lineHeight: 22},
   disabled: {opacity: 0.48},
   fixedPill: {

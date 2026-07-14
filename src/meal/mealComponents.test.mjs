@@ -1,6 +1,6 @@
 import React from 'react';
 import {act, create} from 'react-test-renderer';
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const auth = vi.hoisted(() => ({generation: 1, token: 'A1'}));
 
@@ -86,6 +86,10 @@ describe('MEAL component behavior', () => {
   beforeEach(() => {
     auth.generation = 1;
     auth.token = 'A1';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('uses the coffee management header and four-page navigation pattern', async () => {
@@ -290,6 +294,14 @@ describe('MEAL component behavior', () => {
     expect(output).not.toContain('paymentAccountId');
     expect(output).not.toContain('계좌 선택');
 
+    const deadlinePicker = findByLabel(renderer, '밥 투표 마감 일시 선택');
+    expect(deadlinePicker.props.accessibilityRole).toBe('button');
+    expect(deadlinePicker.props.style({pressed: false})).toEqual(expect.arrayContaining([
+      expect.objectContaining({minHeight: 82}),
+    ]));
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '밥 투표 마감 날짜')).toHaveLength(0);
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '밥 투표 마감 시간')).toHaveLength(0);
+
     const anonymousToggle = findByLabel(renderer, '밥 투표 익명 여부 전환');
     expect(anonymousToggle.props.accessibilityRole).toBe('switch');
     expect(anonymousToggle.props.accessibilityState).toEqual({checked: false, disabled: false});
@@ -318,6 +330,45 @@ describe('MEAL component behavior', () => {
     expect(findByLabel(renderer, '밥 투표 선택지 2').props.value).toBe('돈가스');
     expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.disabled).toBe(true);
     expect(findByLabel(renderer, '2번 밥 투표 선택지 삭제').props.disabled).toBe(true);
+  });
+
+  it('creates a meal poll with the calendar and time picker deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 14, 12, 0));
+    const api = createApi({createPoll: vi.fn().mockResolvedValue(mealDetail({status: 'OPEN'}))});
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealPollCreateScreen, {
+        api,
+        campusId: 1,
+        onCancel: vi.fn(),
+        onCreated: vi.fn(),
+        onSessionExpired: vi.fn(),
+      }));
+    });
+
+    const selectedDate = new Date(2026, 6, 16, 12, 0);
+    const expectedDeadline = new Date(2026, 6, 16, 13, 0);
+
+    await press(renderer, '밥 투표 마감 일시 선택');
+    await press(
+      renderer,
+      `${selectedDate.getFullYear()}년 ${selectedDate.getMonth() + 1}월 ${selectedDate.getDate()}일 선택`,
+    );
+    await press(renderer, '시 늘리기');
+    await press(renderer, '마감 일시 적용');
+    await change(renderer, '밥 투표 제목', '내일 점심');
+    await change(renderer, '밥 투표 선택지 1', '제육볶음');
+    await change(renderer, '밥 투표 선택지 2', '김치찌개');
+    await press(renderer, '밥 투표 생성 실행');
+
+    expect(api.createPoll).toHaveBeenCalledTimes(1);
+    expect(api.createPoll.mock.calls[0][2]).toEqual(expect.objectContaining({
+      endsAt: expectedDeadline.toISOString(),
+    }));
+    expect(api.createPoll.mock.calls[0][2]).not.toHaveProperty('startsAt');
+    expect(api.createPoll.mock.calls[0][2]).not.toHaveProperty('paymentAccountId');
+    expect(api.createPoll.mock.calls[0][2]).not.toHaveProperty('amount');
   });
 
   it('single-flights account creation and never resends it after refresh warning', async () => {

@@ -2,9 +2,10 @@ import {useRef, useState} from 'react';
 import {Pressable, Text, View} from 'react-native';
 
 import {Body, Card, Eyebrow, TextField} from '../components/ui';
+import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {pollCreateDesign as createStyles} from '../polls/pollCreateDesign';
 import {mealApi, type MealApi} from './mealApi';
-import {buildMealPollCreateRequest, formatMealLocalDeadline, parseMealLocalDeadline} from './mealModel';
+import {buildMealPollCreateRequest} from './mealModel';
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
 import type {MealPollMutationResponse} from './mealTypes';
@@ -36,11 +37,11 @@ export function MealPollCreateScreen({
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/meal-create`);
   const mutationGate = useRef(createMealMutationGate()).current;
   const nextOptionId = useRef(3);
-  const initialDeadline = useRef(formatMealLocalDeadline(new Date(Date.now() + 86_400_000))).current;
+  const initialDeadline = useRef(new Date(Date.now() + 86_400_000)).current;
   const [title, setTitle] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
-  const [endsDate, setEndsDate] = useState(initialDeadline.date);
-  const [endsTime, setEndsTime] = useState(initialDeadline.time);
+  const [deadline, setDeadline] = useState(initialDeadline);
+  const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
   const [options, setOptions] = useState<MealPollOptionDraft[]>([
     {id: 1, value: ''},
     {id: 2, value: ''},
@@ -61,11 +62,10 @@ export function MealPollCreateScreen({
     setError(null);
     let identity: MealRequestIdentity | null = null;
     try {
-      const endsAt = parseMealLocalDeadline({date: endsDate, time: endsTime});
       const request = buildMealPollCreateRequest({
         title,
         isAnonymous,
-        endsAt,
+        endsAt: deadline.toISOString(),
         options: options.map((option) => option.value),
         allowUserOptionAdd,
       });
@@ -150,34 +150,31 @@ export function MealPollCreateScreen({
 
       <Card>
         <Eyebrow>마감 일시</Eyebrow>
-        <View style={createStyles.deadlineCard}>
+        <Pressable
+          accessibilityLabel="밥 투표 마감 일시 선택"
+          accessibilityRole="button"
+          accessibilityState={{disabled: saving}}
+          disabled={saving}
+          onPress={() => setDeadlinePickerVisible(true)}
+          style={({pressed}) => [
+            createStyles.deadlineCard,
+            saving ? createStyles.disabled : null,
+            pressed ? createStyles.pressed : null,
+          ]}>
           <Text style={createStyles.deadlineLabel}>마감 일시</Text>
-          <View style={createStyles.deadlineFields}>
-            <View style={createStyles.deadlineDateField}>
-              <TextField
-                accessibilityLabel="밥 투표 마감 날짜"
-                autoCapitalize="none"
-                editable={!saving}
-                label="날짜"
-                onChangeText={setEndsDate}
-                placeholder="2026년 7월 14일"
-                value={endsDate}
-              />
-            </View>
-            <View style={createStyles.deadlineTimeField}>
-              <TextField
-                accessibilityLabel="밥 투표 마감 시간"
-                autoCapitalize="none"
-                editable={!saving}
-                label="시간"
-                onChangeText={setEndsTime}
-                placeholder="18:00"
-                value={endsTime}
-              />
-            </View>
-          </View>
-          <Text style={createStyles.deadlineHint}>날짜와 24시간 형식으로 마감 시각을 정합니다.</Text>
-        </View>
+          <Text style={createStyles.deadlineValue}>{formatDutyDateTimeLabel(deadline)}</Text>
+          <Text style={createStyles.deadlineHint}>달력과 시간 선택으로 마감 시각을 정합니다.</Text>
+        </Pressable>
+        <DutyDateTimePickerModal
+          minimumDate={new Date()}
+          onApply={(value) => {
+            setDeadline(value);
+            setDeadlinePickerVisible(false);
+          }}
+          onClose={() => setDeadlinePickerVisible(false)}
+          value={deadline}
+          visible={deadlinePickerVisible}
+        />
       </Card>
 
       <Card>

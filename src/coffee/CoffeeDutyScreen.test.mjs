@@ -162,6 +162,21 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(findByLabel(renderer, '커피 투표 페이지 열기').props.accessibilityState).toEqual({selected: true});
     expect(rendered(renderer)).toContain('새 커피 주문');
   });
+
+  it('uses the shared calendar and time picker without changing the deadline on cancel', async () => {
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
+      await settle();
+    });
+    await press(renderer, '커피 투표 생성 페이지 열기');
+    const before = rendered(renderer);
+    await press(renderer, '커피 투표 마감 일시 선택');
+    expect(rendered(renderer)).toContain('달력에서 날짜를 고르고 시간을 조정하세요.');
+    expect(findByLabel(renderer, '시 늘리기').props.accessibilityRole).toBe('button');
+    await press(renderer, '마감 일시 선택 취소');
+    expect(rendered(renderer)).toBe(before);
+  });
 });
 
 function screenProps() {
