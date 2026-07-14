@@ -931,6 +931,83 @@ describe('MEAL component behavior', () => {
     expect(renderer.root.findAllByType(DutyEntityCard).length).toBeGreaterThan(0);
   });
 
+  it('confirms one bodyless all-unpaid reminder request and renders queued/skipped counts', async () => {
+    const summary = {totalAmount: 60000, unpaidAmount: 60000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
+    const api = createApi({
+      getMySettlement: vi.fn().mockResolvedValue({
+        campusId: 1, campusName: '샘플 캠퍼스', region: '서울', summary,
+        members: [{userId: 8, name: '멤버 1', email: 'member@example.test', ...summary}],
+      }),
+    });
+    const reminderApi = {
+      send: vi.fn().mockResolvedValue({
+        notificationRequestId: 'meal-reminder-1',
+        queuedCount: 3,
+        skippedCount: 1,
+      }),
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(
+        MealSettlementScreen,
+        settlementProps(api, reminderApi),
+      ));
+      await settle();
+    });
+
+    await press(renderer, '밥 전체 미납 알림 보내기 확인 열기');
+    expect(rendered(renderer)).toContain(
+      '내가 담당하는 모든 미납 청구 대상자에게 알림을 보냅니다. 오늘 이미 알림을 받은 대상자는 제외될 수 있습니다.',
+    );
+    const confirm = findByLabel(renderer, '밥 전체 미납 알림 보내기 확인');
+    await act(async () => {
+      confirm.props.onPress();
+      confirm.props.onPress();
+      await settle();
+    });
+
+    expect(reminderApi.send).toHaveBeenCalledTimes(1);
+    expect(reminderApi.send).toHaveBeenCalledWith('A1', 1, 'MEAL');
+    expect(rendered(renderer)).toContain('3명 전송 대기');
+    expect(rendered(renderer)).toContain('1명 제외');
+  });
+
+  it.each([
+    [
+      {kind: 'permissionDenied', status: 403, message: 'server permission detail'},
+      '활성 밥 담당자만 미납 알림을 보낼 수 있습니다.',
+    ],
+    [
+      {kind: 'conflict', status: 409, message: 'server conflict detail'},
+      '알림 요청 상태가 변경되었습니다. 정산 내역을 새로고침한 뒤 다시 시도해 주세요.',
+    ],
+  ])('shows safe Meal reminder feedback without exposing server messages', async (detail, expected) => {
+    const summary = {totalAmount: 60000, unpaidAmount: 60000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
+    const api = createApi({
+      getMySettlement: vi.fn().mockResolvedValue({
+        campusId: 1, campusName: '샘플 캠퍼스', region: '서울', summary,
+        members: [{userId: 8, name: '멤버 1', email: 'member@example.test', ...summary}],
+      }),
+    });
+    const reminderApi = {
+      send: vi.fn().mockRejectedValue(new FaithLogApiError(detail)),
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(
+        MealSettlementScreen,
+        settlementProps(api, reminderApi),
+      ));
+      await settle();
+    });
+
+    await press(renderer, '밥 전체 미납 알림 보내기 확인 열기');
+    await press(renderer, '밥 전체 미납 알림 보내기 확인');
+
+    expect(rendered(renderer)).toContain(expected);
+    expect(rendered(renderer)).not.toContain(detail.message);
+  });
+
   it('progressively renders large settlement member collections without a nested list', async () => {
     const summary = {totalAmount: 1000, unpaidAmount: 1000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
     const members = Array.from({length: 30}, (_, index) => ({
@@ -1018,8 +1095,15 @@ function chargeProps(api) {
   };
 }
 
-function settlementProps(api) {
-  return {api, campusId: 1, currentUserId: 7, onBack: vi.fn(), onSessionExpired: vi.fn()};
+function settlementProps(api, reminderApi) {
+  return {
+    api,
+    campusId: 1,
+    currentUserId: 7,
+    onBack: vi.fn(),
+    onSessionExpired: vi.fn(),
+    ...(reminderApi ? {reminderApi} : {}),
+  };
 }
 
 function authenticatedState() {

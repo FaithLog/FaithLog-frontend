@@ -1,15 +1,28 @@
-import {memo, useCallback, useEffect, useState} from 'react';
+import {memo, useCallback, useEffect, useRef, useState} from 'react';
 import {Text} from 'react-native';
 
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
 import {
   DutyActionButton,
+  DutyActionRow,
   DutyAsyncState,
+  DutyConfirmSheet,
   DutyEntityCard,
   DutyMetricSurface,
   DutyPageSection,
   DutySectionHeader,
 } from '../duty/DutyPresentation';
+import {
+  dutyChargeReminderApi,
+  type DutyChargeReminderApi,
+} from '../duty/dutyChargeReminderApi';
+import {
+  beginDutyChargeReminder,
+  createDutyChargeReminderGate,
+  finishDutyChargeReminder,
+  isDutyChargeReminderCurrent,
+  syncDutyChargeReminderScope,
+} from '../duty/dutyChargeReminderFlow';
 import {formatWon} from '../utils/money';
 import {mealApi, type MealApi} from './mealApi';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
@@ -29,8 +42,15 @@ type MealSettlementScreenProps = {
   currentUserId: number;
   onBack: () => void;
   onSessionExpired: (message: string) => void;
+  reminderApi?: DutyChargeReminderApi;
   showBackButton?: boolean;
 };
+
+type MealReminderState =
+  | {status: 'idle'}
+  | {status: 'sending'}
+  | {status: 'sent'; queuedCount: number; skippedCount: number}
+  | {status: 'error'; message: string};
 
 export function MealSettlementScreen({
   api = mealApi,
@@ -38,10 +58,15 @@ export function MealSettlementScreen({
   currentUserId,
   onBack,
   onSessionExpired,
+  reminderApi = dutyChargeReminderApi,
   showBackButton = true,
 }: MealSettlementScreenProps) {
+  const reminderScope = `campus:${campusId}/user:${currentUserId}/meal-reminder`;
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-settlement`);
   const [state, setState] = useState<MealLoadState<MealSettlement>>({status: 'loading'});
+  const [reminderConfirmVisible, setReminderConfirmVisible] = useState(false);
+  const [reminderState, setReminderState] = useState<MealReminderState>({status: 'idle'});
+  const reminderGate = useRef(createDutyChargeReminderGate(reminderScope)).current;
   const memberCount = state.status === 'success' ? state.data.members.length : 0;
   const memberProgress = useProgressiveRendering(
     memberCount,
@@ -71,12 +96,99 @@ export function MealSettlementScreen({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!syncDutyChargeReminderScope(reminderGate, reminderScope)) return;
+    setReminderConfirmVisible(false);
+    setReminderState({status: 'idle'});
+  }, [reminderGate, reminderScope]);
+
+  const sendReminder = useCallback(async () => {
+    const operationId = beginDutyChargeReminder(reminderGate, reminderScope);
+    if (operationId === null) return;
+    setReminderConfirmVisible(false);
+    setReminderState({status: 'sending'});
+    const access = await resolveMealRequestAccess(
+      tracker,
+      'settlement-reminder',
+      onSessionExpired,
+    );
+    if (access.status === 'cancelled') {
+      if (isDutyChargeReminderCurrent(reminderGate, operationId, reminderScope)) {
+        setReminderState({status: 'idle'});
+      }
+      finishDutyChargeReminder(reminderGate, operationId, reminderScope);
+      return;
+    }
+    if (access.status === 'error') {
+      const apiError = getCurrentMealRequestError({
+        error: access.error,
+        fallback: '밥 미납 알림을 보내지 못했습니다.',
+        identity: access.identity,
+        onSessionExpired,
+        tracker,
+      });
+      if (
+        apiError &&
+        isDutyChargeReminderCurrent(reminderGate, operationId, reminderScope)
+      ) {
+        setReminderState({status: 'error', message: getReminderErrorMessage(apiError)});
+      }
+      finishDutyChargeReminder(reminderGate, operationId, reminderScope);
+      return;
+    }
+
+    try {
+      const result = await reminderApi.send(
+        access.request.accessToken,
+        campusId,
+        'MEAL',
+      );
+      if (
+        !tracker.isSuccessCurrent(access.request.identity) ||
+        !isDutyChargeReminderCurrent(reminderGate, operationId, reminderScope)
+      ) return;
+      setReminderState({
+        status: 'sent',
+        queuedCount: result.queuedCount,
+        skippedCount: result.skippedCount,
+      });
+    } catch (error) {
+      const apiError = getCurrentMealRequestError({
+        error,
+        fallback: '밥 미납 알림을 보내지 못했습니다.',
+        identity: access.request.identity,
+        onSessionExpired,
+        tracker,
+      });
+      if (
+        apiError &&
+        isDutyChargeReminderCurrent(reminderGate, operationId, reminderScope)
+      ) {
+        setReminderState({status: 'error', message: getReminderErrorMessage(apiError)});
+      }
+    } finally {
+      finishDutyChargeReminder(reminderGate, operationId, reminderScope);
+    }
+  }, [campusId, onSessionExpired, reminderApi, reminderGate, reminderScope, tracker]);
+
   if (!scopeIsCommitted) return <MealLoading label="내 밥 정산 화면을 전환하는 중" />;
 
   return (
     <DutyPageSection>
       <DutySectionHeader
-        action={<DutyActionButton accessibilityLabel="밥 정산 새로고침" label="새로고침" onPress={() => void load()} />}
+        action={(
+          <DutyActionRow>
+            <DutyActionButton accessibilityLabel="밥 정산 새로고침" label="새로고침" onPress={() => void load()} />
+            <DutyActionButton
+              accessibilityLabel="밥 전체 미납 알림 보내기 확인 열기"
+              busy={reminderState.status === 'sending'}
+              disabled={state.status !== 'success' || state.data.summary.unpaidAmount <= 0}
+              label={reminderState.status === 'sending' ? '알림 요청 중...' : '전체 미납 알림'}
+              onPress={() => setReminderConfirmVisible(true)}
+              variant="primary"
+            />
+          </DutyActionRow>
+        )}
         description="내 밥 계좌에 연결된 청구의 요약과 멤버별 상태를 확인할 수 있어요."
         eyebrow="내 정산"
         title="밥 정산 현황"
@@ -98,9 +210,41 @@ export function MealSettlementScreen({
           ) : null}
         </>
       ) : null}
+      {reminderState.status === 'sent' ? (
+        <DutyEntityCard
+          statusLabel="접수 완료"
+          statusTone="success"
+          title="미납 알림 요청을 접수했습니다"
+        >
+          <Text style={mealStyles.meta}>
+            {`${reminderState.queuedCount}명 전송 대기 · ${reminderState.skippedCount}명 제외`}
+          </Text>
+        </DutyEntityCard>
+      ) : null}
+      {reminderState.status === 'error' ? (
+        <DutyAsyncState
+          actionAccessibilityLabel="밥 미납 알림 다시 확인"
+          actionLabel="다시 시도"
+          message={reminderState.message}
+          onAction={() => setReminderConfirmVisible(true)}
+          status="error"
+          title="미납 알림을 보내지 못했습니다"
+        />
+      ) : null}
       {showBackButton ? (
         <DutyActionButton accessibilityLabel="밥 정산 관리 홈으로 돌아가기" label="돌아가기" onPress={onBack} />
       ) : null}
+      <DutyConfirmSheet
+        busy={reminderState.status === 'sending'}
+        cancelAccessibilityLabel="밥 전체 미납 알림 취소"
+        confirmAccessibilityLabel="밥 전체 미납 알림 보내기 확인"
+        confirmLabel="알림 보내기"
+        message="내가 담당하는 모든 미납 청구 대상자에게 알림을 보냅니다. 오늘 이미 알림을 받은 대상자는 제외될 수 있습니다."
+        onCancel={() => setReminderConfirmVisible(false)}
+        onConfirm={() => void sendReminder()}
+        title="밥 미납 알림을 보낼까요?"
+        visible={reminderConfirmVisible}
+      />
     </DutyPageSection>
   );
 }
@@ -116,3 +260,19 @@ const MemoizedMealSettlementMemberRow = memo(function MemoizedMealSettlementMemb
     </DutyEntityCard>
   );
 });
+
+function getReminderErrorMessage(error: {code?: string; kind: string; status?: number}) {
+  if (error.kind === 'permissionDenied' || error.status === 403) {
+    return '활성 밥 담당자만 미납 알림을 보낼 수 있습니다.';
+  }
+  if (error.kind === 'conflict' || error.status === 409) {
+    return '알림 요청 상태가 변경되었습니다. 정산 내역을 새로고침한 뒤 다시 시도해 주세요.';
+  }
+  if (error.status === 404) {
+    return '현재 캠퍼스의 밥 담당 범위를 찾을 수 없습니다.';
+  }
+  if (error.code === 'API_CONTRACT_PENDING') {
+    return '현재 미납 알림 기능을 사용할 수 없습니다.';
+  }
+  return '네트워크 상태를 확인한 뒤 다시 시도해 주세요.';
+}

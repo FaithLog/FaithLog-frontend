@@ -130,6 +130,7 @@ import {
   getAdminPollsForStatusTab,
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
+import {canManageAdminPoll} from './adminPollCapabilities';
 import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {AdminWeeklyDevotionSection} from './AdminWeeklyDevotionSection';
 import {
@@ -2713,7 +2714,7 @@ export function AdminScreen({
         setNotice({
           tone: 'warning',
           title: '커피 담당자 해제 불가',
-          message: '담당 계좌에 미납 청구가 남아 있습니다. 미납 정산이 끝난 뒤 다시 시도해 주세요.',
+          message: '이 담당자의 계좌에 미납 청구가 남아 있어 담당자를 해제할 수 없습니다.',
         });
       }
       void handleAuthError(apiError, setAuthState);
@@ -2853,6 +2854,13 @@ export function AdminScreen({
         )
       ) {
         setActionError(apiError);
+        if (apiError.kind === 'conflict') {
+          setNotice({
+            tone: 'warning',
+            title: '밥 담당자 해제 불가',
+            message: '이 담당자의 계좌에 미납 청구가 남아 있어 담당자를 해제할 수 없습니다.',
+          });
+        }
         void handleAuthError(apiError, setAuthState);
       }
     } finally {
@@ -3643,6 +3651,7 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
   {id: 'ALL', label: '전체'},
   {id: 'WEDNESDAY', label: '수요'},
   {id: 'SATURDAY', label: '토요'},
+  {id: 'COFFEE', label: '커피'},
   {id: 'CUSTOM', label: '커스텀'},
 ];
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
@@ -3770,12 +3779,11 @@ function AdminPollManagement({
         fetchAdminPollTemplates(accessToken, campusId),
       ]);
 
-      const nonCoffeePolls = polls.filter((poll) => poll.pollType !== 'COFFEE');
       const nonCoffeeTemplates = templates.filter((template) => template.pollType !== 'COFFEE');
 
       const nextPolls = options.focusPoll
-        ? mergePollSummaries(nonCoffeePolls, toPollSummary(options.focusPoll))
-        : nonCoffeePolls;
+        ? mergePollSummaries(polls, toPollSummary(options.focusPoll))
+        : polls;
 
       setListState(
         nextPolls.length === 0 && nonCoffeeTemplates.length === 0
@@ -4013,7 +4021,7 @@ function AdminPollManagement({
   };
 
   const confirmClosePoll = async () => {
-    if (!pollCloseTarget || busy) {
+    if (!pollCloseTarget || busy || !canClosePoll(pollCloseTarget)) {
       return;
     }
 
@@ -4107,7 +4115,12 @@ function AdminPollManagement({
   };
 
   const sendMissingNotification = async () => {
-    if (missingState.status !== 'success' || !selectedPollId || busy) {
+    if (
+      missingState.status !== 'success' ||
+      !selectedPollId ||
+      busy ||
+      !canManageAdminPoll(selectedPoll)
+    ) {
       return;
     }
 
@@ -6716,7 +6729,8 @@ function AdminPollMissingPanel({
   selectedPoll: PollSummary | null;
   state: AdminPollMissingState;
 }) {
-  const canSend = state.status === 'success' && actionState.status === 'idle';
+  const canManage = canManageAdminPoll(selectedPoll);
+  const canSend = canManage && state.status === 'success' && actionState.status === 'idle';
 
   return (
     <>
@@ -6731,13 +6745,15 @@ function AdminPollMissingPanel({
             onPress={onLoad}>
             미참여자 조회
           </Button>
-          <Button
-            accessibilityLabel="투표 미참여자에게 알림 발송"
-            disabled={!canSend}
-            onPress={onSendNotification}
-            variant="secondary">
-            {actionState.status === 'sendingMissingNotice' ? '발송 중...' : '알림 발송'}
-          </Button>
+          {canManage ? (
+            <Button
+              accessibilityLabel="투표 미참여자에게 알림 발송"
+              disabled={!canSend}
+              onPress={onSendNotification}
+              variant="secondary">
+              {actionState.status === 'sendingMissingNotice' ? '발송 중...' : '알림 발송'}
+            </Button>
+          ) : null}
         </View>
       </Card>
       {state.status === 'idle' ? null : state.status === 'loading' ? (
@@ -12432,7 +12448,11 @@ function getAdminPollListMeta(poll: PollSummary) {
 }
 
 function canClosePoll(poll: PollSummary) {
-  return poll.status !== 'CLOSED' && !isEndedPoll(poll);
+  return (
+    canManageAdminPoll(poll) &&
+    poll.status !== 'CLOSED' &&
+    !isEndedPoll(poll)
+  );
 }
 
 function getDefaultPollTitle(type: AdminPollType) {

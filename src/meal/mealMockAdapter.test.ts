@@ -32,6 +32,7 @@ import {
   mealMockAccessTokens,
   resetMealMockStateForTests,
 } from '../api/mockAdapter';
+import {dutyChargeReminderApi} from '../duty/dutyChargeReminderApi';
 import {mealApi} from './mealApi';
 
 describe('MEAL mock adapter flow', () => {
@@ -88,6 +89,58 @@ describe('MEAL mock adapter flow', () => {
     await expect(mealResponse.json()).resolves.toMatchObject({
       data: {dutyType: 'MEAL', isActive: true, userId: 7},
     });
+  });
+
+  it('sends bodyless Coffee/Meal reminders only for the active matching duty and deduplicates daily', async () => {
+    const acceptedResponse = await executeMockRequest(
+      '/api/v1/campuses/1/coffee/charge-reminders',
+      {
+        headers: {Authorization: `Bearer ${mealMockAccessTokens.activeDuty}`},
+        method: 'POST',
+      },
+    );
+    expect(acceptedResponse.status).toBe(202);
+    resetMealMockStateForTests();
+
+    const firstCoffee = await dutyChargeReminderApi.send(
+      mealMockAccessTokens.activeDuty,
+      1,
+      'COFFEE',
+    );
+    const secondCoffee = await dutyChargeReminderApi.send(
+      mealMockAccessTokens.activeDuty,
+      1,
+      'COFFEE',
+    );
+    const meal = await dutyChargeReminderApi.send(
+      mealMockAccessTokens.otherDuty,
+      1,
+      'MEAL',
+    );
+
+    expect(firstCoffee.queuedCount).toBeGreaterThan(0);
+    expect(firstCoffee.skippedCount).toBe(0);
+    expect(secondCoffee).toMatchObject({queuedCount: 0, skippedCount: firstCoffee.queuedCount});
+    expect(meal.queuedCount).toBeGreaterThanOrEqual(0);
+    await expect(
+      dutyChargeReminderApi.send(mealMockAccessTokens.nonDutyAdmin, 1, 'COFFEE'),
+    ).rejects.toMatchObject({detail: {status: 403}});
+    await assignCoffeeDuty(mealMockAccessTokens.activeDuty, 1, {userId: 9});
+    await expect(
+      dutyChargeReminderApi.send(mealMockAccessTokens.nonDutyAdmin, 1, 'COFFEE'),
+    ).resolves.toMatchObject({queuedCount: 0, skippedCount: 0});
+    await expect(
+      dutyChargeReminderApi.send(mealMockAccessTokens.inactiveDuty, 1, 'MEAL'),
+    ).rejects.toMatchObject({detail: {status: 403}});
+    await expect(
+      dutyChargeReminderApi.send(mealMockAccessTokens.activeDuty, 2, 'COFFEE'),
+    ).rejects.toMatchObject({detail: {status: 404}});
+
+    process.env.EXPO_PUBLIC_MOCK_SCENARIO = '409';
+    await expect(
+      dutyChargeReminderApi.send(mealMockAccessTokens.activeDuty, 1, 'COFFEE'),
+    ).rejects.toMatchObject({detail: {status: 409}});
+    delete process.env.EXPO_PUBLIC_MOCK_SCENARIO;
   });
 
   it('keeps coffee self lookup, admin list, assign, and revoke on one canonical state', async () => {
@@ -762,6 +815,11 @@ describe('MEAL mock adapter flow', () => {
       chargeStatus: 'CHARGED',
       chargedByMe: false,
       paymentAccountId: null,
+    });
+    await expect(
+      mealApi.revokeDuty(mealMockAccessTokens.activeDuty, 1, 1302),
+    ).rejects.toMatchObject({
+      detail: {code: 'MEAL_DUTY_UNPAID_CHARGES_EXIST', status: 409},
     });
   });
 });

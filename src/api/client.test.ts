@@ -1393,6 +1393,22 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('rejects a successful response with an unexpected HTTP status', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope({ok: true})));
+
+    await expect(apiRequest('/accepted-only', {
+      expectedStatuses: [202],
+      responseParser: parseOkResponse,
+    })).rejects.toSatisfy((error) => {
+      expectApiError(error, {
+        kind: 'error',
+        status: 200,
+        code: 'INVALID_SERVER_RESPONSE',
+      });
+      return true;
+    });
+  });
+
   it('does not retry an old request with the next signed-in user token', async () => {
     let resolveRequest!: (response: Response) => void;
     const response = new Promise<Response>((resolve) => {

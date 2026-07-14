@@ -158,6 +158,7 @@ type RequestOptions = {
   allowUnstoredAccessToken?: boolean;
   authSessionGeneration?: AuthSessionGeneration;
   exposeServerErrorMessage?: boolean;
+  expectedStatuses?: readonly number[];
   treatUnauthorizedAsPermissionDenied?: boolean;
   skipAuthRefresh?: boolean;
   timeoutMs?: number;
@@ -1313,6 +1314,18 @@ async function executeApiRequest<T>(
         : {treatUnauthorizedAsPermissionDenied: options.treatUnauthorizedAsPermissionDenied}),
     },
   );
+
+  if (
+    options.expectedStatuses !== undefined &&
+    !options.expectedStatuses.includes(response.status)
+  ) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      status: response.status,
+      code: 'INVALID_SERVER_RESPONSE',
+      message: '서버 응답 형식이 올바르지 않습니다.',
+    });
+  }
 
   if (!options.responseParser) {
     throw new FaithLogApiError({

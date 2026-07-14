@@ -161,7 +161,12 @@ export async function executeMockRequest(path: string, init: RequestInit): Promi
     );
   }
 
-  return jsonResponse(200, createApiEnvelope(data));
+  const successStatus =
+    route.method === 'POST' &&
+    /^\/api\/v1\/campuses\/\d+\/(?:coffee|meal)\/charge-reminders$/.test(route.pathname)
+      ? 202
+      : 200;
+  return jsonResponse(successStatus, createApiEnvelope(data));
 }
 
 function getMockScenario(): MockScenario {
@@ -485,6 +490,30 @@ function resolveMockData(
     const denied = authorizeMealDuty(mealActor, campusId);
     if (denied) return denied;
     return getMockMealSettlement(campusId, mealActor?.userId ?? 0);
+  }
+  if (
+    route.method === 'POST' &&
+    /^\/campuses\/\d+\/meal\/charge-reminders$/.test(path)
+  ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
+    if (body !== undefined && body !== null) {
+      return mockBadRequest('CHARGE_REMINDER_BODY_NOT_ALLOWED', '미납 알림 요청에는 본문을 보낼 수 없습니다.');
+    }
+    return createMockDutyChargeReminder('MEAL', campusId, mealActor?.userId ?? 0);
+  }
+  if (
+    route.method === 'POST' &&
+    /^\/campuses\/\d+\/coffee\/charge-reminders$/.test(path)
+  ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeCoffeeDuty(mealActor, campusId);
+    if (denied) return denied;
+    if (body !== undefined && body !== null) {
+      return mockBadRequest('CHARGE_REMINDER_BODY_NOT_ALLOWED', '미납 알림 요청에는 본문을 보낼 수 없습니다.');
+    }
+    return createMockDutyChargeReminder('COFFEE', campusId, mealActor?.userId ?? 0);
   }
   if (route.method === 'GET' && path === '/coffee-brands') return billing.coffeeBrands;
   if (route.method === 'GET' && /^\/coffee-brands\/\d+\/menus$/.test(path)) {
@@ -969,6 +998,18 @@ function resolveMockData(
     if (!assignment.isActive) {
       return mockConflict('MEAL_DUTY_ALREADY_INACTIVE', '이미 해제된 밥 담당자입니다.');
     }
+    const hasUnpaidCharges = mockMealState.settlement.accounts.some(
+      (accountSettlement) =>
+        accountSettlement.account.campusId === campusId &&
+        accountSettlement.account.ownerUserId === assignment.userId &&
+        accountSettlement.charges.some((charge) => charge.status === 'UNPAID'),
+    );
+    if (hasUnpaidCharges) {
+      return mockConflict(
+        'MEAL_DUTY_UNPAID_CHARGES_EXIST',
+        '담당 계좌에 미납 청구가 남아 있어 밥 담당자를 해제할 수 없습니다.',
+      );
+    }
     mockMealState.duties = mockMealState.duties.filter(
       (duty) => duty.assignmentId !== assignmentId || duty.campusId !== campusId,
     );
@@ -1039,7 +1080,14 @@ function resolveMockData(
     if (!assignment?.isActive) {
       return mockConflict('COFFEE_DUTY_ALREADY_INACTIVE', '이미 해제된 커피 담당자입니다.');
     }
-    if (assignment.assignmentId === 1201) {
+    const hasUnpaidCharges = mockMealState.coffeeCharges.some(
+      (charge) =>
+        charge.campusId === campusId &&
+        charge.ownerUserId === assignment.userId &&
+        charge.paymentCategory === 'COFFEE' &&
+        charge.status === 'UNPAID',
+    );
+    if (hasUnpaidCharges) {
       return mockConflict(
         'COFFEE_DUTY_UNPAID_CHARGES_EXIST',
         '담당 계좌에 미납 청구가 남아 있어 커피 담당자를 해제할 수 없습니다.',
@@ -1392,6 +1440,7 @@ function withoutApiPrefix(pathname: string) {
 
 type MockMealState = {
   accounts: MealPaymentAccount[];
+  coffeeCharges: MockCoffeeCharge[];
   coffeeDuties: DutyAssignment[];
   details: MockMealPollDetail[];
   duties: MealDutyAssignment[];
@@ -1400,8 +1449,19 @@ type MockMealState = {
   memberCharges: Record<string, ChargeItem[]>;
   nextChargeItemId: number;
   polls: MockMealPollSummary[];
+  reminderRequestSequence: number;
+  reminderSentKeys: Set<string>;
   responses: Record<string, {optionIds: number[]; pollId: number; respondedAt: string; responseId: number; userId: number}>;
   settlement: MealSettlementLedger;
+};
+
+type MockCoffeeCharge = {
+  campusId: number;
+  ownerUserId: number;
+  paymentAccountId: number;
+  paymentCategory: 'COFFEE';
+  recipientUserId: number;
+  status: ChargeItem['status'];
 };
 
 function createInitialMockMealState(): MockMealState {
@@ -1491,6 +1551,32 @@ function createInitialMockMealState(): MockMealState {
 
   return {
     accounts,
+    coffeeCharges: [
+      {
+        campusId: 1,
+        ownerUserId: 7,
+        paymentAccountId: 401,
+        paymentCategory: 'COFFEE',
+        recipientUserId: 31,
+        status: 'UNPAID',
+      },
+      {
+        campusId: 1,
+        ownerUserId: 7,
+        paymentAccountId: 401,
+        paymentCategory: 'COFFEE',
+        recipientUserId: 31,
+        status: 'UNPAID',
+      },
+      {
+        campusId: 1,
+        ownerUserId: 7,
+        paymentAccountId: 402,
+        paymentCategory: 'COFFEE',
+        recipientUserId: 32,
+        status: 'PAID',
+      },
+    ],
     coffeeDuties: mockDomainFixtures.admin.dutyAssignments.map((duty) => ({...duty})),
     legacyBilling: createInitialMockLegacyBillingState(),
     memberChargeIssuedAt: {
@@ -1501,6 +1587,8 @@ function createInitialMockMealState(): MockMealState {
     memberCharges: {},
     nextChargeItemId: 10_000,
     polls,
+    reminderRequestSequence: 0,
+    reminderSentKeys: new Set(),
     responses: {},
     details,
     duties: [
@@ -2698,6 +2786,41 @@ function emptyMealSettlementSummary() {
   };
 }
 
+function createMockDutyChargeReminder(
+  dutyType: 'COFFEE' | 'MEAL',
+  campusId: number,
+  userId: number,
+) {
+  const dateKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const sentKey = `${dutyType}:${campusId}:${userId}:${dateKey}`;
+  const targetCount = dutyType === 'MEAL'
+    ? getMockMealSettlement(campusId, userId).members.filter((member) => member.unpaidAmount > 0).length
+    : new Set(
+        mockMealState.coffeeCharges
+          .filter(
+            (charge) =>
+              charge.campusId === campusId &&
+              charge.ownerUserId === userId &&
+              charge.paymentCategory === 'COFFEE' &&
+              charge.status === 'UNPAID',
+          )
+          .map((charge) => charge.recipientUserId),
+      ).size;
+  const alreadySent = mockMealState.reminderSentKeys.has(sentKey);
+  if (!alreadySent) mockMealState.reminderSentKeys.add(sentKey);
+  mockMealState.reminderRequestSequence += 1;
+  return {
+    notificationRequestId: `mock-${dutyType.toLowerCase()}-reminder-${mockMealState.reminderRequestSequence}`,
+    queuedCount: alreadySent ? 0 : targetCount,
+    skippedCount: alreadySent ? targetCount : 0,
+  };
+}
+
 function getMockMealActor(headers: HeadersInit | undefined): MockMealActor | null {
   const authorization = new Headers(headers).get('Authorization') ?? '';
   const token = authorization.replace(/^Bearer\s+/i, '');
@@ -2731,6 +2854,20 @@ function authorizeMealDuty(actor: MockMealActor | null, campusId: number) {
   )
     ? null
     : mockForbidden('MEAL_DUTY_REQUIRED', '활성 밥 담당자만 이용할 수 있습니다.');
+}
+
+function authorizeCoffeeDuty(actor: MockMealActor | null, campusId: number) {
+  const membershipDenied = authorizeCampusMember(actor, campusId);
+  if (membershipDenied) return membershipDenied;
+  return mockMealState.coffeeDuties.some(
+    (duty) =>
+      duty.campusId === campusId &&
+      duty.userId === actor?.userId &&
+      duty.dutyType === 'COFFEE' &&
+      duty.isActive,
+  )
+    ? null
+    : mockForbidden('COFFEE_DUTY_REQUIRED', '활성 커피 담당자만 이용할 수 있습니다.');
 }
 
 function authorizeMealAdmin(actor: MockMealActor | null, campusId: number) {

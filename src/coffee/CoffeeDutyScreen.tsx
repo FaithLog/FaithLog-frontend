@@ -25,6 +25,10 @@ import {
   fetchMyDutyAssignment,
   fetchPaymentAccounts,
 } from '../api/client';
+import {
+  getAuthSessionGeneration,
+  isAuthSessionRequestAllowed,
+} from '../api/tokenStorage';
 import type {
   AdminCampusChargeSummary,
   CoffeeMenu,
@@ -42,6 +46,17 @@ import {
 } from '../components/ui';
 import {colors, spacing} from '../theme';
 import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
+import {
+  dutyChargeReminderApi,
+  type DutyChargeReminderApi,
+} from '../duty/dutyChargeReminderApi';
+import {
+  beginDutyChargeReminder,
+  createDutyChargeReminderGate,
+  finishDutyChargeReminder,
+  isDutyChargeReminderCurrent,
+  syncDutyChargeReminderScope,
+} from '../duty/dutyChargeReminderFlow';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
 import {
@@ -121,11 +136,18 @@ type CoffeeAccountDeleteState =
   | {status: 'success'; nickname: string}
   | {status: 'error'; message: string};
 
+type CoffeeReminderState =
+  | {status: 'idle'}
+  | {status: 'sending'}
+  | {status: 'sent'; queuedCount: number; skippedCount: number}
+  | {status: 'error'; message: string};
+
 type CoffeeDutyScreenProps = {
   canOpenAdminMode: boolean;
   onBack: () => void;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
+  reminderApi?: DutyChargeReminderApi;
   setAuthState: (state: AuthGateState) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 };
@@ -151,7 +173,12 @@ const space = {
   xl: spacing.screenX + spacing.gap,
 };
 
-export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreenProps) {
+export function CoffeeDutyScreen({
+  onBack,
+  reminderApi = dutyChargeReminderApi,
+  setAuthState,
+  state,
+}: CoffeeDutyScreenProps) {
   const [loadState, setLoadState] = useState<CoffeeDutyLoadState>({status: 'loading'});
   const [selectedMenuIds, setSelectedMenuIds] = useState<number[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -164,6 +191,8 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   const [accountForm, setAccountForm] = useState<CoffeeAccountForm>(emptyCoffeeAccountForm);
   const [accountSaveState, setAccountSaveState] = useState<CoffeeAccountSaveState>({status: 'idle'});
   const [accountDeleteState, setAccountDeleteState] = useState<CoffeeAccountDeleteState>({status: 'idle'});
+  const [reminderConfirmVisible, setReminderConfirmVisible] = useState(false);
+  const [reminderState, setReminderState] = useState<CoffeeReminderState>({status: 'idle'});
   const [page, setPage] = useState<CoffeeDutyPage>('manage');
   const [pollRefreshKey, setPollRefreshKey] = useState(0);
   const [createdPollId, setCreatedPollId] = useState<number | null>(null);
@@ -171,6 +200,15 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
     () => new Set(),
   );
   const campusId = state.selectedCampus.campusId;
+  const authGeneration = getAuthSessionGeneration();
+  const reminderScope = `campus:${campusId}/user:${state.user.id}/generation:${authGeneration}/coffee-reminder`;
+  const reminderGate = useRef(createDutyChargeReminderGate(reminderScope)).current;
+  const reminderMounted = useRef(true);
+
+  const isCoffeeReminderCurrent = (operationId: number) =>
+    reminderMounted.current &&
+    isAuthSessionRequestAllowed(authGeneration) &&
+    isDutyChargeReminderCurrent(reminderGate, operationId, reminderScope);
 
   const load = async (ownedCoffeeAccountIdsOverride?: Set<number>) => {
     setLoadState({status: 'loading'});
@@ -257,10 +295,21 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   };
 
   useEffect(() => {
+    syncDutyChargeReminderScope(reminderGate, reminderScope);
+    setReminderConfirmVisible(false);
+    setReminderState({status: 'idle'});
     const emptyKnownOwnedCoffeeAccountIds = new Set<number>();
     setKnownOwnedCoffeeAccountIds(emptyKnownOwnedCoffeeAccountIds);
     void load(emptyKnownOwnedCoffeeAccountIds);
-  }, [campusId, state.user.id]);
+  }, [campusId, reminderGate, reminderScope, state.user.id]);
+
+  useEffect(() => {
+    reminderMounted.current = true;
+    return () => {
+      reminderMounted.current = false;
+      syncDutyChargeReminderScope(reminderGate, `${reminderScope}/unmounted`);
+    };
+  }, [reminderGate, reminderScope]);
 
   const selectedMenus = useMemo(
     () =>
@@ -417,6 +466,45 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
     }
   };
 
+  const sendCoffeeReminder = async () => {
+    const operationId = beginDutyChargeReminder(reminderGate, reminderScope);
+    if (operationId === null) return;
+    setReminderConfirmVisible(false);
+    setReminderState({status: 'sending'});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken) {
+        if (isCoffeeReminderCurrent(operationId)) {
+          setReminderState({status: 'idle'});
+        }
+        return;
+      }
+      if (!isCoffeeReminderCurrent(operationId)) return;
+      const result = await reminderApi.send(accessToken, campusId, 'COFFEE');
+      if (!isCoffeeReminderCurrent(operationId)) return;
+      setReminderState({
+        status: 'sent',
+        queuedCount: result.queuedCount,
+        skippedCount: result.skippedCount,
+      });
+    } catch (error) {
+      if (
+        isCoffeeReminderCurrent(operationId) &&
+        error instanceof FaithLogApiError &&
+        error.detail.kind === 'sessionExpired'
+      ) {
+        setAuthState({status: 'sessionExpired', message: error.detail.message});
+        return;
+      }
+      if (isCoffeeReminderCurrent(operationId)) {
+        setReminderState({status: 'error', message: getCoffeeReminderErrorMessage(error)});
+      }
+    } finally {
+      finishDutyChargeReminder(reminderGate, operationId, reminderScope);
+    }
+  };
+
   return (
     <DutyPageScaffold
       backAccessibilityLabel="내정보로 돌아가기"
@@ -454,7 +542,15 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
       ) : (
         <>
           {page === 'summary' ? (
-            <CoffeeSettlementSummary onRefresh={() => void load()} state={loadState} />
+            <CoffeeSettlementSummary
+              onCancelReminder={() => setReminderConfirmVisible(false)}
+              onConfirmReminder={() => void sendCoffeeReminder()}
+              onOpenReminder={() => setReminderConfirmVisible(true)}
+              onRefresh={() => void load()}
+              reminderConfirmVisible={reminderConfirmVisible}
+              reminderState={reminderState}
+              state={loadState}
+            />
           ) : null}
           {page === 'accounts' ? (
             <CoffeeAccountManagement
@@ -506,10 +602,20 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
 }
 
 function CoffeeSettlementSummary({
+  onCancelReminder,
+  onConfirmReminder,
+  onOpenReminder,
   onRefresh,
+  reminderConfirmVisible,
+  reminderState,
   state,
 }: {
+  onCancelReminder: () => void;
+  onConfirmReminder: () => void;
+  onOpenReminder: () => void;
   onRefresh: () => void;
+  reminderConfirmVisible: boolean;
+  reminderState: CoffeeReminderState;
   state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
 }) {
   const charges = state.charges;
@@ -519,7 +625,18 @@ function CoffeeSettlementSummary({
   return (
     <DutyPageSection>
       <DutySectionHeader
-        action={<DutyActionButton accessibilityLabel="커피 정산 새로고침" label="새로고침" onPress={onRefresh} />}
+        action={(
+          <DutyActionRow>
+            <DutyActionButton accessibilityLabel="커피 정산 새로고침" label="새로고침" onPress={onRefresh} />
+            <DutyActionButton
+              accessibilityLabel="커피 전체 미납 알림 보내기 확인 열기"
+              busy={reminderState.status === 'sending'}
+              label={reminderState.status === 'sending' ? '알림 요청 중...' : '전체 미납 알림'}
+              onPress={onOpenReminder}
+              variant="primary"
+            />
+          </DutyActionRow>
+        )}
         description="내 커피 계좌에 연결된 청구와 미납 현황을 확인할 수 있어요."
         eyebrow="내 정산"
         title="커피 정산 현황"
@@ -543,6 +660,37 @@ function CoffeeSettlementSummary({
       ) : (
         <DutyAsyncState message="표시할 커피 미납 내역이 없습니다." status="empty" />
       )}
+      {reminderState.status === 'sent' ? (
+        <DutyEntityCard
+          statusLabel="접수 완료"
+          statusTone="success"
+          title="미납 알림 요청을 접수했습니다">
+          <Text style={styles.summaryBody}>
+            {`${reminderState.queuedCount}명 전송 대기 · ${reminderState.skippedCount}명 제외`}
+          </Text>
+        </DutyEntityCard>
+      ) : null}
+      {reminderState.status === 'error' ? (
+        <DutyAsyncState
+          actionAccessibilityLabel="커피 미납 알림 다시 확인"
+          actionLabel="다시 시도"
+          message={reminderState.message}
+          onAction={onOpenReminder}
+          status="error"
+          title="미납 알림을 보내지 못했습니다"
+        />
+      ) : null}
+      <DutyConfirmSheet
+        busy={reminderState.status === 'sending'}
+        cancelAccessibilityLabel="커피 전체 미납 알림 취소"
+        confirmAccessibilityLabel="커피 전체 미납 알림 보내기 확인"
+        confirmLabel="알림 보내기"
+        message="내가 담당하는 모든 미납 청구 대상자에게 알림을 보냅니다. 오늘 이미 알림을 받은 대상자는 제외될 수 있습니다."
+        onCancel={onCancelReminder}
+        onConfirm={onConfirmReminder}
+        title="커피 미납 알림을 보낼까요?"
+        visible={reminderConfirmVisible}
+      />
     </DutyPageSection>
   );
 }
@@ -1426,6 +1574,25 @@ function getCoffeeDutyErrorMessage(error: unknown) {
   }
 
   return '커피 관리 정보를 불러오지 못했습니다.';
+}
+
+function getCoffeeReminderErrorMessage(error: unknown) {
+  if (error instanceof FaithLogApiError) {
+    if (error.detail.kind === 'permissionDenied' || error.detail.status === 403) {
+      return '활성 커피 담당자만 미납 알림을 보낼 수 있습니다.';
+    }
+    if (error.detail.kind === 'conflict' || error.detail.status === 409) {
+      return '알림 요청 상태가 변경되었습니다. 정산 내역을 새로고침한 뒤 다시 시도해 주세요.';
+    }
+    if (error.detail.status === 404) {
+      return '현재 캠퍼스의 커피 담당 범위를 찾을 수 없습니다.';
+    }
+    if (error.detail.code === 'API_CONTRACT_PENDING') {
+      return '현재 미납 알림 기능을 사용할 수 없습니다.';
+    }
+  }
+
+  return '네트워크 상태를 확인한 뒤 다시 시도해 주세요.';
 }
 
 function CoffeeInlineError({message}: {message: string}) {

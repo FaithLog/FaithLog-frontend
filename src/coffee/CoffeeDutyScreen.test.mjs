@@ -16,11 +16,13 @@ const mocks = vi.hoisted(() => ({
   fetchMyDutyAssignment: vi.fn(),
   resolveCurrentAccessToken: vi.fn(),
 }));
+const auth = vi.hoisted(() => ({generation: 1}));
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const host = (name) => ({children, ...props}) => ReactModule.createElement(name, props, children);
   return {
+    apiRequest: vi.fn(),
     ActivityIndicator: host('ActivityIndicator'),
     FlatList: ({data, renderItem, ...props}) => ReactModule.createElement(
       'FlatList',
@@ -70,6 +72,11 @@ vi.mock('../auth/accessTokenResolver', () => ({
   resolveCurrentAccessToken: mocks.resolveCurrentAccessToken,
 }));
 
+vi.mock('../api/tokenStorage', () => ({
+  getAuthSessionGeneration: vi.fn(() => auth.generation),
+  isAuthSessionRequestAllowed: vi.fn((generation) => generation === auth.generation),
+}));
+
 vi.mock('../api/adminPollApi', () => ({
   closeAdminPoll: mocks.closeAdminPoll,
   createAdminPoll: mocks.createAdminPoll,
@@ -94,10 +101,12 @@ vi.mock('../api/client', () => {
     fetchCoffeeMenus: mocks.fetchCoffeeMenus,
     fetchMyDutyAssignment: mocks.fetchMyDutyAssignment,
     fetchPaymentAccounts: vi.fn(),
+    isMockModeEnabled: vi.fn(() => true),
   };
 });
 
 import {CoffeeDutyScreen} from './CoffeeDutyScreen';
+import {FaithLogApiError} from '../api/client';
 import {
   DutyEntityCard,
   DutyMetricSurface,
@@ -109,6 +118,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('CoffeeDutyScreen canonical duty navigation', () => {
   beforeEach(() => {
+    auth.generation = 1;
     vi.clearAllMocks();
     mocks.resolveCurrentAccessToken.mockResolvedValue('A1');
     mocks.fetchMyDutyAssignment.mockResolvedValue({
@@ -148,6 +158,147 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(mocks.fetchMyDutyAssignment).toHaveBeenCalledTimes(1);
     expect(mocks.fetchAdminPaymentAccounts).toHaveBeenCalledTimes(1);
     expect(renderer.root.findAllByType('ScrollView')).toHaveLength(0);
+  });
+
+  it('sends one confirmed all-unpaid coffee reminder and renders queued/skipped counts', async () => {
+    const reminderApi = {
+      send: vi.fn().mockResolvedValue({
+        notificationRequestId: 'coffee-reminder-1',
+        queuedCount: 5,
+        skippedCount: 2,
+      }),
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps({reminderApi})));
+      await settle();
+    });
+
+    await press(renderer, '커피 정산 페이지 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인 열기');
+    expect(rendered(renderer)).toContain(
+      '내가 담당하는 모든 미납 청구 대상자에게 알림을 보냅니다. 오늘 이미 알림을 받은 대상자는 제외될 수 있습니다.',
+    );
+    const confirm = findByLabel(renderer, '커피 전체 미납 알림 보내기 확인');
+    await act(async () => {
+      confirm.props.onPress();
+      confirm.props.onPress();
+      await settle();
+    });
+
+    expect(reminderApi.send).toHaveBeenCalledTimes(1);
+    expect(reminderApi.send).toHaveBeenCalledWith('A1', 1, 'COFFEE');
+    expect(rendered(renderer)).toContain('5명 전송 대기');
+    expect(rendered(renderer)).toContain('2명 제외');
+  });
+
+  it('lets the server evaluate all owned Coffee accounts even when the displayed account has no unpaid amount', async () => {
+    mocks.fetchAdminPaymentAccounts.mockResolvedValue([
+      coffeeAccount(),
+      {...coffeeAccount(), id: 12, nickname: '두 번째 커피 계좌'},
+    ]);
+    mocks.fetchAdminCampusChargesForMyAccounts.mockResolvedValue({
+      ...chargeSummary(),
+      members: [],
+      summary: {
+        canceledAmount: 0,
+        paidAmount: 0,
+        totalAmount: 0,
+        unpaidAmount: 0,
+        waivedAmount: 0,
+      },
+    });
+    const reminderApi = {
+      send: vi.fn().mockResolvedValue({
+        notificationRequestId: 'coffee-reminder-all-accounts',
+        queuedCount: 1,
+        skippedCount: 0,
+      }),
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps({reminderApi})));
+      await settle();
+    });
+
+    await press(renderer, '커피 정산 페이지 열기');
+    expect(findByLabel(renderer, '커피 전체 미납 알림 보내기 확인 열기').props.disabled).not.toBe(true);
+    await press(renderer, '커피 전체 미납 알림 보내기 확인 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인');
+
+    expect(reminderApi.send).toHaveBeenCalledWith('A1', 1, 'COFFEE');
+    expect(rendered(renderer)).toContain('1명 전송 대기');
+  });
+
+  it('drops an old Coffee reminder result after the auth generation changes', async () => {
+    const first = deferred();
+    const reminderApi = {
+      send: vi.fn()
+        .mockReturnValueOnce(first.promise)
+        .mockResolvedValueOnce({
+          notificationRequestId: 'coffee-reminder-successor',
+          queuedCount: 2,
+          skippedCount: 0,
+        }),
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps({reminderApi})));
+      await settle();
+    });
+
+    await press(renderer, '커피 정산 페이지 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인');
+    expect(reminderApi.send).toHaveBeenCalledTimes(1);
+
+    auth.generation = 3;
+    await act(async () => {
+      renderer.update(React.createElement(CoffeeDutyScreen, screenProps({reminderApi})));
+      await settle();
+    });
+    first.resolve({
+      notificationRequestId: 'coffee-reminder-stale',
+      queuedCount: 9,
+      skippedCount: 0,
+    });
+    await act(async () => {
+      await settle();
+    });
+
+    expect(rendered(renderer)).not.toContain('9명 전송 대기');
+    await press(renderer, '커피 정산 페이지 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인');
+    expect(reminderApi.send).toHaveBeenCalledTimes(2);
+    expect(rendered(renderer)).toContain('2명 전송 대기');
+  });
+
+  it.each([
+    [
+      {kind: 'permissionDenied', status: 403, message: 'server permission detail'},
+      '활성 커피 담당자만 미납 알림을 보낼 수 있습니다.',
+    ],
+    [
+      {kind: 'conflict', status: 409, message: 'server conflict detail'},
+      '알림 요청 상태가 변경되었습니다. 정산 내역을 새로고침한 뒤 다시 시도해 주세요.',
+    ],
+  ])('shows safe Coffee reminder feedback without exposing server messages', async (detail, expected) => {
+    const reminderApi = {
+      send: vi.fn().mockRejectedValue(new FaithLogApiError(detail)),
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps({reminderApi})));
+      await settle();
+    });
+
+    await press(renderer, '커피 정산 페이지 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인 열기');
+    await press(renderer, '커피 전체 미납 알림 보내기 확인');
+
+    expect(rendered(renderer)).toContain(expected);
+    expect(rendered(renderer)).not.toContain(detail.message);
   });
 
   it('returns a created coffee poll to the same canonical poll tab without duplicating the create request', async () => {
@@ -355,7 +506,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
   });
 });
 
-function screenProps() {
+function screenProps(overrides = {}) {
   return {
     canOpenAdminMode: false,
     onBack: vi.fn(),
@@ -368,6 +519,7 @@ function screenProps() {
       selectedCampus: {campusId: 1, campusName: 'QA 캠퍼스', campusRole: 'MEMBER', status: 'ACTIVE'},
       activeCampuses: [],
     },
+    ...overrides,
   };
 }
 
@@ -459,6 +611,14 @@ function flattenStyles(value) {
 
 function rendered(renderer) {
   return JSON.stringify(renderer.toJSON());
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolver) => {
+    resolve = resolver;
+  });
+  return {promise, resolve};
 }
 
 async function settle() {
