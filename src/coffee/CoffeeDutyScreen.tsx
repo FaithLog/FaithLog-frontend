@@ -1,11 +1,8 @@
 import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -43,16 +40,13 @@ import {
   Body,
   Button,
   Card,
-  Empty,
   Eyebrow,
-  FaithLogHeaderPillButton,
-  FaithLogHeaderTopRow,
-  Loading,
   TextField,
 } from '../components/ui';
 import {colors, spacing} from '../theme';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
+import {DutyAsyncState, DutyPageScaffold} from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 
 type CoffeeDutyLoadState =
@@ -406,55 +400,41 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior="padding"
-      enabled={Platform.OS === 'ios'}
-      keyboardVerticalOffset={16}
-      style={styles.frame}>
-      <View style={styles.header}>
-        <FaithLogHeaderTopRow
-          campusLabel={state.selectedCampus.campusName}
-          contextLabel={`${state.user.name}님`}>
-          <FaithLogHeaderPillButton
-            accessibilityLabel="내정보로 돌아가기"
-            label="뒤로"
-            onPress={onBack}
-          />
-        </FaithLogHeaderTopRow>
-        <View style={styles.headerText}>
-          <Text style={styles.kicker}>커피 담당자</Text>
-          <Text style={styles.title}>커피 정산 관리</Text>
-        </View>
-      </View>
-
-      {loadState.status === 'loading' ? (
-        <Loading message="커피 담당자 정보를 확인하고 있어요." />
-      ) : loadState.status === 'notAssigned' ? (
-        <Empty
-          actionLabel="내정보로 돌아가기"
-          message="현재 캠퍼스의 활성 커피 담당자로 지정된 경우에만 사용할 수 있어요."
-          onActionPress={onBack}
-          title="커피 담당자 전용 화면입니다"
-        />
-      ) : loadState.status === 'error' ? (
-        <Empty
-          actionLabel="다시 확인"
-          message={loadState.message}
-          onActionPress={() => void load()}
-          title="커피 관리 정보를 불러오지 못했습니다"
-        />
-      ) : (
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-          <DutyPageNav
+    <DutyPageScaffold
+      backAccessibilityLabel="내정보로 돌아가기"
+      campusName={state.selectedCampus.campusName}
+      contextLabel={`${state.user.name}님`}
+      domainLabel="커피"
+      navigation={loadState.status === 'ready' ? (
+        <DutyPageNav
             domainLabel="커피"
             items={coffeeDutyPages}
             page={page}
             onSelectPage={setPage}
           />
+      ) : undefined}
+      onBack={onBack}
+      title="커피 정산 관리">
+      {loadState.status === 'loading' ? (
+        <DutyAsyncState message="커피 담당자 정보를 확인하고 있어요." status="loading" />
+      ) : loadState.status === 'notAssigned' ? (
+        <DutyAsyncState
+          actionLabel="내정보로 돌아가기"
+          message="현재 캠퍼스의 활성 커피 담당자로 지정된 경우에만 사용할 수 있어요."
+          onAction={onBack}
+          status="empty"
+          title="커피 담당자 전용 화면입니다"
+        />
+      ) : loadState.status === 'error' ? (
+        <DutyAsyncState
+          actionLabel="다시 확인"
+          message={loadState.message}
+          onAction={() => void load()}
+          status="error"
+          title="커피 관리 정보를 불러오지 못했습니다"
+        />
+      ) : (
+        <>
           {page === 'summary' ? (
             <CoffeeSettlementSummary onRefresh={() => void load()} state={loadState} />
           ) : null}
@@ -502,9 +482,9 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
               setAuthState={setAuthState}
             />
           ) : null}
-        </ScrollView>
+        </>
       )}
-    </KeyboardAvoidingView>
+    </DutyPageScaffold>
   );
 }
 

@@ -9,6 +9,7 @@ vi.mock('react-native', async () => {
   const host = (name) => ({children, ...props}) =>
     ReactModule.createElement(name, props, children);
   return {
+    ActivityIndicator: host('ActivityIndicator'),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: ({children, visible, ...props}) => visible
       ? ReactModule.createElement('Modal', props, children)

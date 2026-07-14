@@ -1,10 +1,9 @@
 import {useCallback, useEffect, useState} from 'react';
-import {KeyboardAvoidingView, Platform, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
-import {Empty, FaithLogHeaderPillButton, FaithLogHeaderTopRow} from '../components/ui';
 import {DutyPageNav} from '../duty/DutyPageNav';
+import {DutyAsyncState, DutyPageScaffold} from '../duty/DutyPresentation';
 import {mealApi, type MealApi} from './mealApi';
 import {MealAccountScreen} from './MealAccountScreen';
 import {MealPollChargeScreen} from './MealPollChargeScreen';
@@ -108,52 +107,37 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior="padding"
-      enabled={Platform.OS === 'ios'}
-      keyboardVerticalOffset={16}
-      style={mealStyles.frame}>
-      <View style={mealStyles.header}>
-        <FaithLogHeaderTopRow
-          campusLabel={state.selectedCampus.campusName}
-          contextLabel={`${state.user.name}님`}>
-          <FaithLogHeaderPillButton
-            accessibilityLabel={topLevelPage ? '내정보로 돌아가기' : '이전 밥 관리 화면으로 돌아가기'}
-            label="뒤로"
-            onPress={handleBack}
-          />
-        </FaithLogHeaderTopRow>
-        <View style={mealStyles.headerText}>
-          <Text style={mealStyles.kicker}>밥 담당자</Text>
-          <Text style={mealStyles.screenTitle}>밥 정산 관리</Text>
-        </View>
-      </View>
-
-      <View style={mealStyles.content}>
+    <DutyPageScaffold
+      backAccessibilityLabel={topLevelPage ? '내정보로 돌아가기' : '이전 밥 관리 화면으로 돌아가기'}
+      campusName={state.selectedCampus.campusName}
+      contextLabel={`${state.user.name}님`}
+      domainLabel="밥"
+      navigation={scopeIsCommitted && entryIsCurrent && topLevelPage ? (
+        <DutyPageNav
+          domainLabel="밥"
+          items={mealDutyPages}
+          page={topLevelPage}
+          onSelectPage={(page) => setRoute(toMealRoute(page))}
+        />
+      ) : undefined}
+      onBack={handleBack}
+      title="밥 정산 관리">
         {!scopeIsCommitted ? <MealLoading label="밥 정산 관리 화면을 전환하는 중" /> : null}
         {scopeIsCommitted && entryState.status === 'loading' ? <MealLoading label="밥 담당 권한을 확인하고 있어요." /> : null}
         {scopeIsCommitted && entryState.status === 'notAssigned' ? (
-          <Empty
+          <DutyAsyncState
             actionLabel="내정보로 돌아가기"
             message="현재 캠퍼스의 활성 밥 담당자로 지정된 경우에만 사용할 수 있어요."
-            onActionPress={onBack}
+            onAction={onBack}
+            status="empty"
             title="밥 담당자 전용 화면입니다"
           />
         ) : null}
         {scopeIsCommitted && entryState.status === 'error' ? <MealErrorState error={entryState.error} /> : null}
-        {scopeIsCommitted && entryIsCurrent && topLevelPage ? (
-          <DutyPageNav
-            domainLabel="밥"
-            items={mealDutyPages}
-            page={topLevelPage}
-            onSelectPage={(page) => setRoute(toMealRoute(page))}
-          />
-        ) : null}
         {scopeIsCommitted && entryIsCurrent
           ? renderRoute(route, state, setRoute, onSessionExpired, api)
           : null}
-      </View>
-    </KeyboardAvoidingView>
+    </DutyPageScaffold>
   );
 }
 

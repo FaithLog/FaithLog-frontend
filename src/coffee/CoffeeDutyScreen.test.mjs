@@ -19,6 +19,7 @@ vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const host = (name) => ({children, ...props}) => ReactModule.createElement(name, props, children);
   return {
+    ActivityIndicator: host('ActivityIndicator'),
     FlatList: ({data, renderItem, ...props}) => ReactModule.createElement(
       'FlatList',
       props,
@@ -134,6 +135,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(rendered(renderer)).toContain('12,000원');
     expect(mocks.fetchMyDutyAssignment).toHaveBeenCalledTimes(1);
     expect(mocks.fetchAdminPaymentAccounts).toHaveBeenCalledTimes(1);
+    expect(renderer.root.findAllByType('ScrollView')).toHaveLength(0);
   });
 
   it('returns a created coffee poll to the same canonical poll tab without duplicating the create request', async () => {
