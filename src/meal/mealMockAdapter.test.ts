@@ -456,7 +456,7 @@ describe('MEAL mock adapter flow', () => {
       monthlyUnpaidAmount: 6000,
       monthlyTotalChargeAmount: 18000,
       monthlyByCategory: [
-        {paymentCategory: 'PENALTY', paidAmount: 9000, unpaidAmount: 3000, totalAmount: 12000},
+        {paymentCategory: 'PENALTY', paidAmount: 12000, unpaidAmount: 6000, totalAmount: 18000},
       ],
     });
     for (const outsideFixtureMonth of [julyBefore, augustBefore]) {
@@ -484,7 +484,7 @@ describe('MEAL mock adapter flow', () => {
       monthlyUnpaidAmount: 3000,
       monthlyTotalChargeAmount: 18000,
       monthlyByCategory: [
-        {paymentCategory: 'PENALTY', paidAmount: 12000, unpaidAmount: 0, totalAmount: 12000},
+        {paymentCategory: 'PENALTY', paidAmount: 15000, unpaidAmount: 3000, totalAmount: 18000},
       ],
     });
     expect(julyAfterPaid).toMatchObject({

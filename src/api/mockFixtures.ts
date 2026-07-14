@@ -192,6 +192,46 @@ const chargeList: ChargeList = {
         sourceId: 101,
       },
     },
+    {
+      id: 502,
+      paymentCategory: 'PENALTY',
+      title: '이전 경건생활 벌금',
+      reason: 'Mock fixture paid history',
+      amount: 12000,
+      status: 'PAID',
+      dueDate: '2026-06-23',
+      paidAt: '2026-06-24T10:00:00.000Z',
+      account: {
+        paymentAccountId: 301,
+        bankName: '샘플은행',
+        accountNumber: '000-0000-0000',
+        accountHolder: '샘플 캠퍼스',
+      },
+      source: {
+        sourceType: 'DEVOTION_RECORD',
+        sourceId: 99,
+      },
+    },
+    {
+      id: 503,
+      paymentCategory: 'PENALTY',
+      title: '추가 경건생활 미제출',
+      reason: 'Mock fixture unpaid history',
+      amount: 3000,
+      status: 'UNPAID',
+      dueDate: '2026-06-30',
+      paidAt: null,
+      account: {
+        paymentAccountId: 301,
+        bankName: '샘플은행',
+        accountNumber: '000-0000-0000',
+        accountHolder: '샘플 캠퍼스',
+      },
+      source: {
+        sourceType: 'DEVOTION_RECORD',
+        sourceId: 102,
+      },
+    },
   ],
 };
 
@@ -593,9 +633,9 @@ export const mockDomainFixtures = {
       monthlyByCategory: [
         {
           paymentCategory: 'PENALTY',
-          paidAmount: 9000,
-          unpaidAmount: 3000,
-          totalAmount: 12000,
+          paidAmount: 12000,
+          unpaidAmount: 6000,
+          totalAmount: 18000,
         },
       ],
     } satisfies ChargeSummary,

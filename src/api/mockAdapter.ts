@@ -1057,7 +1057,7 @@ function getMockAdminCampusCharges(
   }
   const requestedUserId = Number(searchParams.get('userId'));
   const keyword = (searchParams.get('keyword') ?? '').trim().toLocaleLowerCase();
-  const members = [...userIds].flatMap((userId) => {
+  const allMembers = [...userIds].flatMap((userId) => {
     const member = getMockMealCampusMember(campusId, userId);
     if (
       !member ||
@@ -1070,10 +1070,20 @@ function getMockAdminCampusCharges(
     const {summary} = getMockAdminMemberChargeState(campusId, userId, searchParams);
     return summary.totalAmount === 0 ? [] : [{...member, ...summary}];
   });
-  const summary = members.reduce<ChargeAmountSummary>(
+  const summary = allMembers.reduce<ChargeAmountSummary>(
     (total, member) => addMockChargeAmountSummaries(total, member),
     emptyMockChargeAmountSummary(),
   );
+  const {page, size} = getMockChargePagination(searchParams);
+  const sort = searchParams.get('sort') ?? 'createdAt,desc';
+  const direction = sort.endsWith(',asc') ? 1 : -1;
+  const sortedMembers = [...allMembers].sort((left, right) => {
+    const difference = sort.startsWith('amount,')
+      ? left.totalAmount - right.totalAmount
+      : left.userId - right.userId;
+    return difference === 0 ? left.userId - right.userId : difference * direction;
+  });
+  const members = sortedMembers.slice(page * size, page * size + size);
 
   return {...charges, summary, members};
 }
@@ -1088,17 +1098,21 @@ function getMockAdminMemberChargeState(
     userId === legacyBilling.summary.userId;
   const requestedCategory = searchParams.get('paymentCategory');
   const requestedStatus = searchParams.get('status');
-  const legacyCategoryMatches = requestedCategory === null || requestedCategory === 'PENALTY';
-  const legacyItems = ownsLegacy && legacyCategoryMatches
-    ? legacyBilling.charges.items.filter((charge) =>
-        requestedStatus === null || charge.status === requestedStatus,
-      )
+  const paymentAccountIdValue = Number(searchParams.get('paymentAccountId'));
+  const requestedPaymentAccountId = Number.isSafeInteger(paymentAccountIdValue) &&
+    paymentAccountIdValue > 0
+    ? paymentAccountIdValue
+    : null;
+  const matchesFilters = (charge: ChargeItem) =>
+    (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
+    (requestedStatus === null || charge.status === requestedStatus) &&
+    (requestedPaymentAccountId === null ||
+      charge.account?.paymentAccountId === requestedPaymentAccountId);
+  const legacyItems = ownsLegacy
+    ? legacyBilling.charges.items.filter(matchesFilters)
     : [];
   const dynamicItems = (mockMealState.memberCharges[mockMealMemberChargeKey(campusId, userId)] ?? [])
-    .filter((charge) =>
-      (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
-      (requestedStatus === null || charge.status === requestedStatus),
-    );
+    .filter(matchesFilters);
   const visibleItems = [...legacyItems, ...dynamicItems];
   const sort = searchParams.get('sort') ?? 'createdAt,desc';
   const sortedItems = [...visibleItems].sort((left, right) => {
@@ -1107,18 +1121,20 @@ function getMockAdminMemberChargeState(
     }
     return sort.endsWith(',asc') ? left.id - right.id : right.id - left.id;
   });
-  const pageValue = Number(searchParams.get('page') ?? 0);
-  const sizeValue = Number(searchParams.get('size') ?? 20);
-  const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
-  const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
-  const legacySummary = ownsLegacy && legacyCategoryMatches
-    ? filterMockChargeAmountSummary(legacyBilling.charges.summary, requestedStatus)
-    : emptyMockChargeAmountSummary();
-  const dynamicSummary = summarizeMockMemberCharges(dynamicItems);
+  const {page, size} = getMockChargePagination(searchParams);
 
   return {
     items: sortedItems.slice(page * size, page * size + size),
-    summary: addMockChargeAmountSummaries(legacySummary, dynamicSummary),
+    summary: summarizeMockMemberCharges(visibleItems),
+  };
+}
+
+function getMockChargePagination(searchParams: URLSearchParams) {
+  const pageValue = Number(searchParams.get('page') ?? 0);
+  const sizeValue = Number(searchParams.get('size') ?? 20);
+  return {
+    page: Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0,
+    size: Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20,
   };
 }
 
@@ -1787,18 +1803,9 @@ function getMockMemberChargeList(
   const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
   const start = page * size;
   const campusIdentity = getMockChargeCampusIdentity(legacyBilling.charges, campusId);
-  const legacySummary = ownsLegacyBilling &&
-    (requestedCategory === null || requestedCategory === 'PENALTY')
-    ? filterMockChargeAmountSummary(legacyBilling.charges.summary, requestedStatus)
-    : emptyMockChargeAmountSummary();
-  const dynamicSummary = summarizeMockMemberCharges(mealCharges.filter((charge) =>
-    (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
-    (requestedStatus === null || charge.status === requestedStatus),
-  ));
-
   return {
     ...campusIdentity,
-    summary: addMockChargeAmountSummaries(legacySummary, dynamicSummary),
+    summary: summarizeMockMemberCharges(visibleItems),
     items: sortedItems.slice(start, start + size),
   };
 }
@@ -1950,24 +1957,6 @@ function emptyMockChargeAmountSummary(): ChargeAmountSummary {
   return {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
 }
 
-function filterMockChargeAmountSummary(
-  summary: ChargeAmountSummary,
-  requestedStatus: string | null,
-): ChargeAmountSummary {
-  if (requestedStatus === null) return {...summary};
-  if (
-    requestedStatus !== 'UNPAID' &&
-    requestedStatus !== 'PAID' &&
-    requestedStatus !== 'WAIVED' &&
-    requestedStatus !== 'CANCELED'
-  ) {
-    return emptyMockChargeAmountSummary();
-  }
-  const key = getMockSummaryKey(requestedStatus);
-  const amount = summary[key];
-  return {...emptyMockChargeAmountSummary(), totalAmount: amount, [key]: amount};
-}
-
 function addMockChargeAmountSummaries(
   left: ChargeAmountSummary,
   right: ChargeAmountSummary,
@@ -2116,9 +2105,8 @@ function transitionMockCanonicalAdminCharge(
   const chargeIndex = charges.findIndex((charge) => charge.id === canonical.charge.id);
   const charge = charges[chargeIndex];
   if (!charge) return null;
-  if (charge.status === targetStatus) {
-    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
-  }
+  const transitionDenied = validateMockAdminChargeTransition(charge.status, targetStatus);
+  if (transitionDenied) return transitionDenied;
   const transitioned: ChargeItem = {
     ...charge,
     status: targetStatus,
@@ -2150,9 +2138,8 @@ function transitionMockLegacyChargeStatus(
   const chargeIndex = legacyBilling.charges.items.findIndex((charge) => charge.id === chargeItemId);
   const charge = legacyBilling.charges.items[chargeIndex];
   if (!charge) return null;
-  if (charge.status === targetStatus) {
-    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
-  }
+  const transitionDenied = validateMockAdminChargeTransition(charge.status, targetStatus);
+  if (transitionDenied) return transitionDenied;
   const categoryIndex = legacyBilling.summary.monthlyByCategory.findIndex(
     (category) => category.paymentCategory === charge.paymentCategory,
   );
@@ -2230,6 +2217,19 @@ function transitionMockLegacyChargeStatus(
   };
 
   return transitionedCharge;
+}
+
+function validateMockAdminChargeTransition(
+  previousStatus: ChargeItem['status'],
+  targetStatus: ChargeItem['status'],
+) {
+  if (previousStatus === targetStatus) {
+    return mockConflict('CHARGE_ALREADY_TERMINAL', '이미 처리된 청구입니다.');
+  }
+  if (previousStatus === 'UNPAID' || targetStatus === 'UNPAID') {
+    return null;
+  }
+  return mockConflict('CHARGE_STATUS_CONFLICT', '완료된 청구는 미납 상태로만 복구할 수 있습니다.');
 }
 
 function moveMockChargeAmount(
