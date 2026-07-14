@@ -5,6 +5,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 const mocks = vi.hoisted(() => ({
   closeAdminPoll: vi.fn(),
   createAdminPoll: vi.fn(),
+  createCoffeeDutyPaymentAccount: vi.fn(),
   fetchAdminCampusChargesForMyAccounts: vi.fn(),
   fetchAdminPaymentAccounts: vi.fn(),
   fetchAdminPollResults: vi.fn(),
@@ -83,7 +84,7 @@ vi.mock('../api/client', () => {
     }
   }
   return {
-    createCoffeeDutyPaymentAccount: vi.fn(),
+    createCoffeeDutyPaymentAccount: mocks.createCoffeeDutyPaymentAccount,
     deactivateCoffeeDutyPaymentAccount: vi.fn(),
     FaithLogApiError: TestFaithLogApiError,
     fetchAdminCampusChargesForMyAccounts: mocks.fetchAdminCampusChargesForMyAccounts,
@@ -173,6 +174,81 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(mocks.createAdminPoll).toHaveBeenCalledTimes(1);
     expect(findByLabel(renderer, '커피 투표 페이지 열기').props.accessibilityState).toEqual({selected: true});
     expect(rendered(renderer)).toContain('새 커피 주문');
+  });
+
+  it('locks every poll draft and selection control while creation is in flight', async () => {
+    let resolveCreate;
+    mocks.createAdminPoll.mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
+      await settle();
+    });
+
+    await press(renderer, '커피 투표 생성 페이지 열기');
+    await press(renderer, '커피 메뉴 추가 모달 열기');
+    await press(renderer, '아메리카노 메뉴 추가');
+
+    act(() => {
+      findByLabel(renderer, '커피 주문 투표 생성').props.onPress();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(findByLabel(renderer, '제목').props.editable).toBe(false);
+    expect(findByLabel(renderer, '커피 메뉴 추가 모달 열기').props).toMatchObject({
+      accessibilityState: {disabled: true},
+      disabled: true,
+    });
+    expect(findByLabel(renderer, '아메리카노 메뉴 제거').props).toMatchObject({
+      accessibilityState: {disabled: true},
+      disabled: true,
+    });
+    expect(findByLabel(renderer, 'QA 커피 계좌 커피 계좌 선택').props).toMatchObject({
+      accessibilityState: {disabled: true, selected: true},
+      disabled: true,
+    });
+
+    await act(async () => {
+      resolveCreate(coffeePoll());
+      await settle();
+    });
+  });
+
+  it('locks every coffee account field while account creation is in flight', async () => {
+    let resolveCreate;
+    mocks.createCoffeeDutyPaymentAccount.mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
+      await settle();
+    });
+
+    await press(renderer, '커피 내 계좌 페이지 열기');
+    await change(renderer, '커피 계좌 별칭', '새 커피 계좌');
+    await change(renderer, '커피 계좌 은행명', '테스트은행');
+    await change(renderer, '커피 계좌번호', '111-222');
+    await change(renderer, '커피 계좌 예금주', '커피 담당');
+    await press(renderer, '커피 계좌 등록');
+
+    for (const label of [
+      '커피 계좌 별칭',
+      '커피 계좌 은행명',
+      '커피 계좌번호',
+      '커피 계좌 예금주',
+    ]) {
+      expect(findByLabel(renderer, label).props.editable).toBe(false);
+    }
+
+    await act(async () => {
+      resolveCreate({...coffeeAccount(), id: 11, nickname: '새 커피 계좌'});
+      await settle();
+    });
   });
 
   it('uses the shared calendar and time picker without changing the deadline on cancel', async () => {
@@ -280,6 +356,13 @@ function chargeSummary() {
 async function press(renderer, label) {
   await act(async () => {
     findByLabel(renderer, label).props.onPress();
+    await settle();
+  });
+}
+
+async function change(renderer, label, value) {
+  await act(async () => {
+    findByLabel(renderer, label).props.onChangeText(value);
     await settle();
   });
 }

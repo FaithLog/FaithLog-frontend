@@ -625,6 +625,7 @@ function CoffeeAccountManagement({
         <DutySectionHeader description="커피 담당자가 받을 커피 금액 계좌만 등록합니다." eyebrow="계좌 등록" title="커피 정산 계좌 추가" />
         <TextField
           accessibilityLabel="커피 계좌 별칭"
+          editable={!busy}
           label="별칭"
           onChangeText={(nickname) => onChangeForm({nickname})}
           placeholder="커피 계좌"
@@ -632,6 +633,7 @@ function CoffeeAccountManagement({
         />
         <TextField
           accessibilityLabel="커피 계좌 은행명"
+          editable={!busy}
           label="은행"
           onChangeText={(bankName) => onChangeForm({bankName})}
           placeholder="카카오뱅크"
@@ -639,6 +641,7 @@ function CoffeeAccountManagement({
         />
         <TextField
           accessibilityLabel="커피 계좌번호"
+          editable={!busy}
           label="계좌번호"
           onChangeText={(accountNumber) => onChangeForm({accountNumber})}
           placeholder="3333-33-333333"
@@ -646,6 +649,7 @@ function CoffeeAccountManagement({
         />
         <TextField
           accessibilityLabel="커피 계좌 예금주"
+          editable={!busy}
           label="예금주"
           onChangeText={(accountHolder) => onChangeForm({accountHolder})}
           placeholder="커피 담당자"
@@ -718,7 +722,13 @@ function CoffeePollCreator({
 
       <DutyFormSection>
         <Eyebrow>투표 제목</Eyebrow>
-        <TextField label="제목" onChangeText={onTitleChange} value={title} />
+        <TextField
+          accessibilityLabel="제목"
+          editable={!busy}
+          label="제목"
+          onChangeText={onTitleChange}
+          value={title}
+        />
       </DutyFormSection>
 
       <DutyDateTimeField
@@ -754,8 +764,14 @@ function CoffeePollCreator({
           <Pressable
             accessibilityLabel="커피 메뉴 추가 모달 열기"
             accessibilityRole="button"
+            accessibilityState={{disabled: busy}}
+            disabled={busy}
             onPress={() => setMenuPickerVisible(true)}
-            style={({pressed}) => [styles.pollCreateAddOption, pressed ? styles.pressed : null]}>
+            style={({pressed}) => [
+              styles.pollCreateAddOption,
+              busy ? styles.pollCreateActionDisabled : null,
+              pressed ? styles.pressed : null,
+            ]}>
             <Text style={styles.pollCreateAddOptionText}>메뉴 추가</Text>
           </Pressable>
         </View>
@@ -778,9 +794,12 @@ function CoffeePollCreator({
                   <Pressable
                     accessibilityLabel={`${menu.name} 메뉴 제거`}
                     accessibilityRole="button"
+                    accessibilityState={{disabled: busy}}
+                    disabled={busy}
                     onPress={() => onToggleMenu(menu.id)}
                     style={({pressed}) => [
                       styles.pollCreateRemoveOption,
+                      busy ? styles.pollCreateActionDisabled : null,
                       pressed ? styles.pressed : null,
                     ]}>
                     <Text style={styles.pollCreateRemoveOptionText}>x</Text>
@@ -825,11 +844,14 @@ function CoffeePollCreator({
                 <Pressable
                   accessibilityLabel={`${account.nickname} 커피 계좌 선택`}
                   accessibilityRole="button"
+                  accessibilityState={{disabled: busy, selected}}
+                  disabled={busy}
                   key={account.id}
                   onPress={() => onSelectAccount(account.id)}
                   style={({pressed}) => [
                     styles.selectRow,
                     selected ? styles.selectRowActive : null,
+                    busy ? styles.pollCreateActionDisabled : null,
                     pressed ? styles.pressed : null,
                   ]}>
                   <Text style={styles.selectTitle}>{account.nickname}</Text>

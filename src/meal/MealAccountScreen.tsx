@@ -204,10 +204,10 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
 
       <DutyFormSection>
         <DutySectionHeader eyebrow="새 본인 계좌" title="정산 계좌 등록" />
-        <TextField accessibilityLabel="밥 계좌 별칭" label="계좌 이름" onChangeText={setNickname} value={nickname} />
-        <TextField accessibilityLabel="밥 계좌 은행명" label="은행" onChangeText={setBankName} value={bankName} />
-        <TextField accessibilityLabel="밥 계좌번호" keyboardType="number-pad" label="계좌번호" onChangeText={setAccountNumber} value={accountNumber} />
-        <TextField accessibilityLabel="밥 계좌 예금주" label="예금주" onChangeText={setAccountHolder} value={accountHolder} />
+        <TextField accessibilityLabel="밥 계좌 별칭" editable={!saving} label="계좌 이름" onChangeText={setNickname} value={nickname} />
+        <TextField accessibilityLabel="밥 계좌 은행명" editable={!saving} label="은행" onChangeText={setBankName} value={bankName} />
+        <TextField accessibilityLabel="밥 계좌번호" editable={!saving} keyboardType="number-pad" label="계좌번호" onChangeText={setAccountNumber} value={accountNumber} />
+        <TextField accessibilityLabel="밥 계좌 예금주" editable={!saving} label="예금주" onChangeText={setAccountHolder} value={accountHolder} />
         <DutyActionButton accessibilityLabel="본인 밥 계좌 등록" busy={saving} label={saving ? '저장 중...' : '계좌 등록'} onPress={() => void create()} variant="primary" />
       </DutyFormSection>
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}

@@ -407,6 +407,14 @@ describe('MEAL component behavior', () => {
       await settle();
     });
     expect(api.createPaymentAccount).toHaveBeenCalledTimes(1);
+    for (const label of [
+      '밥 계좌 별칭',
+      '밥 계좌 은행명',
+      '밥 계좌번호',
+      '밥 계좌 예금주',
+    ]) {
+      expect(findByLabel(renderer, label).props.editable).toBe(false);
+    }
     await act(async () => {
       createRequest.resolve(mealAccount());
       await settle();
