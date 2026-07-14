@@ -499,7 +499,6 @@ const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
 
 const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
   {id: 'PENALTY', label: '벌금'},
-  {id: 'COFFEE', label: '커피'},
 ];
 
 const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
@@ -510,7 +509,6 @@ const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
 
 const paymentAccountTypeOptions: Array<{id: PaymentAccountCategory; label: string}> = [
   {id: 'PENALTY', label: '벌금'},
-  {id: 'COFFEE', label: '커피'},
 ];
 
 const penaltyRuleTypeOptions: Array<{id: PenaltyRuleType; label: string}> = [
@@ -1442,27 +1440,12 @@ export function AdminScreen({
         return;
       }
 
-      const accounts = await Promise.all([
-        fetchAdminPaymentAccounts(accessToken, campusId, {
-          accountType: 'PENALTY',
-          includeInactive: true,
-        }),
-        fetchAdminPaymentAccounts(accessToken, campusId, {
-          accountType: 'COFFEE',
-          includeInactive: true,
-        })
-          .catch((error) => {
-            if (isPaymentAccountListEndpointMissing(error)) {
-              return fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'});
-            }
-
-            throw error;
-          }),
-      ]).then(([penaltyAccounts, coffeeAccounts]) =>
-        mergePaymentAccounts(penaltyAccounts, coffeeAccounts),
-      ).catch((error): Promise<PaymentAccount[]> | PaymentAccount[] => {
+      const accounts = await fetchAdminPaymentAccounts(accessToken, campusId, {
+        accountType: 'PENALTY',
+        includeInactive: true,
+      }).catch((error): Promise<PaymentAccount[]> | PaymentAccount[] => {
         if (isPaymentAccountListEndpointMissing(error)) {
-          return fetchPaymentAccounts(accessToken, campusId);
+          return fetchPaymentAccounts(accessToken, campusId, {accountType: 'PENALTY'});
         }
 
         throw error;
@@ -2726,6 +2709,13 @@ export function AdminScreen({
     } catch (error) {
       const apiError = toApiError(error, '커피 담당자 배정을 해제하지 못했습니다.');
       setActionError(apiError);
+      if (apiError.kind === 'conflict') {
+        setNotice({
+          tone: 'warning',
+          title: '커피 담당자 해제 불가',
+          message: '담당 계좌에 미납 청구가 남아 있습니다. 미납 정산이 끝난 뒤 다시 시도해 주세요.',
+        });
+      }
       void handleAuthError(apiError, setAuthState);
     } finally {
       setActionState({status: 'idle'});
@@ -3023,7 +3013,7 @@ export function AdminScreen({
     );
   }
 
-  const coffeeDuty = getActiveCoffeeDuty(loadState.duties);
+  const activeCoffeeDuties = getActiveCoffeeDuties(loadState.duties);
   const activeMealDuties = getActiveMealDuties(loadState.duties);
   const selectedMember = selectedMemberId
     ? loadState.members.find((member) => member.membershipId === selectedMemberId) ?? null
@@ -3081,7 +3071,7 @@ export function AdminScreen({
         <AdminMemberDetail
           actionState={actionState}
           activeMealDuties={activeMealDuties}
-          coffeeDuty={coffeeDuty}
+          activeCoffeeDuties={activeCoffeeDuties}
           globalRole={state.user.role}
           member={selectedMember}
           onAssignCoffee={() => assignCoffee(selectedMember)}
@@ -3095,7 +3085,6 @@ export function AdminScreen({
         />
       ) : tab === 'home' ? (
         <AdminHome
-          coffeeDuty={coffeeDuty}
           prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
@@ -3221,8 +3210,6 @@ export function AdminScreen({
             chargeReminderLoadingCategory={chargeReminderLoadingCategory}
             detailState={chargeDetailState}
             filters={chargeFilters}
-            currentUserId={state.user.id}
-            knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
             notificationState={notificationState}
             penaltyRuleError={actionError}
             penaltyRuleFlow={penaltyRuleFlow}
@@ -3302,7 +3289,7 @@ export function AdminScreen({
         <AdminMemberPage
           actionState={actionState}
           activeMealDuties={activeMealDuties}
-          coffeeDuty={coffeeDuty}
+          activeCoffeeDuties={activeCoffeeDuties}
           campusId={campusId}
           filter={memberFilter}
           globalRole={state.user.role}
@@ -3656,7 +3643,6 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
   {id: 'ALL', label: '전체'},
   {id: 'WEDNESDAY', label: '수요'},
   {id: 'SATURDAY', label: '토요'},
-  {id: 'COFFEE', label: '커피'},
   {id: 'CUSTOM', label: '커스텀'},
 ];
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
@@ -3666,7 +3652,6 @@ const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
 ];
 
 const adminPollCreateTypes: Array<{id: AdminPollType; label: string}> = [
-  {id: 'COFFEE', label: '커피 주문'},
   {id: 'WEDNESDAY', label: '수요예배 참석'},
   {id: 'SATURDAY', label: '토요 목자모임'},
   {id: 'CUSTOM', label: '커스텀 투표'},
@@ -3715,18 +3700,18 @@ function createEmptyAdminPollForm(): AdminPollCreateForm {
   const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
 
   return {
-    allowUserOptionAdd: true,
-    chargeGenerationType: 'OPTION_PRICE',
+    allowUserOptionAdd: false,
+    chargeGenerationType: 'NONE',
     endsAt: endsAt.toISOString(),
     isAnonymous: false,
-    optionsText: defaultCoffeePollOptionsText,
+    optionsText: '선택지 1, 선택지 2',
     paymentAccountId: '',
-    paymentCategory: 'COFFEE',
-    pollType: 'COFFEE',
+    paymentCategory: 'NONE',
+    pollType: 'CUSTOM',
     selectionType: 'SINGLE',
     startsAt: startsAt.toISOString(),
     templateId: '',
-    title: '커피 주문',
+    title: '새 투표',
   };
 }
 
@@ -3780,30 +3765,22 @@ function AdminPollManagement({
         return;
       }
 
-      const [polls, templates, accounts] = await Promise.all([
+      const [polls, templates] = await Promise.all([
         fetchAdminPolls(accessToken, campusId),
         fetchAdminPollTemplates(accessToken, campusId),
-        fetchAdminPaymentAccounts(accessToken, campusId, {
-          accountType: 'COFFEE',
-          includeInactive: true,
-        })
-          .catch((error) => {
-            if (isPaymentAccountListEndpointMissing(error)) {
-              return fetchPaymentAccounts(accessToken, campusId, {accountType: 'COFFEE'});
-            }
-
-            throw error;
-          }),
       ]);
 
+      const nonCoffeePolls = polls.filter((poll) => poll.pollType !== 'COFFEE');
+      const nonCoffeeTemplates = templates.filter((template) => template.pollType !== 'COFFEE');
+
       const nextPolls = options.focusPoll
-        ? mergePollSummaries(polls, toPollSummary(options.focusPoll))
-        : polls;
+        ? mergePollSummaries(nonCoffeePolls, toPollSummary(options.focusPoll))
+        : nonCoffeePolls;
 
       setListState(
-        nextPolls.length === 0 && templates.length === 0
-          ? {status: 'empty', accounts, polls: nextPolls, templates}
-          : {status: 'success', accounts, polls: nextPolls, templates},
+        nextPolls.length === 0 && nonCoffeeTemplates.length === 0
+          ? {status: 'empty', accounts: [], polls: nextPolls, templates: nonCoffeeTemplates}
+          : {status: 'success', accounts: [], polls: nextPolls, templates: nonCoffeeTemplates},
       );
 
       if (options.focusPoll) {
@@ -8692,10 +8669,8 @@ function AdminPrayerMembersForm({
 function AdminSettlement({
   actionState,
   chargeReminderLoadingCategory,
-  currentUserId,
   detailState,
   filters,
-  knownOwnedCoffeeAccountIds,
   notificationState,
   penaltyRuleError,
   penaltyRuleFlow,
@@ -8737,10 +8712,8 @@ function AdminSettlement({
 }: {
   actionState: AdminActionState;
   chargeReminderLoadingCategory: PaymentAccountCategory | null;
-  currentUserId: number;
   detailState: AdminChargeDetailState;
   filters: AdminChargeFilters;
-  knownOwnedCoffeeAccountIds: Set<number>;
   notificationState: NotificationSendState;
   penaltyRuleError: ApiError | null;
   penaltyRuleFlow: PenaltyRuleFlow;
@@ -8823,9 +8796,7 @@ function AdminSettlement({
           busy={busy}
           copyFeedback={paymentAccountCopyFeedback}
           copyOpacity={paymentAccountCopyOpacity}
-          currentUserId={currentUserId}
           form={paymentAccountForm}
-          knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
           onActivateAccount={onActivatePaymentAccount}
           onChangeForm={onChangePaymentAccountForm}
           onBackCreate={onBackPaymentAccountList}
@@ -8836,7 +8807,6 @@ function AdminSettlement({
           onRetry={onRetryPaymentAccounts}
           onSave={onSavePaymentAccount}
           onOpenCreate={onOpenPaymentAccountCreate}
-          onSelectAccount={onSelectPaymentAccount}
           selectedAccount={selectedPaymentAccount}
           state={paymentAccountState}
           view={paymentAccountView}
@@ -8952,13 +8922,6 @@ function AdminChargeSettlement({
               variant="secondary">
               {chargeReminderLoadingCategory === 'PENALTY' ? '조회 중...' : '벌금 미납 알림'}
             </AdminCompactButton>
-            <AdminCompactButton
-              accessibilityLabel="커피 미납자 푸시 알림 발송 확인 열기"
-              disabled={notificationBusy}
-              onPress={() => onOpenChargeReminderConfirm('COFFEE')}
-              variant="secondary">
-              {chargeReminderLoadingCategory === 'COFFEE' ? '조회 중...' : '커피 미납 알림'}
-            </AdminCompactButton>
           </View>
         </View>
         <View style={styles.filterGrid}>
@@ -9005,9 +8968,7 @@ function AdminPaymentAccounts({
   busy,
   copyFeedback,
   copyOpacity,
-  currentUserId,
   form,
-  knownOwnedCoffeeAccountIds,
   onActivateAccount,
   onChangeForm,
   onBackCreate,
@@ -9018,7 +8979,6 @@ function AdminPaymentAccounts({
   onRetry,
   onSave,
   onOpenCreate,
-  onSelectAccount,
   selectedAccount,
   state,
   view,
@@ -9026,9 +8986,7 @@ function AdminPaymentAccounts({
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
-  currentUserId: number;
   form: PaymentAccountForm;
-  knownOwnedCoffeeAccountIds: Set<number>;
   onActivateAccount: (account: PaymentAccount) => void;
   onChangeForm: (patch: Partial<PaymentAccountForm>) => void;
   onBackCreate: () => void;
@@ -9039,7 +8997,6 @@ function AdminPaymentAccounts({
   onRetry: () => void;
   onSave: () => void;
   onOpenCreate: () => void;
-  onSelectAccount: (account: PaymentAccount) => void;
   selectedAccount: PaymentAccount | null;
   state: PaymentAccountState;
   view: PaymentAccountView;
@@ -9168,12 +9125,8 @@ function AdminPaymentAccounts({
       </View>
       {renderPaymentAccountList({
         busy,
-        currentUserId,
-        knownOwnedCoffeeAccountIds,
         onOpenPenaltyAccountManager: () => setAccountPage('penaltyAccounts'),
-        onRequestDelete,
         onRetry,
-        onSelectAccount,
         state,
       })}
     </>
@@ -9288,21 +9241,13 @@ function PaymentAccountDetail({
 
 function renderPaymentAccountList({
   busy,
-  currentUserId,
-  knownOwnedCoffeeAccountIds,
   onOpenPenaltyAccountManager,
-  onRequestDelete,
   onRetry,
-  onSelectAccount,
   state,
 }: {
   busy: boolean;
-  currentUserId: number;
-  knownOwnedCoffeeAccountIds: Set<number>;
   onOpenPenaltyAccountManager: () => void;
-  onRequestDelete: (account: PaymentAccount) => void;
   onRetry: () => void;
-  onSelectAccount: (account: PaymentAccount) => void;
   state: PaymentAccountState;
 }) {
   switch (state.status) {
@@ -9315,7 +9260,7 @@ function renderPaymentAccountList({
       return (
         <Empty
           title="등록된 계좌가 없습니다"
-          message="벌금 정산 계좌 또는 커피투표에 사용할 내 커피 계좌를 등록해 주세요."
+          message="벌금 정산에 사용할 계좌를 등록해 주세요."
           actionLabel="다시 조회"
           actionAccessibilityLabel="납부 계좌 empty state에서 다시 조회"
           onActionPress={onRetry}
@@ -9328,17 +9273,6 @@ function renderPaymentAccountList({
       const inactivePenaltyAccounts = state.accounts
         .filter((account) => account.accountType === 'PENALTY' && !isPaymentAccountActive(account))
         .sort(comparePaymentAccountsForDisplay);
-      const ownedCoffeeAccounts = getOwnedCoffeePaymentAccounts(
-        state.accounts,
-        currentUserId,
-        knownOwnedCoffeeAccountIds,
-        {includeInactive: true},
-      ).sort(comparePaymentAccountsForDisplay);
-      const activeOwnedCoffeeAccounts = ownedCoffeeAccounts.filter(isPaymentAccountActive);
-      const inactiveOwnedCoffeeAccounts = ownedCoffeeAccounts.filter(
-        (account) => !isPaymentAccountActive(account),
-      );
-
       return (
         <>
           <SettlementSectionHeader title="활성 벌금 계좌" />
@@ -9367,32 +9301,6 @@ function renderPaymentAccountList({
                   onSelectAccount={() => onOpenPenaltyAccountManager()}
                   selectAccessibilityLabel="벌금 계좌 변경 페이지 열기"
                   selectLabel="벌금 계좌 변경"
-                />
-              ))}
-            </>
-          )}
-          <SettlementSectionHeader title="내 커피 계좌" />
-          {ownedCoffeeAccounts.length === 0 ? (
-            <View style={styles.inlineInfo}>
-              <Text style={styles.inlineInfoText}>커피투표를 만들려면 내 커피 계좌를 등록해 주세요.</Text>
-            </View>
-          ) : (
-            <>
-              {activeOwnedCoffeeAccounts.map((account) => (
-                <PaymentAccountListItem
-                  account={account}
-                  busy={busy}
-                  key={account.id}
-                  onSelectAccount={onSelectAccount}
-                />
-              ))}
-              {inactiveOwnedCoffeeAccounts.map((account) => (
-                <PaymentAccountListItem
-                  account={account}
-                  busy={busy}
-                  key={account.id}
-                  onRequestDelete={onRequestDelete}
-                  onSelectAccount={onSelectAccount}
                 />
               ))}
             </>
@@ -10207,8 +10115,8 @@ function ChargeItemRow({
 
 function AdminMemberPage({
   actionState,
+  activeCoffeeDuties,
   activeMealDuties,
-  coffeeDuty,
   campusId,
   filter,
   globalRole,
@@ -10231,8 +10139,8 @@ function AdminMemberPage({
   selectedCampusRole,
 }: {
   actionState: AdminActionState;
+  activeCoffeeDuties: DutyAssignment[];
   activeMealDuties: DutyAssignment[];
-  coffeeDuty: DutyAssignment | null;
   campusId: number;
   filter: MemberFilter;
   globalRole: string;
@@ -10272,7 +10180,7 @@ function AdminMemberPage({
       {section === 'list' ? (
         <AdminMembers
           campusId={campusId}
-          duties={[...(coffeeDuty ? [coffeeDuty] : []), ...activeMealDuties]}
+          duties={[...activeCoffeeDuties, ...activeMealDuties]}
           filter={filter}
           memberSearch={memberSearch}
           members={members}
@@ -10293,7 +10201,7 @@ function AdminMemberPage({
         <AdminCoffeeDutyManagement
           actionState={actionState}
           campusId={campusId}
-          coffeeDuty={coffeeDuty}
+          activeCoffeeDuties={activeCoffeeDuties}
           members={members}
           onAssignCoffee={onAssignCoffee}
           onRevokeCoffee={onRevokeCoffee}
@@ -10505,20 +10413,23 @@ const MemoizedMemberRow = memo(function MemoizedMemberRow({
 
 function AdminCoffeeDutyManagement({
   actionState,
+  activeCoffeeDuties,
   campusId,
-  coffeeDuty,
   members,
   onAssignCoffee,
   onRevokeCoffee,
 }: {
   actionState: AdminActionState;
+  activeCoffeeDuties: DutyAssignment[];
   campusId: number;
-  coffeeDuty: DutyAssignment | null;
   members: AdminCampusMember[];
   onAssignCoffee: (member: AdminCampusMember) => void;
   onRevokeCoffee: (assignment: DutyAssignment) => void;
 }) {
   const busy = actionState.status !== 'idle';
+  const activeCoffeeDutyByUserId = new Map(
+    activeCoffeeDuties.map((assignment) => [assignment.userId, assignment]),
+  );
   const progress = useProgressiveRendering(members.length, `coffee:${campusId}`);
   const assignRef = useRef(onAssignCoffee);
   const revokeRef = useRef(onRevokeCoffee);
@@ -10533,26 +10444,25 @@ function AdminCoffeeDutyManagement({
     <>
       <Card>
         <Eyebrow>커피 담당</Eyebrow>
-        <Title>{coffeeDuty ? coffeeDuty.name : '담당자 없음'}</Title>
+        <Title>활성 담당자 {activeCoffeeDuties.length}명</Title>
         <Body>
-          {coffeeDuty
-            ? `${coffeeDuty.email} · 활성 담당자`
-            : '커피 정산 관리 권한을 줄 멤버를 지정해 주세요.'}
+          커피 담당자는 여러 명을 동시에 지정할 수 있으며 캠퍼스 관리자 권한과는 별개입니다.
         </Body>
       </Card>
       <Card>
         <Eyebrow>담당자 지정</Eyebrow>
-        {getProgressiveItems(members, progress.limit).map((member) => (
-          <MemoizedCoffeeDutyMemberRow
+        {getProgressiveItems(members, progress.limit).map((member) => {
+          const assignment = activeCoffeeDutyByUserId.get(member.userId) ?? null;
+          return <MemoizedCoffeeDutyMemberRow
             actionState={actionState}
+            assignment={assignment}
             busy={busy}
-            coffeeDuty={coffeeDuty}
             key={member.membershipId}
             member={member}
             onAssign={assign}
             onRevoke={revoke}
-          />
-        ))}
+          />;
+        })}
         {progress.hasMore ? (
           <Button accessibilityLabel="커피 담당 멤버 더 보기" onPress={progress.showMore} variant="secondary">멤버 더 보기</Button>
         ) : null}
@@ -10623,20 +10533,19 @@ function AdminMealDutyManagement({
 
 const MemoizedCoffeeDutyMemberRow = memo(function MemoizedCoffeeDutyMemberRow({
   actionState,
+  assignment,
   busy,
-  coffeeDuty,
   member,
   onAssign,
   onRevoke,
 }: {
   actionState: AdminActionState;
+  assignment: DutyAssignment | null;
   busy: boolean;
-  coffeeDuty: DutyAssignment | null;
   member: AdminCampusMember;
   onAssign: (member: AdminCampusMember) => void;
   onRevoke: (assignment: DutyAssignment) => void;
 }) {
-  const assigned = coffeeDuty?.userId === member.userId;
   return (
     <View style={styles.roleRow}>
       <View style={styles.roleRowHeader}>
@@ -10645,12 +10554,12 @@ const MemoizedCoffeeDutyMemberRow = memo(function MemoizedCoffeeDutyMemberRow({
           <Text style={styles.memberName}>{member.name}</Text>
           <Text style={styles.memberMeta}>{member.email}</Text>
         </View>
-        <Chip label={assigned ? '담당' : member.campusRole} tone={assigned ? 'success' : 'default'} />
+        <Chip label={assignment ? '커피 담당' : member.campusRole} tone={assignment ? 'success' : 'default'} />
       </View>
       <View style={styles.actionRow}>
-        {assigned && coffeeDuty ? (
-          <Button accessibilityLabel={`${member.name} 커피 담당자 해제`} disabled={busy} onPress={() => onRevoke(coffeeDuty)} variant="danger">
-            {actionState.status === 'revokingCoffee' ? '해제 중...' : '해제'}
+        {assignment ? (
+          <Button accessibilityLabel={`${member.name} 커피 담당자 해제`} disabled={busy} onPress={() => onRevoke(assignment)} variant="danger">
+            {actionState.status === 'revokingCoffee' && actionState.assignmentId === assignment.assignmentId ? '해제 중...' : '해제'}
           </Button>
         ) : (
           <Button accessibilityLabel={`${member.name} 커피 담당자로 지정`} disabled={busy} onPress={() => onAssign(member)} variant="secondary">
@@ -10764,8 +10673,8 @@ function InviteCodeCopyRow({
 
 function AdminMemberDetail({
   actionState,
+  activeCoffeeDuties,
   activeMealDuties,
-  coffeeDuty,
   globalRole,
   member,
   onAssignCoffee,
@@ -10778,8 +10687,8 @@ function AdminMemberDetail({
   selectedCampusRole,
 }: {
   actionState: AdminActionState;
+  activeCoffeeDuties: DutyAssignment[];
   activeMealDuties: DutyAssignment[];
-  coffeeDuty: DutyAssignment | null;
   globalRole: string;
   member: AdminCampusMember;
   onAssignCoffee: () => void;
@@ -10791,7 +10700,7 @@ function AdminMemberDetail({
   onUpdateRole: (role: CampusRole) => void;
   selectedCampusRole: CampusRole;
 }) {
-  const memberCoffeeDuty = coffeeDuty?.userId === member.userId ? coffeeDuty : null;
+  const memberCoffeeDuty = activeCoffeeDuties.find((assignment) => assignment.userId === member.userId) ?? null;
   const memberMealDuties = activeMealDuties.filter((assignment) => assignment.userId === member.userId);
   const memberMealDuty = memberMealDuties[0] ?? null;
   const busy = actionState.status !== 'idle';
@@ -10812,6 +10721,7 @@ function AdminMemberDetail({
         <View style={styles.chipRow}>
           <Chip label={`캠퍼스 권한 ${member.campusRole}`} tone="info" />
           <Chip label={member.status} tone={member.status === 'ACTIVE' ? 'success' : 'warning'} />
+          {memberCoffeeDuty ? <Chip label="커피 담당" tone="success" /> : null}
           {memberMealDuty ? <Chip label="밥 담당" tone="success" /> : null}
         </View>
         <ListRow label="현재 로그인 전체 권한" value={globalRole} />
@@ -10836,9 +10746,7 @@ function AdminMemberDetail({
       <Card>
         <Eyebrow>운영 담당</Eyebrow>
         <Title>{memberCoffeeDuty ? '현재 커피 담당자입니다' : '현재 커피 담당자가 아니에요'}</Title>
-        {coffeeDuty && !memberCoffeeDuty ? (
-          <Body>현재 커피 담당자는 {coffeeDuty.name}님입니다. 새 담당자를 지정하면 기존 배정은 inactive 처리됩니다.</Body>
-        ) : null}
+        <Body>커피 담당자는 여러 명을 동시에 지정할 수 있습니다.</Body>
         <View style={styles.actionRow}>
           {memberCoffeeDuty ? (
             <Button
@@ -11767,8 +11675,8 @@ function filterMembers(members: AdminCampusMember[], filter: RoleFilter) {
   }
 }
 
-function getActiveCoffeeDuty(duties: DutyAssignment[]) {
-  return duties.find((duty) => duty.dutyType === 'COFFEE' && duty.isActive) ?? null;
+function getActiveCoffeeDuties(duties: DutyAssignment[]) {
+  return duties.filter((duty) => duty.dutyType === 'COFFEE' && duty.isActive);
 }
 
 function getActiveMealDuties(duties: DutyAssignment[]) {
@@ -12136,6 +12044,8 @@ function toPollSummary(poll: AdminPoll): PollSummary {
     startsAt: poll.startsAt,
     status: poll.status,
     title: poll.title,
+    ...(poll.createdByUserId === undefined ? {} : {createdByUserId: poll.createdByUserId}),
+    ...(poll.manageableByMe === undefined ? {} : {manageableByMe: poll.manageableByMe}),
   };
 }
 
@@ -12302,18 +12212,6 @@ function getOwnedCoffeePaymentAccounts(
       knownOwnedCoffeeAccountIds.has(account.id)
     );
   });
-}
-
-function mergePaymentAccounts(...accountGroups: PaymentAccount[][]) {
-  const accountMap = new Map<number, PaymentAccount>();
-
-  accountGroups.forEach((accounts) => {
-    accounts.forEach((account) => {
-      accountMap.set(account.id, account);
-    });
-  });
-
-  return Array.from(accountMap.values());
 }
 
 function isPaymentAccountActive(account: PaymentAccount) {

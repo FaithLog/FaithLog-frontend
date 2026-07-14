@@ -27,6 +27,14 @@ describe('admin member duty production layout', () => {
   it('passes active duty assignments to both the route-level list and regular member list', () => {
     expect(source).toMatch(/<AdminMemberListRoute[\s\S]*duties=\{loadState\.duties\}/);
     expect(source).toMatch(/<AdminMemberPage[\s\S]*activeMealDuties=\{activeMealDuties\}/);
+    expect(source).toMatch(/<AdminMemberPage[\s\S]*activeCoffeeDuties=\{activeCoffeeDuties\}/);
+  });
+
+  it('renders coffee duty as a multi-assignment list like meal duty', () => {
+    expect(source).toContain('getActiveCoffeeDuties(loadState.duties)');
+    expect(source).toContain('activeCoffeeDuties.map((assignment) => [assignment.userId, assignment])');
+    expect(source).toContain('활성 담당자 {activeCoffeeDuties.length}명');
+    expect(source).not.toContain('새 담당자를 지정하면 기존 배정은 inactive 처리됩니다.');
   });
 
   it('uses neutral empty copy for role and duty filters', () => {

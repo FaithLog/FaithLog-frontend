@@ -510,6 +510,8 @@ export type PollSummary = {
   endsAt: string;
   status: string;
   responded: boolean;
+  createdByUserId?: number;
+  manageableByMe?: boolean;
 };
 
 export type PollOption = {

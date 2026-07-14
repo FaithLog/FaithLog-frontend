@@ -1207,7 +1207,7 @@ function CoffeePollManagement({
                   onPress={() => void loadResults(poll)}
                   selected={selectedPollId === poll.id}
                 />
-              {!isEndedPoll(poll, Date.now()) ? (
+              {!isEndedPoll(poll, Date.now()) && poll.manageableByMe === true ? (
                 <DutyActionButton
                   accessibilityLabel={`${poll.title} 투표 종료`}
                   label="종료"

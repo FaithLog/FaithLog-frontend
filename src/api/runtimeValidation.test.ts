@@ -197,6 +197,26 @@ const VALID_PARSER_CASES = Object.entries(VALID_PARSER_PAYLOADS) as Array<
   [keyof typeof responseParsers, unknown]
 >;
 
+describe('coffee poll ownership metadata', () => {
+  it('preserves createdByUserId and manageableByMe from poll list responses', () => {
+    const parsed = parsePollSummaryList([{
+      ...mockDomainFixtures.poll.summaries.find((poll) => poll.pollType === 'COFFEE'),
+      createdByUserId: 7,
+      manageableByMe: false,
+    }]);
+
+    expect(parsed[0]).toMatchObject({createdByUserId: 7, manageableByMe: false});
+  });
+
+  it('rejects malformed ownership metadata', () => {
+    const coffeePoll = mockDomainFixtures.poll.summaries.find((poll) => poll.pollType === 'COFFEE');
+    expect(() => parsePollSummaryList([{...coffeePoll, createdByUserId: 0, manageableByMe: true}]))
+      .toThrow('Invalid API response.');
+    expect(() => parsePollSummaryList([{...coffeePoll, createdByUserId: 7, manageableByMe: 'yes'}]))
+      .toThrow('Invalid API response.');
+  });
+});
+
 describe('runtime API response validation', () => {
   it('keeps the valid-response smoke matrix in lockstep with all parser exports', () => {
     expect(Object.keys(VALID_PARSER_PAYLOADS).sort()).toEqual(

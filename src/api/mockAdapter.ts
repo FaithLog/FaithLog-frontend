@@ -1001,11 +1001,8 @@ function resolveMockData(
         duty.isActive,
     );
     if (duplicate) {
-      return mockConflict('COFFEE_DUTY_ALREADY_ACTIVE', '이미 활성 커피 담당자입니다.');
+      return duplicate;
     }
-    mockMealState.coffeeDuties = mockMealState.coffeeDuties.map((duty) =>
-      duty.campusId === campusId && duty.isActive ? {...duty, isActive: false} : duty,
-    );
     const assignment: DutyAssignment = {
       assignmentId:
         Math.max(
@@ -1041,6 +1038,12 @@ function resolveMockData(
     const assignment = mockMealState.coffeeDuties[assignmentIndex];
     if (!assignment?.isActive) {
       return mockConflict('COFFEE_DUTY_ALREADY_INACTIVE', '이미 해제된 커피 담당자입니다.');
+    }
+    if (assignment.assignmentId === 1201) {
+      return mockConflict(
+        'COFFEE_DUTY_UNPAID_CHARGES_EXIST',
+        '담당 계좌에 미납 청구가 남아 있어 커피 담당자를 해제할 수 없습니다.',
+      );
     }
     mockMealState.coffeeDuties[assignmentIndex] = {...assignment, isActive: false};
     return null;

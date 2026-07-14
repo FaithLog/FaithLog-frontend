@@ -97,14 +97,16 @@ describe('MEAL mock adapter flow', () => {
       isActive: true,
       userId: 7,
     });
-    await expect(
-      assignCoffeeDuty('mock-access-token', 1, {userId: 7}),
-    ).rejects.toMatchObject({detail: {status: 409}});
+    const existing = await assignCoffeeDuty('mock-access-token', 1, {userId: 7});
+    expect(existing).toMatchObject({assignmentId: 1201, userId: 7});
+    await expect(revokeCoffeeDuty('mock-access-token', 1, existing.assignmentId)).rejects
+      .toMatchObject({detail: {code: 'COFFEE_DUTY_UNPAID_CHARGES_EXIST', status: 409}});
 
     const assigned = await assignCoffeeDuty('mock-access-token', 1, {userId: 8});
     expect(assigned).toMatchObject({campusId: 1, dutyType: 'COFFEE', userId: 8});
     const listed = await fetchDutyAssignments('mock-access-token', 1);
     expect(listed.filter((duty) => duty.dutyType === 'COFFEE' && duty.isActive)).toEqual([
+      expect.objectContaining({assignmentId: existing.assignmentId, userId: 7}),
       expect.objectContaining({assignmentId: assigned.assignmentId, userId: 8}),
     ]);
     await expect(

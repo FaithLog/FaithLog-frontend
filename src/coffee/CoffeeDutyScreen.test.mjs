@@ -177,6 +177,23 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(rendered(renderer)).toContain('새 커피 주문');
   });
 
+  it('hides close controls for another coffee duty owner poll', async () => {
+    mocks.fetchAdminPolls.mockResolvedValue([{
+      ...coffeePoll(),
+      createdByUserId: 8,
+      manageableByMe: false,
+    }]);
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(CoffeeDutyScreen, screenProps()));
+      await settle();
+    });
+
+    expect(rendered(renderer)).toContain('새 커피 주문');
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '새 커피 주문 투표 종료'))
+      .toHaveLength(0);
+  });
+
   it('locks every poll draft and selection control while creation is in flight', async () => {
     let resolveCreate;
     mocks.createAdminPoll.mockImplementation(() => new Promise((resolve) => {
@@ -381,6 +398,8 @@ function coffeePoll() {
     startsAt: new Date().toISOString(),
     endsAt: new Date(Date.now() + 7_200_000).toISOString(),
     status: 'OPEN',
+    createdByUserId: 7,
+    manageableByMe: true,
   };
 }
 

@@ -246,6 +246,8 @@ const pollSummary: PollSummary = {
   endsAt: '2026-07-02T09:00:00.000Z',
   status: 'OPEN',
   responded: false,
+  createdByUserId: 7,
+  manageableByMe: true,
 };
 
 const customPollSummary: PollSummary = {

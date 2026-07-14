@@ -813,6 +813,10 @@ function parsePollSummaryValue(value: unknown): PollSummary {
     ),
     status: requireOpenString(record.status),
     responded,
+    ...(record.createdByUserId === undefined
+      ? {}
+      : {createdByUserId: requirePositiveId(record.createdByUserId)}),
+    ...optionalBoolean(record, 'manageableByMe'),
   };
 }
 
@@ -1377,6 +1381,10 @@ function parseAdminPollValue(value: unknown): AdminPoll {
     startsAt: requireDateTime(record.startsAt),
     endsAt: requireDateTime(record.endsAt),
     status: requireOpenString(record.status),
+    ...(record.createdByUserId === undefined
+      ? {}
+      : {createdByUserId: requirePositiveId(record.createdByUserId)}),
+    ...optionalBoolean(record, 'manageableByMe'),
     options: requireArray(record.options, parsePollOptionValue),
   };
 }
