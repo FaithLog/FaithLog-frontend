@@ -24,6 +24,7 @@ import {
   FaithLogApiError,
   fetchAdminCampusCharges,
   fetchAdminCampusChargesForMyAccounts,
+  fetchAdminMemberCharges,
   fetchAdminPaymentAccounts,
   fetchMyCharges,
   fetchPollDetail,
@@ -1213,6 +1214,74 @@ describe('FaithLog API client', () => {
     expect(requestUrl.searchParams.get('paymentCategory')).toBe('COFFEE');
     expect(requestUrl.searchParams.get('status')).toBe('UNPAID');
   });
+
+  it.each([
+    'createdAt',
+    'userId',
+    'name',
+    'email',
+    'totalAmount',
+    'unpaidAmount',
+    'paidAmount',
+    'waivedAmount',
+    'canceledAmount',
+  ] as const)('serializes the canonical admin campus member sort key %s', async (key) => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        campusId: 2,
+        campusName: '분당 10캠',
+        region: '분당',
+        summary: {
+          canceledAmount: 0,
+          paidAmount: 0,
+          totalAmount: 0,
+          unpaidAmount: 0,
+          waivedAmount: 0,
+        },
+        members: [],
+      })),
+    );
+
+    await fetchAdminCampusChargesForMyAccounts('access-token', 2, {
+      sort: {key, direction: 'asc'},
+    });
+
+    const [url] = fetchMock.mock.calls.at(-1)!;
+    expect(new URL(String(url)).searchParams.get('sort')).toBe(`${key},asc`);
+  });
+
+  it.each(['createdAt', 'dueDate', 'amount'] as const)(
+    'serializes the canonical admin member charge sort key %s',
+    async (key) => {
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(200, envelope({
+          campusId: 2,
+          campusName: '분당 10캠',
+          region: '분당',
+          userId: 7,
+          name: '사용자',
+          email: 'member@example.test',
+          summary: {
+            canceledAmount: 0,
+            paidAmount: 0,
+            totalAmount: 0,
+            unpaidAmount: 0,
+            waivedAmount: 0,
+          },
+          items: [],
+        })),
+      );
+
+      await fetchAdminMemberCharges('access-token', 2, 7, {
+        sort: {key, direction: 'desc'},
+      });
+
+      const [url] = fetchMock.mock.calls.at(-1)!;
+      expect(new URL(String(url)).searchParams.get('sort')).toBe(`${key},desc`);
+    },
+  );
 
   it('requests inactive admin payment accounts when asked', async () => {
     const fetchMock = vi.mocked(fetch);

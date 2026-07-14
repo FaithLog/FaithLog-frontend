@@ -410,7 +410,17 @@ function toSummaryYearMonthQuery(year: unknown, month: unknown) {
   return params.toString();
 }
 
-type ChargeSortKey = 'createdAt' | 'dueDate' | 'amount';
+type ChargeItemSortKey = 'createdAt' | 'dueDate' | 'amount';
+type AdminCampusChargeSortKey =
+  | 'createdAt'
+  | 'userId'
+  | 'name'
+  | 'email'
+  | 'totalAmount'
+  | 'unpaidAmount'
+  | 'paidAmount'
+  | 'waivedAmount'
+  | 'canceledAmount';
 type SortDirection = 'asc' | 'desc';
 type NotificationLogSortKey = 'createdAt' | 'sentAt' | 'sendStatus';
 type ServiceAdminUserSortKey = 'id' | 'name' | 'email' | 'role' | 'createdAt';
@@ -425,7 +435,7 @@ type AdminCampusChargeQueryParams = {
   paymentAccountId?: number;
   paymentCategory?: PaymentCategory | 'ALL';
   size?: number;
-  sort?: {direction: SortDirection; key: ChargeSortKey};
+  sort?: {direction: SortDirection; key: AdminCampusChargeSortKey};
   status?: ChargeStatus | 'ALL';
   userId?: number;
 };
@@ -435,7 +445,18 @@ const paymentCategories = ['PENALTY', 'COFFEE', 'MEAL'] as const;
 const paymentAccountCategories = ['PENALTY', 'COFFEE'] as const;
 const penaltyRuleTypes = ['QUIET_TIME', 'PRAYER', 'BIBLE_READING', 'SATURDAY_LATE'] as const;
 const penaltyCalculationTypes = ['MISSING_COUNT', 'LATE_MINUTE'] as const;
-const chargeSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
+const chargeItemSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
+const adminCampusChargeSortKeys = [
+  'createdAt',
+  'userId',
+  'name',
+  'email',
+  'totalAmount',
+  'unpaidAmount',
+  'paidAmount',
+  'waivedAmount',
+  'canceledAmount',
+] as const;
 const notificationTypes = ['CUSTOM'] as const;
 const notificationSendStatuses = ['PENDING', 'SENT', 'FAILED', 'SKIPPED'] as const;
 const notificationLogSortKeys = ['createdAt', 'sentAt', 'sendStatus'] as const;
@@ -465,8 +486,12 @@ function isPenaltyCalculationType(value: unknown): value is PenaltyCalculationTy
   return penaltyCalculationTypes.includes(value as PenaltyCalculationType);
 }
 
-function isChargeSortKey(value: unknown): value is ChargeSortKey {
-  return chargeSortKeys.includes(value as ChargeSortKey);
+function isChargeItemSortKey(value: unknown): value is ChargeItemSortKey {
+  return chargeItemSortKeys.includes(value as ChargeItemSortKey);
+}
+
+function isAdminCampusChargeSortKey(value: unknown): value is AdminCampusChargeSortKey {
+  return adminCampusChargeSortKeys.includes(value as AdminCampusChargeSortKey);
 }
 
 function isNotificationType(value: unknown): value is AdminNotificationType {
@@ -507,7 +532,7 @@ function toSafeChargeListQuery(params: {
   page?: number;
   paymentCategory?: PaymentCategory | 'ALL';
   size?: number;
-  sort?: {direction: SortDirection; key: ChargeSortKey};
+  sort?: {direction: SortDirection; key: ChargeItemSortKey};
   status?: ChargeStatus | 'ALL';
 }) {
   const query = new URLSearchParams();
@@ -519,7 +544,7 @@ function toSafeChargeListQuery(params: {
     typeof params.size === 'number' && Number.isInteger(params.size)
       ? Math.min(Math.max(params.size, 1), 100)
       : 20;
-  const sortKey = isChargeSortKey(params.sort?.key) ? params.sort.key : 'createdAt';
+  const sortKey = isChargeItemSortKey(params.sort?.key) ? params.sort.key : 'createdAt';
   const sortDirection = isSortDirection(params.sort?.direction) ? params.sort.direction : 'desc';
 
   query.set('page', String(page));
@@ -538,8 +563,13 @@ function toSafeChargeListQuery(params: {
 }
 
 function toSafeAdminCampusChargeQuery(params: AdminCampusChargeQueryParams) {
-  const query = new URLSearchParams(toSafeChargeListQuery(params));
+  const {sort, ...chargeFilters} = params;
+  const query = new URLSearchParams(toSafeChargeListQuery(chargeFilters));
   const keyword = typeof params.keyword === 'string' ? params.keyword.trim().slice(0, 80) : '';
+  const sortKey = isAdminCampusChargeSortKey(sort?.key) ? sort.key : 'createdAt';
+  const sortDirection = isSortDirection(sort?.direction) ? sort.direction : 'desc';
+
+  query.set('sort', `${sortKey},${sortDirection}`);
 
   if (keyword) {
     query.set('keyword', keyword);
@@ -1927,7 +1957,7 @@ export function fetchMyCharges(
     page?: number;
     paymentCategory?: PaymentCategory | 'ALL';
     size?: number;
-    sort?: {direction: SortDirection; key: ChargeSortKey};
+    sort?: {direction: SortDirection; key: ChargeItemSortKey};
     status?: ChargeStatus | 'ALL';
   } = {},
 ) {
@@ -2520,7 +2550,7 @@ export function fetchAdminMemberCharges(
     page?: number;
     paymentCategory?: PaymentCategory | 'ALL';
     size?: number;
-    sort?: {direction: SortDirection; key: ChargeSortKey};
+    sort?: {direction: SortDirection; key: ChargeItemSortKey};
     status?: ChargeStatus | 'ALL';
   } = {},
 ) {

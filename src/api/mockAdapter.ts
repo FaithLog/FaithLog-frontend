@@ -55,6 +55,22 @@ type MockLegacyBillingState = {
   summary: ChargeSummary;
 };
 
+const mockAdminCampusChargeSortKeys = [
+  'createdAt',
+  'userId',
+  'name',
+  'email',
+  'totalAmount',
+  'unpaidAmount',
+  'paidAmount',
+  'waivedAmount',
+  'canceledAmount',
+] as const;
+const mockChargeItemSortKeys = ['createdAt', 'dueDate', 'amount'] as const;
+type MockAdminCampusChargeSortKey = (typeof mockAdminCampusChargeSortKeys)[number];
+type MockChargeItemSortKey = (typeof mockChargeItemSortKeys)[number];
+type MockSortDirection = 'asc' | 'desc';
+
 export const mealMockAccessTokens = {
   activeDuty: 'mock-access-token',
   otherDuty: 'mock-meal-duty-8-token',
@@ -1067,23 +1083,34 @@ function getMockAdminCampusCharges(
     ) {
       return [];
     }
-    const {summary} = getMockAdminMemberChargeState(campusId, userId, searchParams);
-    return summary.totalAmount === 0 ? [] : [{...member, ...summary}];
+    const {latestChargeCreatedAt, summary} = getMockAdminMemberChargeState(
+      campusId,
+      userId,
+      searchParams,
+    );
+    return summary.totalAmount === 0
+      ? []
+      : [{...member, ...summary, latestChargeCreatedAt}];
   });
   const summary = allMembers.reduce<ChargeAmountSummary>(
     (total, member) => addMockChargeAmountSummaries(total, member),
     emptyMockChargeAmountSummary(),
   );
   const {page, size} = getMockChargePagination(searchParams);
-  const sort = searchParams.get('sort') ?? 'createdAt,desc';
-  const direction = sort.endsWith(',asc') ? 1 : -1;
+  const {direction, key} = getMockSort(
+    searchParams,
+    mockAdminCampusChargeSortKeys,
+    'createdAt',
+  );
   const sortedMembers = [...allMembers].sort((left, right) => {
-    const difference = sort.startsWith('amount,')
-      ? left.totalAmount - right.totalAmount
-      : left.userId - right.userId;
-    return difference === 0 ? left.userId - right.userId : difference * direction;
+    const difference = compareMockAdminChargeMembers(left, right, key);
+    return difference === 0
+      ? left.userId - right.userId
+      : applyMockSortDirection(difference, direction);
   });
-  const members = sortedMembers.slice(page * size, page * size + size);
+  const members = sortedMembers
+    .slice(page * size, page * size + size)
+    .map(({latestChargeCreatedAt: _latestChargeCreatedAt, ...member}) => member);
 
   return {...charges, summary, members};
 }
@@ -1114,17 +1141,22 @@ function getMockAdminMemberChargeState(
   const dynamicItems = (mockMealState.memberCharges[mockMealMemberChargeKey(campusId, userId)] ?? [])
     .filter(matchesFilters);
   const visibleItems = [...legacyItems, ...dynamicItems];
-  const sort = searchParams.get('sort') ?? 'createdAt,desc';
+  const {direction, key} = getMockSort(searchParams, mockChargeItemSortKeys, 'createdAt');
   const sortedItems = [...visibleItems].sort((left, right) => {
-    if (sort.startsWith('amount,')) {
-      return sort.endsWith(',asc') ? left.amount - right.amount : right.amount - left.amount;
-    }
-    return sort.endsWith(',asc') ? left.id - right.id : right.id - left.id;
+    const difference = compareMockChargeItems(left, right, key);
+    return difference === 0
+      ? left.id - right.id
+      : applyMockSortDirection(difference, direction);
   });
   const {page, size} = getMockChargePagination(searchParams);
+  const latestChargeCreatedAt = visibleItems.reduce<string | null>((latest, charge) => {
+    const createdAt = mockMealState.memberChargeIssuedAt[charge.id];
+    return createdAt !== undefined && (latest === null || createdAt > latest) ? createdAt : latest;
+  }, null);
 
   return {
     items: sortedItems.slice(page * size, page * size + size),
+    latestChargeCreatedAt,
     summary: summarizeMockMemberCharges(visibleItems),
   };
 }
@@ -1136,6 +1168,76 @@ function getMockChargePagination(searchParams: URLSearchParams) {
     page: Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0,
     size: Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20,
   };
+}
+
+function getMockSort<Key extends string>(
+  searchParams: URLSearchParams,
+  allowedKeys: readonly Key[],
+  fallbackKey: Key,
+): {direction: MockSortDirection; key: Key} {
+  const [requestedKey, requestedDirection] = (searchParams.get('sort') ?? '').split(',');
+  const key = allowedKeys.find((candidate) => candidate === requestedKey) ?? fallbackKey;
+  return {
+    direction: requestedDirection === 'asc' || requestedDirection === 'desc'
+      ? requestedDirection
+      : 'desc',
+    key,
+  };
+}
+
+function compareMockAdminChargeMembers(
+  left: AdminCampusChargeSummary['members'][number] & {latestChargeCreatedAt: string | null},
+  right: AdminCampusChargeSummary['members'][number] & {latestChargeCreatedAt: string | null},
+  key: MockAdminCampusChargeSortKey,
+) {
+  switch (key) {
+    case 'createdAt':
+      return compareMockNullableStrings(left.latestChargeCreatedAt, right.latestChargeCreatedAt);
+    case 'userId':
+    case 'totalAmount':
+    case 'unpaidAmount':
+    case 'paidAmount':
+    case 'waivedAmount':
+    case 'canceledAmount':
+      return left[key] - right[key];
+    case 'name':
+    case 'email':
+      return compareMockStrings(left[key], right[key]);
+  }
+}
+
+function compareMockChargeItems(
+  left: ChargeItem,
+  right: ChargeItem,
+  key: MockChargeItemSortKey,
+) {
+  switch (key) {
+    case 'createdAt':
+      return compareMockNullableStrings(
+        mockMealState.memberChargeIssuedAt[left.id] ?? null,
+        mockMealState.memberChargeIssuedAt[right.id] ?? null,
+      );
+    case 'dueDate':
+      return compareMockNullableStrings(left.dueDate ?? null, right.dueDate ?? null);
+    case 'amount':
+      return left.amount - right.amount;
+  }
+}
+
+function compareMockNullableStrings(left: string | null, right: string | null) {
+  if (left === right) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return compareMockStrings(left, right);
+}
+
+function compareMockStrings(left: string, right: string) {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function applyMockSortDirection(difference: number, direction: MockSortDirection) {
+  return direction === 'asc' ? difference : -difference;
 }
 
 function getMockSummaryKey(
@@ -1258,7 +1360,11 @@ function createInitialMockMealState(): MockMealState {
   return {
     accounts,
     legacyBilling: createInitialMockLegacyBillingState(),
-    memberChargeIssuedAt: {},
+    memberChargeIssuedAt: {
+      501: '2026-06-22T03:00:00.000Z',
+      502: '2026-06-20T03:00:00.000Z',
+      503: '2026-06-23T03:00:00.000Z',
+    },
     memberCharges: {},
     nextChargeItemId: 10_000,
     polls,
@@ -1372,7 +1478,7 @@ function mealPollSummary(patch: Partial<MealPollSummary>): MealPollSummary {
     selectionType: 'SINGLE',
     allowUserOptionAdd: true,
     startsAt: '2026-07-13T01:00:00.000Z',
-    endsAt: '2026-07-14T01:00:00.000Z',
+    endsAt: '2099-07-14T01:00:00.000Z',
     status: 'OPEN',
     settlementStatus: 'NOT_CHARGED',
     totalResponseCount: 5,
@@ -1790,17 +1896,14 @@ function getMockMemberChargeList(
     (requestedCategory === null || charge.paymentCategory === requestedCategory) &&
     (requestedStatus === null || charge.status === requestedStatus),
   );
-  const sort = searchParams.get('sort') ?? 'createdAt,desc';
+  const {direction, key} = getMockSort(searchParams, mockChargeItemSortKeys, 'createdAt');
   const sortedItems = [...visibleItems].sort((left, right) => {
-    if (sort.startsWith('amount,')) {
-      return sort.endsWith(',asc') ? left.amount - right.amount : right.amount - left.amount;
-    }
-    return sort.endsWith(',asc') ? left.id - right.id : right.id - left.id;
+    const difference = compareMockChargeItems(left, right, key);
+    return difference === 0
+      ? left.id - right.id
+      : applyMockSortDirection(difference, direction);
   });
-  const pageValue = Number(searchParams.get('page') ?? 0);
-  const sizeValue = Number(searchParams.get('size') ?? 20);
-  const page = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
-  const size = Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20;
+  const {page, size} = getMockChargePagination(searchParams);
   const start = page * size;
   const campusIdentity = getMockChargeCampusIdentity(legacyBilling.charges, campusId);
   return {

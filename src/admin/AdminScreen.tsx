@@ -151,6 +151,7 @@ import {
   isAdminChargeSummaryRequestKeyCurrent,
   refreshAdminChargeSurfaces,
   runLatestAdminChargeRead,
+  selectAdminCampusChargeRowsForDisplay,
   selectAdminChargeStatusRequest,
   setAdminChargeViewDetail,
   setAdminChargeViewFilters,
@@ -9869,12 +9870,7 @@ function filterAdminCampusChargeSummary(
   charges: AdminCampusChargeSummary,
   filters: AdminChargeFilters,
 ): AdminCampusChargeSummary {
-  const members = charges.members.filter((member) =>
-    doesChargeAmountSummaryMatchFilter(member, filters.status),
-  );
-  const summary = summarizeChargeMembers(members);
-
-  return {...charges, members, summary};
+  return selectAdminCampusChargeRowsForDisplay(charges, filters.status);
 }
 
 function filterAdminMemberChargeList(
@@ -9898,51 +9894,6 @@ function filterAdminMemberChargeList(
   });
 
   return {...charges, items};
-}
-
-function doesChargeAmountSummaryMatchFilter(
-  summary: ChargeAmountSummary,
-  status: ChargeStatusFilter,
-) {
-  if (summary.totalAmount <= 0) {
-    return false;
-  }
-
-  switch (status) {
-    case 'UNPAID':
-      return summary.unpaidAmount > 0;
-    case 'PAID':
-      return summary.paidAmount > 0;
-    case 'WAIVED':
-      return summary.waivedAmount > 0;
-    case 'CANCELED':
-      return summary.canceledAmount > 0;
-    case 'ALL':
-      return summary.totalAmount > 0;
-    default:
-      return assertNever(status);
-  }
-}
-
-function summarizeChargeMembers(
-  members: AdminCampusChargeSummary['members'],
-): ChargeAmountSummary {
-  return members.reduce<ChargeAmountSummary>(
-    (summary, member) => ({
-      totalAmount: summary.totalAmount + member.totalAmount,
-      unpaidAmount: summary.unpaidAmount + member.unpaidAmount,
-      paidAmount: summary.paidAmount + member.paidAmount,
-      waivedAmount: summary.waivedAmount + member.waivedAmount,
-      canceledAmount: summary.canceledAmount + member.canceledAmount,
-    }),
-    {
-      totalAmount: 0,
-      unpaidAmount: 0,
-      paidAmount: 0,
-      waivedAmount: 0,
-      canceledAmount: 0,
-    },
-  );
 }
 
 function getChargeMemberSummaryText(summary: ChargeAmountSummary) {

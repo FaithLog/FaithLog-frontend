@@ -1,9 +1,11 @@
 import type {
+  AdminCampusChargeSummary,
   AdminChargeContractCapabilities,
   AdminChargeStatusChangeResponse,
   AdminChargeStatusTarget,
   ApiError,
   ChargeItem,
+  ChargeStatus,
   PaymentCategory,
 } from '../api/types';
 import {
@@ -165,6 +167,28 @@ export function applyAdminChargeFilterChange<
   }
 
   return setTimeout(() => onLoad(nextFilters), 350);
+}
+
+export function selectAdminCampusChargeRowsForDisplay(
+  charges: AdminCampusChargeSummary,
+  status: ChargeStatus | 'ALL',
+): AdminCampusChargeSummary {
+  const members = charges.members.filter((member) => {
+    switch (status) {
+      case 'UNPAID':
+        return member.unpaidAmount > 0;
+      case 'PAID':
+        return member.paidAmount > 0;
+      case 'WAIVED':
+        return member.waivedAmount > 0;
+      case 'CANCELED':
+        return member.canceledAmount > 0;
+      case 'ALL':
+        return member.totalAmount > 0;
+    }
+  });
+
+  return {...charges, members};
 }
 
 export function selectAdminChargeStatusRequest({

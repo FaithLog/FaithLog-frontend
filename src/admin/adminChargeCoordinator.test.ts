@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from 'vitest';
 
 import type {
+  AdminCampusChargeSummary,
   AdminChargeStatusChangeResponse,
   ApiError,
   ChargeItem,
@@ -20,6 +21,7 @@ import {
   refreshAdminChargeSurfaces,
   runLatestAdminChargeRead,
   selectAdminChargeStatusRequest,
+  selectAdminCampusChargeRowsForDisplay,
   setAdminChargeViewDetail,
   setAdminChargeViewFilters,
 } from './adminChargeCoordinator';
@@ -76,6 +78,46 @@ const normalizeError = (error: unknown): ApiError =>
     : {kind: 'error', message: '청구 상태를 변경하지 못했습니다.'};
 
 describe('admin charge production coordinator', () => {
+  it('keeps the server aggregate authoritative when the current page contains only 20 members', () => {
+    const members = Array.from({length: 20}, (_, index) => ({
+      userId: index + 1,
+      name: `member-${index + 1}`,
+      email: `member-${index + 1}@example.test`,
+      totalAmount: 1_000,
+      unpaidAmount: index === 0 ? 0 : 1_000,
+      paidAmount: index === 0 ? 1_000 : 0,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    }));
+    const serverSummary = {
+      totalAmount: 21_000,
+      unpaidAmount: 20_000,
+      paidAmount: 1_000,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    };
+    const page: AdminCampusChargeSummary = {
+      campusId: 1,
+      campusName: '샘플 캠퍼스',
+      region: '서울',
+      summary: serverSummary,
+      members,
+    };
+
+    const display = selectAdminCampusChargeRowsForDisplay(page, 'UNPAID');
+
+    expect(display.members).toHaveLength(19);
+    expect(display.members).not.toContainEqual(expect.objectContaining({userId: 1}));
+    expect(display.summary).toBe(serverSummary);
+    expect(display.summary).toEqual({
+      totalAmount: 21_000,
+      unpaidAmount: 20_000,
+      paidAmount: 1_000,
+      waivedAmount: 0,
+      canceledAmount: 0,
+    });
+  });
+
   it('keeps committed campus identity unchanged for an abandoned render and invalidates only on commit', async () => {
     const reads = createAdminChargeReadCoordinator();
     const gate = createAdminChargeMutationGate();

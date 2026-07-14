@@ -342,12 +342,12 @@ describe('FaithLog mock API adapter', () => {
       fetchAdminCampusChargesForMyAccounts(mealMockAccessTokens.nonDutyAdmin, 1, {
         page: 0,
         size: 1,
-        sort: {key: 'amount', direction: 'asc'},
+        sort: {key: 'totalAmount', direction: 'asc'},
       }),
       fetchAdminCampusChargesForMyAccounts(mealMockAccessTokens.nonDutyAdmin, 1, {
         page: 1,
         size: 1,
-        sort: {key: 'amount', direction: 'asc'},
+        sort: {key: 'totalAmount', direction: 'asc'},
       }),
     ]);
 
@@ -360,6 +360,61 @@ describe('FaithLog mock API adapter', () => {
     expect(firstPage.summary).toEqual(secondPage.summary);
     expect(firstPage.summary).toMatchObject({totalAmount: 26_000, unpaidAmount: 14_000});
   });
+
+  it.each([
+    ['createdAt', 'asc', [7, 8]],
+    ['createdAt', 'desc', [8, 7]],
+    ['userId', 'asc', [7, 8]],
+    ['userId', 'desc', [8, 7]],
+    ['name', 'asc', [8, 7]],
+    ['name', 'desc', [7, 8]],
+    ['email', 'asc', [7, 8]],
+    ['email', 'desc', [8, 7]],
+    ['totalAmount', 'asc', [8, 7]],
+    ['totalAmount', 'desc', [7, 8]],
+    ['unpaidAmount', 'asc', [7, 8]],
+    ['unpaidAmount', 'desc', [8, 7]],
+    ['paidAmount', 'asc', [8, 7]],
+    ['paidAmount', 'desc', [7, 8]],
+    ['waivedAmount', 'asc', [7, 8]],
+    ['waivedAmount', 'desc', [7, 8]],
+    ['canceledAmount', 'asc', [7, 8]],
+    ['canceledAmount', 'desc', [7, 8]],
+  ] as const)(
+    'sorts admin campus member rows by %s,%s',
+    async (key, direction, expectedUserIds) => {
+      await createOtherDutyMealCharge(8_000);
+
+      const result = await fetchAdminCampusChargesForMyAccounts(
+        mealMockAccessTokens.nonDutyAdmin,
+        1,
+        {size: 100, sort: {key, direction}},
+      );
+
+      expect(result.members.map((member) => member.userId)).toEqual(expectedUserIds);
+    },
+  );
+
+  it.each([
+    ['createdAt', 'asc', [502, 501, 503]],
+    ['createdAt', 'desc', [503, 501, 502]],
+    ['dueDate', 'asc', [502, 501, 503]],
+    ['dueDate', 'desc', [501, 503, 502]],
+    ['amount', 'asc', [501, 503, 502]],
+    ['amount', 'desc', [502, 501, 503]],
+  ] as const)(
+    'sorts admin member charge rows by %s,%s',
+    async (key, direction, expectedChargeIds) => {
+      const result = await fetchAdminMemberCharges(
+        mealMockAccessTokens.nonDutyAdmin,
+        1,
+        7,
+        {size: 100, sort: {key, direction}},
+      );
+
+      expect(result.items.map((charge) => charge.id)).toEqual(expectedChargeIds);
+    },
+  );
 
   it('updates a canonical dynamic MEAL charge and settlement through the admin PATCH boundary', async () => {
     const charge = await createOtherDutyMealCharge(8_000);
