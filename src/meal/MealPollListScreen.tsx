@@ -74,7 +74,7 @@ export function MealPollListScreen({
       {state.status === 'loading' ? <MealLoading label="밥 투표를 불러오는 중" /> : null}
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
       {state.status === 'empty' ? (
-        <Empty title="표시할 밥 투표가 없습니다" message="필터를 바꾸거나 새 투표를 만들어 주세요." actionLabel="새 투표" onActionPress={onCreate} />
+        <Empty title="표시할 밥 투표가 없습니다" message="새 투표를 만들면 이곳에서 진행 상태를 확인할 수 있어요." actionLabel="새 투표" onActionPress={onCreate} />
       ) : null}
       {state.status === 'success' ? (
         <View style={mealStyles.list}>

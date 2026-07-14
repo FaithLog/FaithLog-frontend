@@ -139,32 +139,6 @@ export const mealStyles = StyleSheet.create({
     gap: spacing.gap,
     paddingBottom: spacing.card,
   },
-  pageNav: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.gap,
-  },
-  pageNavButton: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 8,
-    flexGrow: 1,
-    justifyContent: 'center',
-    minWidth: '46%',
-    paddingHorizontal: spacing.card,
-    paddingVertical: spacing.gap,
-  },
-  pageNavButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  pageNavText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  pageNavTextActive: {
-    color: colors.surface,
-  },
   pressed: {
     opacity: 0.75,
   },

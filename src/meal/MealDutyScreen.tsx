@@ -1,9 +1,10 @@
 import {useCallback, useEffect, useState} from 'react';
-import {KeyboardAvoidingView, Platform, Pressable, Text, View} from 'react-native';
+import {KeyboardAvoidingView, Platform, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
-import {FaithLogHeaderPillButton, FaithLogHeaderTopRow} from '../components/ui';
+import {Empty, FaithLogHeaderPillButton, FaithLogHeaderTopRow} from '../components/ui';
+import {DutyPageNav} from '../duty/DutyPageNav';
 import {mealApi, type MealApi} from './mealApi';
 import {MealAccountScreen} from './MealAccountScreen';
 import {MealPollChargeScreen} from './MealPollChargeScreen';
@@ -34,6 +35,7 @@ type MealDutyScreenProps = {
 type EntryState =
   | {status: 'loading'}
   | {status: 'success'; campusId: number; userId: number}
+  | {status: 'notAssigned'}
   | {status: 'error'; error: ApiError};
 
 type MealDutyPage = Extract<MealRoute['name'], 'account' | 'create' | 'polls' | 'settlement'>;
@@ -72,7 +74,8 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
         const duty = await api.getMyDuty(accessToken, campusId, state.user.id);
         if (!tracker.isSuccessCurrent(identity) || !mounted) return;
         if (!duty.isActive || duty.userId !== state.user.id) {
-          throw new Error('활성 밥 담당자만 밥 정산 관리를 사용할 수 있습니다.');
+          setEntryState({status: 'notAssigned'});
+          return;
         }
         setEntryState({status: 'success', campusId, userId: state.user.id});
       } catch (error) {
@@ -85,8 +88,6 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
       mounted = false;
     };
   }, [api, campusId, onSessionExpired, state.user.id, tracker]);
-
-  if (!scopeIsCommitted) return <MealLoading label="밥 정산 관리 화면을 전환하는 중" />;
 
   const entryIsCurrent =
     entryState.status === 'success' &&
@@ -129,15 +130,26 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
       </View>
 
       <View style={mealStyles.content}>
-        {entryState.status === 'loading' ? <MealLoading label="밥 담당 권한을 확인하고 있어요." /> : null}
-        {entryState.status === 'error' ? <MealErrorState error={entryState.error} /> : null}
-        {entryIsCurrent && topLevelPage ? (
-          <MealDutyPageNav
+        {!scopeIsCommitted ? <MealLoading label="밥 정산 관리 화면을 전환하는 중" /> : null}
+        {scopeIsCommitted && entryState.status === 'loading' ? <MealLoading label="밥 담당 권한을 확인하고 있어요." /> : null}
+        {scopeIsCommitted && entryState.status === 'notAssigned' ? (
+          <Empty
+            actionLabel="내정보로 돌아가기"
+            message="현재 캠퍼스의 활성 밥 담당자로 지정된 경우에만 사용할 수 있어요."
+            onActionPress={onBack}
+            title="밥 담당자 전용 화면입니다"
+          />
+        ) : null}
+        {scopeIsCommitted && entryState.status === 'error' ? <MealErrorState error={entryState.error} /> : null}
+        {scopeIsCommitted && entryIsCurrent && topLevelPage ? (
+          <DutyPageNav
+            domainLabel="밥"
+            items={mealDutyPages}
             page={topLevelPage}
             onSelectPage={(page) => setRoute(toMealRoute(page))}
           />
         ) : null}
-        {entryIsCurrent
+        {scopeIsCommitted && entryIsCurrent
           ? renderRoute(route, state, setRoute, onSessionExpired, api)
           : null}
       </View>
@@ -177,39 +189,6 @@ function getTopLevelMealPage(route: MealRoute): MealDutyPage | null {
     default:
       return null;
   }
-}
-
-function MealDutyPageNav({
-  onSelectPage,
-  page,
-}: {
-  onSelectPage: (page: MealDutyPage) => void;
-  page: MealDutyPage;
-}) {
-  return (
-    <View style={mealStyles.pageNav}>
-      {mealDutyPages.map((item) => {
-        const active = item.id === page;
-        return (
-          <Pressable
-            accessibilityLabel={`밥 ${item.label} 페이지 열기`}
-            accessibilityRole="button"
-            accessibilityState={{selected: active}}
-            key={item.id}
-            onPress={() => onSelectPage(item.id)}
-            style={({pressed}) => [
-              mealStyles.pageNavButton,
-              active ? mealStyles.pageNavButtonActive : null,
-              pressed ? mealStyles.pressed : null,
-            ]}>
-            <Text style={[mealStyles.pageNavText, active ? mealStyles.pageNavTextActive : null]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
 }
 
 function renderRoute(

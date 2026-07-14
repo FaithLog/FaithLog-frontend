@@ -121,6 +121,33 @@ describe('MEAL component behavior', () => {
     expect(renderer.root.findByProps({accessibilityLabel: '밥 정산 페이지 열기'})).toBeTruthy();
   });
 
+  it('keeps the management header and shows a dedicated inactive-duty state', async () => {
+    const api = createApi({
+      getMyDuty: vi.fn().mockResolvedValue({
+        assignmentId: 20,
+        campusId: 1,
+        dutyType: 'MEAL',
+        isActive: false,
+        userId: 7,
+      }),
+    });
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealDutyScreen, {
+        api,
+        onBack: vi.fn(),
+        setAuthState: vi.fn(),
+        state: authenticatedState(),
+      }));
+      await settle();
+    });
+
+    expect(rendered(renderer)).toContain('밥 담당자');
+    expect(rendered(renderer)).toContain('밥 정산 관리');
+    expect(rendered(renderer)).toContain('밥 담당자 전용 화면입니다');
+    expect(rendered(renderer)).toContain('활성 밥 담당자로 지정된 경우에만 사용할 수 있어요');
+  });
+
   it('renders loading, error, retry success, and empty list states', async () => {
     const first = deferred();
     const api = createApi({listPolls: vi.fn(() => first.promise)});
@@ -238,6 +265,52 @@ describe('MEAL component behavior', () => {
       await settle();
     });
     expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it('matches the custom poll creation hierarchy and option editing language', async () => {
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealPollCreateScreen, {
+        api: createApi(),
+        campusId: 1,
+        onCancel: vi.fn(),
+        onCreated: vi.fn(),
+        onSessionExpired: vi.fn(),
+      }));
+    });
+
+    const output = rendered(renderer);
+    expect(output).toContain('밥 투표 생성');
+    expect(output).toContain('투표 제목');
+    expect(output).toContain('마감 일시');
+    expect(output).toContain('선택지');
+    expect(output).toContain('선택 방식');
+    expect(output).toContain('단일 선택');
+    expect(output).toContain('투표를 만들면 바로 시작');
+    expect(output).not.toContain('paymentAccountId');
+    expect(output).not.toContain('계좌 선택');
+
+    const anonymousToggle = findByLabel(renderer, '밥 투표 익명 여부 전환');
+    expect(anonymousToggle.props.accessibilityRole).toBe('switch');
+    expect(anonymousToggle.props.accessibilityState).toEqual({checked: false, disabled: false});
+    const optionToggle = findByLabel(renderer, '사용자 선택지 추가 허용 전환');
+    expect(optionToggle.props.accessibilityRole).toBe('switch');
+    expect(optionToggle.props.accessibilityState).toEqual({checked: true, disabled: false});
+
+    expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.disabled).toBe(true);
+    expect(findByLabel(renderer, '2번 밥 투표 선택지 삭제').props.disabled).toBe(true);
+    await change(renderer, '밥 투표 선택지 1', '제육볶음');
+    await change(renderer, '밥 투표 선택지 2', '김치찌개');
+    const firstOptionBeforeAdd = findByLabel(renderer, '밥 투표 선택지 1');
+    await press(renderer, '밥 투표 선택지 추가');
+    expect(findByLabel(renderer, '밥 투표 선택지 1')).toBe(firstOptionBeforeAdd);
+    expect(findByLabel(renderer, '2번 밥 투표 선택지 삭제').props.disabled).toBe(false);
+    await change(renderer, '밥 투표 선택지 3', '돈가스');
+    await press(renderer, '2번 밥 투표 선택지 삭제');
+    expect(findByLabel(renderer, '밥 투표 선택지 1').props.value).toBe('제육볶음');
+    expect(findByLabel(renderer, '밥 투표 선택지 2').props.value).toBe('돈가스');
+    expect(findByLabel(renderer, '1번 밥 투표 선택지 삭제').props.disabled).toBe(true);
+    expect(findByLabel(renderer, '2번 밥 투표 선택지 삭제').props.disabled).toBe(true);
   });
 
   it('single-flights account creation and never resends it after refresh warning', async () => {

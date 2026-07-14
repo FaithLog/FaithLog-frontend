@@ -1,13 +1,14 @@
 import {useRef, useState} from 'react';
-import {Text, View} from 'react-native';
+import {Pressable, Text, View} from 'react-native';
 
-import {Button, Card, Eyebrow, TextField, Title} from '../components/ui';
+import {Body, Card, Eyebrow, TextField} from '../components/ui';
+import {pollCreateDesign as createStyles} from '../polls/pollCreateDesign';
 import {mealApi, type MealApi} from './mealApi';
 import {buildMealPollCreateRequest, formatMealLocalDeadline, parseMealLocalDeadline} from './mealModel';
 import {beginMealMutation, createMealMutationGate, finishMealMutation} from './mealMutationFlow';
 import {resolveMealRequestAccess, type MealRequestIdentity} from './mealRequestLifecycle';
 import type {MealPollMutationResponse} from './mealTypes';
-import {getCurrentMealRequestError, MealErrorState, MealLoading, mealStyles, toMealApiError} from './mealScreenShared';
+import {getCurrentMealRequestError, MealErrorState, MealLoading, toMealApiError} from './mealScreenShared';
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {useMealRequestTracker} from './useMealRequestTracker';
@@ -20,6 +21,11 @@ type MealPollCreateScreenProps = {
   onSessionExpired: (message: string) => void;
 };
 
+type MealPollOptionDraft = {
+  id: number;
+  value: string;
+};
+
 export function MealPollCreateScreen({
   api = mealApi,
   campusId,
@@ -29,12 +35,16 @@ export function MealPollCreateScreen({
 }: MealPollCreateScreenProps) {
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/meal-create`);
   const mutationGate = useRef(createMealMutationGate()).current;
+  const nextOptionId = useRef(3);
   const initialDeadline = useRef(formatMealLocalDeadline(new Date(Date.now() + 86_400_000))).current;
   const [title, setTitle] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [endsDate, setEndsDate] = useState(initialDeadline.date);
   const [endsTime, setEndsTime] = useState(initialDeadline.time);
-  const [options, setOptions] = useState(['', '']);
+  const [options, setOptions] = useState<MealPollOptionDraft[]>([
+    {id: 1, value: ''},
+    {id: 2, value: ''},
+  ]);
   const [allowUserOptionAdd, setAllowUserOptionAdd] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -52,7 +62,13 @@ export function MealPollCreateScreen({
     let identity: MealRequestIdentity | null = null;
     try {
       const endsAt = parseMealLocalDeadline({date: endsDate, time: endsTime});
-      const request = buildMealPollCreateRequest({title, isAnonymous, endsAt, options, allowUserOptionAdd});
+      const request = buildMealPollCreateRequest({
+        title,
+        isAnonymous,
+        endsAt,
+        options: options.map((option) => option.value),
+        allowUserOptionAdd,
+      });
       const access = await resolveMealRequestAccess(tracker, 'create', onSessionExpired);
       identity = access.status === 'ready' ? access.request.identity : access.identity;
       if (access.status === 'cancelled') return;
@@ -78,43 +94,232 @@ export function MealPollCreateScreen({
   };
 
   const updateOption = (index: number, value: string) => {
-    setOptions((current) => current.map((option, optionIndex) => optionIndex === index ? value : option));
+    setOptions((current) => current.map((option, optionIndex) =>
+      optionIndex === index ? {...option, value} : option));
+  };
+
+  const removeOption = (index: number) => {
+    setOptions((current) => current.length <= 2
+      ? current
+      : current.filter((_option, optionIndex) => optionIndex !== index));
+  };
+
+  const addOption = () => {
+    const id = nextOptionId.current;
+    nextOptionId.current += 1;
+    setOptions((current) => [...current, {id, value: ''}]);
   };
 
   return (
-    <View style={mealStyles.page}>
+    <View style={createStyles.shell}>
+      <View style={createStyles.header}>
+        <Text style={createStyles.title}>밥 투표 생성</Text>
+        <Text style={createStyles.description}>
+          메뉴 후보와 마감 시간을 정해 밥 투표를 시작하세요.
+        </Text>
+      </View>
+
       <Card>
-        <Eyebrow>밥 투표 생성</Eyebrow>
-        <Title>새 밥 투표</Title>
-        <Text style={mealStyles.body}>투표를 만들면 바로 시작돼요. 마감 후 정산할 수 있습니다.</Text>
+        <View style={createStyles.fixedTypeCard}>
+          <View style={createStyles.typeIcon}>
+            <Text style={createStyles.typeIconText}>밥</Text>
+          </View>
+          <View style={createStyles.headerText}>
+            <Text style={createStyles.sectionTitle}>밥 주문</Text>
+            <Text style={createStyles.sectionDescription}>
+              투표를 만들면 바로 시작되고, 마감 후 선택지별 응답자를 정산할 수 있습니다.
+            </Text>
+          </View>
+          <View style={createStyles.fixedPill}>
+            <Text style={createStyles.fixedPillText}>고정</Text>
+          </View>
+        </View>
       </Card>
+
       <Card>
-        <TextField accessibilityLabel="밥 투표 제목" label="제목" onChangeText={setTitle} value={title} />
-        <Button accessibilityLabel="밥 투표 익명 여부 전환" onPress={() => setIsAnonymous((current) => !current)} variant="secondary">
-          투표 방식 {isAnonymous ? '익명' : '실명'}
-        </Button>
-        <TextField accessibilityLabel="밥 투표 마감 날짜" autoCapitalize="none" label="마감 날짜 (예: 2026년 7월 14일)" onChangeText={setEndsDate} value={endsDate} />
-        <TextField accessibilityLabel="밥 투표 마감 시간" autoCapitalize="none" label="마감 시간 (24시간, 예: 18:00)" onChangeText={setEndsTime} value={endsTime} />
-        <View style={mealStyles.fieldGroup}>
+        <Eyebrow>투표 제목</Eyebrow>
+        <TextField
+          accessibilityLabel="밥 투표 제목"
+          editable={!saving}
+          label="제목"
+          onChangeText={setTitle}
+          placeholder="예: 이번 주 점심 메뉴"
+          value={title}
+        />
+      </Card>
+
+      <Card>
+        <Eyebrow>마감 일시</Eyebrow>
+        <View style={createStyles.deadlineCard}>
+          <Text style={createStyles.deadlineLabel}>마감 일시</Text>
+          <View style={createStyles.deadlineFields}>
+            <View style={createStyles.deadlineDateField}>
+              <TextField
+                accessibilityLabel="밥 투표 마감 날짜"
+                autoCapitalize="none"
+                editable={!saving}
+                label="날짜"
+                onChangeText={setEndsDate}
+                placeholder="2026년 7월 14일"
+                value={endsDate}
+              />
+            </View>
+            <View style={createStyles.deadlineTimeField}>
+              <TextField
+                accessibilityLabel="밥 투표 마감 시간"
+                autoCapitalize="none"
+                editable={!saving}
+                label="시간"
+                onChangeText={setEndsTime}
+                placeholder="18:00"
+                value={endsTime}
+              />
+            </View>
+          </View>
+          <Text style={createStyles.deadlineHint}>날짜와 24시간 형식으로 마감 시각을 정합니다.</Text>
+        </View>
+      </Card>
+
+      <Card>
+        <View style={createStyles.sectionHeader}>
+          <View style={createStyles.headerText}>
+            <Eyebrow>선택지</Eyebrow>
+            <Body>응답자가 한 가지를 고를 메뉴 후보를 입력합니다.</Body>
+          </View>
+          <Pressable
+            accessibilityLabel="밥 투표 선택지 추가"
+            accessibilityRole="button"
+            accessibilityState={{disabled: saving}}
+            disabled={saving}
+            onPress={addOption}
+            style={({pressed}) => [
+              createStyles.addOption,
+              saving ? createStyles.disabled : null,
+              pressed ? createStyles.pressed : null,
+            ]}>
+            <Text style={createStyles.addOptionText}>추가</Text>
+          </Pressable>
+        </View>
+        <View style={createStyles.optionList}>
           {options.map((option, index) => (
-            <TextField
-              accessibilityLabel={`밥 투표 선택지 ${index + 1}`}
-              key={index}
-              label={`선택지 ${index + 1}`}
-              onChangeText={(value) => updateOption(index, value)}
-              value={option}
-            />
+            <View key={option.id} style={createStyles.optionRow}>
+              <View style={createStyles.optionNumber}>
+                <Text style={createStyles.optionNumberText}>{index + 1}</Text>
+              </View>
+              <View style={createStyles.optionField}>
+                <TextField
+                  accessibilityLabel={`밥 투표 선택지 ${index + 1}`}
+                  editable={!saving}
+                  label={`선택지 ${index + 1}`}
+                  onChangeText={(value) => updateOption(index, value)}
+                  value={option.value}
+                />
+              </View>
+              <Pressable
+                accessibilityLabel={`${index + 1}번 밥 투표 선택지 삭제`}
+                accessibilityRole="button"
+                accessibilityState={{disabled: saving || options.length <= 2}}
+                disabled={saving || options.length <= 2}
+                onPress={() => removeOption(index)}
+                style={({pressed}) => [
+                  createStyles.removeOption,
+                  options.length <= 2 || saving ? createStyles.disabled : null,
+                  pressed ? createStyles.pressed : null,
+                ]}>
+                <Text style={createStyles.removeOptionText}>×</Text>
+              </Pressable>
+            </View>
           ))}
         </View>
-        <Button accessibilityLabel="밥 투표 선택지 추가" onPress={() => setOptions((current) => [...current, ''])} variant="secondary">선택지 추가</Button>
-        <Button accessibilityLabel="사용자 선택지 추가 허용 전환" onPress={() => setAllowUserOptionAdd((current) => !current)} variant="secondary">
-          사용자 선택지 추가 {allowUserOptionAdd ? '허용' : '허용 안 함'}
-        </Button>
       </Card>
+
+      <Card>
+        <Eyebrow>선택 방식</Eyebrow>
+        <View
+          accessibilityLabel="밥 투표 선택 방식 단일 선택 고정"
+          accessibilityRole="text"
+          style={createStyles.fixedSelection}>
+          <Text style={createStyles.fixedSelectionTitle}>단일 선택</Text>
+          <Text style={createStyles.fixedSelectionDescription}>
+            밥 투표는 한 사람당 한 가지 메뉴만 선택할 수 있습니다.
+          </Text>
+          <View style={createStyles.fixedSelectionPill}>
+            <Text style={createStyles.fixedSelectionPillText}>고정</Text>
+          </View>
+        </View>
+      </Card>
+
+      <Card>
+        <Pressable
+          accessibilityLabel="밥 투표 익명 여부 전환"
+          accessibilityRole="switch"
+          accessibilityState={{checked: isAnonymous, disabled: saving}}
+          disabled={saving}
+          onPress={() => setIsAnonymous((current) => !current)}
+          style={({pressed}) => [createStyles.toggleRow, pressed ? createStyles.pressed : null]}>
+          <View style={createStyles.headerText}>
+            <Text style={createStyles.sectionTitle}>익명 투표</Text>
+            <Text style={createStyles.sectionDescription}>응답자 이름을 결과 화면에서 숨깁니다.</Text>
+          </View>
+          <View style={[createStyles.toggle, isAnonymous ? createStyles.toggleActive : null]}>
+            <Text style={[createStyles.toggleText, isAnonymous ? createStyles.toggleTextActive : null]}>
+              {isAnonymous ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+        </Pressable>
+      </Card>
+
+      <Card>
+        <Pressable
+          accessibilityLabel="사용자 선택지 추가 허용 전환"
+          accessibilityRole="switch"
+          accessibilityState={{checked: allowUserOptionAdd, disabled: saving}}
+          disabled={saving}
+          onPress={() => setAllowUserOptionAdd((current) => !current)}
+          style={({pressed}) => [createStyles.toggleRow, pressed ? createStyles.pressed : null]}>
+          <View style={createStyles.headerText}>
+            <Text style={createStyles.sectionTitle}>사용자 항목추가 가능</Text>
+            <Text style={createStyles.sectionDescription}>
+              일반 사용자가 응답 중 필요한 메뉴 선택지를 직접 추가할 수 있습니다.
+            </Text>
+          </View>
+          <View style={[createStyles.toggle, allowUserOptionAdd ? createStyles.toggleActive : null]}>
+            <Text style={[createStyles.toggleText, allowUserOptionAdd ? createStyles.toggleTextActive : null]}>
+              {allowUserOptionAdd ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+        </Pressable>
+      </Card>
+
       {error ? <MealErrorState error={error} /> : null}
-      <View style={mealStyles.actionRow}>
-        <Button accessibilityLabel="밥 투표 생성 취소" disabled={saving} onPress={onCancel} variant="secondary">취소</Button>
-        <Button accessibilityLabel="밥 투표 생성 실행" disabled={saving} onPress={() => void save()}>{saving ? '생성 중...' : '투표 만들기'}</Button>
+
+      <View style={createStyles.actions}>
+        <Pressable
+          accessibilityLabel="밥 투표 생성 취소"
+          accessibilityRole="button"
+          accessibilityState={{disabled: saving}}
+          disabled={saving}
+          onPress={onCancel}
+          style={({pressed}) => [
+            createStyles.secondaryAction,
+            saving ? createStyles.disabled : null,
+            pressed ? createStyles.pressed : null,
+          ]}>
+          <Text style={createStyles.secondaryActionText}>취소</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="밥 투표 생성 실행"
+          accessibilityRole="button"
+          accessibilityState={{disabled: saving}}
+          disabled={saving}
+          onPress={() => void save()}
+          style={({pressed}) => [
+            createStyles.primaryAction,
+            saving ? createStyles.disabled : null,
+            pressed ? createStyles.pressed : null,
+          ]}>
+          <Text style={createStyles.primaryActionText}>{saving ? '생성 중...' : '생성하기'}</Text>
+        </Pressable>
       </View>
     </View>
   );

@@ -51,6 +51,7 @@ import {
   TextField,
 } from '../components/ui';
 import {colors, spacing} from '../theme';
+import {DutyPageNav} from '../duty/DutyPageNav';
 import {formatWon} from '../utils/money';
 
 type CoffeeDutyLoadState =
@@ -127,10 +128,10 @@ const emptyCoffeeAccountForm: CoffeeAccountForm = {
   nickname: '커피 계좌',
 };
 const coffeeDutyPages: Array<{id: CoffeeDutyPage; label: string}> = [
-  {id: 'summary', label: '정산'},
-  {id: 'accounts', label: '계좌'},
+  {id: 'manage', label: '투표'},
   {id: 'create', label: '투표 생성'},
-  {id: 'manage', label: '투표 관리'},
+  {id: 'accounts', label: '내 계좌'},
+  {id: 'summary', label: '정산'},
 ];
 const space = {
   sm: spacing.gap,
@@ -151,7 +152,7 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
   const [accountForm, setAccountForm] = useState<CoffeeAccountForm>(emptyCoffeeAccountForm);
   const [accountSaveState, setAccountSaveState] = useState<CoffeeAccountSaveState>({status: 'idle'});
   const [accountDeleteState, setAccountDeleteState] = useState<CoffeeAccountDeleteState>({status: 'idle'});
-  const [page, setPage] = useState<CoffeeDutyPage>('summary');
+  const [page, setPage] = useState<CoffeeDutyPage>('manage');
   const [pollRefreshKey, setPollRefreshKey] = useState(0);
   const [createdPollId, setCreatedPollId] = useState<number | null>(null);
   const [knownOwnedCoffeeAccountIds, setKnownOwnedCoffeeAccountIds] = useState<Set<number>>(
@@ -443,7 +444,12 @@ export function CoffeeDutyScreen({onBack, setAuthState, state}: CoffeeDutyScreen
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
-          <CoffeeDutyPageNav page={page} onSelectPage={setPage} />
+          <DutyPageNav
+            domainLabel="커피"
+            items={coffeeDutyPages}
+            page={page}
+            onSelectPage={setPage}
+          />
           {page === 'summary' ? (
             <CoffeeSettlementSummary onRefresh={() => void load()} state={loadState} />
           ) : null}
@@ -544,39 +550,6 @@ function CoffeeSettlementSummary({
         <Text style={styles.summaryBody}>표시할 커피 미납 내역이 없습니다.</Text>
       )}
     </Card>
-  );
-}
-
-function CoffeeDutyPageNav({
-  onSelectPage,
-  page,
-}: {
-  onSelectPage: (page: CoffeeDutyPage) => void;
-  page: CoffeeDutyPage;
-}) {
-  return (
-    <View style={styles.pageNav}>
-      {coffeeDutyPages.map((item) => {
-        const active = item.id === page;
-
-        return (
-          <Pressable
-            accessibilityLabel={`${item.label} 페이지 열기`}
-            accessibilityRole="button"
-            key={item.id}
-            onPress={() => onSelectPage(item.id)}
-            style={({pressed}) => [
-              styles.pageNavButton,
-              active ? styles.pageNavButtonActive : null,
-              pressed ? styles.pressed : null,
-            ]}>
-            <Text style={[styles.pageNavText, active ? styles.pageNavTextActive : null]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
   );
 }
 
@@ -765,7 +738,7 @@ function CoffeePollCreator({
       <View style={styles.pollCreateHeader}>
         <Text style={styles.pollCreateTitle}>커피 투표 생성</Text>
         <Text style={styles.pollCreateDescription}>
-          관리자 투표 생성과 같은 순서로 커피 주문 투표를 만듭니다.
+          메뉴와 마감 시간을 정해 커피 주문 투표를 시작하세요.
         </Text>
       </View>
 
@@ -2152,32 +2125,6 @@ const styles = StyleSheet.create({
   },
   optionList: {
     gap: space.sm,
-  },
-  pageNav: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  pageNavButton: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 8,
-    flexGrow: 1,
-    justifyContent: 'center',
-    minWidth: '46%',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  pageNavButtonActive: {
-    backgroundColor: colors.primary,
-  },
-  pageNavText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  pageNavTextActive: {
-    color: colors.surface,
   },
   pressed: {
     opacity: 0.75,
