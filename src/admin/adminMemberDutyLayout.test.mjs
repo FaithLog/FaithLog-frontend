@@ -29,4 +29,13 @@ describe('admin member duty production layout', () => {
     expect(source).toContain('isCurrentAdminLoad(loadIdentity)');
     expect(source).toContain('assertAdminDutyAssignmentsForCampus(duties, members, operationCampusId)');
   });
+
+  it('routes both MEAL assign and revoke refreshes through the validated production boundary', () => {
+    const assignFlow = source.slice(source.indexOf('const assignMeal ='), source.indexOf('const revokeMeal ='));
+    const revokeFlow = source.slice(source.indexOf('const revokeMeal ='), source.indexOf('const confirmDeleteMember ='));
+
+    expect(assignFlow).toContain('refreshMealDutyAdminState(operationId, operationCampusId)');
+    expect(revokeFlow).toContain('refreshMealDutyAdminState(operationId, operationCampusId)');
+    expect(source).toContain('coordinateAdminMealDutyRefresh({');
+  });
 });

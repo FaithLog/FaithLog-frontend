@@ -213,6 +213,7 @@ import {
   filterAdminMembersByDuty,
   type AdminMemberFilter,
 } from './adminMemberDutyFilter';
+import {coordinateAdminMealDutyRefresh} from './adminMealDutyRefresh';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -1075,39 +1076,39 @@ export function AdminScreen({
   ) => {
     const access = await resolveMealDutyMutationAccess(operationId, operationCampusId);
     if (!access) return false;
-    try {
-      const [summary, members, duties] = await Promise.all([
-        fetchAdminDashboardSummary(access.accessToken, operationCampusId, {weekStartDate}),
-        fetchAdminCampusMembers(access.accessToken, operationCampusId),
-        fetchDutyAssignments(access.accessToken, operationCampusId),
-      ]);
-      if (
-        !isMealDutyOperationMounted(operationId, operationCampusId) ||
-        !isAuthSessionGenerationCurrent(access.generation)
-      ) {
-        return false;
-      }
-      setLoadState(
-        members.length === 0
-          ? {status: 'empty', summary}
-          : {status: 'success', summary, members, duties},
-      );
-      if (members.length === 0) setSelectedMemberId(null);
-      return true;
-    } catch (error) {
-      const apiError = toApiError(error, '최신 담당자 목록을 불러오지 못했습니다.');
-      if (
+    const result = await coordinateAdminMealDutyRefresh({
+      apply: (nextState) => {
+        setLoadState(nextState);
+        if (nextState.status === 'empty') setSelectedMemberId(null);
+      },
+      campusId: operationCampusId,
+      isCurrent: () =>
         isMealDutyOperationMounted(operationId, operationCampusId) &&
-        shouldHandleRequestError(
-          apiError,
-          access.generation,
-          getAuthSessionGeneration(),
-        )
-      ) {
-        void handleAuthError(apiError, setAuthState);
-      }
-      return false;
+        isAuthSessionGenerationCurrent(access.generation),
+      request: async () => {
+        const [summary, members, duties] = await Promise.all([
+          fetchAdminDashboardSummary(access.accessToken, operationCampusId, {weekStartDate}),
+          fetchAdminCampusMembers(access.accessToken, operationCampusId),
+          fetchDutyAssignments(access.accessToken, operationCampusId),
+        ]);
+        return {summary, members, duties};
+      },
+    });
+    if (result.status === 'applied') return true;
+    if (result.status === 'stale') return false;
+
+    const apiError = toApiError(result.error, '최신 담당자 목록을 불러오지 못했습니다.');
+    if (
+      isMealDutyOperationMounted(operationId, operationCampusId) &&
+      shouldHandleRequestError(
+        apiError,
+        access.generation,
+        getAuthSessionGeneration(),
+      )
+    ) {
+      void handleAuthError(apiError, setAuthState);
     }
+    return false;
   };
 
   useEffect(() => {
