@@ -24,6 +24,7 @@ type MealSettlementScreenProps = {
   currentUserId: number;
   onBack: () => void;
   onSessionExpired: (message: string) => void;
+  showBackButton?: boolean;
 };
 
 export function MealSettlementScreen({
@@ -32,6 +33,7 @@ export function MealSettlementScreen({
   currentUserId,
   onBack,
   onSessionExpired,
+  showBackButton = true,
 }: MealSettlementScreenProps) {
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-settlement`);
   const [state, setState] = useState<MealLoadState<MealSettlement>>({status: 'loading'});
@@ -154,7 +156,9 @@ export function MealSettlementScreen({
           ) : null}
         </>
       ) : null}
-      <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+      {showBackButton ? (
+        <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+      ) : null}
     </View>
   );
 }

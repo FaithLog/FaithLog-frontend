@@ -64,6 +64,29 @@ describe('MEAL mock adapter flow', () => {
     expect(afterRevoke.filter((duty) => duty.dutyType === 'MEAL' && duty.isActive)).toHaveLength(2);
   });
 
+  it('exposes coffee and meal duty lookups independently for a user with both duties', async () => {
+    const headers = {Authorization: 'Bearer mock-access-token'};
+    const [coffeeResponse, mealResponse] = await Promise.all([
+      executeMockRequest('/api/v1/campuses/1/duty-assignments/me', {
+        headers,
+        method: 'GET',
+      }),
+      executeMockRequest('/api/v1/campuses/1/duty-assignments/me/meal', {
+        headers,
+        method: 'GET',
+      }),
+    ]);
+
+    expect(coffeeResponse.status).toBe(200);
+    expect(mealResponse.status).toBe(200);
+    await expect(coffeeResponse.json()).resolves.toMatchObject({
+      data: {dutyType: 'COFFEE', isActive: true, userId: 7},
+    });
+    await expect(mealResponse.json()).resolves.toMatchObject({
+      data: {dutyType: 'MEAL', isActive: true, userId: 7},
+    });
+  });
+
   it('returns only the current duty owner MEAL accounts, including inactive history', async () => {
     const accounts = await mealApi.getMyPaymentAccounts('mock-access-token', 1, 7, true);
 

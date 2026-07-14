@@ -206,6 +206,11 @@ import {
   type PenaltyRuleDraft,
   type PenaltyRuleFlow,
 } from './penaltyRuleFlow';
+import {
+  adminMemberDutyFilters,
+  filterAdminMembersByDuty,
+  type AdminMemberFilter,
+} from './adminMemberDutyFilter';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -231,9 +236,9 @@ type AdminTab =
   | 'members'
   | 'roles'
   | 'settlement';
-type MemberFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
-type RoleFilter = MemberFilter;
-type AdminMemberSection = 'list' | 'roles' | 'coffee';
+type MemberFilter = AdminMemberFilter;
+type RoleFilter = 'ALL' | 'ADMINS' | 'MEMBERS';
+type AdminMemberSection = 'list' | 'roles' | 'coffee' | 'meal';
 type AdminDevotionSection = 'missing' | 'weekly' | 'prayer';
 type AdminPrayerManagementSection = 'status' | 'groups' | 'period';
 type AdminPrayerGroupFlow = 'list' | 'details' | 'members';
@@ -453,6 +458,7 @@ const adminMemberSections: Array<{id: AdminMemberSection; label: string}> = [
   {id: 'list', label: '멤버'},
   {id: 'roles', label: '역할'},
   {id: 'coffee', label: '커피담당'},
+  {id: 'meal', label: '밥담당'},
 ];
 
 const adminDevotionSections: Array<{id: AdminDevotionSection; label: string}> = [
@@ -466,7 +472,7 @@ const adminPrayerManagementSections: Array<{id: AdminPrayerManagementSection; la
   {id: 'period', label: '운영 기간'},
 ];
 
-const memberFilters: Array<{id: MemberFilter; label: string}> = [
+const roleFilters: Array<{id: RoleFilter; label: string}> = [
   {id: 'ALL', label: '전체'},
   {id: 'ADMINS', label: '리더'},
   {id: 'MEMBERS', label: '멤버'},
@@ -2959,6 +2965,7 @@ export function AdminScreen({
         bottomInset={androidShellInsets.bottomNavInset}
         campusLabel={getCampusLabel(state)}
         contentBottomPadding={androidShellInsets.shellContentBottomPadding}
+        duties={loadState.duties}
         filter={memberFilter}
         inviteCodeCopyState={inviteCodeCopyState}
         inviteCodeState={inviteCodeState}
@@ -3211,6 +3218,7 @@ export function AdminScreen({
       ) : tab === 'members' ? (
         <AdminMemberPage
           actionState={actionState}
+          activeMealDuties={activeMealDuties}
           coffeeDuty={coffeeDuty}
           filter={memberFilter}
           globalRole={state.user.role}
@@ -3219,10 +3227,12 @@ export function AdminScreen({
           memberSearch={memberSearch}
           members={loadState.members}
           onAssignCoffee={assignCoffee}
+          onAssignMeal={assignMeal}
           onChangeSection={setMemberSection}
           onCopyInviteCode={copyInviteCode}
           onChangeMemberSearch={setMemberSearch}
           onRevokeCoffee={revokeCoffee}
+          onRevokeMeal={revokeMeal}
           onSelectFilter={setMemberFilter}
           onSelectMember={(member) => setSelectedMemberId(member.membershipId)}
           onSelectRoleFilter={setRoleFilter}
@@ -10070,6 +10080,7 @@ function ChargeItemRow({
 
 function AdminMemberPage({
   actionState,
+  activeMealDuties,
   coffeeDuty,
   filter,
   globalRole,
@@ -10078,10 +10089,12 @@ function AdminMemberPage({
   memberSearch,
   members,
   onAssignCoffee,
+  onAssignMeal,
   onChangeMemberSearch,
   onChangeSection,
   onCopyInviteCode,
   onRevokeCoffee,
+  onRevokeMeal,
   onSelectFilter,
   onSelectMember,
   onSelectRoleFilter,
@@ -10090,6 +10103,7 @@ function AdminMemberPage({
   selectedCampusRole,
 }: {
   actionState: AdminActionState;
+  activeMealDuties: DutyAssignment[];
   coffeeDuty: DutyAssignment | null;
   filter: MemberFilter;
   globalRole: string;
@@ -10098,10 +10112,12 @@ function AdminMemberPage({
   memberSearch: string;
   members: AdminCampusMember[];
   onAssignCoffee: (member: AdminCampusMember) => void;
+  onAssignMeal: (member: AdminCampusMember) => void;
   onChangeMemberSearch: (value: string) => void;
   onChangeSection: (section: AdminMemberSection) => void;
   onCopyInviteCode: (inviteCode: string) => void;
   onRevokeCoffee: (assignment: DutyAssignment) => void;
+  onRevokeMeal: (assignment: DutyAssignment) => void;
   onSelectFilter: (filter: MemberFilter) => void;
   onSelectMember: (member: AdminCampusMember) => void;
   onSelectRoleFilter: (filter: RoleFilter) => void;
@@ -10116,7 +10132,7 @@ function AdminMemberPage({
         items={adminMemberSections}
         onSelect={onChangeSection}
         selectedId={section}
-        subtitle="목록, 권한, 커피 담당자를 분리해서 봅니다."
+        subtitle="목록, 권한, 커피와 밥 담당자를 분리해서 봅니다."
         title="멤버 관리"
       />
       <InviteCodeCopyRow
@@ -10126,6 +10142,7 @@ function AdminMemberPage({
       />
       {section === 'list' ? (
         <AdminMembers
+          duties={[...(coffeeDuty ? [coffeeDuty] : []), ...activeMealDuties]}
           filter={filter}
           memberSearch={memberSearch}
           members={members}
@@ -10142,7 +10159,7 @@ function AdminMemberPage({
           onSelectMember={onSelectMember}
           selectedCampusRole={selectedCampusRole}
         />
-      ) : (
+      ) : section === 'coffee' ? (
         <AdminCoffeeDutyManagement
           actionState={actionState}
           coffeeDuty={coffeeDuty}
@@ -10150,12 +10167,21 @@ function AdminMemberPage({
           onAssignCoffee={onAssignCoffee}
           onRevokeCoffee={onRevokeCoffee}
         />
+      ) : (
+        <AdminMealDutyManagement
+          actionState={actionState}
+          activeMealDuties={activeMealDuties}
+          members={members}
+          onAssignMeal={onAssignMeal}
+          onRevokeMeal={onRevokeMeal}
+        />
       )}
     </>
   );
 }
 
 function AdminMembers({
+  duties,
   filter,
   memberSearch,
   members,
@@ -10163,6 +10189,7 @@ function AdminMembers({
   onSelectFilter,
   onSelectMember,
 }: {
+  duties: DutyAssignment[];
   filter: MemberFilter;
   memberSearch: string;
   members: AdminCampusMember[];
@@ -10171,7 +10198,7 @@ function AdminMembers({
   onSelectMember: (member: AdminCampusMember) => void;
 }) {
   const keyword = memberSearch.trim().toLowerCase();
-  const filteredMembers = filterMembers(members, filter).filter((member) =>
+  const filteredMembers = filterAdminMembersByDuty(members, filter, duties).filter((member) =>
     keyword
       ? `${member.name} ${member.email} ${member.campusRole}`.toLowerCase().includes(keyword)
       : true,
@@ -10192,7 +10219,7 @@ function AdminMembers({
         placeholder="이름 또는 이메일"
         value={memberSearch}
       />
-      <SegmentedControl items={memberFilters} selectedId={filter} onSelect={onSelectFilter} />
+      <SegmentedControl items={adminMemberDutyFilters} selectedId={filter} onSelect={onSelectFilter} />
       {filteredMembers.length === 0 ? (
         <Empty title="조건에 맞는 멤버가 없습니다" message="다른 역할 필터를 선택해 주세요." />
       ) : (
@@ -10213,6 +10240,7 @@ function AdminMemberListRoute({
   bottomInset,
   campusLabel,
   contentBottomPadding,
+  duties,
   filter,
   inviteCodeCopyState,
   inviteCodeState,
@@ -10230,6 +10258,7 @@ function AdminMemberListRoute({
   bottomInset: number;
   campusLabel: string;
   contentBottomPadding: number;
+  duties: DutyAssignment[];
   filter: MemberFilter;
   inviteCodeCopyState: InviteCodeCopyState;
   inviteCodeState: InviteCodeState;
@@ -10246,12 +10275,12 @@ function AdminMemberListRoute({
   const deferredSearch = useDeferredValue(memberSearch);
   const filteredMembers = useMemo(() => {
     const keyword = deferredSearch.trim().toLowerCase();
-    return filterMembers(members, filter).filter((member) =>
+    return filterAdminMembersByDuty(members, filter, duties).filter((member) =>
       keyword
         ? `${member.name} ${member.email} ${member.campusRole}`.toLowerCase().includes(keyword)
         : true,
     );
-  }, [deferredSearch, filter, members]);
+  }, [deferredSearch, duties, filter, members]);
 
   return (
     <View style={styles.adminModeFrame}>
@@ -10283,7 +10312,7 @@ function AdminMemberListRoute({
               items={adminMemberSections}
               onSelect={onChangeSection}
               selectedId="list"
-              subtitle="목록, 권한, 커피 담당자를 분리해서 봅니다."
+              subtitle="목록, 권한, 커피와 밥 담당자를 분리해서 봅니다."
               title="멤버 관리"
             />
             <InviteCodeCopyRow
@@ -10306,7 +10335,7 @@ function AdminMemberListRoute({
                 value={memberSearch}
               />
               <SegmentedControl
-                items={memberFilters}
+                items={adminMemberDutyFilters}
                 selectedId={filter}
                 onSelect={onSelectFilter}
               />
@@ -10395,6 +10424,84 @@ function AdminCoffeeDutyManagement({
                     onPress={() => onAssignCoffee(member)}
                     variant="secondary">
                     {actionState.status === 'assigningCoffee' ? '지정 중...' : '지정'}
+                  </Button>
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </Card>
+    </>
+  );
+}
+
+function AdminMealDutyManagement({
+  actionState,
+  activeMealDuties,
+  members,
+  onAssignMeal,
+  onRevokeMeal,
+}: {
+  actionState: AdminActionState;
+  activeMealDuties: DutyAssignment[];
+  members: AdminCampusMember[];
+  onAssignMeal: (member: AdminCampusMember) => void;
+  onRevokeMeal: (assignment: DutyAssignment) => void;
+}) {
+  const busy = actionState.status !== 'idle';
+  const activeMealDutyByUserId = new Map(
+    activeMealDuties.map((assignment) => [assignment.userId, assignment]),
+  );
+
+  return (
+    <>
+      <Card>
+        <Eyebrow>밥 담당</Eyebrow>
+        <Title>활성 담당자 {activeMealDuties.length}명</Title>
+        <Body>
+          밥 담당자는 여러 명을 동시에 지정할 수 있으며 캠퍼스 관리자 권한과는 별개입니다.
+        </Body>
+      </Card>
+      <Card>
+        <Eyebrow>담당자 조회 및 지정</Eyebrow>
+        {members.map((member) => {
+          const assignment = activeMealDutyByUserId.get(member.userId) ?? null;
+
+          return (
+            <View key={member.membershipId} style={styles.roleRow}>
+              <View style={styles.roleRowHeader}>
+                <Avatar name={member.name} role={member.campusRole} />
+                <View style={styles.headerText}>
+                  <Text style={styles.memberName}>{member.name}</Text>
+                  <Text style={styles.memberMeta}>{member.email}</Text>
+                </View>
+                <Chip
+                  label={assignment ? '밥 담당' : member.campusRole}
+                  tone={assignment ? 'success' : 'default'}
+                />
+              </View>
+              <View style={styles.actionRow}>
+                {assignment ? (
+                  <Button
+                    accessibilityLabel={`${member.name} 밥 담당자 해제`}
+                    disabled={busy}
+                    onPress={() => onRevokeMeal(assignment)}
+                    variant="danger">
+                    {actionState.status === 'revokingMeal' &&
+                    actionState.assignmentId === assignment.assignmentId
+                      ? '해제 중...'
+                      : '해제'}
+                  </Button>
+                ) : (
+                  <Button
+                    accessibilityLabel={`${member.name} 밥 담당자로 지정`}
+                    disabled={busy}
+                    onPress={() => onAssignMeal(member)}
+                    variant="secondary">
+                    {actionState.status === 'assigningMeal' &&
+                    actionState.userId === member.userId
+                      ? '지정 중...'
+                      : '지정'}
                   </Button>
                 )}
               </View>
@@ -10633,7 +10740,7 @@ function AdminRoleManagement({
       </Card>
       <Card>
         <Eyebrow>역할별 보기</Eyebrow>
-        <SegmentedControl items={memberFilters} selectedId={filter} onSelect={onSelectFilter} />
+        <SegmentedControl items={roleFilters} selectedId={filter} onSelect={onSelectFilter} />
         {filteredMembers.map((member) => (
           <View key={member.membershipId} style={styles.roleRow}>
             <Pressable
@@ -11528,7 +11635,7 @@ function getAdminActionErrorMessage(
   }
 }
 
-function filterMembers(members: AdminCampusMember[], filter: MemberFilter) {
+function filterMembers(members: AdminCampusMember[], filter: RoleFilter) {
   switch (filter) {
     case 'ALL':
       return members;

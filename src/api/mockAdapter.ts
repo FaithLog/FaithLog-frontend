@@ -301,6 +301,21 @@ function resolveMockData(
   }
   if (
     route.method === 'GET' &&
+    /^\/campuses\/\d+\/duty-assignments\/me$/.test(path)
+  ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeCampusMember(mealActor, campusId);
+    if (denied) return denied;
+    return admin.dutyAssignments.find(
+      (duty) =>
+        duty.campusId === campusId &&
+        duty.userId === mealActor?.userId &&
+        duty.dutyType === 'COFFEE' &&
+        duty.isActive,
+    ) ?? mockForbidden('COFFEE_DUTY_REQUIRED', '활성 커피 담당자만 이용할 수 있습니다.');
+  }
+  if (
+    route.method === 'GET' &&
     /^\/campuses\/\d+\/duty-assignments\/me\/meal$/.test(path)
   ) {
     const campusId = getCampusId(path);

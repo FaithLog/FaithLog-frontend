@@ -24,9 +24,10 @@ type MealAccountScreenProps = {
   currentUserId: number;
   onBack: () => void;
   onSessionExpired: (message: string) => void;
+  showBackButton?: boolean;
 };
 
-export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBack, onSessionExpired}: MealAccountScreenProps) {
+export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBack, onSessionExpired, showBackButton = true}: MealAccountScreenProps) {
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-accounts`);
   const mutationGate = useRef(createMealMutationGate()).current;
   const [state, setState] = useState<MealLoadState<MealPaymentAccount[]>>({status: 'loading'});
@@ -190,7 +191,9 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
       </Card>
       {actionError ? <MealErrorState error={actionError} onRetry={load} /> : null}
       {refreshWarning ? <MealRefreshWarning onRetry={() => void load(false)} /> : null}
-      <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+      {showBackButton ? (
+        <Button accessibilityLabel="밥 정산 관리 홈으로 돌아가기" onPress={onBack} variant="secondary">돌아가기</Button>
+      ) : null}
 
       <Modal
         animationType="slide"

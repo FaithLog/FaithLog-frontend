@@ -94,6 +94,10 @@ export const mealStyles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  content: {
+    gap: spacing.card,
+    paddingBottom: 130,
+  },
   dangerText: {
     color: colors.danger,
     fontSize: 14,
@@ -102,6 +106,26 @@ export const mealStyles = StyleSheet.create({
   },
   fieldGroup: {
     gap: 10,
+  },
+  frame: {
+    backgroundColor: colors.background,
+    flex: 1,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
+  header: {
+    gap: spacing.gap,
+    marginBottom: spacing.gap,
+  },
+  headerText: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  kicker: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
   },
   list: {
     gap: spacing.gap,
@@ -115,12 +139,46 @@ export const mealStyles = StyleSheet.create({
     gap: spacing.gap,
     paddingBottom: spacing.card,
   },
+  pageNav: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gap,
+  },
+  pageNavButton: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 8,
+    flexGrow: 1,
+    justifyContent: 'center',
+    minWidth: '46%',
+    paddingHorizontal: spacing.card,
+    paddingVertical: spacing.gap,
+  },
+  pageNavButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  pageNavText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  pageNavTextActive: {
+    color: colors.surface,
+  },
+  pressed: {
+    opacity: 0.75,
+  },
   rowBetween: {
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.gap,
     justifyContent: 'space-between',
+  },
+  screenTitle: {
+    color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: '800',
   },
   sheet: {
     backgroundColor: colors.surface,

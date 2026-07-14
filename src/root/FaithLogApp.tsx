@@ -4139,35 +4139,57 @@ function CoffeeDutyProfileRow({
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
-  const [canManageCoffee, setCanManageCoffee] = useState(false);
+  const [coffeeAccess, setCoffeeAccess] = useState<{
+    allowed: boolean;
+    campusId: number;
+    userId: number;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    const requestGeneration = getAuthSessionGeneration();
+    setCoffeeAccess(null);
 
     const loadCoffeeDuty = async () => {
       try {
-        const accessToken = await resolveCurrentAccessToken(() => {
-          setAuthState({
-            status: 'sessionExpired',
-            message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-          });
+        const accessToken = await resolveCurrentAccessToken((generation) => {
+          if (mounted && generation === requestGeneration) {
+            setAuthState({
+              status: 'sessionExpired',
+              message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+            });
+          }
         });
         if (!accessToken) return;
 
         const duty = await fetchMyDutyAssignment(accessToken, state.selectedCampus.campusId);
+        if (!mounted || !isAuthSessionRequestAllowed(requestGeneration)) return;
         const canManage =
           duty.dutyType === 'COFFEE' && duty.isActive && duty.userId === state.user.id;
 
-        if (mounted) {
-          setCanManageCoffee(canManage);
-        }
+        setCoffeeAccess({
+          allowed: canManage,
+          campusId: state.selectedCampus.campusId,
+          userId: state.user.id,
+        });
       } catch (error) {
-        if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
-          setAuthState({status: 'sessionExpired', message: error.detail.message});
-        }
-
-        if (mounted) {
-          setCanManageCoffee(false);
+        if (error instanceof StaleAuthSessionReadError || !mounted) return;
+        if (
+          error instanceof FaithLogApiError &&
+          shouldHandleRequestError(
+            error.detail,
+            requestGeneration,
+            getAuthSessionGeneration(),
+          )
+        ) {
+          if (error.detail.kind === 'sessionExpired') {
+            setAuthState({status: 'sessionExpired', message: error.detail.message});
+          }
+          setCoffeeAccess({
+            allowed: false,
+            campusId: state.selectedCampus.campusId,
+            userId: state.user.id,
+          });
         }
       }
     };
@@ -4179,7 +4201,11 @@ function CoffeeDutyProfileRow({
     };
   }, [setAuthState, state.selectedCampus.campusId, state.user.id]);
 
-  if (!canManageCoffee) {
+  if (
+    !coffeeAccess?.allowed ||
+    coffeeAccess.campusId !== state.selectedCampus.campusId ||
+    coffeeAccess.userId !== state.user.id
+  ) {
     return null;
   }
 

@@ -9,9 +9,12 @@ vi.mock('react-native', async () => {
   const host = (name) => ({children, ...props}) =>
     ReactModule.createElement(name, props, children);
   return {
+    KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: ({children, visible, ...props}) => visible
       ? ReactModule.createElement('Modal', props, children)
       : null,
+    Platform: {OS: 'ios'},
+    Pressable: host('Pressable'),
     ScrollView: host('ScrollView'),
     StyleSheet: {create: (styles) => styles},
     Text: host('Text'),
@@ -30,6 +33,8 @@ vi.mock('../components/ui', async () => {
     Chip: host('Chip'),
     Empty: host('Empty'),
     Eyebrow: host('Eyebrow'),
+    FaithLogHeaderPillButton: host('FaithLogHeaderPillButton'),
+    FaithLogHeaderTopRow: host('FaithLogHeaderTopRow'),
     Loading: host('Loading'),
     TextField: host('TextField'),
     Title: host('Title'),
@@ -66,6 +71,7 @@ vi.mock('../api/client', () => {
 
 import {FaithLogApiError} from '../api/client';
 import {MealAccountScreen} from './MealAccountScreen';
+import {MealDutyScreen} from './MealDutyScreen';
 import {MealPollChargeScreen} from './MealPollChargeScreen';
 import {MealPollCreateScreen} from './MealPollCreateScreen';
 import {MealPollDetailScreen} from './MealPollDetailScreen';
@@ -80,6 +86,39 @@ describe('MEAL component behavior', () => {
   beforeEach(() => {
     auth.generation = 1;
     auth.token = 'A1';
+  });
+
+  it('uses the coffee management header and four-page navigation pattern', async () => {
+    const api = createApi({
+      getMyDuty: vi.fn().mockResolvedValue({
+        assignmentId: 20,
+        campusId: 1,
+        dutyType: 'MEAL',
+        isActive: true,
+        userId: 7,
+      }),
+      listPolls: vi.fn().mockResolvedValue(pollList([])),
+    });
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealDutyScreen, {
+        api,
+        onBack: vi.fn(),
+        setAuthState: vi.fn(),
+        state: authenticatedState(),
+      }));
+      await settle();
+    });
+
+    const output = rendered(renderer);
+    expect(output).toContain('밥 담당자');
+    expect(output).toContain('밥 정산 관리');
+    expect(output).toContain('투표');
+    expect(output).toContain('투표 생성');
+    expect(output).toContain('내 계좌');
+    expect(output).toContain('정산');
+    expect(renderer.root.findByProps({accessibilityLabel: '밥 투표 페이지 열기'})).toBeTruthy();
+    expect(renderer.root.findByProps({accessibilityLabel: '밥 정산 페이지 열기'})).toBeTruthy();
   });
 
   it('renders loading, error, retry success, and empty list states', async () => {
@@ -771,6 +810,25 @@ function chargeProps(api) {
 
 function settlementProps(api) {
   return {api, campusId: 1, currentUserId: 7, onBack: vi.fn(), onSessionExpired: vi.fn()};
+}
+
+function authenticatedState() {
+  return {
+    status: 'authenticated',
+    user: {
+      id: 7,
+      email: 'faithlog.user@example.test',
+      name: '샘플 사용자',
+      role: 'USER',
+    },
+    selectedCampus: {
+      campusId: 1,
+      campusName: '샘플 캠퍼스',
+      campusRole: 'MEMBER',
+      status: 'ACTIVE',
+    },
+    activeCampuses: [],
+  };
 }
 
 function mealPoll(patch = {}) {
