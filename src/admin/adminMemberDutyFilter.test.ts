@@ -59,7 +59,7 @@ describe('admin member duty filters', () => {
       {...duties[0]!, userId: 99},
     ], members, 1)).toThrow('Invalid duty assignment identity');
     expect(() => assertAdminDutyAssignmentsForCampus([
-      {...duties[0]!, dutyType: 'UNKNOWN'},
+      {...duties[0]!, dutyType: 'UNKNOWN' as never},
     ], members, 1)).toThrow('Invalid duty assignment identity');
     expect(() => assertAdminDutyAssignmentsForCampus([
       duties[0]!, {...duties[0]!, assignmentId: 99},

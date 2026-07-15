@@ -153,7 +153,7 @@ describe('MEAL mock adapter flow', () => {
     const existing = await assignCoffeeDuty('mock-access-token', 1, {userId: 7});
     expect(existing).toMatchObject({assignmentId: 1201, userId: 7});
     await expect(revokeCoffeeDuty('mock-access-token', 1, existing.assignmentId)).rejects
-      .toMatchObject({detail: {code: 'COFFEE_DUTY_UNPAID_CHARGES_EXIST', status: 409}});
+      .toMatchObject({detail: {code: 'CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT', status: 409}});
 
     const assigned = await assignCoffeeDuty('mock-access-token', 1, {userId: 8});
     expect(assigned).toMatchObject({campusId: 1, dutyType: 'COFFEE', userId: 8});
@@ -819,7 +819,7 @@ describe('MEAL mock adapter flow', () => {
     await expect(
       mealApi.revokeDuty(mealMockAccessTokens.activeDuty, 1, 1302),
     ).rejects.toMatchObject({
-      detail: {code: 'MEAL_DUTY_UNPAID_CHARGES_EXIST', status: 409},
+      detail: {code: 'CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT', status: 409},
     });
   });
 });

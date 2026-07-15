@@ -246,7 +246,6 @@ const pollSummary: PollSummary = {
   endsAt: '2026-07-02T09:00:00.000Z',
   status: 'OPEN',
   responded: false,
-  createdByUserId: 7,
   manageableByMe: true,
 };
 
@@ -261,6 +260,7 @@ const customPollSummary: PollSummary = {
   endsAt: '2026-07-03T09:00:00.000Z',
   status: 'OPEN',
   responded: true,
+  manageableByMe: true,
 };
 
 const wednesdayPollSummary: PollSummary = {
@@ -274,6 +274,7 @@ const wednesdayPollSummary: PollSummary = {
   endsAt: '2026-06-28T18:00:00.000Z',
   status: 'CLOSED',
   responded: true,
+  manageableByMe: true,
 };
 
 const saturdayPollSummary: PollSummary = {
@@ -287,6 +288,7 @@ const saturdayPollSummary: PollSummary = {
   endsAt: '2026-07-04T09:00:00.000Z',
   status: 'OPEN',
   responded: false,
+  manageableByMe: true,
 };
 
 const oldClosedPollSummary: PollSummary = {
@@ -300,6 +302,7 @@ const oldClosedPollSummary: PollSummary = {
   endsAt: '2026-06-25T09:00:00.000Z',
   status: 'CLOSED',
   responded: true,
+  manageableByMe: true,
 };
 
 const pollDetail: PollDetail = {

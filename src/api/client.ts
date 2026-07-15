@@ -2587,6 +2587,55 @@ export function fetchAdminMemberCharges(
   );
 }
 
+export function fetchServiceAdminStaleDutyCharges(
+  accessToken: string,
+  campusId: unknown,
+  userId: unknown,
+  paymentCategory: 'COFFEE' | 'MEAL',
+) {
+  if (paymentCategory !== 'COFFEE' && paymentCategory !== 'MEAL') {
+    return Promise.reject(new FaithLogApiError({
+      kind: 'error',
+      status: 400,
+      code: 'GLOBAL_VALIDATION_FAILED',
+      message: '복구할 담당 종류가 올바르지 않습니다.',
+    }));
+  }
+  const requestedCampusId = Number(toPositiveIntegerPathSegment(campusId, 'campusId'));
+  const requestedUserId = Number(toPositiveIntegerPathSegment(userId, 'userId'));
+  const query = toSafeChargeListQuery({
+    page: 0,
+    paymentCategory,
+    size: 100,
+    status: 'UNPAID',
+  });
+
+  return apiRequest<AdminMemberChargeList>(
+    `${buildAdminCampusPath(
+      requestedCampusId,
+      'members',
+      requestedUserId,
+      'charges',
+    )}?${query}`,
+    {
+      accessToken,
+      responseParser: (value) => {
+        const response = parseAdminMemberChargeList(value);
+        if (
+          response.campusId !== requestedCampusId ||
+          response.userId !== requestedUserId ||
+          response.items.some(
+            (item) => item.paymentCategory !== paymentCategory || item.status !== 'UNPAID',
+          )
+        ) {
+          throw new Error('Service admin stale charge list identity mismatch.');
+        }
+        return response;
+      },
+    },
+  );
+}
+
 export async function changeAdminChargeStatus(
   accessToken: string,
   chargeItemId: unknown,
@@ -2629,6 +2678,48 @@ export async function changeAdminChargeStatus(
           throw new Error('Admin charge response identity mismatch.');
         }
 
+        return response;
+      },
+      method: 'PATCH',
+    },
+  );
+}
+
+export async function changeServiceAdminStaleDutyChargeStatus(
+  accessToken: string,
+  chargeItemId: unknown,
+  status: 'PAID' | 'WAIVED' | 'CANCELED',
+  expected: {
+    campusId: number;
+    paymentCategory: 'COFFEE' | 'MEAL';
+    userId: number;
+  },
+) {
+  if (!['PAID', 'WAIVED', 'CANCELED'].includes(status)) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      status: 400,
+      code: 'BILLING_CHARGE_STATUS_TRANSITION_CONFLICT',
+      message: '복구 상태는 납부, 면제, 취소 중에서 선택해 주세요.',
+    });
+  }
+  const requestedChargeItemId = toPositiveIntegerPathSegment(chargeItemId, 'chargeItemId');
+  return apiRequest<AdminChargeStatusChangeResponse>(
+    buildApiPath('admin', 'charges', requestedChargeItemId, 'status'),
+    {
+      accessToken,
+      body: {status},
+      responseParser: (value) => {
+        const response = parseAdminChargeStatusChangeResponse(value);
+        if (
+          response.id !== Number(requestedChargeItemId) ||
+          response.campusId !== expected.campusId ||
+          response.userId !== expected.userId ||
+          response.paymentCategory !== expected.paymentCategory ||
+          response.status !== status
+        ) {
+          throw new Error('Service admin stale charge response identity mismatch.');
+        }
         return response;
       },
       method: 'PATCH',
@@ -2823,9 +2914,23 @@ export function addServiceAdminCampusMember(
   );
 }
 
-export function fetchDutyAssignments(accessToken: string, campusId: unknown) {
+export function fetchDutyAssignments(
+  accessToken: string,
+  campusId: unknown,
+  params: {staleOnly?: boolean} = {},
+) {
+  if (params.staleOnly !== undefined && typeof params.staleOnly !== 'boolean') {
+    return Promise.reject(new FaithLogApiError({
+      kind: 'error',
+      status: 400,
+      code: 'GLOBAL_VALIDATION_FAILED',
+      message: '담당자 조회 조건이 올바르지 않습니다.',
+    }));
+  }
+  const path = buildAdminCampusPath(campusId, 'duty-assignments');
+  const query = params.staleOnly === undefined ? '' : `?staleOnly=${String(params.staleOnly)}`;
   return apiRequest<DutyAssignment[]>(
-    buildAdminCampusPath(campusId, 'duty-assignments'),
+    `${path}${query}`,
     {accessToken, responseParser: parseDutyAssignments},
   );
 }

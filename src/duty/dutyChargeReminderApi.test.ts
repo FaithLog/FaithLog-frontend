@@ -22,7 +22,7 @@ import {
   type DutyChargeReminderRequestDispatcher,
 } from './dutyChargeReminderApi';
 
-describe('duty charge reminder provisional API', () => {
+describe('duty charge reminder API', () => {
   it.each([
     ['COFFEE', '/api/v1/campuses/3/coffee/charge-reminders'],
     ['MEAL', '/api/v1/campuses/3/meal/charge-reminders'],
@@ -55,14 +55,20 @@ describe('duty charge reminder provisional API', () => {
     await expect(api.send('token', 1, 'COFFEE')).rejects.toThrow('Invalid API response.');
   });
 
-  it('fails closed before dispatch while the canonical REST Docs contract is pending', async () => {
-    const request = vi.fn();
+  it('dispatches production requests after the canonical REST Docs contract is confirmed', async () => {
+    const {request, spy} = createRequestHarness({
+      notificationRequestId: 'request-production',
+      queuedCount: 1,
+      skippedCount: 0,
+    });
     const api = createDutyChargeReminderApi({isMockMode: () => false, request});
 
-    await expect(api.send('token', 1, 'MEAL')).rejects.toMatchObject({
-      detail: {code: 'API_CONTRACT_PENDING'},
-    });
-    expect(request).not.toHaveBeenCalled();
+    await api.send('token', 1, 'MEAL');
+    expect(spy).toHaveBeenCalledWith('/api/v1/campuses/1/meal/charge-reminders', expect.objectContaining({
+      expectedStatuses: [202],
+      method: 'POST',
+    }));
+    expect(spy.mock.calls[0]?.[1]).not.toHaveProperty('body');
   });
 });
 

@@ -1676,6 +1676,9 @@ async function applyCampusFormError(
 }
 
 function getCampusActionErrorMessage(error: ApiError, fallback: string) {
+  if (error.code === 'CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT') {
+    return '이전 캠퍼스의 커피 또는 밥 담당 해제를 먼저 완료한 뒤 다시 참여해 주세요.';
+  }
   if (error.kind === 'conflict' && error.code === 'CAMPUS_ALREADY_JOINED') {
     return '이미 참여 중인 캠퍼스입니다.';
   }
@@ -4112,6 +4115,9 @@ function AccountDeletionNotice({text}: {text: string}) {
 }
 
 function getAccountDeletionErrorMessage(error: ApiError) {
+  if (error.code === 'CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT') {
+    return '내정보의 커피 또는 밥 담당 관리에서 담당 해제를 먼저 완료한 뒤 다시 시도해 주세요.';
+  }
   if (error.code === 'USER_DELETE_PASSWORD_MISMATCH') {
     return '비밀번호가 일치하지 않습니다.';
   }

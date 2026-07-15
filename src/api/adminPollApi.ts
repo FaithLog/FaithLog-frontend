@@ -111,8 +111,6 @@ export type AdminPoll = {
   startsAt: string;
   endsAt: string;
   status: AdminPollStatus;
-  createdByUserId?: number;
-  manageableByMe?: boolean;
   options: PollOption[];
 };
 

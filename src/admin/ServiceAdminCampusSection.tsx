@@ -3,16 +3,23 @@ import {Pressable, StyleSheet, Text, View} from 'react-native';
 
 import {
   addServiceAdminCampusMember,
+  changeServiceAdminStaleDutyChargeStatus,
   FaithLogApiError,
   fetchCampusDetail,
+  fetchDutyAssignments,
+  fetchServiceAdminStaleDutyCharges,
   getServiceAdminCampuses,
+  revokeCoffeeDuty,
   updateCampus,
 } from '../api/client';
+import {mealApi} from '../meal/mealApi';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {clearTokens} from '../api/tokenStorage';
 import type {
   ApiError,
+  AdminMemberChargeList,
   CampusDetail,
+  DutyAssignment,
   ServiceAdminCampusList,
   ServiceAdminCampusListItem,
   ServiceAdminCampusOperationStatus,
@@ -382,6 +389,8 @@ export function ServiceAdminCampusSection({
           }}
           onRetry={(campusId, summary) => void loadCampusDetail(campusId, summary)}
           onSubmitMemberAdd={() => void submitMemberAdd()}
+          setAuthState={setAuthState}
+          setNotice={setNotice}
         />
       ) : null}
 
@@ -488,6 +497,8 @@ function CampusDetailSection({
   onMemberUserIdChange,
   onRetry,
   onSubmitMemberAdd,
+  setAuthState,
+  setNotice,
 }: {
   actionState: CampusActionState;
   detailState: CampusDetailState;
@@ -498,6 +509,8 @@ function CampusDetailSection({
   onMemberUserIdChange: (value: string) => void;
   onRetry: (campusId: number, summary?: ServiceAdminCampusListItem) => void;
   onSubmitMemberAdd: () => void;
+  setAuthState: (state: AuthGateState) => void;
+  setNotice: (notice: Notice) => void;
 }) {
   switch (detailState.status) {
     case 'idle':
@@ -569,11 +582,187 @@ function CampusDetailSection({
               {actionState.status === 'addingMember' ? '추가 중' : '멤버 추가'}
             </Button>
           </View>
+          <ServiceAdminStaleDutyRecovery
+            campusId={detailState.data.campusId}
+            setAuthState={setAuthState}
+            setNotice={setNotice}
+          />
         </Card>
       );
     default:
       return assertNever(detailState);
   }
+}
+
+type StaleRecoveryState =
+  | {status: 'loading'}
+  | {status: 'success'; assignments: DutyAssignment[]}
+  | {status: 'error'; error: ApiError};
+
+function ServiceAdminStaleDutyRecovery({
+  campusId,
+  setAuthState,
+  setNotice,
+}: {
+  campusId: number;
+  setAuthState: (state: AuthGateState) => void;
+  setNotice: (notice: Notice) => void;
+}) {
+  const [state, setState] = useState<StaleRecoveryState>({status: 'loading'});
+  const [charges, setCharges] = useState<AdminMemberChargeList | null>(null);
+  const [selected, setSelected] = useState<DutyAssignment | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadAssignments = async () => {
+    setState({status: 'loading'});
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken) return;
+      const assignments = await fetchDutyAssignments(accessToken, campusId, {staleOnly: true});
+      setState({status: 'success', assignments});
+    } catch (error) {
+      const apiError = toApiError(error, '과거 담당 배정을 불러오지 못했습니다.');
+      setState({status: 'error', error: apiError});
+      void handleAuthError(apiError, setAuthState);
+    }
+  };
+
+  useEffect(() => {
+    setCharges(null);
+    setSelected(null);
+    void loadAssignments();
+  }, [campusId]);
+
+  const loadCharges = async (assignment: DutyAssignment) => {
+    setBusy(true);
+    setSelected(assignment);
+    setCharges(null);
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken) return;
+      const next = await fetchServiceAdminStaleDutyCharges(
+        accessToken,
+        campusId,
+        assignment.userId,
+        assignment.dutyType,
+      );
+      setCharges(next);
+    } catch (error) {
+      const apiError = toApiError(error, '과거 담당자의 미납 청구를 불러오지 못했습니다.');
+      setNotice({tone: 'warning', title: '미납 청구를 확인하지 못했습니다', message: apiError.message});
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeCharge = async (
+    assignment: DutyAssignment,
+    chargeId: number,
+    status: 'PAID' | 'WAIVED' | 'CANCELED',
+  ) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken) return;
+      await changeServiceAdminStaleDutyChargeStatus(accessToken, chargeId, status, {
+        campusId,
+        paymentCategory: assignment.dutyType,
+        userId: assignment.userId,
+      });
+      const next = await fetchServiceAdminStaleDutyCharges(
+        accessToken,
+        campusId,
+        assignment.userId,
+        assignment.dutyType,
+      );
+      setCharges(next);
+      setNotice({tone: 'success', title: '미납 청구를 정리했습니다', message: '담당 해제 전 남은 미납 청구를 확인해 주세요.'});
+    } catch (error) {
+      const apiError = toApiError(error, '청구 상태를 변경하지 못했습니다.');
+      setNotice({tone: 'warning', title: '청구 상태를 변경하지 못했습니다', message: apiError.message});
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (assignment: DutyAssignment) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken) return;
+      if (assignment.dutyType === 'COFFEE') {
+        await revokeCoffeeDuty(accessToken, campusId, assignment.assignmentId);
+      } else {
+        await mealApi.revokeDuty(accessToken, campusId, assignment.assignmentId);
+      }
+      setCharges(null);
+      setSelected(null);
+      await loadAssignments();
+      setNotice({tone: 'success', title: '과거 담당을 해제했습니다', message: '이제 해당 사용자는 캠퍼스에 다시 가입할 수 있습니다.'});
+    } catch (error) {
+      const apiError = toApiError(error, '과거 담당을 해제하지 못했습니다.');
+      const conflict = apiError.code === 'CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT' || apiError.code === 'CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT';
+      setNotice({
+        tone: 'warning',
+        title: conflict ? '미납 청구 정리가 필요합니다' : '담당을 해제하지 못했습니다',
+        message: conflict ? '이 담당자의 계좌에 미납 청구가 남아 있어 담당자를 해제할 수 없습니다.' : apiError.message,
+      });
+      void handleAuthError(apiError, setAuthState);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.formBlock}>
+      <Chip label="과거 담당 복구" tone="warning" />
+      <Body>탈퇴한 멤버에게 남은 담당 배정과 미납 청구를 명시적으로 정리합니다.</Body>
+      {state.status === 'loading' ? <Loading message="과거 담당 배정을 확인하고 있어요." /> : null}
+      {state.status === 'error' ? <InlineError error={state.error} /> : null}
+      {state.status === 'success' && state.assignments.length === 0 ? (
+        <Body>복구가 필요한 과거 담당 배정이 없습니다.</Body>
+      ) : null}
+      {state.status === 'success' ? state.assignments.map((assignment) => (
+        <View key={assignment.assignmentId} style={styles.recoveryBlock}>
+          <ListRow
+            label={`${assignment.dutyType === 'COFFEE' ? '커피' : '밥'} 담당`}
+            supportingText={assignment.email}
+            value={assignment.name}
+          />
+          <View style={styles.actions}>
+            <Button accessibilityLabel={`${assignment.name} 미납 청구 조회`} disabled={busy} onPress={() => void loadCharges(assignment)} variant="secondary">
+              미납 조회
+            </Button>
+            <Button accessibilityLabel={`${assignment.name} 과거 담당 해제`} disabled={busy} onPress={() => void revoke(assignment)} variant="ghost">
+              담당 해제
+            </Button>
+          </View>
+        </View>
+      )) : null}
+      {selected && charges ? (
+        <View style={styles.recoveryBlock}>
+          <Title>{selected.name} 미납 청구</Title>
+          {charges.items.length === 0 ? <Body>남은 미납 청구가 없습니다. 담당을 해제할 수 있습니다.</Body> : null}
+          {charges.items.map((charge) => (
+            <View key={charge.id} style={styles.recoveryBlock}>
+              <ListRow label={charge.title} value={`${charge.amount.toLocaleString('ko-KR')}원`} />
+              <View style={styles.actions}>
+                {(['PAID', 'WAIVED', 'CANCELED'] as const).map((status) => (
+                  <Button accessibilityLabel={`${charge.title} ${status === 'PAID' ? '납부' : status === 'WAIVED' ? '면제' : '취소'} 처리`} key={status} disabled={busy} onPress={() => void changeCharge(selected, charge.id, status)} variant="secondary">
+                    {status === 'PAID' ? '납부' : status === 'WAIVED' ? '면제' : '취소'}
+                  </Button>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function CampusEditSection({
@@ -1029,6 +1218,12 @@ const styles = StyleSheet.create({
   formBlock: {
     gap: spacing.gap,
     paddingTop: spacing.gap,
+  },
+  recoveryBlock: {
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.item,
+    gap: 8,
+    padding: 12,
   },
   compareBlock: {
     gap: 8,

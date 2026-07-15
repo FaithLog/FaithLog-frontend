@@ -81,6 +81,7 @@ const CAMPUS_ROLES = new Set<CampusRole>([
 ]);
 const FCM_DEVICE_TYPES = new Set<FcmDeviceType>(['ANDROID', 'IOS', 'WEB']);
 const PAYMENT_CATEGORIES = new Set<PaymentCategory>(['PENALTY', 'COFFEE', 'MEAL']);
+const DUTY_TYPES = new Set(['COFFEE', 'MEAL'] as const);
 const PAYMENT_ACCOUNT_CATEGORIES = new Set<PaymentAccountCategory>(['PENALTY', 'COFFEE']);
 const CHARGE_STATUSES = new Set(['UNPAID', 'PAID', 'WAIVED', 'CANCELED'] as const);
 const PENALTY_RULE_TYPES = new Set<PenaltyRuleType>([
@@ -773,6 +774,9 @@ function requireAliasedBoolean(record: UnknownRecord, keys: readonly string[]) {
 
 function parsePollSummaryValue(value: unknown): PollSummary {
   const record = requireRecord(value);
+  if (record.createdByUserId !== undefined) {
+    return invalidResponse();
+  }
   const allowUserOptionAdd =
     record.allowUserOptionAdd === undefined
       ? {}
@@ -813,10 +817,7 @@ function parsePollSummaryValue(value: unknown): PollSummary {
     ),
     status: requireOpenString(record.status),
     responded,
-    ...(record.createdByUserId === undefined
-      ? {}
-      : {createdByUserId: requirePositiveId(record.createdByUserId)}),
-    ...optionalBoolean(record, 'manageableByMe'),
+    manageableByMe: requireBoolean(record.manageableByMe),
   };
 }
 
@@ -1330,7 +1331,7 @@ function parseDutyAssignmentValue(value: unknown): DutyAssignment {
     userId: requirePositiveId(record.userId),
     name: requireString(record.name, 200),
     email: requireString(record.email, 320),
-    dutyType: requireOpenString(record.dutyType),
+    dutyType: requireEnum(record.dutyType, DUTY_TYPES),
     isActive: requireBoolean(record.isActive),
     assignedAt: requireDateTime(record.assignedAt),
   };
@@ -1363,6 +1364,9 @@ function parseAdminPollTemplateValue(value: unknown): AdminPollTemplate {
 
 function parseAdminPollValue(value: unknown): AdminPoll {
   const record = requireRecord(value);
+  if (record.createdByUserId !== undefined) {
+    return invalidResponse();
+  }
   return {
     id: requirePositiveId(record.id),
     campusId: requirePositiveId(record.campusId),
@@ -1381,10 +1385,6 @@ function parseAdminPollValue(value: unknown): AdminPoll {
     startsAt: requireDateTime(record.startsAt),
     endsAt: requireDateTime(record.endsAt),
     status: requireOpenString(record.status),
-    ...(record.createdByUserId === undefined
-      ? {}
-      : {createdByUserId: requirePositiveId(record.createdByUserId)}),
-    ...optionalBoolean(record, 'manageableByMe'),
     options: requireArray(record.options, parsePollOptionValue),
   };
 }
@@ -1510,7 +1510,7 @@ export function parseMyDutyAssignment(value: unknown): MyDutyAssignment {
     return {
       userId: requirePositiveId(record.userId),
       campusId: requirePositiveId(record.campusId),
-      dutyType: requireOpenString(record.dutyType),
+      dutyType: requireEnum(record.dutyType, DUTY_TYPES),
       isActive: requireBoolean(record.isActive),
     };
   });

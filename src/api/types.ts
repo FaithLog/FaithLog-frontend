@@ -494,7 +494,7 @@ export type CoffeeMenu = {
 export type MyDutyAssignment = {
   userId: number;
   campusId: number;
-  dutyType: string;
+  dutyType: 'COFFEE' | 'MEAL';
   isActive: boolean;
 };
 
@@ -510,8 +510,7 @@ export type PollSummary = {
   endsAt: string;
   status: string;
   responded: boolean;
-  createdByUserId?: number;
-  manageableByMe?: boolean;
+  manageableByMe: boolean;
 };
 
 export type PollOption = {
@@ -768,7 +767,7 @@ export type DutyAssignment = {
   userId: number;
   name: string;
   email: string;
-  dutyType: 'COFFEE' | string;
+  dutyType: 'COFFEE' | 'MEAL';
   isActive: boolean;
   assignedAt: string;
 };

@@ -331,7 +331,6 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
   it('hides close controls for another coffee duty owner poll', async () => {
     mocks.fetchAdminPolls.mockResolvedValue([{
       ...coffeePoll(),
-      createdByUserId: 8,
       manageableByMe: false,
     }]);
     let renderer;
@@ -550,7 +549,6 @@ function coffeePoll() {
     startsAt: new Date().toISOString(),
     endsAt: new Date(Date.now() + 7_200_000).toISOString(),
     status: 'OPEN',
-    createdByUserId: 7,
     manageableByMe: true,
   };
 }

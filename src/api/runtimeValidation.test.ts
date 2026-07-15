@@ -198,21 +198,26 @@ const VALID_PARSER_CASES = Object.entries(VALID_PARSER_PAYLOADS) as Array<
 >;
 
 describe('coffee poll ownership metadata', () => {
-  it('preserves createdByUserId and manageableByMe from poll list responses', () => {
+  it('requires manageableByMe and rejects createdByUserId from public poll responses', () => {
     const parsed = parsePollSummaryList([{
       ...mockDomainFixtures.poll.summaries.find((poll) => poll.pollType === 'COFFEE'),
-      createdByUserId: 7,
       manageableByMe: false,
     }]);
 
-    expect(parsed[0]).toMatchObject({createdByUserId: 7, manageableByMe: false});
+    expect(parsed[0]).toMatchObject({manageableByMe: false});
+    expect(parsed[0]).not.toHaveProperty('createdByUserId');
+    expect(() => parsePollSummaryList([{
+      ...mockDomainFixtures.poll.summaries[0],
+      createdByUserId: 7,
+      manageableByMe: true,
+    }])).toThrow('Invalid API response.');
   });
 
   it('rejects malformed ownership metadata', () => {
     const coffeePoll = mockDomainFixtures.poll.summaries.find((poll) => poll.pollType === 'COFFEE');
-    expect(() => parsePollSummaryList([{...coffeePoll, createdByUserId: 0, manageableByMe: true}]))
+    expect(() => parsePollSummaryList([{...coffeePoll, manageableByMe: undefined}]))
       .toThrow('Invalid API response.');
-    expect(() => parsePollSummaryList([{...coffeePoll, createdByUserId: 7, manageableByMe: 'yes'}]))
+    expect(() => parsePollSummaryList([{...coffeePoll, manageableByMe: 'yes'}]))
       .toThrow('Invalid API response.');
   });
 });

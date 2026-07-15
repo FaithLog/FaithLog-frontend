@@ -266,7 +266,12 @@ function getReminderErrorMessage(error: {code?: string; kind: string; status?: n
     return '활성 밥 담당자만 미납 알림을 보낼 수 있습니다.';
   }
   if (error.kind === 'conflict' || error.status === 409) {
-    return '알림 요청 상태가 변경되었습니다. 정산 내역을 새로고침한 뒤 다시 시도해 주세요.';
+    return error.code === 'NOTIFICATION_LOCK_ALREADY_RUNNING'
+      ? '이미 미납 알림 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요.'
+      : '알림 요청 상태가 변경되었습니다. 정산 내역을 새로고침한 뒤 다시 시도해 주세요.';
+  }
+  if (error.code === 'NOTIFICATION_REDIS_UNAVAILABLE' || error.status === 503) {
+    return '알림 서비스 연결이 원활하지 않습니다. 잠시 후 다시 시도해 주세요.';
   }
   if (error.status === 404) {
     return '현재 캠퍼스의 밥 담당 범위를 찾을 수 없습니다.';

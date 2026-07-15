@@ -15,6 +15,7 @@ function poll(patch: Partial<PollSummary>): PollSummary {
     endsAt: patch.endsAt ?? '2026-06-29T09:00:00.000Z',
     status: patch.status ?? 'OPEN',
     responded: patch.responded ?? false,
+    manageableByMe: patch.manageableByMe ?? true,
     ...patch,
   };
 }

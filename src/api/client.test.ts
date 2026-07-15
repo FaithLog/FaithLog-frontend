@@ -17,6 +17,7 @@ import {
   buildApiUrl,
   buildAdminChargeStatusChangeRequest,
   changeAdminChargeStatus,
+  changeServiceAdminStaleDutyChargeStatus,
   createAdminPaymentAccount,
   createAdminPenaltyRule,
   createCoffeeDutyPaymentAccount,
@@ -26,6 +27,8 @@ import {
   fetchAdminCampusChargesForMyAccounts,
   fetchAdminMemberCharges,
   fetchAdminPaymentAccounts,
+  fetchDutyAssignments,
+  fetchServiceAdminStaleDutyCharges,
   fetchMyCharges,
   fetchPollDetail,
   fetchPollResults,
@@ -171,6 +174,59 @@ describe('FaithLog API client', () => {
     expect(buildApiUrl('/api/v1/users/me')).toBe(
       'https://api.faithlog.test/root/api/v1/users/me',
     );
+  });
+
+  it.each([
+    [undefined, '/api/v1/admin/campuses/3/duty-assignments'],
+    [false, '/api/v1/admin/campuses/3/duty-assignments?staleOnly=false'],
+    [true, '/api/v1/admin/campuses/3/duty-assignments?staleOnly=true'],
+  ] as const)('serializes the duty assignment staleOnly contract', async (staleOnly, expectedPath) => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope([])));
+
+    await fetchDutyAssignments('access-token', 3, staleOnly === undefined ? {} : {staleOnly});
+
+    expect(fetch).toHaveBeenCalledWith(
+      `https://api.faithlog.test/root${expectedPath}`,
+      expect.objectContaining({method: 'GET'}),
+    );
+  });
+
+  it('rejects an invalid staleOnly value before dispatch', async () => {
+    await expect(fetchDutyAssignments('access-token', 3, {staleOnly: 'yes' as never}))
+      .rejects.toMatchObject({detail: {status: 400}});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('loads only one stale duty member category through the service-admin recovery boundary', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope({
+      campusId: 3,
+      campusName: '복구 캠퍼스',
+      region: '서울',
+      userId: 9,
+      name: '과거 담당자',
+      email: 'stale@example.test',
+      summary: {totalAmount: 8000, unpaidAmount: 8000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+      items: [],
+    })));
+
+    await fetchServiceAdminStaleDutyCharges('access-token', 3, 9, 'MEAL');
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/admin/campuses/3/members/9/charges?'),
+      expect.objectContaining({method: 'GET'}),
+    );
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain('paymentCategory=MEAL');
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain('status=UNPAID');
+  });
+
+  it('allows only explicit terminal targets in service-admin stale recovery', async () => {
+    await expect(changeServiceAdminStaleDutyChargeStatus(
+      'access-token',
+      71,
+      'UNPAID' as never,
+      {campusId: 3, paymentCategory: 'COFFEE', userId: 9},
+    )).rejects.toMatchObject({detail: {status: 400}});
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('keeps penalty rule create on the backend replacement contract without isActive', async () => {
@@ -428,6 +484,7 @@ describe('FaithLog API client', () => {
               endDateTime: '2026-07-06T09:00:00.000Z',
               status: 'OPEN',
               hasResponded: false,
+              manageableByMe: true,
             },
             {
               pollId: 12,
@@ -440,6 +497,7 @@ describe('FaithLog API client', () => {
               endDateTime: '2026-07-07T09:00:00.000Z',
               status: 'OPEN',
               hasResponded: true,
+              manageableByMe: true,
             },
           ],
           page: 0,
@@ -505,6 +563,7 @@ describe('FaithLog API client', () => {
               endDateTime: '2026-07-06T09:00:00.000Z',
               status: 'OPEN',
               hasResponded: false,
+              manageableByMe: true,
             },
             options: {
               content: [

@@ -11654,6 +11654,9 @@ function getAdminActionErrorMessage(
   error: ApiError,
   options: {exposeValidationMessage?: boolean} = {},
 ) {
+  if (error.code === 'CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT') {
+    return '이 멤버의 커피 또는 밥 담당 해제를 먼저 완료한 뒤 다시 시도해 주세요.';
+  }
   switch (error.kind) {
     case 'permissionDenied':
       return error.message.trim() &&
@@ -12060,8 +12063,9 @@ function toPollSummary(poll: AdminPoll): PollSummary {
     startsAt: poll.startsAt,
     status: poll.status,
     title: poll.title,
-    ...(poll.createdByUserId === undefined ? {} : {createdByUserId: poll.createdByUserId}),
-    ...(poll.manageableByMe === undefined ? {} : {manageableByMe: poll.manageableByMe}),
+    // A successful create/close command proves this requester can manage the returned poll.
+    // Public list/detail responses still use the server-provided manageableByMe capability.
+    manageableByMe: true,
   };
 }
 

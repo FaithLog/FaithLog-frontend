@@ -938,6 +938,13 @@ function resolveMockData(
     const campusId = getCampusId(path);
     const denied = authorizeMealAdmin(mealActor, campusId);
     if (denied) return denied;
+    const staleOnly = route.searchParams.get('staleOnly');
+    if (staleOnly !== null && staleOnly !== 'true' && staleOnly !== 'false') {
+      return mockBadRequest('GLOBAL_VALIDATION_FAILED', 'staleOnly 값이 올바르지 않습니다.');
+    }
+    if (staleOnly === 'true') {
+      return [];
+    }
     return [
       ...mockMealState.coffeeDuties.filter(
         (duty) => duty.campusId === campusId && duty.isActive,
@@ -1006,7 +1013,7 @@ function resolveMockData(
     );
     if (hasUnpaidCharges) {
       return mockConflict(
-        'MEAL_DUTY_UNPAID_CHARGES_EXIST',
+        'CAMPUS_MEAL_DUTY_UNPAID_CHARGE_CONFLICT',
         '담당 계좌에 미납 청구가 남아 있어 밥 담당자를 해제할 수 없습니다.',
       );
     }
@@ -1089,7 +1096,7 @@ function resolveMockData(
     );
     if (hasUnpaidCharges) {
       return mockConflict(
-        'COFFEE_DUTY_UNPAID_CHARGES_EXIST',
+        'CAMPUS_COFFEE_DUTY_UNPAID_CHARGE_CONFLICT',
         '담당 계좌에 미납 청구가 남아 있어 커피 담당자를 해제할 수 없습니다.',
       );
     }
@@ -1689,6 +1696,9 @@ function toGeneralMealPollSummary(poll: MockMealPollSummary, userId: number) {
     endsAt: poll.endsAt,
     status: poll.status,
     responded: Boolean(mockMealState.responses[mockMealResponseKey(poll.id, userId)]),
+    manageableByMe: mockMealState.duties.some(
+      (duty) => duty.campusId === poll.campusId && duty.userId === userId && duty.isActive,
+    ),
   };
 }
 

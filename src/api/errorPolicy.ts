@@ -108,6 +108,14 @@ export function getSafeApiErrorMessage(error: ApiError) {
 }
 
 function getBasePresentation(error: ApiError): ApiErrorPresentation {
+  if (error.code === 'CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT') {
+    return {
+      title: '담당 해제가 필요합니다',
+      message: '커피 또는 밥 담당 해제를 먼저 완료한 뒤 다시 시도해 주세요.',
+      actionLabel: '담당 관리 확인',
+      retryable: false,
+    };
+  }
   if (error.code === 'CONFIGURATION') {
     return {
       title: '앱 설정 확인이 필요합니다',
