@@ -6,6 +6,7 @@ import {describe, expect, it} from 'vitest';
 const root = path.resolve(import.meta.dirname, '../..');
 const appEntry = fs.readFileSync(path.join(root, 'App.tsx'), 'utf8');
 const appConfig = fs.readFileSync(path.join(root, 'app.config.js'), 'utf8');
+const appJson = JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const analyticsSource = fs.readFileSync(
   path.join(root, 'src/analytics/nativeFirebaseAnalytics.ts'),
@@ -18,6 +19,9 @@ describe('Firebase Analytics native configuration', () => {
     expect(packageJson.dependencies['@react-native-firebase/app']).toBe('^25.1.0');
     expect(appConfig).toContain("'@react-native-firebase/analytics'");
     expect(appConfig).toMatch(/withoutAdIdSupport:\s*true/);
+    expect(appJson.expo.android.blockedPermissions).toContain(
+      'com.google.android.gms.permission.AD_ID',
+    );
   });
 
   it('initializes collection from the app entry without creating another Firebase app', () => {
