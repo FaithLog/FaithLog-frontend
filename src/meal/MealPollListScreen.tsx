@@ -35,7 +35,6 @@ type MealPollChargeFilter = 'ALL' | 'NOT_CHARGED' | 'CHARGED';
 export function MealPollListScreen({
   api = mealApi,
   campusId,
-  onCreate,
   onOpenDetail,
   onSessionExpired,
 }: MealPollListScreenProps) {
@@ -103,10 +102,7 @@ export function MealPollListScreen({
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
       {state.status === 'empty' ? (
         <DutyAsyncState
-          actionAccessibilityLabel="새 밥 투표 만들기"
-          actionLabel="새 투표"
           message="새 투표를 만들면 이곳에서 진행 상태를 확인할 수 있어요."
-          onAction={onCreate}
           status="empty"
           title="표시할 밥 투표가 없습니다"
         />

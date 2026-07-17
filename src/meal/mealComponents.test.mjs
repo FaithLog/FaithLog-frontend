@@ -185,6 +185,7 @@ describe('MEAL component behavior', () => {
     api.listPolls.mockResolvedValueOnce(pollList([]));
     await press(renderer, '밥 투표 목록 새로고침');
     expect(rendered(renderer)).toContain('표시할 밥 투표가 없습니다');
+    expect(renderer.root.findAllByProps({accessibilityLabel: '새 밥 투표 만들기'})).toHaveLength(0);
   });
 
   it('drops an old campus response after switching campuses', async () => {
