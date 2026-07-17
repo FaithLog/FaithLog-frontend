@@ -13,7 +13,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
-      "icon": "./assets/icon.png",
+      "icon": "./assets/icon-ios.png",
       "bundleIdentifier": "com.faithlog.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
