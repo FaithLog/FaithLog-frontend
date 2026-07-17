@@ -12,6 +12,14 @@ const buildPropertiesPlugin = [
 ];
 const firebasePlugins = [
   '@react-native-firebase/app',
+  [
+    '@react-native-firebase/analytics',
+    {
+      ios: {
+        withoutAdIdSupport: true,
+      },
+    },
+  ],
   '@react-native-firebase/messaging',
 ];
 const iosApsEnvironment =
