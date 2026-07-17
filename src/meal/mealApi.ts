@@ -1,4 +1,5 @@
-import {apiRequest, FaithLogApiError, isMockModeEnabled} from '../api/client';
+import {apiRequest, FaithLogApiError} from '../api/client';
+import {DEFAULT_PAGE_SIZE} from '../api/pagination';
 import {
   parseClosedMealPollDetailForContext,
   parseCreatedMealPollDetailForContext,
@@ -47,10 +48,17 @@ type MealApiDependencies = {
 };
 
 export type MealPollListQuery = {
+  includeArchived?: boolean;
   status?: MealPollStatus;
   page?: number;
   size?: number;
-  sort?: 'endsAt,asc' | 'endsAt,desc' | 'startsAt,asc' | 'startsAt,desc';
+  sort?: 'createdAt,desc' | 'endsAt,asc' | 'endsAt,desc' | 'startsAt,asc' | 'startsAt,desc';
+};
+
+export type MealSettlementQuery = {
+  includeArchived?: boolean;
+  page?: number;
+  size?: number;
 };
 
 export type MealApi = {
@@ -109,13 +117,12 @@ export type MealApi = {
     pollId: unknown,
     body: MealChargeRequest,
   ): Promise<MealChargeResult>;
-  getMySettlement(accessToken: string, campusId: unknown, currentUserId: unknown): Promise<MealSettlement>;
+  getMySettlement(accessToken: string, campusId: unknown, currentUserId: unknown, query?: MealSettlementQuery): Promise<MealSettlement>;
 };
 
 export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
   const request: MealRequestDispatcher = dependencies.request ?? (<T>(path: string, options: MealRequestOptions<T>) =>
     apiRequest<T>(path, options));
-  const isMockMode = dependencies.isMockMode ?? isMockModeEnabled;
   const dispatch = request;
 
   return {
@@ -199,23 +206,15 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
     },
     listPolls(accessToken, campusId, query = {}) {
       const expectedCampusId = positiveId(campusId, 'campusId');
-      if (!isMockMode() && Object.keys(query).length > 0) {
-        throw new FaithLogApiError({
-          kind: 'error',
-          code: 'API_CONTRACT_PENDING',
-          message: '문서화되지 않은 밥 투표 목록 조건은 사용할 수 없습니다.',
-        });
-      }
       const expectedPage = nonNegativeInteger(query.page ?? 0, 'page');
-      const expectedSize = positiveId(query.size ?? 20, 'size');
+      const expectedSize = positiveId(query.size ?? DEFAULT_PAGE_SIZE, 'size');
       const params = new URLSearchParams();
       if (query.status) params.set('status', query.status);
       params.set('page', String(expectedPage));
       params.set('size', String(expectedSize));
-      params.set('sort', query.sort ?? 'endsAt,desc');
-      const path = isMockMode()
-        ? `${campusPath(expectedCampusId, 'meal', 'polls')}?${params}`
-        : campusPath(expectedCampusId, 'meal', 'polls');
+      params.set('sort', query.sort ?? 'createdAt,desc');
+      params.set('includeArchived', String(query.includeArchived === true));
+      const path = `${campusPath(expectedCampusId, 'meal', 'polls')}?${params}`;
       return dispatch(
         path,
         requestOptions(accessToken, (value) => parseMealPollListForContext(value, {
@@ -274,11 +273,18 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
         }),
       );
     },
-    getMySettlement(accessToken, campusId, currentUserId) {
+    getMySettlement(accessToken, campusId, currentUserId, query = {}) {
       const expectedCampusId = positiveId(campusId, 'campusId');
       const expectedOwnerUserId = positiveId(currentUserId, 'currentUserId');
+      const page = nonNegativeInteger(query.page ?? 0, 'page');
+      const size = positiveId(query.size ?? DEFAULT_PAGE_SIZE, 'size');
+      const params = new URLSearchParams({
+        includeArchived: String(query.includeArchived === true),
+        page: String(page),
+        size: String(size),
+      });
       return dispatch(
-        campusPath(expectedCampusId, 'meal', 'charges', 'my-accounts'),
+        `${campusPath(expectedCampusId, 'meal', 'charges', 'my-accounts')}?${params}`,
         requestOptions(accessToken, (value) => parseMealSettlementForContext(value, {
           campusId: expectedCampusId,
           ownerUserId: expectedOwnerUserId,

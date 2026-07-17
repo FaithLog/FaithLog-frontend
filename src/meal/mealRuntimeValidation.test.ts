@@ -274,6 +274,10 @@ function mealSettlement() {
     region: '서울',
     summary,
     members: [{userId: 7, name: '멤버', email: 'member@example.test', ...summary}],
+    page: 0,
+    size: 10,
+    totalElements: 1,
+    totalPages: 1,
   };
 }
 

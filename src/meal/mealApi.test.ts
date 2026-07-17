@@ -17,37 +17,34 @@ vi.mock('../api/client', () => {
   };
 });
 
-import {FaithLogApiError} from '../api/client';
 import {createMealApi, type MealRequestDispatcher} from './mealApi';
 
 describe('typed confirmed MEAL API', () => {
-  it('uses the documented queryless production list and fails closed for undocumented query parameters', async () => {
-    const {request, spy} = createRequestHarness([{content: [], page: 0, size: 20, totalElements: 0, totalPages: 0}]);
+  it('uses the documented archived and paging query in production', async () => {
+    const {request, spy} = createRequestHarness([
+      {content: [], page: 0, size: 10, totalElements: 0, totalPages: 0},
+      {content: [], page: 0, size: 10, totalElements: 0, totalPages: 0},
+    ]);
     const api = createMealApi({isMockMode: () => false, request});
 
     await api.listPolls('token', 1);
-    expect(spy.mock.calls[0]?.[0]).toBe('/api/v1/campuses/1/meal/polls');
-    let unsupportedQueryError: unknown;
-    try {
-      api.listPolls('token', 1, {status: 'CLOSED'});
-    } catch (error) {
-      unsupportedQueryError = error;
-    }
-    expect(unsupportedQueryError).toBeInstanceOf(FaithLogApiError);
-    expect((unsupportedQueryError as FaithLogApiError).detail.code).toBe('API_CONTRACT_PENDING');
-    expect(spy).toHaveBeenCalledTimes(1);
+    await api.listPolls('token', 1, {includeArchived: true, status: 'CLOSED'});
+    expect(spy.mock.calls[0]?.[0]).toBe(
+      '/api/v1/campuses/1/meal/polls?page=0&size=10&sort=createdAt%2Cdesc&includeArchived=false',
+    );
+    expect(spy.mock.calls[1]?.[0]).toContain('includeArchived=true');
   });
 
   it('uses the MEAL management list, never the general user poll list', async () => {
     const {request, spy} = createRequestHarness([{
-      content: [], page: 0, size: 20, totalElements: 0, totalPages: 0,
+      content: [], page: 0, size: 10, totalElements: 0, totalPages: 0,
     }]);
     const api = createMealApi({isMockMode: () => true, request});
 
-    await api.listPolls('token', 3, {page: 0, size: 20, sort: 'endsAt,desc', status: 'CLOSED'});
+    await api.listPolls('token', 3, {page: 0, size: 10, sort: 'endsAt,desc', status: 'CLOSED'});
 
     expect(spy).toHaveBeenCalledWith(
-      '/api/v1/campuses/3/meal/polls?status=CLOSED&page=0&size=20&sort=endsAt%2Cdesc',
+      '/api/v1/campuses/3/meal/polls?status=CLOSED&page=0&size=10&sort=endsAt%2Cdesc&includeArchived=false',
       expect.objectContaining({accessToken: 'token', method: 'GET'}),
     );
   });
@@ -55,7 +52,7 @@ describe('typed confirmed MEAL API', () => {
   it('uses backend-filtered own-account and own-settlement endpoints', async () => {
     const {request, spy} = createRequestHarness([
       [],
-      {campusId: 4, campusName: '캠퍼스', region: '서울', members: [], summary: {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0}},
+      {campusId: 4, campusName: '캠퍼스', region: '서울', members: [], page: 0, size: 10, totalElements: 0, totalPages: 0, summary: {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0}},
     ]);
     const api = createMealApi({isMockMode: () => true, request});
 
@@ -66,7 +63,7 @@ describe('typed confirmed MEAL API', () => {
       '/api/v1/campuses/4/meal/payment-accounts/me?includeInactive=true',
     );
     expect(spy.mock.calls[1]?.[0]).toBe(
-      '/api/v1/campuses/4/meal/charges/my-accounts',
+      '/api/v1/campuses/4/meal/charges/my-accounts?includeArchived=false&page=0&size=10',
     );
   });
 

@@ -841,7 +841,12 @@ describe('MEAL component behavior', () => {
       renderer = create(React.createElement(MealPollListScreen, {...listProps(api, 1), onOpenDetail}));
       await settle();
     });
-    expect(api.listPolls).toHaveBeenLastCalledWith('A1', 1);
+    expect(api.listPolls).toHaveBeenLastCalledWith('A1', 1, {
+      includeArchived: false,
+      page: 0,
+      size: 10,
+      sort: 'createdAt,desc',
+    });
     expect(rendered(renderer)).toContain('아주 오래된 투표');
     await press(renderer, '아주 오래된 투표 밥 투표 상세 보기');
     expect(onOpenDetail).toHaveBeenCalledWith(21);
@@ -1201,7 +1206,7 @@ function mealAccount() {
 }
 
 function pollList(content, page = 0, totalElements = content.length, totalPages = content.length ? 1 : 0) {
-  return {content, page, size: 20, totalElements, totalPages};
+  return {content, page, size: 10, totalElements, totalPages};
 }
 
 function chargeResult() {

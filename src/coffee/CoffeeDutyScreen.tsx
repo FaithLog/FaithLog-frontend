@@ -57,6 +57,10 @@ import {
   isDutyChargeReminderCurrent,
   syncDutyChargeReminderScope,
 } from '../duty/dutyChargeReminderFlow';
+import {
+  filterDutySettlementMembers,
+  type DutySettlementFilter,
+} from '../duty/dutySettlementFilter';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
 import {
@@ -182,6 +186,8 @@ export function CoffeeDutyScreen({
   const [loadState, setLoadState] = useState<CoffeeDutyLoadState>({status: 'loading'});
   const [selectedMenuIds, setSelectedMenuIds] = useState<number[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [settlementPage, setSettlementPage] = useState(0);
+  const [settlementIncludeArchived, setSettlementIncludeArchived] = useState(false);
   const [title, setTitle] = useState(DEFAULT_COFFEE_POLL_TITLE);
   const [deadlineText, setDeadlineText] = useState(() =>
     formatLocalDateTimeInput(new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)),
@@ -210,7 +216,13 @@ export function CoffeeDutyScreen({
     isAuthSessionRequestAllowed(authGeneration) &&
     isDutyChargeReminderCurrent(reminderGate, operationId, reminderScope);
 
-  const load = async (ownedCoffeeAccountIdsOverride?: Set<number>) => {
+  const load = async (
+    ownedCoffeeAccountIdsOverride?: Set<number>,
+    settlementQuery = {
+      includeArchived: settlementIncludeArchived,
+      page: settlementPage,
+    },
+  ) => {
     setLoadState({status: 'loading'});
     setCreateState({status: 'idle'});
 
@@ -267,7 +279,12 @@ export function CoffeeDutyScreen({
         Promise.all(brands.map((brand) => fetchCoffeeMenus(accessToken, brand.id))).then((groups) =>
           groups.flat(),
         ),
-        fetchCoffeeChargeSummary(accessToken, campusId, nextSelectedAccountId),
+        fetchCoffeeChargeSummary(
+          accessToken,
+          campusId,
+          nextSelectedAccountId,
+          settlementQuery,
+        ),
       ]);
 
       setLoadState({
@@ -299,8 +316,10 @@ export function CoffeeDutyScreen({
     setReminderConfirmVisible(false);
     setReminderState({status: 'idle'});
     const emptyKnownOwnedCoffeeAccountIds = new Set<number>();
+    setSettlementPage(0);
+    setSettlementIncludeArchived(false);
     setKnownOwnedCoffeeAccountIds(emptyKnownOwnedCoffeeAccountIds);
-    void load(emptyKnownOwnedCoffeeAccountIds);
+    void load(emptyKnownOwnedCoffeeAccountIds, {includeArchived: false, page: 0});
   }, [campusId, reminderGate, reminderScope, state.user.id]);
 
   useEffect(() => {
@@ -547,8 +566,21 @@ export function CoffeeDutyScreen({
               onConfirmReminder={() => void sendCoffeeReminder()}
               onOpenReminder={() => setReminderConfirmVisible(true)}
               onRefresh={() => void load()}
+              onSetIncludeArchived={(includeArchived) => {
+                setSettlementPage(0);
+                setSettlementIncludeArchived(includeArchived);
+                void load(undefined, {includeArchived, page: 0});
+              }}
+              onSetPage={(nextPage) => {
+                setSettlementPage(nextPage);
+                void load(undefined, {
+                  includeArchived: settlementIncludeArchived,
+                  page: nextPage,
+                });
+              }}
               reminderConfirmVisible={reminderConfirmVisible}
               reminderState={reminderState}
+              includeArchived={settlementIncludeArchived}
               state={loadState}
             />
           ) : null}
@@ -602,25 +634,35 @@ export function CoffeeDutyScreen({
 }
 
 function CoffeeSettlementSummary({
+  includeArchived,
   onCancelReminder,
   onConfirmReminder,
   onOpenReminder,
   onRefresh,
+  onSetIncludeArchived,
+  onSetPage,
   reminderConfirmVisible,
   reminderState,
   state,
 }: {
+  includeArchived: boolean;
   onCancelReminder: () => void;
   onConfirmReminder: () => void;
   onOpenReminder: () => void;
   onRefresh: () => void;
+  onSetIncludeArchived: (includeArchived: boolean) => void;
+  onSetPage: (page: number) => void;
   reminderConfirmVisible: boolean;
   reminderState: CoffeeReminderState;
   state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
 }) {
+  const [settlementFilter, setSettlementFilter] = useState<DutySettlementFilter>('ALL');
   const charges = state.charges;
   const unpaidAmount = charges?.summary.unpaidAmount ?? 0;
   const memberCount = charges?.members.filter((member) => member.unpaidAmount > 0).length ?? 0;
+  const filteredMembers = charges
+    ? filterDutySettlementMembers(charges.members, settlementFilter)
+    : [];
 
   return (
     <DutyPageSection>
@@ -646,20 +688,64 @@ function CoffeeSettlementSummary({
           미납 {memberCount}명 · 커피 계좌 {state.accounts.length}개 · 담당자 {state.assignment.name}
         </Text>
       </DutyMetricSurface>
-      {charges?.members.length ? (
+      <DutyActionButton
+        accessibilityLabel={includeArchived ? '커피 정산 최근 기록 보기' : '커피 정산 이전 기록 보기'}
+        compact
+        label={includeArchived ? '최근 기록 보기' : '이전 기록 보기'}
+        onPress={() => onSetIncludeArchived(!includeArchived)}
+        variant="secondary"
+      />
+      <DutyActionRow>
+        {coffeeSettlementFilters.map((filter) => (
+          <DutyActionButton
+            accessibilityLabel={`커피 정산 ${filter.label} 보기`}
+            key={filter.value}
+            label={filter.label}
+            onPress={() => setSettlementFilter(filter.value)}
+            variant={settlementFilter === filter.value ? 'primary' : 'secondary'}
+          />
+        ))}
+      </DutyActionRow>
+      {filteredMembers.length ? (
         <View style={styles.optionList}>
-          {charges.members.slice(0, 5).map((member) => (
+          {filteredMembers.slice(0, 5).map((member) => (
             <DutyEntityCard
               key={member.userId}
-              statusLabel={formatWon(member.unpaidAmount)}
-              statusTone="warning"
-              title={member.name}
-            />
+              statusLabel={formatWon(
+                settlementFilter === 'PAID' ? member.paidAmount : member.unpaidAmount,
+              )}
+              statusTone={settlementFilter === 'PAID' ? 'success' : 'warning'}
+              title={member.name}>
+              <Text style={styles.summaryBody}>
+                미납 {formatWon(member.unpaidAmount)} · 납부 {formatWon(member.paidAmount)}
+              </Text>
+            </DutyEntityCard>
           ))}
         </View>
       ) : (
-        <DutyAsyncState message="표시할 커피 미납 내역이 없습니다." status="empty" />
+        <DutyAsyncState
+          message={`표시할 커피 ${getCoffeeSettlementFilterLabel(settlementFilter)} 내역이 없습니다.`}
+          status="empty"
+        />
       )}
+      {charges ? (
+        <DutyActionRow>
+          <DutyActionButton
+            accessibilityLabel="이전 커피 정산 페이지"
+            disabled={charges.page === 0}
+            label="이전"
+            onPress={() => onSetPage(Math.max(0, charges.page - 1))}
+            variant="secondary"
+          />
+          <DutyActionButton
+            accessibilityLabel="다음 커피 정산 페이지"
+            disabled={charges.page + 1 >= charges.totalPages}
+            label="다음"
+            onPress={() => onSetPage(charges.page + 1)}
+            variant="secondary"
+          />
+        </DutyActionRow>
+      ) : null}
       {reminderState.status === 'sent' ? (
         <DutyEntityCard
           statusLabel="접수 완료"
@@ -695,6 +781,23 @@ function CoffeeSettlementSummary({
   );
 }
 
+const coffeeSettlementFilters: Array<{label: string; value: DutySettlementFilter}> = [
+  {label: '전체', value: 'ALL'},
+  {label: '미납', value: 'UNPAID'},
+  {label: '납부', value: 'PAID'},
+];
+
+function getCoffeeSettlementFilterLabel(filter: DutySettlementFilter) {
+  switch (filter) {
+    case 'ALL':
+      return '전체';
+    case 'UNPAID':
+      return '미납';
+    case 'PAID':
+      return '납부';
+  }
+}
+
 function CoffeeAccountManagement({
   deleteState,
   form,
@@ -727,6 +830,7 @@ function CoffeeAccountManagement({
           action={(
             <DutyActionButton
               accessibilityLabel="커피 계좌 목록으로 돌아가기"
+              compact
               disabled={busy}
               label="뒤로"
               onPress={() => setAccountPage('list')}
@@ -1501,12 +1605,15 @@ async function fetchCoffeeChargeSummary(
   accessToken: string,
   campusId: number,
   paymentAccountId: number | null,
+  query: {includeArchived: boolean; page: number},
 ) {
   if (paymentAccountId === null) {
     return null;
   }
 
   return fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
+    includeArchived: query.includeArchived,
+    page: query.page,
     paymentAccountId,
     paymentCategory: 'COFFEE',
     size: 10,

@@ -87,6 +87,7 @@ import type {
   WeeklyDevotionSummary,
 } from './types';
 import {FaithLogApiError} from './apiError';
+import {DEFAULT_PAGE_SIZE} from './pagination';
 import {getSafeApiErrorMessage} from './errorPolicy';
 import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
@@ -334,10 +335,10 @@ export function buildAdminCampusPath(campusId: unknown, ...segments: PathSegment
   );
 }
 
-export function buildPollListPath(campusId: unknown) {
+export function buildPollListPath(campusId: unknown, size = DEFAULT_PAGE_SIZE) {
   const query = new URLSearchParams({
     page: '0',
-    size: '100',
+    size: String(size),
   });
 
   return `${buildCampusPath(campusId, 'polls')}?${query.toString()}`;
@@ -429,6 +430,7 @@ type PaymentAccountQueryParams = {
   includeInactive?: boolean;
 };
 type AdminCampusChargeQueryParams = {
+  includeArchived?: boolean;
   keyword?: string;
   page?: number;
   paymentAccountId?: number;
@@ -528,6 +530,7 @@ function isUserRole(value: unknown): value is (typeof userRoles)[number] {
 }
 
 function toSafeChargeListQuery(params: {
+  includeArchived?: boolean;
   page?: number;
   paymentCategory?: PaymentCategory | 'ALL';
   size?: number;
@@ -542,13 +545,14 @@ function toSafeChargeListQuery(params: {
   const size =
     typeof params.size === 'number' && Number.isInteger(params.size)
       ? Math.min(Math.max(params.size, 1), 100)
-      : 20;
+      : DEFAULT_PAGE_SIZE;
   const sortKey = isChargeItemSortKey(params.sort?.key) ? params.sort.key : 'createdAt';
   const sortDirection = isSortDirection(params.sort?.direction) ? params.sort.direction : 'desc';
 
   query.set('page', String(page));
   query.set('size', String(size));
   query.set('sort', `${sortKey},${sortDirection}`);
+  query.set('includeArchived', String(params.includeArchived === true));
 
   if (isPaymentCategory(params.paymentCategory)) {
     query.set('paymentCategory', params.paymentCategory);
@@ -1965,6 +1969,7 @@ export function fetchMyCharges(
   accessToken: string,
   campusId: unknown,
   params: {
+    includeArchived?: boolean;
     page?: number;
     paymentCategory?: PaymentCategory | 'ALL';
     size?: number;
@@ -2564,6 +2569,7 @@ export function fetchAdminMemberCharges(
   campusId: unknown,
   userId: unknown,
   params: {
+    includeArchived?: boolean;
     page?: number;
     paymentCategory?: PaymentCategory | 'ALL';
     size?: number;
@@ -2604,9 +2610,10 @@ export function fetchServiceAdminStaleDutyCharges(
   const requestedCampusId = Number(toPositiveIntegerPathSegment(campusId, 'campusId'));
   const requestedUserId = Number(toPositiveIntegerPathSegment(userId, 'userId'));
   const query = toSafeChargeListQuery({
+    includeArchived: false,
     page: 0,
     paymentCategory,
-    size: 100,
+    size: 20,
     status: 'UNPAID',
   });
 

@@ -372,6 +372,10 @@ export type ChargeList = {
   region: string;
   summary: ChargeAmountSummary;
   items: ChargeItem[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };
 
 export type AdminChargeMemberSummary = ChargeAmountSummary & {
@@ -386,6 +390,10 @@ export type AdminCampusChargeSummary = {
   region: string;
   summary: ChargeAmountSummary;
   members: AdminChargeMemberSummary[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };
 
 export type AdminMemberChargeList = ChargeList & {

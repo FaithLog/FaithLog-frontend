@@ -233,6 +233,10 @@ const chargeList: ChargeList = {
       },
     },
   ],
+  page: 0,
+  size: 10,
+  totalElements: 2,
+  totalPages: 1,
 };
 
 const pollSummary: PollSummary = {
@@ -1008,6 +1012,10 @@ export const mockDomainFixtures = {
           canceledAmount: 0,
         },
       ],
+      page: 0,
+      size: 20,
+      totalElements: 1,
+      totalPages: 1,
     } satisfies AdminCampusChargeSummary,
     memberCharges: {
       ...chargeList,

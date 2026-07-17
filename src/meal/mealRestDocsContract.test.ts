@@ -35,10 +35,10 @@ describe('MEAL canonical REST Docs contract', () => {
     })).toThrow('Invalid API response');
   });
 
-  it('dispatches confirmed production endpoints and keeps the undocumented list query absent', async () => {
+  it('dispatches confirmed production endpoints with the documented paging and archive query', async () => {
     const responses = [
       {campusId: 1, dutyType: 'MEAL', isActive: true, userId: 7},
-      {content: [], page: 0, size: 20, totalElements: 0, totalPages: 0},
+      {content: [], page: 0, size: 10, totalElements: 0, totalPages: 0},
       settlementFixture(),
     ];
     const spy = vi.fn();
@@ -54,8 +54,8 @@ describe('MEAL canonical REST Docs contract', () => {
 
     expect(spy.mock.calls.map((call) => call[0])).toEqual([
       '/api/v1/campuses/1/duty-assignments/me/meal',
-      '/api/v1/campuses/1/meal/polls',
-      '/api/v1/campuses/1/meal/charges/my-accounts',
+      '/api/v1/campuses/1/meal/polls?page=0&size=10&sort=createdAt%2Cdesc&includeArchived=false',
+      '/api/v1/campuses/1/meal/charges/my-accounts?includeArchived=false&page=0&size=10',
     ]);
   });
 
@@ -206,6 +206,10 @@ function settlementFixture() {
   return {
     campusId: 1,
     campusName: '샘플 캠퍼스',
+    page: 0,
+    size: 10,
+    totalElements: 1,
+    totalPages: 1,
     region: '서울',
     summary: {
       totalAmount: 10000,

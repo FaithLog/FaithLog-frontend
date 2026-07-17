@@ -126,7 +126,7 @@ const chargeGenerationTypes: AdminPollChargeGenerationType[] = ['NONE', 'OPTION_
 const paymentCategories: PaymentCategory[] = ['PENALTY', 'COFFEE'];
 
 export function fetchAdminPolls(accessToken: string, campusId: unknown) {
-  return apiRequest(buildPollListPath(campusId), {
+  return apiRequest(buildPollListPath(campusId, 20), {
     accessToken,
     responseParser: parsePollSummaryList,
   });

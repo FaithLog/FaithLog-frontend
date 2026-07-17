@@ -293,13 +293,27 @@ export function parseMealChargeResultForContext(
 export function parseMealSettlement(value: unknown): MealSettlement {
   return parseSafely(() => {
     const record = requireRecord(value);
-    requireExactKeys(record, ['campusId', 'campusName', 'members', 'region', 'summary']);
+    requireExactKeys(record, [
+      'campusId',
+      'campusName',
+      'members',
+      'page',
+      'region',
+      'size',
+      'summary',
+      'totalElements',
+      'totalPages',
+    ]);
     const settlement: MealSettlement = {
       campusId: requirePositiveId(record.campusId),
       campusName: requireString(record.campusName),
       region: requireString(record.region),
       summary: parseChargeAmountSummary(record.summary),
       members: requireArray(record.members).map(parseMealSettlementMember),
+      page: requireNonNegativeInteger(record.page),
+      size: requirePositiveId(record.size),
+      totalElements: requireNonNegativeInteger(record.totalElements),
+      totalPages: requireNonNegativeInteger(record.totalPages),
     };
     validateMealSettlementSemantics(settlement);
     return settlement;

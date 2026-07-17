@@ -648,6 +648,10 @@ function parseChargeListValue(value: unknown): ChargeList {
     region: requireString(record.region, 200),
     summary: parseChargeAmountSummaryValue(record.summary),
     items: requireArray(record.items, parseChargeItemValue),
+    page: requireNonNegativeInteger(record.page),
+    size: requirePositiveId(record.size),
+    totalElements: requireNonNegativeInteger(record.totalElements),
+    totalPages: requireNonNegativeInteger(record.totalPages),
   };
 }
 
@@ -1178,6 +1182,10 @@ function parseAdminCampusChargeSummaryValue(
         email: requireString(member.email, 320),
       };
     }),
+    page: requireNonNegativeInteger(record.page),
+    size: requirePositiveId(record.size),
+    totalElements: requireNonNegativeInteger(record.totalElements),
+    totalPages: requireNonNegativeInteger(record.totalPages),
   };
 }
 

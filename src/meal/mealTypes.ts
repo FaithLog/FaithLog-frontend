@@ -235,4 +235,8 @@ export type MealSettlement = {
     canceledAmount: number;
   };
   members: MealSettlementMember[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };

@@ -193,6 +193,7 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
           action={(
             <DutyActionButton
               accessibilityLabel="밥 계좌 목록으로 돌아가기"
+              compact
               disabled={saving}
               label="뒤로"
               onPress={() => setView('list')}

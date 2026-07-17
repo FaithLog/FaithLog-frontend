@@ -548,9 +548,9 @@ describe('FaithLog mock API adapter', () => {
     ['createdAt', 'asc', [502, 501, 503]],
     ['createdAt', 'desc', [503, 501, 502]],
     ['dueDate', 'asc', [502, 501, 503]],
-    ['dueDate', 'desc', [501, 503, 502]],
+    ['dueDate', 'desc', [503, 501, 502]],
     ['amount', 'asc', [501, 503, 502]],
-    ['amount', 'desc', [502, 501, 503]],
+    ['amount', 'desc', [502, 503, 501]],
   ] as const)(
     'sorts admin member charge rows by %s,%s',
     async (key, direction, expectedChargeIds) => {
@@ -560,6 +560,23 @@ describe('FaithLog mock API adapter', () => {
         7,
         {size: 100, sort: {key, direction}},
       );
+
+      expect(result.items.map((charge) => charge.id)).toEqual(expectedChargeIds);
+    },
+  );
+
+  it.each([
+    ['dueDate', 'asc', [502, 501, 503]],
+    ['dueDate', 'desc', [503, 501, 502]],
+    ['amount', 'asc', [501, 503, 502]],
+    ['amount', 'desc', [502, 503, 501]],
+  ] as const)(
+    'sorts member charge rows by %s,%s with matching id direction for ties',
+    async (key, direction, expectedChargeIds) => {
+      const result = await fetchMyCharges('mock-access-token', 1, {
+        size: 100,
+        sort: {key, direction},
+      });
 
       expect(result.items.map((charge) => charge.id)).toEqual(expectedChargeIds);
     },

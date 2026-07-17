@@ -102,6 +102,10 @@ describe('admin charge production coordinator', () => {
       region: '서울',
       summary: serverSummary,
       members,
+      page: 0,
+      size: 20,
+      totalElements: members.length,
+      totalPages: 1,
     };
 
     const display = selectAdminCampusChargeRowsForDisplay(page, 'UNPAID');

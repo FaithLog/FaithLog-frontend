@@ -1,7 +1,8 @@
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
-import {Text} from 'react-native';
+import {Text, View} from 'react-native';
 
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
+import {DEFAULT_PAGE_SIZE, hasNextPage} from '../api/pagination';
 import {
   DutyActionButton,
   DutyActionRow,
@@ -23,6 +24,10 @@ import {
   isDutyChargeReminderCurrent,
   syncDutyChargeReminderScope,
 } from '../duty/dutyChargeReminderFlow';
+import {
+  filterDutySettlementMembers,
+  type DutySettlementFilter,
+} from '../duty/dutySettlementFilter';
 import {formatWon} from '../utils/money';
 import {mealApi, type MealApi} from './mealApi';
 import {resolveMealRequestAccess} from './mealRequestLifecycle';
@@ -64,13 +69,19 @@ export function MealSettlementScreen({
   const reminderScope = `campus:${campusId}/user:${currentUserId}/meal-reminder`;
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-settlement`);
   const [state, setState] = useState<MealLoadState<MealSettlement>>({status: 'loading'});
+  const [settlementFilter, setSettlementFilter] = useState<DutySettlementFilter>('ALL');
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [page, setPage] = useState(0);
   const [reminderConfirmVisible, setReminderConfirmVisible] = useState(false);
   const [reminderState, setReminderState] = useState<MealReminderState>({status: 'idle'});
   const reminderGate = useRef(createDutyChargeReminderGate(reminderScope)).current;
-  const memberCount = state.status === 'success' ? state.data.members.length : 0;
+  const filteredMembers = state.status === 'success'
+    ? filterDutySettlementMembers(state.data.members, settlementFilter)
+    : [];
+  const memberCount = filteredMembers.length;
   const memberProgress = useProgressiveRendering(
     memberCount,
-    `${campusId}:${currentUserId}`,
+    `${campusId}:${currentUserId}:${includeArchived}:${page}:${settlementFilter}`,
   );
 
   const load = useCallback(async () => {
@@ -83,14 +94,19 @@ export function MealSettlementScreen({
       return;
     }
     try {
-      const settlement = await api.getMySettlement(access.request.accessToken, campusId, currentUserId);
+      const settlement = await api.getMySettlement(
+        access.request.accessToken,
+        campusId,
+        currentUserId,
+        {includeArchived, page, size: DEFAULT_PAGE_SIZE},
+      );
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
       setState(settlement.members.length === 0 ? {status: 'empty'} : {status: 'success', data: settlement});
     } catch (error) {
       const apiError = getCurrentMealRequestError({error, fallback: '내 밥 정산을 불러오지 못했습니다.', identity: access.request.identity, onSessionExpired, tracker});
       if (apiError) setState({status: 'error', error: apiError});
     }
-  }, [api, campusId, currentUserId, onSessionExpired, tracker]);
+  }, [api, campusId, currentUserId, includeArchived, onSessionExpired, page, tracker]);
 
   useEffect(() => {
     void load();
@@ -194,6 +210,16 @@ export function MealSettlementScreen({
         title="밥 정산 현황"
       />
       {state.status === 'loading' ? <MealLoading label="내 밥 정산을 불러오는 중" /> : null}
+      <DutyActionButton
+        accessibilityLabel={includeArchived ? '밥 정산 최근 기록 보기' : '밥 정산 이전 기록 보기'}
+        compact
+        label={includeArchived ? '최근 기록 보기' : '이전 기록 보기'}
+        onPress={() => {
+          setPage(0);
+          setIncludeArchived((current) => !current);
+        }}
+        variant="secondary"
+      />
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
       {state.status === 'empty' ? <DutyAsyncState actionLabel="다시 불러오기" message="내 계좌로 청구한 내역이 이곳에 표시됩니다." onAction={load} status="empty" title="밥 정산 내역이 없습니다" /> : null}
       {state.status === 'success' ? (
@@ -202,12 +228,48 @@ export function MealSettlementScreen({
             <Text style={mealStyles.meta}>미납 {formatWon(state.data.summary.unpaidAmount)} · 납부 {formatWon(state.data.summary.paidAmount)}</Text>
             <Text style={mealStyles.meta}>면제 {formatWon(state.data.summary.waivedAmount)} · 취소 {formatWon(state.data.summary.canceledAmount)}</Text>
           </DutyMetricSurface>
-          {getProgressiveItems(state.data.members, memberProgress.limit).map((member) => (
-            <MemoizedMealSettlementMemberRow key={member.userId} member={member} />
-          ))}
+          <DutyActionRow>
+            {settlementFilters.map((filter) => (
+              <DutyActionButton
+                accessibilityLabel={`밥 정산 ${filter.label} 보기`}
+                key={filter.value}
+                label={filter.label}
+                onPress={() => setSettlementFilter(filter.value)}
+                variant={settlementFilter === filter.value ? 'primary' : 'secondary'}
+              />
+            ))}
+          </DutyActionRow>
+          {filteredMembers.length > 0 ? (
+            <View style={mealStyles.list}>
+              {getProgressiveItems(filteredMembers, memberProgress.limit).map((member) => (
+                <MemoizedMealSettlementMemberRow key={member.userId} member={member} />
+              ))}
+            </View>
+          ) : (
+            <DutyAsyncState
+              message={`${getSettlementFilterLabel(settlementFilter)} 내역이 없습니다.`}
+              status="empty"
+            />
+          )}
           {memberProgress.hasMore ? (
             <DutyActionButton accessibilityLabel="밥 정산 멤버 더 보기" label="멤버 더 보기" onPress={memberProgress.showMore} />
           ) : null}
+          <DutyActionRow>
+            <DutyActionButton
+              accessibilityLabel="이전 밥 정산 페이지"
+              disabled={state.data.page === 0}
+              label="이전"
+              onPress={() => setPage(Math.max(0, state.data.page - 1))}
+              variant="secondary"
+            />
+            <DutyActionButton
+              accessibilityLabel="다음 밥 정산 페이지"
+              disabled={!hasNextPage(state.data)}
+              label="다음"
+              onPress={() => setPage(state.data.page + 1)}
+              variant="secondary"
+            />
+          </DutyActionRow>
         </>
       ) : null}
       {reminderState.status === 'sent' ? (
@@ -260,6 +322,23 @@ const MemoizedMealSettlementMemberRow = memo(function MemoizedMealSettlementMemb
     </DutyEntityCard>
   );
 });
+
+const settlementFilters: Array<{label: string; value: DutySettlementFilter}> = [
+  {label: '전체', value: 'ALL'},
+  {label: '미납', value: 'UNPAID'},
+  {label: '납부', value: 'PAID'},
+];
+
+function getSettlementFilterLabel(filter: DutySettlementFilter) {
+  switch (filter) {
+    case 'ALL':
+      return '전체';
+    case 'UNPAID':
+      return '미납';
+    case 'PAID':
+      return '납부';
+  }
+}
 
 function getReminderErrorMessage(error: {code?: string; kind: string; status?: number}) {
   if (error.kind === 'permissionDenied' || error.status === 403) {

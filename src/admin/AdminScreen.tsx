@@ -131,6 +131,10 @@ import {
   type AdminPollStatusTab,
 } from './adminPollListVisibility';
 import {canManageAdminPoll} from './adminPollCapabilities';
+import {
+  filterAdminPollsByType,
+  type AdminPollTypeFilter,
+} from './adminPollTypeFilter';
 import {getRepeatScheduleValidationMessage} from './repeatSchedule';
 import {AdminWeeklyDevotionSection} from './AdminWeeklyDevotionSection';
 import {
@@ -385,7 +389,9 @@ type AdminChargeDetailState =
   | {status: 'error'; error: ApiError; member: AdminChargeMemberRef};
 
 type AdminChargeFilters = {
+  includeArchived: boolean;
   keyword: string;
+  page: number;
   paymentCategory: PaymentCategoryFilter;
   status: ChargeStatusFilter;
   userId: string;
@@ -498,10 +504,6 @@ const chargeStatusFilters: Array<{id: ChargeStatusFilter; label: string}> = [
   {id: 'CANCELED', label: '취소'},
 ];
 
-const paymentCategoryFilters: Array<{id: PaymentCategoryFilter; label: string}> = [
-  {id: 'PENALTY', label: '벌금'},
-];
-
 const settlementSections: Array<{id: AdminSettlementSection; label: string}> = [
   {id: 'charges', label: '청구'},
   {id: 'accounts', label: '계좌'},
@@ -534,7 +536,6 @@ const notificationTypeFilters: Array<{id: NotificationTypeFilter; label: string}
 
 const notificationSections: Array<{id: AdminNotificationSection; label: string}> = [
   {id: 'send', label: '발송'},
-  {id: 'logs', label: '로그'},
 ];
 
 const notificationTargetModes: Array<{id: AdminNotificationTargetMode; label: string}> = [
@@ -676,7 +677,9 @@ export function AdminScreen({
     null,
   );
   const [chargeFilters, setChargeFilters] = useState<AdminChargeFilters>({
+    includeArchived: false,
     keyword: '',
+    page: 0,
     paymentCategory: 'PENALTY',
     status: 'UNPAID',
     userId: '',
@@ -1179,12 +1182,6 @@ export function AdminScreen({
   }, [devotionSection, tab, missingDevotionState.status]);
 
   useEffect(() => {
-    if (tab === 'notificationLogs' && notificationLogState.status === 'idle') {
-      void loadNotificationLogs();
-    }
-  }, [tab, notificationLogState.status]);
-
-  useEffect(() => {
     if (
       ((tab === 'devotion' && devotionSection === 'prayer') || tab === 'prayer') &&
       prayerState.status === 'idle'
@@ -1381,7 +1378,10 @@ export function AdminScreen({
           accessToken,
           requestCampusId,
           {
+            includeArchived: filters.includeArchived,
             keyword: filters.keyword,
+            page: filters.page,
+            size: 20,
             paymentCategory: filters.paymentCategory,
             status: filters.status,
             ...(userId === undefined ? {} : {userId}),
@@ -2090,6 +2090,7 @@ export function AdminScreen({
     const nextFilters = {
       ...getAdminChargeRefreshIdentity(chargeViewIdentityRef.current).filters,
       [key]: value,
+      ...(key === 'page' ? {} : {page: 0}),
     };
 
     chargeFilterDebounceRef.current = applyAdminChargeFilterChange({
@@ -2109,7 +2110,9 @@ export function AdminScreen({
 
   const resetChargeFilters = () => {
     const nextFilters: AdminChargeFilters = {
+      includeArchived: false,
       keyword: '',
+      page: 0,
       paymentCategory: 'PENALTY',
       status: 'UNPAID',
       userId: '',
@@ -2162,7 +2165,10 @@ export function AdminScreen({
           requestCampusId,
           member.userId,
           {
+            includeArchived: requestFilters.includeArchived,
+            page: requestFilters.page,
             paymentCategory: requestFilters.paymentCategory,
+            size: 20,
             status: requestFilters.status,
           },
         );
@@ -2413,10 +2419,12 @@ export function AdminScreen({
       const charges = await fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
         paymentCategory,
         status: 'UNPAID',
-        size: 100,
+        size: 20,
       });
       const visibleCharges = filterAdminCampusChargeSummary(charges, {
+        includeArchived: false,
         keyword: '',
+        page: 0,
         paymentCategory,
         status: 'UNPAID',
         userId: '',
@@ -3554,7 +3562,6 @@ type AdminPollPrimarySection = 'ongoing' | 'closed' | 'create' | 'templates';
 type AdminPollCreateStep = 'type' | 'detail';
 type AdminPollTemplateStep = 'info' | 'schedule' | 'options' | 'confirm';
 type AdminPollTemplateMode = 'list' | 'editor';
-type AdminPollTypeFilter = AdminPollType | 'ALL';
 type AdminPollListState =
   | {status: 'loading'}
   | {
@@ -3651,7 +3658,7 @@ const adminPollTypeFilters: Array<{id: AdminPollTypeFilter; label: string}> = [
   {id: 'ALL', label: '전체'},
   {id: 'WEDNESDAY', label: '수요'},
   {id: 'SATURDAY', label: '토요'},
-  {id: 'COFFEE', label: '커피'},
+  {id: 'COFFEE_MEAL', label: '커피 & 밥'},
   {id: 'CUSTOM', label: '커스텀'},
 ];
 const adminPollTypes: Array<{id: AdminPollType; label: string}> = [
@@ -8918,11 +8925,14 @@ function AdminChargeSettlement({
           selectedId={filters.status}
           onSelect={(status) => onUpdateFilter('status', status)}
         />
-        <FigmaSegmentedControl
-          items={paymentCategoryFilters}
-          selectedId={filters.paymentCategory}
-          onSelect={(paymentCategory) => onUpdateFilter('paymentCategory', paymentCategory)}
-        />
+        <View style={styles.compactActionRow}>
+          <AdminCompactButton
+            accessibilityLabel={filters.includeArchived ? '관리자 정산 최근 기록 보기' : '관리자 정산 이전 기록 보기'}
+            onPress={() => onUpdateFilter('includeArchived', !filters.includeArchived)}
+            variant="secondary">
+            {filters.includeArchived ? '최근 기록 보기' : '이전 기록 보기'}
+          </AdminCompactButton>
+        </View>
         <View style={styles.chargeReminderBox}>
           <View style={styles.headerText}>
             <Text style={styles.chargeReminderTitle}>미납 푸시 알림</Text>
@@ -8951,6 +8961,24 @@ function AdminChargeSettlement({
             />
           </View>
         </View>
+        {summary ? (
+          <View style={styles.compactActionRow}>
+            <AdminCompactButton
+              accessibilityLabel="이전 관리자 정산 페이지"
+              disabled={summary.page === 0}
+              onPress={() => onUpdateFilter('page', Math.max(0, summary.page - 1))}
+              variant="secondary">
+              이전
+            </AdminCompactButton>
+            <AdminCompactButton
+              accessibilityLabel="다음 관리자 정산 페이지"
+              disabled={summary.page + 1 >= summary.totalPages}
+              onPress={() => onUpdateFilter('page', summary.page + 1)}
+              variant="secondary">
+              다음
+            </AdminCompactButton>
+          </View>
+        ) : null}
       </View>
       {isChargeReminderNotificationState(notificationState)
         ? renderNotificationResult(notificationState)
@@ -12396,20 +12424,6 @@ function getStableFutureDeadline(value: string, now = new Date()) {
     : new Date(now.getTime() + adminPollDefaultDeadlineOffsetMs);
 }
 
-function filterAdminPollsByType(polls: PollSummary[], filter: AdminPollTypeFilter) {
-  switch (filter) {
-    case 'ALL':
-      return polls;
-    case 'COFFEE':
-    case 'CUSTOM':
-    case 'SATURDAY':
-    case 'WEDNESDAY':
-      return polls.filter((poll) => poll.pollType === filter);
-    default:
-      return assertNever(filter);
-  }
-}
-
 function _getSelectedTemplate(
   form: AdminPollTemplateForm,
   templates: AdminPollTemplate[],
@@ -12431,6 +12445,8 @@ function getAdminPollInitial(type: string) {
       return '토';
     case 'COFFEE':
       return '커';
+    case 'MEAL':
+      return '밥';
     default:
       return '커';
   }
@@ -12442,6 +12458,10 @@ function getAdminPollListMeta(poll: PollSummary) {
 
   if (poll.pollType === 'COFFEE') {
     return `${status} · 청구 생성 · ${deadline} 마감`;
+  }
+
+  if (poll.pollType === 'MEAL') {
+    return `${status} · 밥 정산 · ${deadline} 마감`;
   }
 
   if (poll.pollType === 'CUSTOM') {

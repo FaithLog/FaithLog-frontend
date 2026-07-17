@@ -207,6 +207,10 @@ describe('FaithLog API client', () => {
       email: 'stale@example.test',
       summary: {totalAmount: 8000, unpaidAmount: 8000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
       items: [],
+      page: 0,
+      size: 20,
+      totalElements: 0,
+      totalPages: 0,
     })));
 
     await fetchServiceAdminStaleDutyCharges('access-token', 3, 9, 'MEAL');
@@ -466,7 +470,7 @@ describe('FaithLog API client', () => {
     expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
   });
 
-  it('requests poll list with a large page size and unwraps paged content', async () => {
+  it('requests the mobile poll list with ten items and unwraps paged content', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
@@ -511,7 +515,7 @@ describe('FaithLog API client', () => {
     const polls = await fetchPolls('access-token', 2);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.faithlog.test/root/api/v1/campuses/2/polls?page=0&size=100',
+      'https://api.faithlog.test/root/api/v1/campuses/2/polls?page=0&size=10',
       expect.any(Object),
     );
     expect(polls).toHaveLength(2);
@@ -951,6 +955,10 @@ describe('FaithLog API client', () => {
             waivedAmount: 0,
           },
           members: [],
+          page: 0,
+          size: 20,
+          totalElements: 0,
+          totalPages: 0,
         }),
       ),
     );
@@ -1268,6 +1276,10 @@ describe('FaithLog API client', () => {
           },
           source: {sourceId: 701, sourceType: 'POLL_RESPONSE'},
         }],
+        page: 0,
+        size: 10,
+        totalElements: 1,
+        totalPages: 1,
       })),
     );
 
@@ -1298,6 +1310,10 @@ describe('FaithLog API client', () => {
             waivedAmount: 0,
           },
           members: [],
+          page: 0,
+          size: 20,
+          totalElements: 0,
+          totalPages: 0,
         }),
       ),
     );
@@ -1363,6 +1379,10 @@ describe('FaithLog API client', () => {
           waivedAmount: 0,
         },
         members: [],
+        page: 0,
+        size: 20,
+        totalElements: 0,
+        totalPages: 0,
       })),
     );
 
@@ -1394,6 +1414,10 @@ describe('FaithLog API client', () => {
             waivedAmount: 0,
           },
           items: [],
+          page: 0,
+          size: 20,
+          totalElements: 0,
+          totalPages: 0,
         })),
       );
 

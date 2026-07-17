@@ -49,6 +49,12 @@ import {colors, radius, spacing} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {getPaymentContext, invalidatePaymentContextCache} from './paymentContextCache';
 import {findFreshFallbackPage} from './paymentPagination';
+import {DEFAULT_PAGE_SIZE, hasNextPage} from '../api/pagination';
+import {
+  getPayableAccountsFromCharges,
+  type PayableAccount,
+  type PaymentCategoryFilter,
+} from './paymentPayableAccounts';
 import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked, shouldChangePaymentFilter} from './paymentViewSafety';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
@@ -68,7 +74,7 @@ type PaymentScreenProps = {
   state: AuthenticatedState;
 };
 
-type CategoryFilter = PaymentCategory;
+type CategoryFilter = PaymentCategoryFilter;
 type StatusFilter = ChargeStatus;
 type SortOption = 'createdAtDesc' | 'createdAtAsc' | 'dueDateAsc' | 'amountDesc';
 
@@ -95,9 +101,10 @@ type AccountCopyFeedback = {
   tone: 'success' | 'warning';
 } | null;
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 const categoryFilters: Array<{label: string; value: CategoryFilter}> = [
+  {label: '전체', value: 'ALL'},
   {label: '벌금', value: 'PENALTY'},
   {label: '커피', value: 'COFFEE'},
   {label: '밥', value: 'MEAL'},
@@ -128,11 +135,11 @@ export function PaymentScreen({
   const campusId = state.selectedCampus.campusId;
   const {width} = useWindowDimensions();
   const compactPaymentLayout = width <= 360;
-  const [category, setCategory] = useState<CategoryFilter>('PENALTY');
+  const [category, setCategory] = useState<CategoryFilter>('ALL');
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [status, setStatus] = useState<StatusFilter>('UNPAID');
   const [sort, setSort] = useState<SortOption>('createdAtDesc');
   const [page, setPage] = useState(0);
-  const [lastKnownLastPage, setLastKnownLastPage] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<PaymentLoadState>({status: 'loading'});
   const [actionState, setActionState] = useState<PaymentActionState>({status: 'idle'});
   const [selectedChargeId, setSelectedChargeId] = useState<number | null>(null);
@@ -173,7 +180,7 @@ export function PaymentScreen({
   ) => {
     const requestSequence = ++latestListRequest.current;
     const requestGeneration = getAuthSessionGeneration();
-    const requestKey = `${requestGeneration}:${campusId}:${category}:${status}:${sort}:${nextPage}`;
+    const requestKey = `${requestGeneration}:${campusId}:${category}:${status}:${sort}:${includeArchived}:${nextPage}`;
     latestListRequestKey.current = requestKey;
     const isCurrentListRequest = () =>
       isPaymentListRequestCurrent(
@@ -197,6 +204,7 @@ export function PaymentScreen({
 
       const [charges, context] = await Promise.all([
         fetchMyCharges(accessToken, campusId, {
+          includeArchived,
           page: nextPage,
           paymentCategory: category,
           size: PAGE_SIZE,
@@ -211,6 +219,7 @@ export function PaymentScreen({
       if (nextPage > 0 && charges.items.length === 0) {
         const fallback = await findFreshFallbackPage(nextPage, (fallbackPage) =>
           fetchMyCharges(accessToken, campusId, {
+            includeArchived,
             page: fallbackPage,
             paymentCategory: category,
             size: PAGE_SIZE,
@@ -220,7 +229,6 @@ export function PaymentScreen({
         if (!fallback) return;
         const fallbackPage = fallback.page;
         if (!isCurrentListRequest()) return;
-        setLastKnownLastPage(fallbackPage);
         setPage(fallbackPage);
         setLoadState({
           status: 'success',
@@ -235,10 +243,6 @@ export function PaymentScreen({
           message: '더 이상 조회할 청구가 없어 직전 페이지로 돌아왔습니다.',
         });
         return;
-      }
-
-      if (charges.items.length < PAGE_SIZE) {
-        setLastKnownLastPage(nextPage);
       }
 
       setPage(nextPage);
@@ -265,9 +269,8 @@ export function PaymentScreen({
   };
 
   useEffect(() => {
-    setLastKnownLastPage(null);
     void loadPayments(0);
-  }, [campusId, category, status, sort]);
+  }, [campusId, category, includeArchived, status, sort]);
 
   const invalidatePendingListRequests = () => {
     invalidatePaymentListRequest(latestListRequest, latestListRequestKey);
@@ -347,12 +350,10 @@ export function PaymentScreen({
     return <Loading message="납부 요약, 청구 목록, 계좌 정보를 불러오고 있어요." />;
   }
 
-  const {accounts, charges, coffeeAccountIdsWithCharges, totalUnpaidAmount} = loadState;
-  const visibleAccounts = getVisiblePaymentAccounts(accounts, coffeeAccountIdsWithCharges);
-  const hasNextPage =
-    charges.items.length >= PAGE_SIZE &&
-    (lastKnownLastPage === null || page < lastKnownLastPage);
-  const accountMissing = getAccountMissingState(accounts, charges.items, category);
+  const {charges, totalUnpaidAmount} = loadState;
+  const payableAccounts = getPayableAccountsFromCharges(charges.items, category);
+  const canLoadNextPage = hasNextPage(charges);
+  const accountMissing = getAccountMissingState(charges.items);
   const selectedCharge = selectedChargeId
     ? charges.items.find((charge) => charge.id === selectedChargeId) ?? null
     : null;
@@ -461,7 +462,7 @@ export function PaymentScreen({
 
       {accountMissing ? (
         <PaymentAccountMissingState
-          accountsEmpty={visibleAccounts.length === 0}
+          accountsEmpty={payableAccounts.length === 0}
           category={accountMissing}
           onContactAdmin={() =>
             setNotice({
@@ -510,7 +511,6 @@ export function PaymentScreen({
             if (!shouldChangePaymentFilter(category, value)) return;
             invalidatePendingListRequests();
             setCategory(value);
-            setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
             setSelectedChargeId(null);
@@ -526,7 +526,6 @@ export function PaymentScreen({
             if (!shouldChangePaymentFilter(status, value)) return;
             invalidatePendingListRequests();
             setStatus(value);
-            setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
             setSelectedChargeId(null);
@@ -542,13 +541,24 @@ export function PaymentScreen({
             if (!shouldChangePaymentFilter(sort, value)) return;
             invalidatePendingListRequests();
             setSort(value);
-            setLastKnownLastPage(null);
             setPage(0);
             setActionState({status: 'idle'});
             setSelectedChargeId(null);
           }}
           selected={sort}
         />
+        <Button
+          accessibilityLabel={includeArchived ? '납부 최근 기록 보기' : '납부 이전 기록 보기'}
+          disabled={actionState.status === 'markingPaid'}
+          onPress={() => {
+            invalidatePendingListRequests();
+            setIncludeArchived((current) => !current);
+            setPage(0);
+            setSelectedChargeId(null);
+          }}
+          variant="secondary">
+          {includeArchived ? '최근 기록 보기' : '이전 기록 보기'}
+        </Button>
       </View>
 
       {charges.items.length === 0 ? (
@@ -556,12 +566,11 @@ export function PaymentScreen({
           title="조회된 청구가 없습니다"
           message="선택한 필터에 맞는 청구가 없습니다. 다른 유형이나 상태를 선택해 주세요."
           actionLabel="미납 보기"
-          actionAccessibilityLabel="납부 목록 필터 미납 벌금으로 변경"
+          actionAccessibilityLabel="납부 목록 필터 전체 미납으로 변경"
           onActionPress={() => {
             invalidatePendingListRequests();
-            setCategory('PENALTY');
+            setCategory('ALL');
             setStatus('UNPAID');
-            setLastKnownLastPage(null);
             setPage(0);
             setSelectedChargeId(null);
           }}
@@ -594,7 +603,7 @@ export function PaymentScreen({
             </Button>
             <Button
               accessibilityLabel="다음 납부 목록 페이지"
-              disabled={!hasNextPage || isPaymentNavigationLocked(actionState.status)}
+              disabled={!canLoadNextPage || isPaymentNavigationLocked(actionState.status)}
               onPress={() => loadPayments(page + 1)}
               variant="secondary">
               다음
@@ -605,16 +614,16 @@ export function PaymentScreen({
 
       <View style={styles.accountPanel}>
         <Text style={styles.figmaSectionTitle}>납부 계좌</Text>
-        {visibleAccounts.length === 0 ? (
-          <Body>현재 활성 납부 계좌가 없습니다. 관리자에게 계좌 등록을 요청해 주세요.</Body>
+        {payableAccounts.length === 0 ? (
+          <Body>현재 조회된 청구에 연결된 납부 계좌가 없습니다.</Body>
         ) : (
           <View style={styles.chargeList}>
-            {visibleAccounts.map((account) => (
+            {payableAccounts.map((account) => (
               <PaymentAccountCopyCard
                 account={account}
                 copyFeedback={accountCopyFeedback}
                 copyOpacity={accountCopyOpacity}
-                key={account.id}
+                key={account.paymentAccountId}
                 onCopy={copyAccountNumber}
               />
             ))}
@@ -677,27 +686,30 @@ function PaymentAccountCopyCard({
   copyOpacity,
   onCopy,
 }: {
-  account: PaymentAccount;
+  account: PayableAccount;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
-  onCopy: (account: PaymentAccount) => void;
+  onCopy: (account: ChargePaymentAccountSnapshot) => void;
 }) {
+  const categoryLabel = account.paymentCategories
+    .map(getPaymentCategoryLabel)
+    .join(' · ');
   return (
     <View style={styles.paymentAccountCard}>
       <View style={styles.paymentAccountCardIcon}>
         <IconexIcon
           color={paymentColors.dark}
-          name={account.accountType === 'COFFEE' ? 'coins' : 'wallet'}
+          name={account.paymentCategories.includes('COFFEE') ? 'coins' : 'wallet'}
           size={21}
           strokeWidth={2.2}
         />
       </View>
       <View style={styles.paymentAccountCardBody}>
         <Text style={styles.paymentAccountCardTitle}>
-          {getPaymentCategoryLabel(account.accountType)} 계좌
+          {categoryLabel} 계좌
         </Text>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.paymentAccountCardMeta}>
-          {account.nickname} · {account.bankName} · {account.accountHolder}
+          {account.bankName} · {account.accountHolder}
         </Text>
         <Text
           ellipsizeMode="tail"
@@ -708,7 +720,7 @@ function PaymentAccountCopyCard({
         </Text>
       </View>
       <Pressable
-        accessibilityLabel={`${getPaymentCategoryLabel(account.accountType)} 계좌번호 복사`}
+        accessibilityLabel={`${categoryLabel} 계좌번호 복사`}
         accessibilityRole="button"
         onPress={() => onCopy(account)}
         style={({pressed}) => [
@@ -717,7 +729,7 @@ function PaymentAccountCopyCard({
         ]}>
         <Text style={styles.paymentAccountCopyButtonText}>복사</Text>
       </Pressable>
-      {copyFeedback?.accountId === account.id ? (
+      {copyFeedback?.accountId === account.paymentAccountId ? (
         <Animated.View
           pointerEvents="none"
           style={[styles.accountCopyBadge, {opacity: copyOpacity}]}>
@@ -741,13 +753,13 @@ function PaymentAccountMissingState({
   onContactAdmin,
 }: {
   accountsEmpty: boolean;
-  category: CategoryFilter;
+  category: PaymentCategory;
   onContactAdmin: () => void;
 }) {
-  const missingTarget = `${getPaymentCategoryFilterLabel(category)} 계좌`;
+  const missingTarget = `${getPaymentCategoryLabel(category)} 계좌`;
   const reason = accountsEmpty
     ? '현재 활성 납부 계좌가 없습니다.'
-    : `${getPaymentCategoryFilterLabel(category)} 청구에 연결된 계좌가 없습니다.`;
+    : `${getPaymentCategoryLabel(category)} 청구에 연결된 계좌가 없습니다.`;
 
   return (
     <View accessibilityRole="alert" style={styles.accountMissingPanel}>
@@ -1126,44 +1138,10 @@ function toChargeSort(sort: SortOption) {
 }
 
 function getAccountMissingState(
-  accounts: PaymentAccount[],
   items: ChargeItem[],
-  category: CategoryFilter,
-): CategoryFilter | null {
+): PaymentCategory | null {
   const unpaidWithoutAccount = items.find((item) => item.status === 'UNPAID' && !item.account);
-
-  if (category === 'MEAL') {
-    return unpaidWithoutAccount?.paymentCategory ?? null;
-  }
-
-  if (!accounts.some((account) => account.accountType === category)) {
-    return category;
-  }
-
-  if (accounts.length === 0) {
-    return category;
-  }
-
   return unpaidWithoutAccount?.paymentCategory ?? null;
-}
-
-function getVisiblePaymentAccounts(
-  accounts: PaymentAccount[],
-  coffeeAccountIdsWithCharges: number[],
-) {
-  const coffeeAccountIdSet = new Set(coffeeAccountIdsWithCharges);
-
-  return accounts.filter((account) => {
-    if (account.accountType === 'PENALTY') {
-      return true;
-    }
-
-    if (account.accountType === 'COFFEE') {
-      return coffeeAccountIdSet.has(account.id);
-    }
-
-    return false;
-  });
 }
 
 function getPaymentCategoryLabel(category: PaymentCategory) {
@@ -1177,10 +1155,6 @@ function getPaymentCategoryLabel(category: PaymentCategory) {
     default:
       return assertNever(category);
   }
-}
-
-function getPaymentCategoryFilterLabel(category: CategoryFilter) {
-  return getPaymentCategoryLabel(category);
 }
 
 function getPaymentChargeIcon(charge: ChargeItem): IconexIconName {

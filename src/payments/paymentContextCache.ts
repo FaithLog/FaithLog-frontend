@@ -19,7 +19,7 @@ export function getPaymentContext(accessToken: string, campusId: number) {
   entries.delete(key);
   const promise = Promise.all([
     fetchMyCharges(accessToken, campusId, {page: 0, paymentCategory: 'ALL', size: 1, sort: {key: 'createdAt', direction: 'desc'}, status: 'UNPAID'}),
-    fetchMyCharges(accessToken, campusId, {page: 0, paymentCategory: 'COFFEE', size: 100, sort: {key: 'createdAt', direction: 'desc'}, status: 'ALL'}),
+    fetchMyCharges(accessToken, campusId, {page: 0, paymentCategory: 'COFFEE', size: 10, sort: {key: 'createdAt', direction: 'desc'}, status: 'ALL'}),
     fetchPaymentAccounts(accessToken, campusId),
   ]).then(([unpaid, coffee, accounts]) => ({
     accounts,

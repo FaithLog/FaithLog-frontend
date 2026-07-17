@@ -82,4 +82,13 @@ describe('meal and coffee duty layout parity', () => {
       /accessibilityLabel="밥 정산 새로고침"[\s\S]*?compact[\s\S]*?label="새로고침"/,
     );
   });
+
+  it('keeps account-form back actions compact in both duty domains', () => {
+    expect(mealAccount).toMatch(
+      /accessibilityLabel="밥 계좌 목록으로 돌아가기"[\s\S]*?compact[\s\S]*?label="뒤로"/,
+    );
+    expect(coffeeScreen).toMatch(
+      /accessibilityLabel="커피 계좌 목록으로 돌아가기"[\s\S]*?compact[\s\S]*?label="뒤로"/,
+    );
+  });
 });

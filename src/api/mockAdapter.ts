@@ -432,7 +432,7 @@ function resolveMockData(
       ? mockMealState.polls.filter((poll) => poll.campusId === campusId && poll.status === requestedStatus)
       : mockMealState.polls.filter((poll) => poll.campusId === campusId);
     const page = Number(route.searchParams.get('page') ?? 0);
-    const size = Number(route.searchParams.get('size') ?? 20);
+    const size = Number(route.searchParams.get('size') ?? 10);
     const start = page * size;
     return {
       content: filtered.slice(start, start + size).map(toMealPollManagementListItem),
@@ -489,7 +489,7 @@ function resolveMockData(
     const campusId = getCampusId(path);
     const denied = authorizeMealDuty(mealActor, campusId);
     if (denied) return denied;
-    return getMockMealSettlement(campusId, mealActor?.userId ?? 0);
+    return getMockMealSettlement(campusId, mealActor?.userId ?? 0, route.searchParams);
   }
   if (
     route.method === 'POST' &&
@@ -1230,7 +1230,8 @@ function getMockAdminMemberCharges(
 ): AdminMemberChargeList {
   const member = getMockMealCampusMember(campusId, userId);
   if (!member) throw new Error('Known mock campus member required');
-  const {items, summary} = getMockAdminMemberChargeState(campusId, userId, searchParams);
+  const {items, page, size, summary, totalElements, totalPages} =
+    getMockAdminMemberChargeState(campusId, userId, searchParams);
   const campusIdentity = getMockChargeCampusIdentity(mockMealState.legacyBilling.charges, campusId);
 
   return {
@@ -1240,6 +1241,10 @@ function getMockAdminMemberCharges(
     name: member.name,
     email: member.email,
     items,
+    page,
+    size,
+    totalElements,
+    totalPages,
     summary,
   };
 }
@@ -1300,7 +1305,15 @@ function getMockAdminCampusCharges(
     .slice(page * size, page * size + size)
     .map(({latestChargeCreatedAt: _latestChargeCreatedAt, ...member}) => member);
 
-  return {...charges, summary, members};
+  return {
+    ...charges,
+    summary,
+    members,
+    page,
+    size,
+    totalElements: sortedMembers.length,
+    totalPages: pageCount(sortedMembers.length, size),
+  };
 }
 
 function getMockAdminMemberChargeState(
@@ -1331,7 +1344,7 @@ function getMockAdminMemberChargeState(
   const sortedItems = [...visibleItems].sort((left, right) => {
     const difference = compareMockChargeItems(left, right, key);
     return difference === 0
-      ? left.id - right.id
+      ? applyMockSortDirection(left.id - right.id, direction)
       : applyMockSortDirection(difference, direction);
   });
   const {page, size} = getMockChargePagination(searchParams);
@@ -1343,16 +1356,20 @@ function getMockAdminMemberChargeState(
   return {
     items: sortedItems.slice(page * size, page * size + size),
     latestChargeCreatedAt,
+    page,
+    size,
     summary: summarizeMockMemberCharges(visibleItems),
+    totalElements: sortedItems.length,
+    totalPages: pageCount(sortedItems.length, size),
   };
 }
 
 function getMockChargePagination(searchParams: URLSearchParams) {
   const pageValue = Number(searchParams.get('page') ?? 0);
-  const sizeValue = Number(searchParams.get('size') ?? 20);
+  const sizeValue = Number(searchParams.get('size') ?? 10);
   return {
     page: Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0,
-    size: Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 20,
+    size: Number.isSafeInteger(sizeValue) && sizeValue > 0 ? Math.min(sizeValue, 100) : 10,
   };
 }
 
@@ -2208,7 +2225,11 @@ function safeMockAdd(left: number, right: number) {
   return left + right;
 }
 
-function getMockMealSettlement(campusId: number, userId: number): MealSettlement {
+function getMockMealSettlement(
+  campusId: number,
+  userId: number,
+  searchParams: URLSearchParams,
+): MealSettlement {
   const accounts = mockMealState.settlement.accounts.filter(
     (item) => item.account.campusId === campusId && item.account.ownerUserId === userId,
   );
@@ -2238,12 +2259,17 @@ function getMockMealSettlement(campusId: number, userId: number): MealSettlement
     (total, member) => addMockChargeAmountSummaries(total, member),
     emptyMockChargeAmountSummary(),
   );
+  const {page, size} = getMockChargePagination(searchParams);
   return {
     campusId,
     campusName: campusId === 1 ? '서울캠퍼스' : `캠퍼스 ${campusId}`,
     region: campusId === 1 ? '서울' : '기타',
     summary,
-    members,
+    members: members.slice(page * size, page * size + size),
+    page,
+    size,
+    totalElements: members.length,
+    totalPages: pageCount(members.length, size),
   };
 }
 
@@ -2282,7 +2308,7 @@ function getMockMemberChargeList(
   const sortedItems = [...visibleItems].sort((left, right) => {
     const difference = compareMockChargeItems(left, right, key);
     return difference === 0
-      ? left.id - right.id
+      ? applyMockSortDirection(left.id - right.id, direction)
       : applyMockSortDirection(difference, direction);
   });
   const {page, size} = getMockChargePagination(searchParams);
@@ -2292,7 +2318,15 @@ function getMockMemberChargeList(
     ...campusIdentity,
     summary: summarizeMockMemberCharges(visibleItems),
     items: sortedItems.slice(start, start + size),
+    page,
+    size,
+    totalElements: sortedItems.length,
+    totalPages: pageCount(sortedItems.length, size),
   };
+}
+
+function pageCount(totalElements: number, size: number) {
+  return totalElements === 0 ? 0 : Math.ceil(totalElements / size);
 }
 
 function getMockMemberChargeSummary(
@@ -2809,7 +2843,11 @@ function createMockDutyChargeReminder(
   }).format(new Date());
   const sentKey = `${dutyType}:${campusId}:${userId}:${dateKey}`;
   const targetCount = dutyType === 'MEAL'
-    ? getMockMealSettlement(campusId, userId).members.filter((member) => member.unpaidAmount > 0).length
+    ? getMockMealSettlement(
+        campusId,
+        userId,
+        new URLSearchParams({page: '0', size: '10'}),
+      ).members.filter((member) => member.unpaidAmount > 0).length
     : new Set(
         mockMealState.coffeeCharges
           .filter(
