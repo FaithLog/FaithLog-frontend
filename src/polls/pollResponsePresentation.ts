@@ -1,7 +1,7 @@
 import type {PollDetail, PollOptionAddRequest} from '../api/types';
 
 type PollOptionAddVisibility = Pick<PollDetail, 'pollType' | 'status'> & {
-  allowUserOptionAdd?: boolean;
+  allowUserOptionAdd?: boolean | undefined;
 };
 
 export function getPollOptionAddLabel(
