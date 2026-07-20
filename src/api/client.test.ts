@@ -13,6 +13,7 @@ vi.mock('./tokenStorage', () => ({
 
 import {
   authenticatedTransportRequest,
+  addUserPollOption,
   apiRequest,
   buildApiUrl,
   buildAdminChargeStatusChangeRequest,
@@ -484,6 +485,7 @@ describe('FaithLog API client', () => {
               pollType: 'CUSTOM',
               selectionType: 'SINGLE',
               anonymous: false,
+              allowUserOptionAdd: true,
               startDateTime: '2026-07-05T09:00:00.000Z',
               endDateTime: '2026-07-06T09:00:00.000Z',
               status: 'OPEN',
@@ -497,6 +499,7 @@ describe('FaithLog API client', () => {
               pollType: 'CUSTOM',
               selectionType: 'MULTIPLE',
               anonymous: true,
+              allowUserOptionAdd: false,
               startDateTime: '2026-07-05T09:00:00.000Z',
               endDateTime: '2026-07-07T09:00:00.000Z',
               status: 'OPEN',
@@ -526,8 +529,14 @@ describe('FaithLog API client', () => {
       endsAt: '2026-07-06T09:00:00.000Z',
       isAnonymous: false,
       responded: false,
+      allowUserOptionAdd: true,
     });
-    expect(polls[1]).toMatchObject({id: 12, isAnonymous: true, responded: true});
+    expect(polls[1]).toMatchObject({
+      id: 12,
+      isAnonymous: true,
+      responded: true,
+      allowUserOptionAdd: false,
+    });
   });
 
   it.each([
@@ -563,6 +572,7 @@ describe('FaithLog API client', () => {
               pollType: 'CUSTOM',
               selectionType: 'SINGLE',
               anonymous: false,
+              allowUserOptionAdd: true,
               startDateTime: '2026-07-05T09:00:00.000Z',
               endDateTime: '2026-07-06T09:00:00.000Z',
               status: 'OPEN',
@@ -615,6 +625,35 @@ describe('FaithLog API client', () => {
       '가평 숲속 수련원',
       '양평 기도원',
     ]);
+  });
+
+  it.each([
+    ['CUSTOM', {content: ' 새 항목 '}, {content: '새 항목'}],
+    ['MEAL', {content: ' 제육볶음 '}, {content: '제육볶음'}],
+    ['COFFEE', {menuId: 123}, {menuId: 123}],
+  ] as const)('posts the exact %s user-option payload', async (_pollType, input, expectedBody) => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, envelope({
+        id: 10,
+        content: '새 항목',
+        composeMenuCode: null,
+        priceAmount: 0,
+        sortOrder: 3,
+        userAdded: true,
+      })),
+    );
+
+    const option = await addUserPollOption('access-token', 2, 11, input);
+
+    expect(option).toMatchObject({id: 10, userAdded: true});
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.faithlog.test/root/api/v1/campuses/2/polls/11/options',
+      expect.objectContaining({
+        body: JSON.stringify(expectedBody),
+        method: 'POST',
+      }),
+    );
   });
 
   it.each([

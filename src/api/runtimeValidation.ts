@@ -781,10 +781,6 @@ function parsePollSummaryValue(value: unknown): PollSummary {
   if (record.createdByUserId !== undefined) {
     return invalidResponse();
   }
-  const allowUserOptionAdd =
-    record.allowUserOptionAdd === undefined
-      ? {}
-      : {allowUserOptionAdd: requireBoolean(record.allowUserOptionAdd)};
   const responded =
     record.responded !== undefined || record.hasResponded !== undefined
       ? requireAliasedBoolean(record, ['responded', 'hasResponded'])
@@ -799,7 +795,9 @@ function parsePollSummaryValue(value: unknown): PollSummary {
     pollType: requireOpenString(record.pollType),
     selectionType: requireOpenString(record.selectionType),
     isAnonymous: requireAliasedBoolean(record, ['isAnonymous', 'anonymous']),
-    ...allowUserOptionAdd,
+    // Keep the public model required while safely hiding the capability for
+    // legacy or malformed responses that do not provide an explicit true.
+    allowUserOptionAdd: record.allowUserOptionAdd === true,
     startsAt: requireDateTime(
       requireAliasedString(record, [
         'startsAt',

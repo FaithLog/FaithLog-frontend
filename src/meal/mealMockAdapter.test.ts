@@ -267,7 +267,9 @@ describe('MEAL mock adapter flow', () => {
     });
     await expect(
       addUserPollOption('mock-access-token', 1, noUserOptions.id, {content: '일식'}),
-    ).rejects.toMatchObject({detail: {status: 409}});
+    ).rejects.toMatchObject({
+      detail: {code: 'POLL_USER_OPTION_ADD_DISABLED', status: 403},
+    });
   });
 
   it('stores MEAL responses independently for each poll and user', async () => {

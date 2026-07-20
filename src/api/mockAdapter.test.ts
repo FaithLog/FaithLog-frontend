@@ -12,6 +12,7 @@ vi.mock('./tokenStorage', () => ({
 }));
 
 import {
+  addUserPollOption,
   apiRequest,
   changeAdminChargeStatus,
   FaithLogApiError,
@@ -21,6 +22,7 @@ import {
   fetchAdminMemberCharges,
   fetchMyCharges,
   fetchPrayerWeek,
+  fetchPollDetail,
   fetchWeeklyDevotionSummary,
   loginUser,
   markMyChargePaid,
@@ -128,6 +130,32 @@ describe('FaithLog mock API adapter', () => {
     expect(mockDomainFixtures).toHaveProperty('poll');
     expect(mockDomainFixtures).toHaveProperty('prayer');
     expect(mockDomainFixtures).toHaveProperty('notification');
+  });
+
+  it('adds a custom user option and exposes it on the refreshed detail', async () => {
+    const customAdded = await addUserPollOption('mock-access-token', 1, 702, {
+      content: '핫도그',
+    });
+    const customDetail = await fetchPollDetail('mock-access-token', 1, 702);
+
+    expect(customAdded).toMatchObject({content: '핫도그', userAdded: true});
+    expect(customDetail.options).toContainEqual(expect.objectContaining({id: customAdded.id}));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps disabled and closed user-option errors distinct', async () => {
+    await expect(
+      addUserPollOption('mock-access-token', 1, 704, {content: '추가 항목'}),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'permissionDenied', code: 'POLL_USER_OPTION_ADD_DISABLED'});
+      return true;
+    });
+    await expect(
+      addUserPollOption('mock-access-token', 1, 705, {content: '추가 항목'}),
+    ).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'conflict', code: 'POLL_CLOSED'});
+      return true;
+    });
   });
 
   it('supports the confirmed PAID payload in mock mode with paidAt', async () => {

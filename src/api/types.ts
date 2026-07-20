@@ -513,7 +513,7 @@ export type PollSummary = {
   pollType: string;
   selectionType: string;
   isAnonymous: boolean;
-  allowUserOptionAdd?: boolean;
+  allowUserOptionAdd: boolean;
   startsAt: string;
   endsAt: string;
   status: string;
@@ -539,7 +539,6 @@ export type PollResponse = {
 
 export type PollDetail = PollSummary & {
   templateId: number | null;
-  allowUserOptionAdd?: boolean;
   chargeGenerationType: string;
   paymentCategory: string | null;
   paymentAccountId: number | null;

@@ -17,6 +17,7 @@ function poll(patch: Partial<PollSummary>): PollSummary {
     responded: patch.responded ?? false,
     manageableByMe: patch.manageableByMe ?? true,
     ...patch,
+    allowUserOptionAdd: patch.allowUserOptionAdd ?? false,
   };
 }
 

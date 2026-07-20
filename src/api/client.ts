@@ -732,25 +732,18 @@ function toPaymentAccountCreateRequest(
 }
 
 function toPollOptionAddRequest(body: PollOptionAddRequest): PollOptionAddRequest {
-  const payload: PollOptionAddRequest = {};
-  const content = typeof body.content === 'string' ? body.content.trim() : '';
-
-  if (content) {
-    payload.content = content;
-  }
-
-  if (body.menuId !== undefined && body.menuId !== null) {
-    payload.menuId = Number(toPositiveIntegerPathSegment(body.menuId, 'menuId'));
-  }
-
-  if (!payload.content && payload.menuId === undefined) {
+  if ('content' in body) {
+    const content = typeof body.content === 'string' ? body.content.trim() : '';
+    if (content) {
+      return {content};
+    }
     throw new FaithLogApiError({
       kind: 'error',
       message: '추가 항목을 선택해 주세요.',
     });
   }
 
-  return payload;
+  return {menuId: Number(toPositiveIntegerPathSegment(body.menuId, 'menuId'))};
 }
 
 function toPenaltyRuleCreateRequest(body: PenaltyRuleCreateRequest): PenaltyRuleCreateRequest {
@@ -2274,7 +2267,6 @@ export function addUserPollOption(
     {
       accessToken,
       body: toPollOptionAddRequest(body),
-      exposeServerErrorMessage: true,
       responseParser: parsePollOption,
       method: 'POST',
     },
