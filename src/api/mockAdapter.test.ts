@@ -141,6 +141,12 @@ describe('FaithLog mock API adapter', () => {
     expect(customAdded).toMatchObject({content: '핫도그', userAdded: true});
     expect(customDetail.options).toContainEqual(expect.objectContaining({id: customAdded.id}));
     expect(fetch).not.toHaveBeenCalled();
+
+    resetMockAdapterStateForTests();
+    const resetDetail = await fetchPollDetail('mock-access-token', 1, 702);
+    expect(resetDetail.options).not.toContainEqual(
+      expect.objectContaining({content: '핫도그'}),
+    );
   });
 
   it('keeps disabled and closed user-option errors distinct', async () => {

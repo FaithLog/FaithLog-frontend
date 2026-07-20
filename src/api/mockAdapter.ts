@@ -15,6 +15,7 @@ import type {
   DutyAssignment,
   MarkChargePaidResponse,
   PaymentCategory,
+  PollDetail,
   WeeklyDevotionSummary,
 } from './types';
 import {calculateMealChargeGroup} from '../meal/mealModel';
@@ -116,17 +117,20 @@ type MockErrorResult = {
 
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
 let mockMealState = createInitialMockMealState();
+let mockPollDetails = createInitialMockPollDetails();
 let mockWeeklyDevotion = createMockWeeklyDevotionState();
 let mockMonthlyDevotion = createMockMonthlyDevotionState();
 
 export function resetMockAdapterStateForTests() {
   mockMealState = createInitialMockMealState();
+  mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
 }
 
 export function resetMealMockStateForTests() {
   mockMealState = createInitialMockMealState();
+  mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
 }
@@ -539,7 +543,7 @@ function resolveMockData(
 
     return mealDetail
       ? toGeneralMealPollDetail(mealDetail, mealActor?.userId ?? 0)
-      : poll.details.find((detail) => detail.id === pollId) ?? poll.detail;
+      : mockPollDetails.find((detail) => detail.id === pollId) ?? poll.detail;
   }
   if (
     route.method === 'PUT' &&
@@ -655,7 +659,7 @@ function resolveMockData(
         userAdded: true,
       };
     }
-    const regularDetail = poll.details.find(
+    const regularDetail = mockPollDetails.find(
       (item) => item.id === pollId && item.campusId === campusId,
     );
     if (!regularDetail) {
@@ -1174,6 +1178,16 @@ function createMockAdminPollTemplate() {
     isDefault: true,
     isActive: true,
   };
+}
+
+function createInitialMockPollDetails(): PollDetail[] {
+  return mockDomainFixtures.poll.details.map((detail) => ({
+    ...detail,
+    myResponse: detail.myResponse
+      ? {...detail.myResponse, optionIds: [...detail.myResponse.optionIds]}
+      : null,
+    options: detail.options.map((option) => ({...option})),
+  }));
 }
 
 function createMockAdminPollTemplates() {
