@@ -12092,9 +12092,7 @@ function toPollSummary(poll: AdminPoll): PollSummary {
     campusId: poll.campusId,
     id: poll.id,
     isAnonymous: poll.isAnonymous,
-    ...(poll.allowUserOptionAdd === undefined
-      ? {}
-      : {allowUserOptionAdd: poll.allowUserOptionAdd}),
+    allowUserOptionAdd: poll.allowUserOptionAdd === true,
     endsAt: poll.endsAt,
     pollType: poll.pollType,
     responded: false,

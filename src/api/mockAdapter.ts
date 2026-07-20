@@ -15,6 +15,7 @@ import type {
   DutyAssignment,
   MarkChargePaidResponse,
   PaymentCategory,
+  PollDetail,
   WeeklyDevotionSummary,
 } from './types';
 import {calculateMealChargeGroup} from '../meal/mealModel';
@@ -116,17 +117,20 @@ type MockErrorResult = {
 
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
 let mockMealState = createInitialMockMealState();
+let mockPollDetails = createInitialMockPollDetails();
 let mockWeeklyDevotion = createMockWeeklyDevotionState();
 let mockMonthlyDevotion = createMockMonthlyDevotionState();
 
 export function resetMockAdapterStateForTests() {
   mockMealState = createInitialMockMealState();
+  mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
 }
 
 export function resetMealMockStateForTests() {
   mockMealState = createInitialMockMealState();
+  mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
 }
@@ -539,7 +543,7 @@ function resolveMockData(
 
     return mealDetail
       ? toGeneralMealPollDetail(mealDetail, mealActor?.userId ?? 0)
-      : poll.details.find((detail) => detail.id === pollId) ?? poll.detail;
+      : mockPollDetails.find((detail) => detail.id === pollId) ?? poll.detail;
   }
   if (
     route.method === 'PUT' &&
@@ -612,26 +616,31 @@ function resolveMockData(
     const pollId = getPathNumberBeforeSuffix(path, 'options');
     const detailIndex = mockMealState.details.findIndex((detail) => detail.id === pollId && detail.campusId === campusId);
     const detail = mockMealState.details[detailIndex];
+    const request = toRecord(parseMockJsonBody(body));
     if (detail) {
       if (
         detail.status !== 'OPEN' ||
-        !detail.allowUserOptionAdd ||
         Date.parse(detail.startsAt) > Date.now() ||
         Date.parse(detail.endsAt) <= Date.now()
       ) {
-        return mockConflict('MEAL_OPTION_ADD_NOT_ALLOWED', '진행 중이며 사용자 선택지 추가가 허용된 투표만 선택지를 추가할 수 있습니다.');
+        return mockConflict('POLL_CLOSED', '마감된 투표에는 선택지를 추가할 수 없습니다.');
       }
-      const request = toRecord(parseMockJsonBody(body));
+      if (detail.allowUserOptionAdd !== true) {
+        return mockForbidden('POLL_USER_OPTION_ADD_DISABLED', '사용자 선택지 추가가 허용되지 않은 투표입니다.');
+      }
+      if (request.menuId !== undefined) {
+        return mockBadRequest('POLL_USER_OPTION_MENU_NOT_ALLOWED', '밥 투표에는 메뉴 ID를 보낼 수 없습니다.');
+      }
       const content = stringField(request.content, '');
       if (!content) {
-        return mockBadRequest('MEAL_OPTION_CONTENT_REQUIRED', '선택지 내용을 입력해 주세요.');
+        return mockBadRequest('POLL_USER_OPTION_CONTENT_NOT_ALLOWED', '선택지 내용을 입력해 주세요.');
       }
       if (
         detail.options.some(
           (item) => item.content.trim().toLocaleLowerCase() === content.toLocaleLowerCase(),
         )
       ) {
-        return mockConflict('MEAL_OPTION_DUPLICATE', '이미 같은 내용의 선택지가 있습니다.');
+        return mockConflict('POLL_MEAL_OPTION_DUPLICATE_CONTENT', '이미 같은 내용의 선택지가 있습니다.');
       }
       const option = {
         optionId: Math.max(0, ...detail.options.map((item) => item.optionId)) + 1,
@@ -650,14 +659,60 @@ function resolveMockData(
         userAdded: true,
       };
     }
-    return {
-      id: 9999,
-      content: stringField(toRecord(parseMockJsonBody(body)).content, '사용자 추가 선택지'),
-      composeMenuCode: null,
-      priceAmount: 0,
-      sortOrder: 99,
+    const regularDetail = mockPollDetails.find(
+      (item) => item.id === pollId && item.campusId === campusId,
+    );
+    if (!regularDetail) {
+      return mockNotFound('POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
+    }
+    if (regularDetail.status !== 'OPEN') {
+      return mockConflict('POLL_CLOSED', '마감된 투표에는 선택지를 추가할 수 없습니다.');
+    }
+    if (regularDetail.allowUserOptionAdd !== true) {
+      return mockForbidden('POLL_USER_OPTION_ADD_DISABLED', '사용자 선택지 추가가 허용되지 않은 투표입니다.');
+    }
+
+    let content: string;
+    let composeMenuCode: string | null = null;
+    let priceAmount = 0;
+    if (regularDetail.pollType === 'COFFEE') {
+      if (request.content !== undefined) {
+        return mockBadRequest('POLL_USER_OPTION_CONTENT_NOT_ALLOWED', '커피 투표에는 직접 내용을 입력할 수 없습니다.');
+      }
+      if (typeof request.menuId !== 'number' || !Number.isSafeInteger(request.menuId) || request.menuId <= 0) {
+        return mockBadRequest('POLL_USER_OPTION_MENU_REQUIRED', '추가할 커피 메뉴를 선택해 주세요.');
+      }
+      const menu = billing.coffeeMenus.find((item) => item.id === request.menuId);
+      if (!menu) {
+        return mockBadRequest('POLL_USER_OPTION_MENU_REQUIRED', '추가할 커피 메뉴를 선택해 주세요.');
+      }
+      content = menu.name;
+      composeMenuCode = menu.menuCode;
+      priceAmount = menu.priceAmount;
+    } else {
+      if (request.menuId !== undefined) {
+        return mockBadRequest('POLL_USER_OPTION_MENU_NOT_ALLOWED', '이 투표에는 메뉴 ID를 보낼 수 없습니다.');
+      }
+      content = stringField(request.content, '');
+      if (!content) {
+        return mockBadRequest('POLL_USER_OPTION_CONTENT_NOT_ALLOWED', '선택지 내용을 입력해 주세요.');
+      }
+    }
+    if (regularDetail.options.some(
+      (item) => item.content.trim().toLocaleLowerCase() === content.toLocaleLowerCase(),
+    )) {
+      return mockBadRequest('POLL_OPTION_DUPLICATE_CONTENT', '이미 같은 내용의 선택지가 있습니다.');
+    }
+    const option = {
+      id: Math.max(0, ...regularDetail.options.map((item) => item.id)) + 1,
+      content,
+      composeMenuCode,
+      priceAmount,
+      sortOrder: regularDetail.options.length + 1,
       userAdded: true,
     };
+    regularDetail.options.push(option);
+    return option;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+\/results$/.test(path)) {
     const pollId = getPathNumberBeforeSuffix(path, 'results');
@@ -1123,6 +1178,16 @@ function createMockAdminPollTemplate() {
     isDefault: true,
     isActive: true,
   };
+}
+
+function createInitialMockPollDetails(): PollDetail[] {
+  return mockDomainFixtures.poll.details.map((detail) => ({
+    ...detail,
+    myResponse: detail.myResponse
+      ? {...detail.myResponse, optionIds: [...detail.myResponse.optionIds]}
+      : null,
+    options: detail.options.map((option) => ({...option})),
+  }));
 }
 
 function createMockAdminPollTemplates() {

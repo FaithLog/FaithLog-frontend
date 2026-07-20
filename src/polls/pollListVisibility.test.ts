@@ -22,6 +22,7 @@ function poll(patch: Partial<PollSummary>): PollSummary {
     responded: patch.responded ?? false,
     manageableByMe: patch.manageableByMe ?? false,
     ...patch,
+    allowUserOptionAdd: patch.allowUserOptionAdd ?? false,
   };
 }
 

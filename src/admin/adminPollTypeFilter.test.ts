@@ -28,6 +28,7 @@ function poll(id: number, pollType: string): PollSummary {
     campusId: 1,
     id,
     isAnonymous: false,
+    allowUserOptionAdd: false,
     title: `투표 ${id}`,
     pollType,
     selectionType: 'SINGLE',

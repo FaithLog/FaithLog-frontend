@@ -222,6 +222,26 @@ describe('coffee poll ownership metadata', () => {
   });
 });
 
+describe('poll user-option permission metadata', () => {
+  it('preserves explicit summary permissions and hides legacy missing values', () => {
+    const summary = mockDomainFixtures.poll.summaries[0];
+
+    expect(parsePollSummaryList([{...summary, allowUserOptionAdd: true}])[0])
+      .toMatchObject({allowUserOptionAdd: true});
+    expect(parsePollSummaryList([{...summary, allowUserOptionAdd: undefined}])[0])
+      .toMatchObject({allowUserOptionAdd: false});
+  });
+
+  it('preserves explicit detail permissions and hides legacy missing values', () => {
+    const detail = mockDomainFixtures.poll.detail;
+
+    expect(parsePollDetail({...detail, allowUserOptionAdd: false}))
+      .toMatchObject({allowUserOptionAdd: false});
+    expect(parsePollDetail({...detail, allowUserOptionAdd: undefined}))
+      .toMatchObject({allowUserOptionAdd: false});
+  });
+});
+
 describe('runtime API response validation', () => {
   it('keeps the valid-response smoke matrix in lockstep with all parser exports', () => {
     expect(Object.keys(VALID_PARSER_PAYLOADS).sort()).toEqual(

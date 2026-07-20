@@ -73,12 +73,15 @@ import {
   getPollEarlyStateScrollContract,
   type PollEarlyState,
 } from './pollScrollOwnership';
-import {runPollOptionFallback} from './pollOptionFallback';
 import {
   getUserPollListGroups,
   getUserVisiblePollCount,
   isPollActionable,
 } from './pollListVisibility';
+import {
+  createPollOptionAddRequest,
+  getPollOptionAddLabel,
+} from './pollResponsePresentation';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -157,6 +160,7 @@ export function PollScreen({
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const currentPollId = useRef<number | null>(selectedPollId);
   const detailEpoch = useRef(0);
+  const optionAddOperation = useRef({id: 0, inFlight: false});
   const screenMounted = useRef(true);
   const commentDraftStore = useRef(new PollCommentDraftStore()).current;
   currentPollId.current = selectedPollId;
@@ -215,11 +219,12 @@ export function PollScreen({
         return;
       }
 
-      const [detail, comments, resultState] = await Promise.all([
+      const [fetchedDetail, comments, resultState] = await Promise.all([
         fetchPollDetail(accessToken, campusId, pollId),
         fetchPollComments(accessToken, campusId, pollId),
         fetchPollResultState(accessToken, campusId, pollId),
       ]);
+      const detail = fetchedDetail;
       const coffeeCatalog = await loadCoffeeCatalog(accessToken, detail);
       if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
       if (coffeeCatalog.status === 'error') {
@@ -254,6 +259,7 @@ export function PollScreen({
   const openDetail = (poll: PollSummary) => {
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     detailEpoch.current += 1;
+    optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
     currentPollId.current = poll.id;
     commentDraftStore.open(poll.id);
     setEditingComment(null);
@@ -267,6 +273,7 @@ export function PollScreen({
   const closeDetail = () => {
     if (currentPollId.current !== null) commentDraftStore.close(currentPollId.current);
     detailEpoch.current += 1;
+    optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
     currentPollId.current = null;
     setSelectedPollId(null);
     setDetailState({status: 'idle'});
@@ -348,8 +355,9 @@ export function PollScreen({
     if (
       !activeDetail ||
       actionState ||
+      optionAddOperation.current.inFlight ||
       !isPollActionable(activeDetail) ||
-      !isUserOptionAddAllowed(activeDetail)
+      getPollOptionAddLabel(activeDetail) === null
     ) {
       return;
     }
@@ -375,6 +383,8 @@ export function PollScreen({
     const mutationGeneration = getAuthSessionGeneration();
     const mutationEpoch = detailEpoch.current;
     const mutationSelectionType = activeDetail.selectionType;
+    const operationId = optionAddOperation.current.id + 1;
+    optionAddOperation.current = {id: operationId, inFlight: true};
     setActionState({kind: 'optionAdd'});
     setActionError(null);
     try {
@@ -386,16 +396,15 @@ export function PollScreen({
 
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
 
-      const added = await addUserPollOptionWithMenuContractFallback({
+      const added = await addUserPollOption(
         accessToken,
         campusId,
-        content: trimmed,
-        ...(optionMenuId === undefined ? {} : {menuId: optionMenuId}),
-        isCurrent: () => isCurrentDetailOperation(
-          mutationPollId, mutationEpoch, mutationGeneration,
-        ),
-        pollId: mutationPollId,
-      });
+        mutationPollId,
+        createPollOptionAddRequest(activeDetail.pollType, {
+          content: trimmed,
+          ...(optionMenuId === undefined ? {} : {menuId: optionMenuId}),
+        }),
+      );
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       setOptionAddContent('');
       setOptionAddVisible(false);
@@ -415,6 +424,9 @@ export function PollScreen({
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
+      if (optionAddOperation.current.id === operationId) {
+        optionAddOperation.current = {id: operationId, inFlight: false};
+      }
       if (isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) setActionState(null);
     }
   };
@@ -1017,11 +1029,29 @@ function ResponsePanel({
   const isOpen = isPollActionable(detail);
   const responding = actionState?.kind === 'response';
   const hasResponse = Boolean(detail.myResponse);
-  const canAddOption = isOpen && isUserOptionAddAllowed(detail);
+  const optionAddLabel = getPollOptionAddLabel(detail);
+  const canAddOption = optionAddLabel !== null;
 
   return (
     <>
-      <Text style={styles.figmaSectionTitle}>응답 선택</Text>
+      <View style={styles.responseSectionHeaderRow}>
+        <Text style={styles.figmaSectionTitle}>응답 선택</Text>
+        {canAddOption ? (
+          <Pressable
+            accessibilityLabel="투표 항목 추가"
+            accessibilityRole="button"
+            disabled={actionState?.kind === 'optionAdd'}
+            onPress={onAddOption}
+            style={({pressed}) => [
+              styles.addOptionButton,
+              actionState?.kind === 'optionAdd' ? styles.addOptionButtonDisabled : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <IconexIcon color={colors.primary} name="plus" size={18} strokeWidth={2} />
+            <Text style={styles.addOptionButtonText}>{optionAddLabel}</Text>
+          </Pressable>
+        ) : null}
+      </View>
       {hasResponse ? (
         <InlineNotice
           message={
@@ -1034,23 +1064,6 @@ function ResponsePanel({
       ) : null}
       {detail.pollType === 'COFFEE' ? (
         <CoffeeCatalogPanel catalog={coffeeCatalog} onRetry={onRetryCoffeeCatalog} />
-      ) : null}
-      {canAddOption ? (
-        <Pressable
-          accessibilityLabel="투표 항목 추가"
-          accessibilityRole="button"
-          disabled={actionState?.kind === 'optionAdd'}
-          onPress={onAddOption}
-          style={({pressed}) => [
-            styles.addOptionButton,
-            actionState?.kind === 'optionAdd' ? styles.addOptionButtonDisabled : null,
-            pressed ? styles.pressed : null,
-          ]}>
-          <IconexIcon color={colors.primary} name="plus" size={18} strokeWidth={2} />
-          <Text style={styles.addOptionButtonText}>
-            {detail.pollType === 'COFFEE' ? '커피 메뉴 추가' : '항목 추가'}
-          </Text>
-        </Pressable>
       ) : null}
       <View style={styles.optionList}>
         {detail.options
@@ -1066,7 +1079,6 @@ function ResponsePanel({
                 ? getCoffeeOptionMeta(option, matchedMenu)
                 : null;
             const optionResult = results?.optionResults.find((item) => item.id === option.id);
-            const respondentPreview = getRespondentPreview(optionResult);
 
             return (
               <Pressable
@@ -1085,9 +1097,6 @@ function ResponsePanel({
                 <View style={styles.optionText}>
                   <Text style={styles.optionTitle}>{optionTitle}</Text>
                   {optionMeta ? <Text style={styles.optionMeta}>{optionMeta}</Text> : null}
-                  {respondentPreview ? (
-                    <Text style={styles.optionMeta}>{respondentPreview}</Text>
-                  ) : null}
                 </View>
                 {optionResult ? (
                   <View
@@ -1108,12 +1117,14 @@ function ResponsePanel({
             );
           })}
       </View>
-      <Button
-        accessibilityLabel="투표 응답 저장"
-        disabled={!isOpen || responding}
-        onPress={onSubmit}>
-        {responding ? '저장 중...' : hasResponse ? '응답 수정' : getPollSubmitLabel(detail)}
-      </Button>
+      <View style={styles.responseSubmitRow}>
+        <Button
+          accessibilityLabel="투표 응답 저장"
+          disabled={!isOpen || responding}
+          onPress={onSubmit}>
+          {responding ? '저장 중...' : hasResponse ? '응답 수정' : getPollSubmitLabel(detail)}
+        </Button>
+      </View>
     </>
   );
 }
@@ -1645,51 +1656,54 @@ function UserOptionAddSheet({
             </Pressable>
           </View>
 
-          {isCoffee && coffeeMenus.length > 0 ? (
-            <ScrollView
-              contentContainerStyle={styles.optionAddMenuList}
-              style={styles.optionAddScroll}>
-              {coffeeMenus.map((menu) => {
-                const added = isDuplicatePollOption(detail, coffeeCatalog, menu.name);
+          {isCoffee ? (
+            coffeeMenus.length > 0 ? (
+              <ScrollView
+                contentContainerStyle={styles.optionAddMenuList}
+                style={styles.optionAddScroll}>
+                {coffeeMenus.map((menu) => {
+                  const added = isDuplicatePollOption(detail, coffeeCatalog, menu.name);
 
-                return (
-                  <Pressable
-                    accessibilityLabel={`${menu.name} 항목 ${added ? '추가됨' : '추가'}`}
-                    accessibilityRole="button"
-                    disabled={submitting || added}
-                    key={menu.id}
-                    onPress={() => onSubmit(menu)}
-                    style={({pressed}) => [
-                      styles.optionAddMenuRow,
-                      added ? styles.optionAddMenuRowAdded : null,
-                      submitting ? styles.addOptionButtonDisabled : null,
-                      pressed ? styles.pressed : null,
-                    ]}>
-                    <View style={styles.optionAddMenuText}>
-                      <Text style={styles.optionAddMenuTitle}>{menu.name}</Text>
-                      <Text style={styles.optionAddMenuMeta}>
-                        {getCoffeeCategoryLabel(menu.category)} · {formatWon(menu.priceAmount)}
-                      </Text>
-                    </View>
-                    <View style={styles.optionAddMenuPill}>
-                      <Text style={styles.optionAddMenuPillText}>
-                        {submitting ? '추가 중' : added ? '추가됨' : '추가'}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                  return (
+                    <Pressable
+                      accessibilityLabel={`${menu.name} 항목 ${added ? '추가됨' : '추가'}`}
+                      accessibilityRole="button"
+                      disabled={submitting || added}
+                      key={menu.id}
+                      onPress={() => onSubmit(menu)}
+                      style={({pressed}) => [
+                        styles.optionAddMenuRow,
+                        added ? styles.optionAddMenuRowAdded : null,
+                        submitting ? styles.addOptionButtonDisabled : null,
+                        pressed ? styles.pressed : null,
+                      ]}>
+                      <View style={styles.optionAddMenuText}>
+                        <Text style={styles.optionAddMenuTitle}>{menu.name}</Text>
+                        <Text style={styles.optionAddMenuMeta}>
+                          {getCoffeeCategoryLabel(menu.category)} · {formatWon(menu.priceAmount)}
+                        </Text>
+                      </View>
+                      <View style={styles.optionAddMenuPill}>
+                        <Text style={styles.optionAddMenuPillText}>
+                          {submitting ? '추가 중' : added ? '추가됨' : '추가'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : coffeeCatalog.status === 'error' ? (
+              <InlineNotice message={getErrorMessage(coffeeCatalog.error)} tone="warning" />
+            ) : (
+              <InlineNotice message="추가할 수 있는 커피 메뉴가 없습니다." tone="info" />
+            )
           ) : (
             <>
-              {isCoffee && coffeeCatalog.status === 'error' ? (
-                <InlineNotice message={getErrorMessage(coffeeCatalog.error)} tone="warning" />
-              ) : null}
               <TextInput
                 accessibilityLabel="추가할 투표 항목 입력"
                 editable={!submitting}
                 onChangeText={onChangeContent}
-                placeholder={isCoffee ? '추가할 커피 메뉴명' : '추가할 항목'}
+                placeholder="추가할 항목"
                 placeholderTextColor={colors.subtleText}
                 style={styles.optionAddInput}
                 value={content}
@@ -1821,79 +1835,6 @@ function InlineNotice({message, tone}: {message: string; tone: 'info' | 'warning
       <Text style={styles.inlineNoticeText}>{message}</Text>
     </View>
   );
-}
-
-function isUserOptionAddAllowed(detail: PollDetail) {
-  if (detail.pollType === 'COFFEE') {
-    return true;
-  }
-
-  if (typeof detail.allowUserOptionAdd === 'boolean') {
-    return detail.allowUserOptionAdd;
-  }
-
-  return detail.pollType === 'CUSTOM';
-}
-
-async function addUserPollOptionWithMenuContractFallback({
-  accessToken,
-  campusId,
-  content,
-  menuId,
-  pollId,
-  isCurrent,
-}: {
-  accessToken: string;
-  campusId: number;
-  content: string;
-  menuId?: number;
-  pollId: number;
-  isCurrent: () => boolean;
-}) {
-  const requests =
-    menuId === undefined
-      ? [{content}]
-      : [{content, menuId}, {menuId}, {content}];
-  return runPollOptionFallback(
-    requests,
-    isCurrent,
-    (request) => addUserPollOption(accessToken, campusId, pollId, request),
-    canRetryPollOptionAddWithNextContract,
-    createStalePollMutationError,
-  );
-}
-
-function createStalePollMutationError() {
-  return new FaithLogApiError({
-    kind: 'error',
-    code: 'AUTH_SESSION_CHANGED',
-    message: '투표 화면이 변경되어 이전 작업을 취소했습니다.',
-  });
-}
-
-function canRetryPollOptionAddWithNextContract(error: unknown) {
-  if (
-    !(error instanceof FaithLogApiError) ||
-    (error.detail.status !== 400 && error.detail.status !== 422)
-  ) {
-    return false;
-  }
-
-  const message = `${error.detail.code ?? ''} ${error.detail.message}`.toLocaleLowerCase('ko-KR');
-  const nonContractErrorMarkers = [
-    'duplicate',
-    'already',
-    'conflict',
-    'closed',
-    'permission',
-    '이미',
-    '중복',
-    '권한',
-    '마감',
-    '종료',
-  ];
-
-  return !nonContractErrorMarkers.some((marker) => message.includes(marker));
 }
 
 function isDuplicatePollOption(
@@ -2188,27 +2129,6 @@ function getPollInitial(type: string) {
   }
 }
 
-function getRespondentPreview(option: PollResults['optionResults'][number] | undefined) {
-  if (!option || option.responseCount === 0 || option.respondents.length === 0) {
-    return null;
-  }
-
-  const names = option.respondents.slice(0, 2).map((person) => maskKoreanName(person.name));
-  const extraCount = Math.max(0, option.responseCount - names.length);
-
-  return extraCount > 0 ? `${names.join(', ')} 외` : names.join(', ');
-}
-
-function maskKoreanName(name: string) {
-  const trimmed = name.trim();
-
-  if (trimmed.length <= 1) {
-    return trimmed;
-  }
-
-  return `${trimmed.slice(0, 1)}OO`;
-}
-
 function getPollStatusLabel(status: string) {
   switch (status) {
     case 'OPEN':
@@ -2311,7 +2231,7 @@ const styles = StyleSheet.create({
   },
   addOptionButton: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
     backgroundColor: colors.surface,
     borderColor: colors.primary,
     borderRadius: radius.control,
@@ -2328,6 +2248,15 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 15,
     fontWeight: '700',
+  },
+  responseSubmitRow: {
+    alignItems: 'flex-end',
+  },
+  responseSectionHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.gap,
+    justifyContent: 'space-between',
   },
   avatar: {
     alignItems: 'center',
