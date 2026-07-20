@@ -21,6 +21,7 @@ const firebasePlugins = [
     },
   ],
   '@react-native-firebase/messaging',
+  '@react-native-firebase/crashlytics',
 ];
 const iosApsEnvironment =
   process.env.EXPO_PUBLIC_APP_ENV === 'development' ? 'development' : 'production';
