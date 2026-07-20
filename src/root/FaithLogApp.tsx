@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   AppState,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   type KeyboardTypeOptions,
@@ -860,9 +861,12 @@ function NoCampusOnboarding({
 function LaunchAuthCheckScreen({message}: {message: string}) {
   return (
     <View style={styles.launchFrame}>
-      <View style={styles.launchIcon}>
-        <Text style={styles.launchIconText}>F</Text>
-      </View>
+      <Image
+        accessibilityLabel="FaithLog 앱 로고"
+        accessibilityRole="image"
+        source={require('../../assets/icon.png')}
+        style={styles.launchLogo}
+      />
       <Text style={styles.launchTitle}>FaithLog</Text>
       <Text style={styles.launchSubtitle}>경건생활과 공동체 운영을 확인하고 있어요</Text>
       <View style={styles.launchLoadingCard}>
@@ -4776,20 +4780,11 @@ const styles = StyleSheet.create({
     minHeight: 650,
     width: '100%',
   },
-  launchIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.faith,
+  launchLogo: {
     borderRadius: 24,
     height: 112,
-    justifyContent: 'center',
     marginBottom: 8,
     width: 112,
-  },
-  launchIconText: {
-    color: colors.surface,
-    fontSize: 42,
-    fontWeight: '700',
-    lineHeight: 48,
   },
   launchTitle: {
     color: colors.textPrimary,
