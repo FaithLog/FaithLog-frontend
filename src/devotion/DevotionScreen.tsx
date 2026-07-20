@@ -8,6 +8,8 @@ import {
   saveWeeklyDevotion,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {trackDevotionSubmitComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {clearTokens} from '../api/tokenStorage';
 import type {ApiError, DevotionDailyCheck, PenaltyRule, WeeklyDevotionSummary} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
@@ -198,16 +200,19 @@ export function DevotionScreen({
         return;
       }
 
-      const nextWeekly = await saveWeeklyDevotion(accessToken, campusId, selectedWeekStart, {
-        dailyChecks: formChecks.map((check) => ({
-          recordDate: check.recordDate,
-          quietTimeChecked: check.quietTimeChecked,
-          prayerChecked: check.prayerChecked,
-          bibleReadingChecked: check.bibleReadingChecked,
-        })),
-        saturdayLateMinutes: lateMinutes ?? 0,
-        submit,
-      });
+      const saveRequest = () => saveWeeklyDevotion(accessToken, campusId, selectedWeekStart, {
+          dailyChecks: formChecks.map((check) => ({
+            recordDate: check.recordDate,
+            quietTimeChecked: check.quietTimeChecked,
+            prayerChecked: check.prayerChecked,
+            bibleReadingChecked: check.bibleReadingChecked,
+          })),
+          saturdayLateMinutes: lateMinutes ?? 0,
+          submit,
+        });
+      const nextWeekly = submit
+        ? await runWithCompletionEvent(saveRequest, trackDevotionSubmitComplete)
+        : await saveRequest();
 
       setLoadState({status: 'success', weekly: nextWeekly});
       setFormChecks(normalizeWeekChecks(nextWeekly));

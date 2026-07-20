@@ -3,6 +3,10 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 const {firebaseAnalytics, reactNative} = vi.hoisted(() => ({
   firebaseAnalytics: {
     getAnalytics: vi.fn(),
+    logEvent: vi.fn(),
+    logLogin: vi.fn(),
+    logScreenView: vi.fn(),
+    logSignUp: vi.fn(),
     setAnalyticsCollectionEnabled: vi.fn(),
   },
   reactNative: {
@@ -19,6 +23,8 @@ vi.mock('@react-native-firebase/analytics', () => firebaseAnalytics);
 
 import {
   initializeNativeFirebaseAnalytics,
+  logNativeAnalyticsEvent,
+  logNativeAnalyticsScreen,
   resetNativeFirebaseAnalyticsForTests,
 } from './nativeFirebaseAnalytics';
 
@@ -30,7 +36,61 @@ describe('native Firebase Analytics initialization', () => {
     reactNative.NativeModules.RNFBAppModule = {};
     reactNative.NativeModules.RNFBAnalyticsModule = {};
     firebaseAnalytics.getAnalytics.mockReturnValue({app: 'default'});
+    firebaseAnalytics.logEvent.mockResolvedValue(undefined);
+    firebaseAnalytics.logLogin.mockResolvedValue(undefined);
+    firebaseAnalytics.logScreenView.mockResolvedValue(undefined);
+    firebaseAnalytics.logSignUp.mockResolvedValue(undefined);
     firebaseAnalytics.setAnalyticsCollectionEnabled.mockResolvedValue(undefined);
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+  });
+
+  it('disables collection outside production and never sends app events', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'preview';
+
+    await initializeNativeFirebaseAnalytics();
+    await logNativeAnalyticsEvent({name: 'login', parameters: {method: 'email'}});
+    await logNativeAnalyticsScreen('login');
+
+    expect(firebaseAnalytics.setAnalyticsCollectionEnabled).toHaveBeenCalledWith(
+      {app: 'default'},
+      false,
+    );
+    expect(firebaseAnalytics.logEvent).not.toHaveBeenCalled();
+    expect(firebaseAnalytics.logLogin).not.toHaveBeenCalled();
+    expect(firebaseAnalytics.logScreenView).not.toHaveBeenCalled();
+    expect(firebaseAnalytics.logSignUp).not.toHaveBeenCalled();
+  });
+
+  it('uses Firebase recommended login and sign-up helpers in production', async () => {
+    await logNativeAnalyticsEvent({name: 'login', parameters: {method: 'email'}});
+    await logNativeAnalyticsEvent({name: 'sign_up', parameters: {method: 'email'}});
+
+    expect(firebaseAnalytics.logLogin).toHaveBeenCalledWith(
+      {app: 'default'},
+      {method: 'email'},
+    );
+    expect(firebaseAnalytics.logSignUp).toHaveBeenCalledWith(
+      {app: 'default'},
+      {method: 'email'},
+    );
+  });
+
+  it('sends production events through the existing default Firebase app', async () => {
+    await logNativeAnalyticsEvent({
+      name: 'poll_response_complete',
+      parameters: {action_result: 'success', poll_type: 'meal'},
+    });
+    await logNativeAnalyticsScreen('poll_detail');
+
+    expect(firebaseAnalytics.logEvent).toHaveBeenCalledWith(
+      {app: 'default'},
+      'poll_response_complete',
+      {action_result: 'success', poll_type: 'meal'},
+    );
+    expect(firebaseAnalytics.logScreenView).toHaveBeenCalledWith(
+      {app: 'default'},
+      {screen_class: 'poll_detail', screen_name: 'poll_detail'},
+    );
   });
 
   it('reuses the default native Firebase app and enables automatic collection once', async () => {

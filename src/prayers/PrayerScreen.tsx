@@ -15,6 +15,8 @@ import {
   FaithLogApiError,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {trackPrayerSubmitComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {prayerApi} from '../api/prayerApi';
 import type {
   ApiError,
@@ -211,13 +213,16 @@ export function PrayerScreen({
         return;
       }
 
-      const savedBoard = await prayerApi.saveSubmissions(accessToken, campusId, weekStartDate, {
-        submissions: dirtyEditableDrafts.map((draft) => ({
-          content: normalizePrayerContent(draft.content),
-          userId: draft.userId,
-          version: draft.version,
-        })),
-      });
+      const savedBoard = await runWithCompletionEvent(
+        () => prayerApi.saveSubmissions(accessToken, campusId, weekStartDate, {
+          submissions: dirtyEditableDrafts.map((draft) => ({
+            content: normalizePrayerContent(draft.content),
+            userId: draft.userId,
+            version: draft.version,
+          })),
+        }),
+        trackPrayerSubmitComplete,
+      );
 
       setBoardState({status: 'success', board: savedBoard});
       setDrafts(buildDrafts(savedBoard, {}, state.user.id));

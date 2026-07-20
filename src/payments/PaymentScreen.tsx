@@ -16,6 +16,8 @@ import {
   markMyChargePaid,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {trackChargeMarkPaidComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {clearTokens, getAuthSessionGeneration} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -304,7 +306,10 @@ export function PaymentScreen({
 
       if (getAuthSessionGeneration() !== mutationGeneration) return;
 
-      const paid = await markMyChargePaid(accessToken, campusId, charge.id);
+      const paid = await runWithCompletionEvent(
+        () => markMyChargePaid(accessToken, campusId, charge.id),
+        trackChargeMarkPaidComplete,
+      );
       if (getAuthSessionGeneration() !== mutationGeneration) return;
       invalidatePaymentContextCache(campusId);
       setActionState({status: 'complete', charge: paid});

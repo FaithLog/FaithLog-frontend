@@ -12,6 +12,14 @@ const analyticsSource = fs.readFileSync(
   path.join(root, 'src/analytics/nativeFirebaseAnalytics.ts'),
   'utf8',
 );
+const analyticsContract = fs.readFileSync(
+  path.join(root, 'src/analytics/analyticsContract.ts'),
+  'utf8',
+);
+const androidScreenReportingPlugin = fs.readFileSync(
+  path.join(root, 'plugins/withFirebaseAnalyticsScreenReporting.js'),
+  'utf8',
+);
 
 describe('Firebase Analytics native configuration', () => {
   it('uses the matching React Native Firebase package and Expo config plugin', () => {
@@ -30,12 +38,18 @@ describe('Firebase Analytics native configuration', () => {
     expect(analyticsSource).not.toContain('initializeApp');
   });
 
-  it('does not add measurement ids, custom events, user ids, or personal data', () => {
-    const analyticsImplementation = `${appEntry}\n${appConfig}\n${analyticsSource}`;
+  it('disables automatic screen reporting so manual screen views are not duplicated', () => {
+    expect(appConfig).toContain('FirebaseAutomaticScreenReportingEnabled');
+    expect(appConfig).toContain('withFirebaseAnalyticsScreenReporting');
+    expect(androidScreenReportingPlugin).toContain("'tools:replace': 'android:value'");
+  });
+
+  it('does not add measurement ids, user identity APIs, advertising ids, or personal data fields', () => {
+    const analyticsImplementation = `${appEntry}\n${appConfig}\n${analyticsSource}\n${analyticsContract}`;
 
     expect(analyticsImplementation).not.toMatch(/G-[A-Z0-9]+/);
-    expect(analyticsImplementation).not.toContain('logEvent');
     expect(analyticsImplementation).not.toContain('setUserId');
-    expect(analyticsImplementation).not.toMatch(/email|phone|campusName|authorization|fcmToken/i);
+    expect(analyticsImplementation).not.toContain('setUserProperty');
+    expect(analyticsImplementation).not.toMatch(/phone|campusName|authorization|fcmToken|advertisingId/i);
   });
 });

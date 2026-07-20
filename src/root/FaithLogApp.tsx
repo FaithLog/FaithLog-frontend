@@ -62,6 +62,17 @@ import type {
   UserRole,
 } from '../api/types';
 import {AdminScreen} from '../admin/AdminScreen';
+import {
+  getAuthenticatedAnalyticsScreen,
+  getPublicAnalyticsScreen,
+} from '../analytics/analyticsScreenState';
+import {
+  trackCampusJoinComplete,
+  trackLoginComplete,
+  trackSignUpComplete,
+} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
+import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {isActiveDutyForRequest} from '../admin/adminMemberDutyFilter';
 import {ServiceAdminScreen} from '../admin/ServiceAdminScreen';
 import {
@@ -342,6 +353,7 @@ export function FaithLogApp() {
     authState.status === 'signedOut' ||
     authState.status === 'sessionExpired' ||
     authState.status === 'configurationError';
+  useAnalyticsScreen(getPublicAnalyticsScreen(authState.status, entryTarget));
   const RootContainer = Platform.OS === 'android' ? View : SafeAreaView;
 
   const retryBootstrap = () => {
@@ -1061,7 +1073,10 @@ function InviteCodeForm({
       });
       if (!accessToken) return;
 
-      const joined = await joinCampus(accessToken, result.payload);
+      const joined = await runWithCompletionEvent(
+        () => joinCampus(accessToken, result.payload),
+        trackCampusJoinComplete,
+      );
       const nextState = await resolveAuthenticatedCampusState(
         accessToken,
         user,
@@ -1290,7 +1305,10 @@ function LoginForm({
 
     setSubmitting(true);
     try {
-      const nextState = await loginAndEstablishSession(result.payload);
+      const nextState = await runWithCompletionEvent(
+        () => loginAndEstablishSession(result.payload),
+        trackLoginComplete,
+      );
       onLoginComplete(nextState);
     } catch (error) {
       setFormError(getAuthFormErrorMessage(error, 'login'));
@@ -1388,7 +1406,10 @@ function SignupForm({
 
     setSubmitting(true);
     try {
-      const user = await signupAfterSessionCleanup(result.payload);
+      const user = await runWithCompletionEvent(
+        () => signupAfterSessionCleanup(result.payload),
+        trackSignUpComplete,
+      );
       onSignupComplete(user.name);
     } catch (error) {
       if (error instanceof FaithLogApiError && error.detail.code === 'LOGOUT_CLEANUP_PENDING') {
@@ -1832,6 +1853,7 @@ function AuthenticatedShell({
       route === 'prayers');
   const userBottomNavActiveId = route === 'prayers' ? 'userHome' : route;
   const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
+  useAnalyticsScreen(getAuthenticatedAnalyticsScreen({entryTarget, profileView, route}));
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';

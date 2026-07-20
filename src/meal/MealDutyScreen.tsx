@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 
+import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import type {ApiError} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {DutyPageNav} from '../duty/DutyPageNav';
@@ -51,6 +52,7 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${state.user.id}/meal-entry`);
   const [route, setRoute] = useState<MealRoute>({name: 'polls'});
   const [entryState, setEntryState] = useState<EntryState>({status: 'loading'});
+  useAnalyticsScreen(getMealAnalyticsScreen(route));
   const onSessionExpired = useCallback(
     (message: string) => setAuthState({status: 'sessionExpired', message}),
     [setAuthState],
@@ -139,6 +141,18 @@ export function MealDutyScreen({api = mealApi, onBack, setAuthState, state}: Mea
           : null}
     </DutyPageScaffold>
   );
+}
+
+function getMealAnalyticsScreen(route: MealRoute) {
+  switch (route.name) {
+    case 'polls': return 'poll_list' as const;
+    case 'create': return 'poll_create' as const;
+    case 'detail':
+    case 'charge': return 'poll_detail' as const;
+    case 'account':
+    case 'settlement': return 'billing' as const;
+    default: return 'settings' as const;
+  }
 }
 
 function toMealRoute(page: MealDutyPage): MealRoute {

@@ -2,6 +2,8 @@ import {useRef, useState} from 'react';
 import {Pressable, Text, View} from 'react-native';
 
 import {Body, Eyebrow, TextField} from '../components/ui';
+import {trackPollCreateComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {
   DutyDateTimeField,
@@ -85,7 +87,10 @@ export function MealPollCreateScreen({
         if (apiError) setError(apiError);
         return;
       }
-      const created = await api.createPoll(access.request.accessToken, campusId, request);
+      const created = await runWithCompletionEvent(
+        () => api.createPoll(access.request.accessToken, campusId, request),
+        () => trackPollCreateComplete('meal'),
+      );
       if (!tracker.isSuccessCurrent(identity)) return;
       onCreated(created);
     } catch (caught) {

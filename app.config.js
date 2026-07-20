@@ -85,12 +85,17 @@ module.exports = ({config}) => {
     plugins: [
       ...(config.plugins || []),
       './plugins/withAndroidNavigationMode',
+      './plugins/withFirebaseAnalyticsScreenReporting',
       buildPropertiesPlugin,
       'expo-sharing',
       ...firebasePlugins,
     ],
     ios: {
       ...config.ios,
+      infoPlist: {
+        ...(config.ios?.infoPlist || {}),
+        FirebaseAutomaticScreenReportingEnabled: false,
+      },
       entitlements: {
         ...(config.ios?.entitlements || {}),
         'aps-environment': iosApsEnvironment,

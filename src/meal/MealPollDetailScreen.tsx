@@ -2,6 +2,8 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
+import {trackPollCloseComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {Card, Chip, Eyebrow, Title} from '../components/ui';
 import {DutyActionButton} from '../duty/DutyPresentation';
@@ -108,7 +110,10 @@ export function MealPollDetailScreen({
         if (apiError) setActionError(apiError);
         return;
       }
-      await api.closePoll(access.request.accessToken, campusId, pollId);
+      await runWithCompletionEvent(
+        () => api.closePoll(access.request.accessToken, campusId, pollId),
+        () => trackPollCloseComplete('meal'),
+      );
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
       mutationSucceeded = true;
       closedTerminalScopeRef.current = requestScope;

@@ -39,6 +39,9 @@ import type {
 } from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {trackPollCloseComplete, trackPollCreateComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
+import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {
   Body,
   Eyebrow,
@@ -200,6 +203,7 @@ export function CoffeeDutyScreen({
   const [reminderConfirmVisible, setReminderConfirmVisible] = useState(false);
   const [reminderState, setReminderState] = useState<CoffeeReminderState>({status: 'idle'});
   const [page, setPage] = useState<CoffeeDutyPage>('manage');
+  useAnalyticsScreen(page === 'create' ? 'poll_create' : page === 'manage' ? 'poll_list' : 'billing');
   const [pollRefreshKey, setPollRefreshKey] = useState(0);
   const [createdPollId, setCreatedPollId] = useState<number | null>(null);
   const [knownOwnedCoffeeAccountIds, setKnownOwnedCoffeeAccountIds] = useState<Set<number>>(
@@ -382,7 +386,7 @@ export function CoffeeDutyScreen({
         return;
       }
 
-      const created = await createAdminPoll(accessToken, campusId, {
+      const created = await runWithCompletionEvent(() => createAdminPoll(accessToken, campusId, {
         chargeGenerationType: 'OPTION_PRICE',
         endsAt: endsAt.toISOString(),
         allowUserOptionAdd: true,
@@ -400,7 +404,7 @@ export function CoffeeDutyScreen({
         startsAt: new Date().toISOString(),
         templateId: null,
         title: trimmedTitle,
-      });
+      }), () => trackPollCreateComplete('coffee'));
 
       setCreateState({status: 'success', title: trimmedTitle});
       setTitle(DEFAULT_COFFEE_POLL_TITLE);
@@ -1373,7 +1377,10 @@ function CoffeePollManagement({
         return;
       }
 
-      const closed = await closeAdminPoll(accessToken, campusId, target.id);
+      const closed = await runWithCompletionEvent(
+        () => closeAdminPoll(accessToken, campusId, target.id),
+        () => trackPollCloseComplete('coffee'),
+      );
       setCloseTarget(null);
       setCloseState({status: 'success', title: closed.title});
       setSelectedPollId(closed.id);

@@ -75,6 +75,10 @@ import {
   type AdminPollType,
 } from '../api/adminPollApi';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {toAnalyticsPollType} from '../analytics/analyticsContract';
+import {trackPollCloseComplete, trackPollCreateComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
+import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {prayerApi} from '../api/prayerApi';
 import {
   clearStoredPrayerSeason,
@@ -3747,6 +3751,7 @@ function AdminPollManagement({
   setNotice: (notice: Notice) => void;
 }) {
   const [section, setSection] = useState<AdminPollSection>('manage');
+  useAnalyticsScreen(section === 'create' ? 'poll_create' : 'admin_dashboard');
   const [listState, setListState] = useState<AdminPollListState>({status: 'loading'});
   const [coffeeCatalogState, setCoffeeCatalogState] = useState<AdminCoffeeCatalogState>({
     status: 'idle',
@@ -3974,7 +3979,10 @@ function AdminPollManagement({
       }
 
       const request = toAdminPollCreateFormRequest(pollForm);
-      const created = await createAdminPoll(accessToken, campusId, request);
+      const created = await runWithCompletionEvent(
+        () => createAdminPoll(accessToken, campusId, request),
+        () => trackPollCreateComplete(toAnalyticsPollType(request.pollType)),
+      );
       setSelectedPollId(created.id);
       setPollForm(toPollCreateForm(created));
       setPollStatusTab('ongoing');
@@ -4043,7 +4051,10 @@ function AdminPollManagement({
         return;
       }
 
-      const closed = await closeAdminPoll(accessToken, campusId, target.id);
+      const closed = await runWithCompletionEvent(
+        () => closeAdminPoll(accessToken, campusId, target.id),
+        () => trackPollCloseComplete(toAnalyticsPollType(target.pollType)),
+      );
       setPollCloseTarget(null);
       setSelectedPollId(closed.id);
       await loadPolls();

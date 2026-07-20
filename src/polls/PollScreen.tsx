@@ -28,6 +28,10 @@ import {
   updatePollComment,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {toAnalyticsPollType} from '../analytics/analyticsContract';
+import {trackPollResponseComplete} from '../analytics/appAnalytics';
+import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
+import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import type {
   ApiError,
@@ -141,6 +145,7 @@ export function PollScreen({
   const campusId = state.selectedCampus.campusId;
   const [listState, setListState] = useState<ListState>({status: 'loading'});
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
+  useAnalyticsScreen(selectedPollId === null ? 'poll_list' : 'poll_detail');
   const [detailState, setDetailState] = useState<DetailState>({status: 'idle'});
   const [detailTab, setDetailTab] = useState<DetailTab>('response');
   const [listTab, setListTab] = useState<PollListTab>('active');
@@ -316,9 +321,12 @@ export function PollScreen({
 
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
 
-      await savePollResponse(accessToken, campusId, mutationPollId, {
-        optionIds: selectedOptionIds,
-      });
+      await runWithCompletionEvent(
+        () => savePollResponse(accessToken, campusId, mutationPollId, {
+          optionIds: selectedOptionIds,
+        }),
+        () => trackPollResponseComplete(toAnalyticsPollType(activeDetail.pollType)),
+      );
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
       await loadDetail(mutationPollId, 'results', {
         epoch: mutationEpoch,
