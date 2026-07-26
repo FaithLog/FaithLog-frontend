@@ -15,7 +15,9 @@ describe('session check launch branding', () => {
       source.indexOf('function SessionExpiredScreen'),
     );
 
-    expect(launchScreen).toContain("require('../../assets/icon.png')");
+    expect(launchScreen).toContain("require('../../assets/icon-ios.png')");
+    expect(launchScreen).toContain('resizeMode="cover"');
+    expect(launchScreen).not.toContain("require('../../assets/icon.png')");
     expect(launchScreen).toContain('accessibilityLabel="FaithLog 앱 로고"');
     expect(launchScreen).not.toContain('>F</Text>');
   });
