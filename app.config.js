@@ -5,6 +5,10 @@ const EAS_PROJECT_ID = 'd44726b8-2e0c-4be8-8c24-7911ff0c740b';
 const buildPropertiesPlugin = [
   'expo-build-properties',
   {
+    android: {
+      enableMinifyInReleaseBuilds: true,
+      enableShrinkResourcesInReleaseBuilds: true,
+    },
     ios: {
       useFrameworks: 'static',
     },
@@ -90,6 +94,7 @@ module.exports = ({config}) => {
       buildPropertiesPlugin,
       'expo-sharing',
       ...firebasePlugins,
+      './plugins/withAndroidReleaseRecommendations',
     ],
     ios: {
       ...config.ios,
