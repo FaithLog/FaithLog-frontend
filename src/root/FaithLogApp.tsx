@@ -865,7 +865,7 @@ function LaunchAuthCheckScreen({message}: {message: string}) {
         accessibilityLabel="FaithLog 앱 로고"
         accessibilityRole="image"
         resizeMode="cover"
-        source={require('../../assets/icon-ios.png')}
+        source={require('../../assets/launch-logo.png')}
         style={styles.launchLogo}
       />
       <Text style={styles.launchTitle}>FaithLog</Text>
