@@ -17,7 +17,7 @@ describe('password reset flow', () => {
       code: '123456',
     }, {
       passwordResetToken: 'memory-only-reset-token',
-      expiresInSeconds: 300,
+      expiresInSeconds: 600,
     }, 1_000);
 
     expect(getPasswordResetStep(confirmed, 1_001)).toBe('newPassword');

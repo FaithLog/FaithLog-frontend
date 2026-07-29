@@ -31,6 +31,7 @@ describe('provisional auth API boundary', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     delete process.env.EXPO_PUBLIC_MOCK_SCENARIO;
   });
@@ -68,6 +69,81 @@ describe('provisional auth API boundary', () => {
       newPassword: 'new-password123',
     })).resolves.toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses separate 300-second code and 600-second token contracts', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    await expect(requestSignupEmailCode({email: 'signup@example.test'})).resolves.toEqual({
+      expiresInSeconds: 300,
+      resendAvailableInSeconds: 60,
+    });
+    await expect(confirmSignupEmailCode({email: 'signup@example.test', code: '123456'}))
+      .resolves.toMatchObject({expiresInSeconds: 600});
+
+    await expect(requestPasswordResetCode({email: 'reset@example.test'})).resolves.toMatchObject({
+      expiresInSeconds: 300,
+      resendAvailableInSeconds: 60,
+    });
+    await expect(confirmPasswordResetCode({email: 'reset@example.test', code: '123456'}))
+      .resolves.toMatchObject({expiresInSeconds: 600});
+  });
+
+  it('issues unique signup tokens and accepts only the latest token once', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+    const email = 'lineage@example.test';
+    const details = {email, name: '테스트 사용자', password: 'password123'};
+
+    await requestSignupEmailCode({email});
+    const first = await confirmSignupEmailCode({email, code: '123456'});
+    await expect(signupUser({...details, emailVerificationToken: first.emailVerificationToken}))
+      .resolves.toBeTruthy();
+
+    await requestSignupEmailCode({email});
+    const second = await confirmSignupEmailCode({email, code: '123456'});
+    expect(second.emailVerificationToken).not.toBe(first.emailVerificationToken);
+    await expect(signupUser({...details, emailVerificationToken: first.emailVerificationToken}))
+      .rejects.toMatchObject({detail: {code: 'EMAIL_VERIFICATION_TOKEN_INVALID'}});
+    await expect(signupUser({...details, emailVerificationToken: second.emailVerificationToken}))
+      .resolves.toBeTruthy();
+    await expect(signupUser({...details, emailVerificationToken: second.emailVerificationToken}))
+      .rejects.toMatchObject({detail: {code: 'EMAIL_VERIFICATION_TOKEN_INVALID'}});
+  });
+
+  it('allows five hourly requests, blocks the sixth, then resets after one hour', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+    const email = 'hourly-limit@example.test';
+
+    for (let count = 0; count < 5; count += 1) {
+      await expect(requestSignupEmailCode({email})).resolves.toBeTruthy();
+    }
+    await expect(requestSignupEmailCode({email}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_RESEND_LIMIT_EXCEEDED'}});
+
+    vi.advanceTimersByTime(3_600_000);
+    await expect(requestSignupEmailCode({email})).resolves.toBeTruthy();
+  });
+
+  it('isolates the hourly request limit by signup and reset purpose', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+    const email = 'purpose-limit@example.test';
+
+    for (let count = 0; count < 5; count += 1) {
+      await requestSignupEmailCode({email});
+      await requestPasswordResetCode({email});
+    }
+    await expect(requestSignupEmailCode({email}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_RESEND_LIMIT_EXCEEDED'}});
+    await expect(requestPasswordResetCode({email}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_RESEND_LIMIT_EXCEEDED'}});
   });
 
   it('supports two complete reset cycles for the same email with distinct tokens', async () => {

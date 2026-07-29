@@ -138,7 +138,7 @@ const VALID_PARSER_PAYLOADS = {
   parseSignupResponse: mockDomainFixtures.auth.signup,
   parseAuthCodeRequestResponse: {expiresInSeconds: 300, resendAvailableInSeconds: 60},
   parseAuthCodeConfirmationResponse: {
-    emailVerificationToken: 'verification-token', expiresInSeconds: 300,
+    emailVerificationToken: 'verification-token', expiresInSeconds: 600,
   },
   parsePasswordResetRequestResponse: {
     message: '가입된 이메일이라면 인증번호가 발송됩니다.',
@@ -146,7 +146,7 @@ const VALID_PARSER_PAYLOADS = {
     resendAvailableInSeconds: 60,
   },
   parsePasswordResetConfirmationResponse: {
-    passwordResetToken: 'reset-token', expiresInSeconds: 300,
+    passwordResetToken: 'reset-token', expiresInSeconds: 600,
   },
   parseDeleteAccountResponse: VALID_DELETE_ACCOUNT_RESPONSE,
   parseFcmTokenRegisterResponse: mockDomainFixtures.notification.fcmRegistration,

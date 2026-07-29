@@ -47,6 +47,7 @@ import {loginAndEstablishSession, signupAfterSessionCleanup} from './session';
 type LoginValues = {email: string; password: string};
 type SignupDetails = {name: string; password: string; passwordConfirm: string};
 type BusyOperation = 'request' | 'confirm' | 'complete' | 'submit' | null;
+const PASSWORD_RESET_COMPLETE_MESSAGE = '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.';
 
 export function LoginForm({
   clearNotice,
@@ -61,6 +62,7 @@ export function LoginForm({
   const [values, setValues] = useState<LoginValues>({email: '', password: ''});
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors<keyof LoginValues>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [resetCompleteMessage, setResetCompleteMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyOperation>(null);
   const loginGate = useRef(false);
   const [reset, setReset] = useState(createPasswordResetState);
@@ -72,10 +74,20 @@ export function LoginForm({
   }, []);
 
   const exitReset = () => {
-    setReset(clearPasswordResetFlow(reset));
+    setReset((current) => clearPasswordResetFlow(current));
     setBusy(null);
     setFormError(null);
     setFieldErrors({});
+    setResetCompleteMessage(null);
+    setMode('login');
+  };
+
+  const completeReset = () => {
+    setReset((current) => clearPasswordResetFlow(current));
+    setBusy(null);
+    setFormError(null);
+    setFieldErrors({});
+    setResetCompleteMessage(PASSWORD_RESET_COMPLETE_MESSAGE);
     setMode('login');
   };
 
@@ -85,7 +97,7 @@ export function LoginForm({
         busy={busy}
         onBusyChange={setBusy}
         onCancel={exitReset}
-        onComplete={exitReset}
+        onComplete={completeReset}
         setState={setReset}
         state={reset}
       />
@@ -95,6 +107,7 @@ export function LoginForm({
   const submit = () => {
     if (loginGate.current) return;
     clearNotice();
+    setResetCompleteMessage(null);
     setFormError(null);
     const result = validateLoginForm(values);
     setFieldErrors(result.fieldErrors);
@@ -111,6 +124,7 @@ export function LoginForm({
   };
 
   const openReset = () => {
+    setResetCompleteMessage(null);
     setValues((current) => ({...current, password: ''}));
     setFieldErrors({});
     setFormError(null);
@@ -121,6 +135,7 @@ export function LoginForm({
   const exitToSignup = () => {
     setValues({email: '', password: ''});
     setReset(clearPasswordResetFlow(reset));
+    setResetCompleteMessage(null);
     switchToSignup();
   };
 
@@ -155,6 +170,7 @@ export function LoginForm({
         style={styles.linkButton}>
         <Text style={styles.linkText}>비밀번호를 잊으셨나요?</Text>
       </Pressable>
+      {resetCompleteMessage ? <InlineMessage message={resetCompleteMessage} tone="success" /> : null}
       {formError ? <InlineMessage message={formError} tone="error" /> : null}
       <AuthActions>
         <AuthButton disabled={busy !== null} inRow label={busy === 'submit' ? '로그인 중...' : '로그인'} onPress={submit} />

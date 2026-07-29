@@ -81,7 +81,7 @@ describe('public auth form lifecycle', () => {
     });
     api.confirmPasswordResetCode.mockResolvedValue({
       passwordResetToken: 'memory-reset-token',
-      expiresInSeconds: 300,
+      expiresInSeconds: 600,
     });
     api.completePasswordReset.mockResolvedValue(null);
     api.requestSignupEmailCode.mockResolvedValue({
@@ -90,8 +90,13 @@ describe('public auth form lifecycle', () => {
     });
     api.confirmSignupEmailCode.mockResolvedValue({
       emailVerificationToken: 'memory-signup-token',
-      expiresInSeconds: 300,
+      expiresInSeconds: 600,
     });
+    session.loginAndEstablishSession.mockResolvedValue({
+      status: 'noCampus',
+      user: {id: 1, email: 'user@example.test', name: '테스트 사용자', role: 'MEMBER'},
+    });
+    session.signupAfterSessionCleanup.mockResolvedValue({name: '테스트 사용자'});
   });
 
   afterEach(() => {
@@ -145,6 +150,56 @@ describe('public auth form lifecycle', () => {
     expect(byLabel(renderer, '로그인 이메일 입력').props.value).toBe('');
     expect(byLabel(renderer, '로그인 비밀번호 입력').props.value).toBe('');
     expect(byLabel(renderer, '비밀번호 찾기')).toBeTruthy();
+    expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
+      .toBe(1);
+    renderer.unmount();
+  });
+
+  it('shows reset completion only after success and clears it when login starts', async () => {
+    const renderer = await renderLogin();
+    await completeRenderedPasswordReset(renderer);
+
+    expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
+      .toBe(1);
+    expect(session.loginAndEstablishSession).not.toHaveBeenCalled();
+
+    await changeText(renderer, '로그인 이메일 입력', 'user@example.test');
+    await changeText(renderer, '로그인 비밀번호 입력', 'password123');
+    await press(renderer, '로그인');
+    expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
+      .toBe(0);
+    renderer.unmount();
+  });
+
+  it('clears reset completion when a new reset is opened and cancelled', async () => {
+    const renderer = await renderLogin();
+    await completeRenderedPasswordReset(renderer);
+    expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
+      .toBe(1);
+
+    await press(renderer, '비밀번호 찾기');
+    await press(renderer, '로그인으로 돌아가기');
+
+    expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
+      .toBe(0);
+    renderer.unmount();
+  });
+
+  it('does not show reset completion when the complete API fails', async () => {
+    api.completePasswordReset.mockRejectedValue(new Error('server failure'));
+    const renderer = await renderLogin();
+    await press(renderer, '비밀번호 찾기');
+    await changeText(renderer, '비밀번호 재설정 이메일 입력', 'user@example.test');
+    await pressAndFlush(renderer, '인증번호 요청');
+    await changeText(renderer, '비밀번호 재설정 인증번호 입력', '123456');
+    await pressAndFlush(renderer, '인증번호 확인');
+    await changeText(renderer, '새 비밀번호 입력', 'password123');
+    await changeText(renderer, '새 비밀번호 확인 입력', 'password123');
+    await pressAndFlush(renderer, '비밀번호 변경');
+
+    expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
+      .toBe(0);
+    expect(byLabel(renderer, '새 비밀번호 입력')).toBeTruthy();
     renderer.unmount();
   });
 
@@ -195,6 +250,60 @@ describe('public auth form lifecycle', () => {
     expect(byLabel(renderer, '인증번호 확인').props.disabled).toBe(true);
     renderer.unmount();
   });
+
+  it('wires the rendered verified signup payload exactly once', async () => {
+    const onSignupComplete = vi.fn();
+    const renderer = await renderSignup(onSignupComplete);
+
+    await changeText(renderer, '회원가입 이메일 입력', 'USER@example.test');
+    await pressAndFlush(renderer, '인증번호 요청');
+    await changeText(renderer, '회원가입 인증번호 입력', '123456');
+    await pressAndFlush(renderer, '인증번호 확인');
+    await changeText(renderer, '회원가입 이름 입력', ' 테스트 사용자 ');
+    await changeText(renderer, '회원가입 비밀번호 입력', 'password123');
+    await changeText(renderer, '회원가입 비밀번호 확인 입력', 'password123');
+    await pressAndFlush(renderer, '가입 완료');
+
+    expect(session.signupAfterSessionCleanup).toHaveBeenCalledTimes(1);
+    expect(session.signupAfterSessionCleanup).toHaveBeenCalledWith({
+      email: 'user@example.test',
+      name: '테스트 사용자',
+      password: 'password123',
+      emailVerificationToken: 'memory-signup-token',
+    });
+    expect(onSignupComplete).toHaveBeenCalledWith('테스트 사용자');
+    renderer.unmount();
+  });
+
+  it('does not submit the rendered signup before verification', async () => {
+    const renderer = await renderSignup();
+    await changeText(renderer, '회원가입 이메일 입력', 'user@example.test');
+    await press(renderer, '가입 완료');
+
+    expect(session.signupAfterSessionCleanup).not.toHaveBeenCalled();
+    renderer.unmount();
+  });
+
+  it('clears verified signup state and blocks submit after the email changes', async () => {
+    const renderer = await renderSignup();
+    await changeText(renderer, '회원가입 이메일 입력', 'first@example.test');
+    await pressAndFlush(renderer, '인증번호 요청');
+    await changeText(renderer, '회원가입 인증번호 입력', '123456');
+    await pressAndFlush(renderer, '인증번호 확인');
+    await changeText(renderer, '회원가입 이름 입력', '테스트 사용자');
+    await changeText(renderer, '회원가입 비밀번호 입력', 'password123');
+    await changeText(renderer, '회원가입 비밀번호 확인 입력', 'password123');
+
+    await changeText(renderer, '회원가입 이메일 입력', 'second@example.test');
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '회원가입 이름 입력')).toHaveLength(0);
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '회원가입 인증번호 입력')).toHaveLength(0);
+    expect(byLabel(renderer, '가입 완료').props.disabled).toBe(true);
+
+    expect(session.signupAfterSessionCleanup).not.toHaveBeenCalled();
+    renderer.unmount();
+  });
 });
 
 async function renderLogin() {
@@ -207,6 +316,34 @@ async function renderLogin() {
     />);
   });
   return renderer;
+}
+
+async function renderSignup(onSignupComplete = vi.fn()) {
+  let renderer!: ReactTestRenderer;
+  await act(async () => {
+    renderer = create(<SignupForm
+      clearNotice={vi.fn()}
+      onSignupComplete={onSignupComplete}
+      switchToLogin={vi.fn()}
+    />);
+  });
+  return renderer;
+}
+
+async function completeRenderedPasswordReset(renderer: ReactTestRenderer) {
+  await press(renderer, '비밀번호 찾기');
+  await changeText(renderer, '비밀번호 재설정 이메일 입력', 'user@example.test');
+  await pressAndFlush(renderer, '인증번호 요청');
+  await changeText(renderer, '비밀번호 재설정 인증번호 입력', '123456');
+  await pressAndFlush(renderer, '인증번호 확인');
+  await changeText(renderer, '새 비밀번호 입력', 'password123');
+  await changeText(renderer, '새 비밀번호 확인 입력', 'password123');
+  await pressAndFlush(renderer, '비밀번호 변경');
+}
+
+function textOccurrences(renderer: ReactTestRenderer, value: string) {
+  return renderer.root.findAll((node) => String(node.type) === 'Text' && node.props.children === value)
+    .length;
 }
 
 function byLabel(renderer: ReactTestRenderer, label: string) {

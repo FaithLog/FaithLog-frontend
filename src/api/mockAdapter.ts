@@ -115,6 +115,12 @@ type MockErrorResult = {
   status: number;
 };
 
+const MOCK_AUTH_CODE_EXPIRES_IN_SECONDS = 300;
+const MOCK_AUTH_RESEND_AVAILABLE_IN_SECONDS = 60;
+const MOCK_AUTH_TOKEN_EXPIRES_IN_SECONDS = 600;
+const MOCK_AUTH_REQUEST_LIMIT = 5;
+const MOCK_AUTH_REQUEST_WINDOW_MS = 60 * 60 * 1_000;
+
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
 let mockMealState = createInitialMockMealState();
 let mockPollDetails = createInitialMockPollDetails();
@@ -123,8 +129,9 @@ let mockMonthlyDevotion = createMockMonthlyDevotionState();
 let mockSignupVerificationTokens = new Map<string, string>();
 let mockPasswordResetTokens = new Set<string>();
 let mockUsedPasswordResetTokens = new Set<string>();
-let mockAuthCodeRequestCounts = new Map<string, number>();
+let mockAuthCodeRequestCounts = new Map<string, {count: number; windowStartedAt: number}>();
 let mockIssuedAuthCodes = new Map<string, {code: string; expiresAt: number; attempts: number}>();
+let mockSignupVerificationTokenSequence = 0;
 let mockPasswordResetTokenSequence = 0;
 
 export function resetMockAdapterStateForTests() {
@@ -3054,6 +3061,7 @@ function resetMockOneTimeAuthState() {
   mockUsedPasswordResetTokens = new Set();
   mockAuthCodeRequestCounts = new Map();
   mockIssuedAuthCodes = new Map();
+  mockSignupVerificationTokenSequence = 0;
   mockPasswordResetTokenSequence = 0;
 }
 
@@ -3066,8 +3074,12 @@ function requestMockAuthCode(body: BodyInit | null | undefined, purpose: 'signup
     return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
   }
   const key = `${purpose}:${email}`;
-  const currentCount = mockAuthCodeRequestCounts.get(key) ?? 0;
-  if (email === 'resend-limit@example.test' || currentCount >= 3) {
+  const now = Date.now();
+  const storedWindow = mockAuthCodeRequestCounts.get(key);
+  const currentWindow = storedWindow && now - storedWindow.windowStartedAt < MOCK_AUTH_REQUEST_WINDOW_MS
+    ? storedWindow
+    : {count: 0, windowStartedAt: now};
+  if (email === 'resend-limit@example.test' || currentWindow.count >= MOCK_AUTH_REQUEST_LIMIT) {
     return {
       code: 'AUTH_RESEND_LIMIT_EXCEEDED',
       message: '인증번호 요청 횟수를 초과했습니다.',
@@ -3075,13 +3087,19 @@ function requestMockAuthCode(body: BodyInit | null | undefined, purpose: 'signup
       status: 429,
     };
   }
-  mockAuthCodeRequestCounts.set(key, currentCount + 1);
+  mockAuthCodeRequestCounts.set(key, {
+    count: currentWindow.count + 1,
+    windowStartedAt: currentWindow.windowStartedAt,
+  });
   mockIssuedAuthCodes.set(key, {
     code: '123456',
-    expiresAt: Date.now() + 300_000,
+    expiresAt: now + MOCK_AUTH_CODE_EXPIRES_IN_SECONDS * 1_000,
     attempts: 0,
   });
-  return {expiresInSeconds: 300, resendAvailableInSeconds: 60};
+  return {
+    expiresInSeconds: MOCK_AUTH_CODE_EXPIRES_IN_SECONDS,
+    resendAvailableInSeconds: MOCK_AUTH_RESEND_AVAILABLE_IN_SECONDS,
+  };
 }
 
 function confirmMockSignupCode(body?: BodyInit | null) {
@@ -3092,10 +3110,11 @@ function confirmMockSignupCode(body?: BodyInit | null) {
   const codeError = getMockCodeError(email, record.code, 'signup');
   if (codeError) return codeError;
   if (!email) return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
-  const token = `mock-signup-token-${email.replace(/[^a-z0-9]/g, '-')}`;
+  mockSignupVerificationTokenSequence += 1;
+  const token = `mock-signup-token-${mockSignupVerificationTokenSequence}-${email.replace(/[^a-z0-9]/g, '-')}`;
   mockIssuedAuthCodes.delete(`signup:${email}`);
   mockSignupVerificationTokens.set(email, token);
-  return {emailVerificationToken: token, expiresInSeconds: 300};
+  return {emailVerificationToken: token, expiresInSeconds: MOCK_AUTH_TOKEN_EXPIRES_IN_SECONDS};
 }
 
 function confirmMockPasswordResetCode(body?: BodyInit | null) {
@@ -3110,7 +3129,7 @@ function confirmMockPasswordResetCode(body?: BodyInit | null) {
   const token = `mock-reset-token-${mockPasswordResetTokenSequence}-${email.replace(/[^a-z0-9]/g, '-')}`;
   mockIssuedAuthCodes.delete(`reset:${email}`);
   mockPasswordResetTokens.add(token);
-  return {passwordResetToken: token, expiresInSeconds: 300};
+  return {passwordResetToken: token, expiresInSeconds: MOCK_AUTH_TOKEN_EXPIRES_IN_SECONDS};
 }
 
 function completeMockPasswordReset(body?: BodyInit | null) {

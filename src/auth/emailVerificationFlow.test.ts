@@ -36,7 +36,7 @@ describe('signup email verification flow', () => {
     );
     const verified = applySignupCodeConfirmed(
       {...requested, code: '123456'},
-      {emailVerificationToken: 'memory-only-verification-token', expiresInSeconds: 300},
+      {emailVerificationToken: 'memory-only-verification-token', expiresInSeconds: 600},
       2_000,
     );
 
@@ -64,7 +64,7 @@ describe('signup email verification flow', () => {
       requestError: '이전 요청 오류',
     }, {
       emailVerificationToken: 'sensitive-token',
-      expiresInSeconds: 300,
+      expiresInSeconds: 600,
     }, 2_000);
 
     expect(changeSignupEmail(verified, 'second@example.test')).toEqual({
