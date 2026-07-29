@@ -148,6 +148,28 @@ describe('public auth form lifecycle', () => {
     renderer.unmount();
   });
 
+  it('clears reset token and inputs when leaving and re-entering the reset flow', async () => {
+    const renderer = await renderLogin();
+    await press(renderer, '비밀번호 찾기');
+    await changeText(renderer, '비밀번호 재설정 이메일 입력', 'user@example.test');
+    await pressAndFlush(renderer, '인증번호 요청');
+    await changeText(renderer, '비밀번호 재설정 인증번호 입력', '123456');
+    await pressAndFlush(renderer, '인증번호 확인');
+    await changeText(renderer, '새 비밀번호 입력', 'password123');
+    await changeText(renderer, '새 비밀번호 확인 입력', 'password123');
+
+    await press(renderer, '로그인으로 돌아가기');
+    await press(renderer, '비밀번호 찾기');
+
+    expect(byLabel(renderer, '비밀번호 재설정 이메일 입력').props.value).toBe('');
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '비밀번호 재설정 인증번호 입력')).toHaveLength(0);
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '새 비밀번호 입력')).toHaveLength(0);
+    expect(api.completePasswordReset).not.toHaveBeenCalled();
+    renderer.unmount();
+  });
+
   it('recalculates expiry on AppState foreground and disables confirmation', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));

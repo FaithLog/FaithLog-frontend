@@ -70,6 +70,37 @@ describe('provisional auth API boundary', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('supports two complete reset cycles for the same email with distinct tokens', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    await requestPasswordResetCode({email: 'user@example.test'});
+    const first = await confirmPasswordResetCode({email: 'user@example.test', code: '123456'});
+    await expect(completePasswordReset({
+      resetToken: first.passwordResetToken,
+      newPassword: 'first-password123',
+    })).resolves.toBeNull();
+
+    await requestPasswordResetCode({email: 'user@example.test'});
+    const second = await confirmPasswordResetCode({email: 'user@example.test', code: '123456'});
+    expect(second.passwordResetToken).not.toBe(first.passwordResetToken);
+    await expect(completePasswordReset({
+      resetToken: second.passwordResetToken,
+      newPassword: 'second-password123',
+    })).resolves.toBeNull();
+  });
+
+  it('invalidates an issued code after the mock expired-code scenario', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    await requestPasswordResetCode({email: 'user@example.test'});
+    await expect(confirmPasswordResetCode({email: 'user@example.test', code: '111111'}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_CODE_EXPIRED'}});
+    await expect(confirmPasswordResetCode({email: 'user@example.test', code: '123456'}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_CODE_REQUEST_REQUIRED'}});
+  });
+
   it.each([
     ['000000', 'AUTH_CODE_INVALID'],
     ['111111', 'AUTH_CODE_EXPIRED'],

@@ -125,6 +125,7 @@ let mockPasswordResetTokens = new Set<string>();
 let mockUsedPasswordResetTokens = new Set<string>();
 let mockAuthCodeRequestCounts = new Map<string, number>();
 let mockIssuedAuthCodes = new Map<string, {code: string; expiresAt: number; attempts: number}>();
+let mockPasswordResetTokenSequence = 0;
 
 export function resetMockAdapterStateForTests() {
   mockMealState = createInitialMockMealState();
@@ -3053,6 +3054,7 @@ function resetMockOneTimeAuthState() {
   mockUsedPasswordResetTokens = new Set();
   mockAuthCodeRequestCounts = new Map();
   mockIssuedAuthCodes = new Map();
+  mockPasswordResetTokenSequence = 0;
 }
 
 function requestMockAuthCode(body: BodyInit | null | undefined, purpose: 'signup' | 'reset') {
@@ -3104,7 +3106,8 @@ function confirmMockPasswordResetCode(body?: BodyInit | null) {
   const codeError = getMockCodeError(email, record.code, 'reset');
   if (codeError) return codeError;
   if (!email) return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
-  const token = `mock-reset-token-${email.replace(/[^a-z0-9]/g, '-')}`;
+  mockPasswordResetTokenSequence += 1;
+  const token = `mock-reset-token-${mockPasswordResetTokenSequence}-${email.replace(/[^a-z0-9]/g, '-')}`;
   mockIssuedAuthCodes.delete(`reset:${email}`);
   mockPasswordResetTokens.add(token);
   return {passwordResetToken: token, expiresInSeconds: 300};
@@ -3162,6 +3165,7 @@ function getMockCodeError(
     return mockBadRequest('AUTH_CODE_REQUEST_REQUIRED', '인증번호를 먼저 요청해 주세요.');
   }
   if (code === '111111' || issued.expiresAt <= Date.now()) {
+    mockIssuedAuthCodes.delete(key);
     return mockBadRequest('AUTH_CODE_EXPIRED', '인증번호가 만료되었습니다.');
   }
   if (code === '222222' || issued.attempts >= 5) {
