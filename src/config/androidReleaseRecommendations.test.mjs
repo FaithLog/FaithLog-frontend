@@ -15,8 +15,8 @@ const {__internal} = require('../../plugins/withAndroidReleaseRecommendations.js
 
 describe('Android production release recommendations', () => {
   it('publishes the next user-facing app version consistently', () => {
-    expect(appJson.expo.version).toBe('0.2.2');
-    expect(packageJson.version).toBe('0.2.2');
+    expect(appJson.expo.version).toBe('1.1.2');
+    expect(packageJson.version).toBe('1.1.2');
   });
 
   it('allows Android rotation and resizing without changing the iOS preference', () => {
