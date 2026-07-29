@@ -1138,6 +1138,7 @@ describe('active remote cleanup ownership', () => {
     const session = await import('./session');
     const request = {
       email: 'new@example.test', name: 'new user', password: 'test-password',
+      emailVerificationToken: 'test-verification-token',
     };
 
     await expect(session.signupAfterSessionCleanup(request)).rejects.toThrow();

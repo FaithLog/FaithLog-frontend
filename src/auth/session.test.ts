@@ -441,6 +441,7 @@ describe('auth session lifecycle', () => {
 
       await expect(signupAfterSessionCleanup({
         email: 'new@example.test', name: 'new', password: 'password',
+        emailVerificationToken: 'test-verification-token',
       })).rejects.toThrow('앱을 완전히 종료');
       expect(signupUser).not.toHaveBeenCalled();
     } finally {
@@ -458,6 +459,7 @@ describe('auth session lifecycle', () => {
     })).rejects.toThrow('앱을 완전히 종료');
     await expect(signupAfterSessionCleanup({
       email: 'new@example.test', name: 'new', password: 'password',
+      emailVerificationToken: 'test-verification-token',
     })).rejects.toThrow('앱을 완전히 종료');
     expect(loginUser).not.toHaveBeenCalled();
     expect(signupUser).not.toHaveBeenCalled();
@@ -470,6 +472,7 @@ describe('auth session lifecycle', () => {
     })).rejects.toThrow('앱을 완전히 종료');
     await expect(signupAfterSessionCleanup({
       email: 'new@example.test', name: 'new', password: 'test-password',
+      emailVerificationToken: 'test-verification-token',
     })).rejects.toThrow('앱을 완전히 종료');
     expect(loginUser).not.toHaveBeenCalled();
     expect(signupUser).not.toHaveBeenCalled();
@@ -1272,6 +1275,7 @@ describe('auth session lifecycle', () => {
     })).rejects.toThrow('앱을 완전히 종료');
     await expect(signupAfterSessionCleanup({
       email: 'new@example.test', name: 'new', password: 'test-password',
+      emailVerificationToken: 'test-verification-token',
     })).rejects.toThrow('앱을 완전히 종료');
     expect(loginUser).not.toHaveBeenCalled();
     expect(signupUser).not.toHaveBeenCalled();

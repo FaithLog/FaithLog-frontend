@@ -33,6 +33,33 @@ export type SignupRequest = {
   name: string;
   email: string;
   password: string;
+  emailVerificationToken: string;
+};
+
+export type AuthCodeRequest = {email: string};
+
+export type AuthCodeConfirmationRequest = AuthCodeRequest & {code: string};
+
+export type AuthCodeRequestResponse = {
+  expiresInSeconds: number;
+  resendAvailableInSeconds: number;
+};
+
+export type AuthCodeConfirmationResponse = {
+  emailVerificationToken: string;
+  expiresInSeconds: number;
+};
+
+export type PasswordResetRequestResponse = AuthCodeRequestResponse;
+
+export type PasswordResetConfirmationResponse = {
+  passwordResetToken: string;
+  expiresInSeconds: number;
+};
+
+export type PasswordResetCompleteRequest = {
+  resetToken: string;
+  newPassword: string;
 };
 
 export type SignupResponse = {

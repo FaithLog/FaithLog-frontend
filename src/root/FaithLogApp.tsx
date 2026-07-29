@@ -12,17 +12,13 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
-  type KeyboardTypeOptions,
   Modal,
   Platform,
   Pressable,
-  type ReturnKeyTypeOptions,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  type TextInputProps,
   StatusBar,
   View,
 } from 'react-native';
@@ -67,31 +63,23 @@ import {
   getAuthenticatedAnalyticsScreen,
   getPublicAnalyticsScreen,
 } from '../analytics/analyticsScreenState';
-import {
-  trackCampusJoinComplete,
-  trackLoginComplete,
-  trackSignUpComplete,
-} from '../analytics/appAnalytics';
+import {trackCampusJoinComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {isActiveDutyForRequest} from '../admin/adminMemberDutyFilter';
 import {ServiceAdminScreen} from '../admin/ServiceAdminScreen';
-import {
-  type AuthFieldErrors,
-  type LoginFormValues,
-  type SignupFormValues,
-  validateLoginForm,
-  validateSignupForm,
-} from '../auth/authForms';
+import {type AuthFieldErrors} from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
 import {expireMissingAuthSession, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
-  loginAndEstablishSession,
+  LoginForm as LoginWithPasswordResetForm,
+  SignupForm as EmailVerifiedSignupForm,
+} from '../auth/PublicAuthForms';
+import {
   prepareCurrentSessionLogout,
-  signupAfterSessionCleanup,
   type PreparedLogout,
 } from '../auth/session';
 import {trackLocalSessionCleanup} from '../auth/localCleanupBarrier';
@@ -774,7 +762,7 @@ function renderPublicAuthEntry({
 }) {
   if (entryTarget === 'signup') {
     return (
-      <SignupForm
+      <EmailVerifiedSignupForm
         clearNotice={clearNotice}
         onSignupComplete={() => {
           openEntryTarget('login');
@@ -785,7 +773,7 @@ function renderPublicAuthEntry({
   }
 
   return (
-    <LoginForm
+    <LoginWithPasswordResetForm
       clearNotice={clearNotice}
       onLoginComplete={(nextState) => {
         setAuthState(nextState);
@@ -1280,283 +1268,6 @@ function CampusCreateForm({
   );
 }
 
-function LoginForm({
-  clearNotice,
-  onLoginComplete,
-  switchToSignup,
-}: {
-  clearNotice: () => void;
-  onLoginComplete: (state: Extract<AuthGateState, {status: 'authenticated' | 'noCampus'}>) => void;
-  switchToSignup: () => void;
-}) {
-  const [values, setValues] = useState<LoginFormValues>({email: '', password: ''});
-  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors<keyof LoginFormValues>>({});
-  const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async () => {
-    if (submitting) {
-      return;
-    }
-
-    clearNotice();
-    setFormError(null);
-    const result = validateLoginForm(values);
-    setFieldErrors(result.fieldErrors);
-
-    if (!result.valid) {
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const nextState = await runWithCompletionEvent(
-        () => loginAndEstablishSession(result.payload),
-        trackLoginComplete,
-      );
-      onLoginComplete(nextState);
-    } catch (error) {
-      setFormError(getAuthFormErrorMessage(error, 'login'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <View style={[styles.authFrame, styles.loginAuthFrame]}>
-      <View style={styles.loginHero}>
-        <View style={styles.authBrandChip}>
-          <Text style={styles.authBrandChipText}>FaithLog</Text>
-        </View>
-        <Text style={styles.loginBrandTitle}>로그인</Text>
-      </View>
-      <Text style={styles.loginSubtitle}>경건생활과 공동체 운영을 가볍게 관리해요</Text>
-      <AuthTextField
-        accessibilityLabel="로그인 이메일 입력"
-        error={fieldErrors.email}
-        keyboardType="email-address"
-        label="이메일"
-        onChangeText={(email) => setValues((current) => ({...current, email}))}
-        placeholder="faithlog.user@example.test"
-        returnKeyType="next"
-        textContentType="emailAddress"
-        value={values.email}
-      />
-      <AuthTextField
-        accessibilityLabel="로그인 비밀번호 입력"
-        error={fieldErrors.password}
-        label="비밀번호"
-        onChangeText={(password) => setValues((current) => ({...current, password}))}
-        onSubmitEditing={submit}
-        placeholder="••••••••"
-        returnKeyType="done"
-        secureTextEntry
-        textContentType="password"
-        value={values.password}
-      />
-      {formError ? <InlineError message={formError} /> : null}
-      <View style={styles.authActionSpacer} />
-      <View style={styles.authActionRow}>
-        <AuthButton
-          accessibilityLabel="로그인 제출"
-          disabled={submitting}
-          onPress={submit}>
-          {submitting ? '로그인 중...' : '로그인'}
-        </AuthButton>
-        <AuthButton
-          accessibilityLabel="회원가입 화면으로 이동"
-          disabled={submitting}
-          onPress={switchToSignup}
-          variant="secondary">
-          회원가입
-        </AuthButton>
-      </View>
-      <Text style={styles.authFootnote}>초대코드는 회원가입 후 입력할 수 있어요</Text>
-    </View>
-  );
-}
-
-function SignupForm({
-  clearNotice,
-  onSignupComplete,
-  switchToLogin,
-}: {
-  clearNotice: () => void;
-  onSignupComplete: (name: string) => void;
-  switchToLogin: () => void;
-}) {
-  const [values, setValues] = useState<SignupFormValues>({
-    email: '',
-    name: '',
-    password: '',
-    passwordConfirm: '',
-  });
-  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors<keyof SignupFormValues>>({});
-  const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async () => {
-    if (submitting) {
-      return;
-    }
-
-    clearNotice();
-    setFormError(null);
-    const result = validateSignupForm(values);
-    setFieldErrors(result.fieldErrors);
-
-    if (!result.valid) {
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const user = await runWithCompletionEvent(
-        () => signupAfterSessionCleanup(result.payload),
-        trackSignUpComplete,
-      );
-      onSignupComplete(user.name);
-    } catch (error) {
-      if (error instanceof FaithLogApiError && error.detail.code === 'LOGOUT_CLEANUP_PENDING') {
-        setFormError(getAuthFormErrorMessage(error, 'signup'));
-      } else if (error instanceof FaithLogApiError && error.detail.kind === 'conflict') {
-        setFieldErrors((current) => ({
-          ...current,
-          email: '이미 가입된 이메일입니다.',
-        }));
-        setFormError(null);
-      } else {
-        setFormError(getAuthFormErrorMessage(error, 'signup'));
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <View style={[styles.authFrame, styles.signupAuthFrame]}>
-      <View style={styles.signupHeader}>
-        <View style={styles.authBrandChip}>
-          <Text style={styles.authBrandChipText}>FaithLog</Text>
-        </View>
-        <Text style={styles.signupTitle}>회원가입</Text>
-      </View>
-      <AuthTextField
-        accessibilityLabel="회원가입 이름 입력"
-        autoCapitalize="words"
-        error={fieldErrors.name}
-        label="이름"
-        onChangeText={(name) => setValues((current) => ({...current, name}))}
-        placeholder="샘플 사용자"
-        returnKeyType="next"
-        textContentType="name"
-        value={values.name}
-      />
-      <AuthTextField
-        accessibilityLabel="회원가입 이메일 입력"
-        error={fieldErrors.email}
-        keyboardType="email-address"
-        label="이메일"
-        onChangeText={(email) => setValues((current) => ({...current, email}))}
-        placeholder="new.user@example.test"
-        returnKeyType="next"
-        textContentType="emailAddress"
-        value={values.email}
-      />
-      <AuthTextField
-        accessibilityLabel="회원가입 비밀번호 입력"
-        error={fieldErrors.password}
-        label="비밀번호"
-        onChangeText={(password) => setValues((current) => ({...current, password}))}
-        placeholder="8자 이상 입력"
-        returnKeyType="next"
-        secureTextEntry
-        textContentType="newPassword"
-        value={values.password}
-      />
-      <AuthTextField
-        accessibilityLabel="회원가입 비밀번호 확인 입력"
-        error={fieldErrors.passwordConfirm}
-        label="비밀번호 확인"
-        onChangeText={(passwordConfirm) =>
-          setValues((current) => ({...current, passwordConfirm}))
-        }
-        onSubmitEditing={submit}
-        placeholder="8자 이상 다시 입력"
-        returnKeyType="done"
-        secureTextEntry
-        textContentType="newPassword"
-        value={values.passwordConfirm}
-      />
-      {formError ? <InlineError message={formError} /> : null}
-      <View style={styles.authActionSpacer} />
-      <View style={[styles.authActionRow, styles.signupAuthActionRow]}>
-        <AuthButton
-          accessibilityLabel="회원가입 제출"
-          disabled={submitting}
-          onPress={submit}>
-          {submitting ? '가입 중...' : '가입 완료'}
-        </AuthButton>
-        <AuthButton
-          accessibilityLabel="로그인 화면으로 이동"
-          disabled={submitting}
-          onPress={switchToLogin}>
-          로그인
-        </AuthButton>
-      </View>
-    </View>
-  );
-}
-
-function AuthTextField({
-  accessibilityLabel,
-  autoCapitalize = 'none',
-  error,
-  keyboardType = 'default',
-  label,
-  onChangeText,
-  onSubmitEditing,
-  placeholder,
-  returnKeyType,
-  secureTextEntry = false,
-  textContentType,
-  value,
-}: {
-  accessibilityLabel: string;
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  error?: string | undefined;
-  keyboardType?: KeyboardTypeOptions;
-  label: string;
-  onChangeText: (value: string) => void;
-  onSubmitEditing?: TextInputProps['onSubmitEditing'];
-  placeholder: string;
-  returnKeyType?: ReturnKeyTypeOptions;
-  secureTextEntry?: boolean;
-  textContentType?: 'emailAddress' | 'name' | 'newPassword' | 'password' | 'none' | undefined;
-  value: string;
-}) {
-  return (
-    <View style={styles.authField}>
-      <Text style={styles.authFieldLabel}>{label}</Text>
-      <TextInput
-        accessibilityLabel={accessibilityLabel}
-        autoCapitalize={autoCapitalize}
-        keyboardType={keyboardType}
-        onChangeText={onChangeText}
-        onSubmitEditing={onSubmitEditing}
-        placeholder={placeholder}
-        placeholderTextColor={authColors.text}
-        returnKeyType={returnKeyType}
-        secureTextEntry={secureTextEntry}
-        style={[styles.authInput, error ? styles.authInputError : null]}
-        textContentType={textContentType}
-        value={value}
-      />
-      {error ? <Text style={styles.authFieldError}>{error}</Text> : null}
-    </View>
-  );
-}
-
 function AuthButton({
   accessibilityLabel,
   children,
@@ -1718,14 +1429,6 @@ function getCampusActionErrorMessage(error: ApiError, fallback: string) {
 
 function canCreateCampusWithRole(role: UserRole) {
   return role === 'MANAGER' || role === 'ADMIN';
-}
-
-function getAuthFormErrorMessage(error: unknown, context: 'login' | 'signup') {
-  if (error instanceof FaithLogApiError) {
-    return getApiErrorMessage(error.detail, context);
-  }
-
-  return '요청 중 알 수 없는 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
 export function getApiErrorMessage(error: ApiError, context: 'login' | 'signup') {

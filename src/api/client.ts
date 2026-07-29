@@ -19,6 +19,10 @@ import type {
   AdminPrayerGroupMembersReplaceRequest,
   AdminPrayerGroupUpdateRequest,
   AdminPrayerSeason,
+  AuthCodeConfirmationRequest,
+  AuthCodeConfirmationResponse,
+  AuthCodeRequest,
+  AuthCodeRequestResponse,
   AdminPrayerSeasonCloseRequest,
   AdminPrayerSeasonCreateRequest,
   AdminChargeStatusChangeRequest,
@@ -67,6 +71,9 @@ import type {
   PaymentAccountCategory,
   PaymentAccountCreateRequest,
   PaymentCategory,
+  PasswordResetCompleteRequest,
+  PasswordResetConfirmationResponse,
+  PasswordResetRequestResponse,
   PenaltyCalculationType,
   PenaltyRule,
   PenaltyRuleCreateRequest,
@@ -104,6 +111,8 @@ import {
   parseAdminPaymentAccount,
   parseAdminPrayerGroup,
   parseAdminPrayerSeason,
+  parseAuthCodeConfirmationResponse,
+  parseAuthCodeRequestResponse,
   parseCampusMembershipSummaries,
   parseCampusMembershipSummary,
   parseCampusCreateResponse,
@@ -124,6 +133,8 @@ import {
   parseMyDutyAssignment,
   parseNullResponse,
   parsePaymentAccounts,
+  parsePasswordResetConfirmationResponse,
+  parsePasswordResetRequestResponse,
   parsePenaltyRule,
   parsePenaltyRules,
   parsePollComment,
@@ -1705,9 +1716,61 @@ export function refreshAuthTokenForCleanup(refreshToken: string) {
   });
 }
 
-export function signupUser(body: SignupRequest) {
+export async function signupUser(body: SignupRequest) {
   return apiRequest<SignupResponse>('/api/v1/auth/signup', {
     responseParser: parseSignupResponse,
+    method: 'POST',
+    body,
+  });
+}
+
+export async function requestSignupEmailCode(body: AuthCodeRequest) {
+  return apiRequest<AuthCodeRequestResponse>(
+    '/api/v1/auth/email-verifications/signup/request',
+    {
+      responseParser: parseAuthCodeRequestResponse,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export async function confirmSignupEmailCode(body: AuthCodeConfirmationRequest) {
+  return apiRequest<AuthCodeConfirmationResponse>(
+    '/api/v1/auth/email-verifications/signup/confirm',
+    {
+      responseParser: parseAuthCodeConfirmationResponse,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export async function requestPasswordResetCode(body: AuthCodeRequest) {
+  return apiRequest<PasswordResetRequestResponse>(
+    '/api/v1/auth/password-resets/request',
+    {
+      responseParser: parsePasswordResetRequestResponse,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export async function confirmPasswordResetCode(body: AuthCodeConfirmationRequest) {
+  return apiRequest<PasswordResetConfirmationResponse>(
+    '/api/v1/auth/password-resets/confirm',
+    {
+      responseParser: parsePasswordResetConfirmationResponse,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export async function completePasswordReset(body: PasswordResetCompleteRequest) {
+  return apiRequest<null>('/api/v1/auth/password-resets/complete', {
+    responseParser: parseNullResponse,
     method: 'POST',
     body,
   });
