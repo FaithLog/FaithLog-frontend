@@ -12,7 +12,6 @@ import {
   completePasswordReset,
   confirmPasswordResetCode,
   confirmSignupEmailCode,
-  FaithLogApiError,
   requestPasswordResetCode,
   requestSignupEmailCode,
 } from '../api/client';
@@ -21,7 +20,12 @@ import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {colors} from '../theme';
 import type {AuthGateState} from './authGate';
 import {validateLoginForm, validateSignupForm, type AuthFieldErrors} from './authForms';
-import {getLoginAuthErrorMessage, getOneTimeAuthErrorMessage} from './oneTimeAuthErrors';
+import {
+  getLoginAuthErrorMessage,
+  getOneTimeAuthErrorMessage,
+  isTerminalPasswordResetError,
+  isTerminalSignupVerificationError,
+} from './oneTimeAuthErrors';
 import {
   applyPasswordResetCodeConfirmed,
   applyPasswordResetCodeRequested,
@@ -710,22 +714,6 @@ function InlineMessage({message, tone}: {message: string; tone: 'error' | 'succe
 function formatSeconds(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
-}
-
-function isTerminalSignupVerificationError(error: unknown) {
-  return error instanceof FaithLogApiError && (
-    error.detail.code === 'EMAIL_VERIFICATION_TOKEN_INVALID' ||
-    error.detail.code === 'EMAIL_VERIFICATION_TOKEN_EXPIRED' ||
-    error.detail.code === 'EMAIL_VERIFICATION_TOKEN_REUSED'
-  );
-}
-
-function isTerminalPasswordResetError(error: unknown) {
-  return error instanceof FaithLogApiError && (
-    error.detail.code === 'PASSWORD_RESET_TOKEN_INVALID' ||
-    error.detail.code === 'PASSWORD_RESET_TOKEN_EXPIRED' ||
-    error.detail.code === 'PASSWORD_RESET_TOKEN_REUSED'
-  );
 }
 
 const styles = StyleSheet.create({

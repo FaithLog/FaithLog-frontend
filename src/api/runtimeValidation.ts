@@ -1468,7 +1468,6 @@ export function parsePasswordResetRequestResponse(
   return parseSafely(() => {
     const record = requireRecord(value);
     return {
-      message: requireString(record.message, 500),
       expiresInSeconds: requirePositiveInteger(record.expiresInSeconds),
       resendAvailableInSeconds: requireNonNegativeInteger(record.resendAvailableInSeconds),
     };

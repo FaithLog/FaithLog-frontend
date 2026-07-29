@@ -1717,7 +1717,6 @@ export function refreshAuthTokenForCleanup(refreshToken: string) {
 }
 
 export async function signupUser(body: SignupRequest) {
-  assertProvisionalAuthContractEnabled();
   return apiRequest<SignupResponse>('/api/v1/auth/signup', {
     responseParser: parseSignupResponse,
     method: 'POST',
@@ -1726,7 +1725,6 @@ export async function signupUser(body: SignupRequest) {
 }
 
 export async function requestSignupEmailCode(body: AuthCodeRequest) {
-  assertProvisionalAuthContractEnabled();
   return apiRequest<AuthCodeRequestResponse>(
     '/api/v1/auth/email-verifications/signup/request',
     {
@@ -1738,7 +1736,6 @@ export async function requestSignupEmailCode(body: AuthCodeRequest) {
 }
 
 export async function confirmSignupEmailCode(body: AuthCodeConfirmationRequest) {
-  assertProvisionalAuthContractEnabled();
   return apiRequest<AuthCodeConfirmationResponse>(
     '/api/v1/auth/email-verifications/signup/confirm',
     {
@@ -1750,7 +1747,6 @@ export async function confirmSignupEmailCode(body: AuthCodeConfirmationRequest) 
 }
 
 export async function requestPasswordResetCode(body: AuthCodeRequest) {
-  assertProvisionalAuthContractEnabled();
   return apiRequest<PasswordResetRequestResponse>(
     '/api/v1/auth/password-resets/request',
     {
@@ -1762,7 +1758,6 @@ export async function requestPasswordResetCode(body: AuthCodeRequest) {
 }
 
 export async function confirmPasswordResetCode(body: AuthCodeConfirmationRequest) {
-  assertProvisionalAuthContractEnabled();
   return apiRequest<PasswordResetConfirmationResponse>(
     '/api/v1/auth/password-resets/confirm',
     {
@@ -1774,20 +1769,10 @@ export async function confirmPasswordResetCode(body: AuthCodeConfirmationRequest
 }
 
 export async function completePasswordReset(body: PasswordResetCompleteRequest) {
-  assertProvisionalAuthContractEnabled();
   return apiRequest<null>('/api/v1/auth/password-resets/complete', {
     responseParser: parseNullResponse,
     method: 'POST',
     body,
-  });
-}
-
-function assertProvisionalAuthContractEnabled() {
-  if (isMockModeEnabled()) return;
-  throw new FaithLogApiError({
-    kind: 'error',
-    code: 'API_CONTRACT_PENDING',
-    message: '인증 API 계약 확인이 필요합니다.',
   });
 }
 

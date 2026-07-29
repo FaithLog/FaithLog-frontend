@@ -50,9 +50,7 @@ export type AuthCodeConfirmationResponse = {
   expiresInSeconds: number;
 };
 
-export type PasswordResetRequestResponse = AuthCodeRequestResponse & {
-  message: string;
-};
+export type PasswordResetRequestResponse = AuthCodeRequestResponse;
 
 export type PasswordResetConfirmationResponse = {
   passwordResetToken: string;

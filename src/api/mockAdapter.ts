@@ -130,6 +130,7 @@ let mockSignupVerificationTokens = new Map<string, string>();
 let mockPasswordResetTokens = new Set<string>();
 let mockUsedPasswordResetTokens = new Set<string>();
 let mockAuthCodeRequestCounts = new Map<string, {count: number; windowStartedAt: number}>();
+let mockAuthCodeCooldowns = new Map<string, number>();
 let mockIssuedAuthCodes = new Map<string, {code: string; expiresAt: number; attempts: number}>();
 let mockSignupVerificationTokenSequence = 0;
 let mockPasswordResetTokenSequence = 0;
@@ -274,13 +275,7 @@ function resolveMockData(
     return confirmMockSignupCode(body);
   }
   if (route.method === 'POST' && path === '/auth/password-resets/request') {
-    const requested = requestMockAuthCode(body, 'reset');
-    return isMockErrorResult(requested)
-      ? requested
-      : {
-          ...requested,
-          message: '가입된 이메일이라면 인증번호가 발송됩니다.',
-        };
+    return requestMockAuthCode(body, 'reset');
   }
   if (route.method === 'POST' && path === '/auth/password-resets/confirm') {
     return confirmMockPasswordResetCode(body);
@@ -3060,6 +3055,7 @@ function resetMockOneTimeAuthState() {
   mockPasswordResetTokens = new Set();
   mockUsedPasswordResetTokens = new Set();
   mockAuthCodeRequestCounts = new Map();
+  mockAuthCodeCooldowns = new Map();
   mockIssuedAuthCodes = new Map();
   mockSignupVerificationTokenSequence = 0;
   mockPasswordResetTokenSequence = 0;
@@ -3071,27 +3067,52 @@ function requestMockAuthCode(body: BodyInit | null | undefined, purpose: 'signup
     ? record.email.trim().toLowerCase()
     : '';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
+    return mockBadRequest('GLOBAL_VALIDATION_FAILED', '잘못된 요청입니다.');
   }
-  const key = `${purpose}:${email}`;
+  if (purpose === 'signup' && email === 'duplicate@example.test') {
+    return mockBadRequest('AUTH_EMAIL_ALREADY_EXISTS', '이미 가입된 이메일입니다.');
+  }
+
+  const challengeKey = `${purpose}:${email}`;
+  const requestKey = email;
   const now = Date.now();
-  const storedWindow = mockAuthCodeRequestCounts.get(key);
-  const currentWindow = storedWindow && now - storedWindow.windowStartedAt < MOCK_AUTH_REQUEST_WINDOW_MS
-    ? storedWindow
-    : {count: 0, windowStartedAt: now};
-  if (email === 'resend-limit@example.test' || currentWindow.count >= MOCK_AUTH_REQUEST_LIMIT) {
+  if (email === 'resend-limit@example.test') {
     return {
-      code: 'AUTH_RESEND_LIMIT_EXCEEDED',
+      code: 'AUTH_EMAIL_VERIFICATION_RATE_LIMITED',
       message: '인증번호 요청 횟수를 초과했습니다.',
       mockError: true as const,
       status: 429,
     };
   }
-  mockAuthCodeRequestCounts.set(key, {
+
+  const cooldownUntil = mockAuthCodeCooldowns.get(requestKey);
+  if (cooldownUntil !== undefined && cooldownUntil > now) {
+    return {
+      code: 'AUTH_EMAIL_VERIFICATION_RESEND_THROTTLED',
+      message: '잠시 후 인증번호를 다시 요청해 주세요.',
+      mockError: true as const,
+      status: 429,
+    };
+  }
+
+  const storedWindow = mockAuthCodeRequestCounts.get(requestKey);
+  const currentWindow = storedWindow && now - storedWindow.windowStartedAt < MOCK_AUTH_REQUEST_WINDOW_MS
+    ? storedWindow
+    : {count: 0, windowStartedAt: now};
+  if (currentWindow.count >= MOCK_AUTH_REQUEST_LIMIT) {
+    return {
+      code: 'AUTH_EMAIL_VERIFICATION_RATE_LIMITED',
+      message: '인증번호 요청 횟수를 초과했습니다.',
+      mockError: true as const,
+      status: 429,
+    };
+  }
+  mockAuthCodeRequestCounts.set(requestKey, {
     count: currentWindow.count + 1,
     windowStartedAt: currentWindow.windowStartedAt,
   });
-  mockIssuedAuthCodes.set(key, {
+  mockAuthCodeCooldowns.set(requestKey, now + MOCK_AUTH_RESEND_AVAILABLE_IN_SECONDS * 1_000);
+  mockIssuedAuthCodes.set(challengeKey, {
     code: '123456',
     expiresAt: now + MOCK_AUTH_CODE_EXPIRES_IN_SECONDS * 1_000,
     attempts: 0,
@@ -3109,7 +3130,7 @@ function confirmMockSignupCode(body?: BodyInit | null) {
     : '';
   const codeError = getMockCodeError(email, record.code, 'signup');
   if (codeError) return codeError;
-  if (!email) return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
+  if (!email) return mockBadRequest('GLOBAL_VALIDATION_FAILED', '잘못된 요청입니다.');
   mockSignupVerificationTokenSequence += 1;
   const token = `mock-signup-token-${mockSignupVerificationTokenSequence}-${email.replace(/[^a-z0-9]/g, '-')}`;
   mockIssuedAuthCodes.delete(`signup:${email}`);
@@ -3124,7 +3145,7 @@ function confirmMockPasswordResetCode(body?: BodyInit | null) {
     : '';
   const codeError = getMockCodeError(email, record.code, 'reset');
   if (codeError) return codeError;
-  if (!email) return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
+  if (!email) return mockBadRequest('GLOBAL_VALIDATION_FAILED', '잘못된 요청입니다.');
   mockPasswordResetTokenSequence += 1;
   const token = `mock-reset-token-${mockPasswordResetTokenSequence}-${email.replace(/[^a-z0-9]/g, '-')}`;
   mockIssuedAuthCodes.delete(`reset:${email}`);
@@ -3135,19 +3156,28 @@ function confirmMockPasswordResetCode(body?: BodyInit | null) {
 function completeMockPasswordReset(body?: BodyInit | null) {
   const record = toRecord(parseMockJsonBody(body));
   if (record.resetToken === 'mock-expired-reset-token') {
-    return mockBadRequest('PASSWORD_RESET_TOKEN_EXPIRED', '재설정 토큰이 만료되었습니다.');
+    return mockBadRequest(
+      'AUTH_PASSWORD_RESET_TOKEN_INVALID',
+      '비밀번호 변경 인증이 유효하지 않습니다.',
+    );
   }
   if (
     record.resetToken === 'mock-reused-reset-token' ||
     (typeof record.resetToken === 'string' && mockUsedPasswordResetTokens.has(record.resetToken))
   ) {
-    return mockConflict('PASSWORD_RESET_TOKEN_REUSED', '이미 사용한 재설정 토큰입니다.');
+    return mockBadRequest(
+      'AUTH_PASSWORD_RESET_TOKEN_INVALID',
+      '비밀번호 변경 인증이 유효하지 않습니다.',
+    );
   }
   if (
     typeof record.resetToken !== 'string' ||
     !mockPasswordResetTokens.has(record.resetToken)
   ) {
-    return mockBadRequest('PASSWORD_RESET_TOKEN_INVALID', '재설정 토큰이 올바르지 않습니다.');
+    return mockBadRequest(
+      'AUTH_PASSWORD_RESET_TOKEN_INVALID',
+      '비밀번호 변경 인증이 유효하지 않습니다.',
+    );
   }
   if (typeof record.newPassword !== 'string' || record.newPassword.length < 8) {
     return mockBadRequest('AUTH_PASSWORD_POLICY_VIOLATION', '비밀번호 정책을 확인해 주세요.');
@@ -3163,11 +3193,14 @@ function completeMockSignup(body: BodyInit | null | undefined, signup: unknown) 
     ? record.email.trim().toLowerCase()
     : '';
   if (email === 'duplicate@example.test') {
-    return mockConflict('AUTH_EMAIL_DUPLICATE', '이미 가입된 이메일입니다.');
+    return mockBadRequest('AUTH_EMAIL_ALREADY_EXISTS', '이미 가입된 이메일입니다.');
   }
   const expectedToken = mockSignupVerificationTokens.get(email);
   if (!expectedToken || record.emailVerificationToken !== expectedToken) {
-    return mockBadRequest('EMAIL_VERIFICATION_TOKEN_INVALID', '이메일 인증이 필요합니다.');
+    return mockBadRequest(
+      'AUTH_EMAIL_VERIFICATION_TOKEN_INVALID',
+      '이메일 인증이 유효하지 않습니다.',
+    );
   }
   mockSignupVerificationTokens.delete(email);
   return signup;
@@ -3181,16 +3214,19 @@ function getMockCodeError(
   const key = `${purpose}:${email}`;
   const issued = mockIssuedAuthCodes.get(key);
   if (!issued) {
-    return mockBadRequest('AUTH_CODE_REQUEST_REQUIRED', '인증번호를 먼저 요청해 주세요.');
+    return mockBadRequest(
+      'AUTH_EMAIL_VERIFICATION_CODE_INVALID',
+      '인증번호가 올바르지 않습니다.',
+    );
   }
   if (code === '111111' || issued.expiresAt <= Date.now()) {
     mockIssuedAuthCodes.delete(key);
-    return mockBadRequest('AUTH_CODE_EXPIRED', '인증번호가 만료되었습니다.');
+    return mockBadRequest('AUTH_EMAIL_VERIFICATION_CODE_EXPIRED', '인증번호가 만료되었습니다.');
   }
   if (code === '222222' || issued.attempts >= 5) {
     mockIssuedAuthCodes.delete(key);
     return {
-      code: 'AUTH_CODE_MAX_ATTEMPTS',
+      code: 'AUTH_EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED',
       message: '인증번호 확인 횟수를 초과했습니다.',
       mockError: true,
       status: 429,
@@ -3198,7 +3234,16 @@ function getMockCodeError(
   }
   if (typeof code !== 'string' || !/^\d{6}$/.test(code) || code !== issued.code) {
     issued.attempts += 1;
-    return mockBadRequest('AUTH_CODE_INVALID', '인증번호가 올바르지 않습니다.');
+    if (issued.attempts >= MOCK_AUTH_REQUEST_LIMIT) {
+      mockIssuedAuthCodes.delete(key);
+      return {
+        code: 'AUTH_EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED',
+        message: '인증번호 확인 횟수를 초과했습니다.',
+        mockError: true,
+        status: 429,
+      };
+    }
+    return mockBadRequest('AUTH_EMAIL_VERIFICATION_CODE_INVALID', '인증번호가 올바르지 않습니다.');
   }
   return null;
 }

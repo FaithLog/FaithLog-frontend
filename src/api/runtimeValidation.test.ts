@@ -141,7 +141,6 @@ const VALID_PARSER_PAYLOADS = {
     emailVerificationToken: 'verification-token', expiresInSeconds: 600,
   },
   parsePasswordResetRequestResponse: {
-    message: '가입된 이메일이라면 인증번호가 발송됩니다.',
     expiresInSeconds: 300,
     resendAvailableInSeconds: 60,
   },
