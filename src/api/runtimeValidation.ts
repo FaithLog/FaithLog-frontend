@@ -11,6 +11,8 @@ import type {
   AdminPrayerAssignableMember,
   AdminPrayerGroup,
   AdminPrayerSeason,
+  AuthCodeConfirmationResponse,
+  AuthCodeRequestResponse,
   CampusCreateResponse,
   CampusDetail,
   CampusMembershipSummary,
@@ -37,6 +39,8 @@ import type {
   PaymentAccount,
   PaymentAccountCategory,
   PaymentCategory,
+  PasswordResetConfirmationResponse,
+  PasswordResetRequestResponse,
   PenaltyCalculationType,
   PenaltyRule,
   PenaltyRuleType,
@@ -1432,6 +1436,53 @@ export function parseSignupResponse(value: unknown): SignupResponse {
       email: requireString(record.email, 320),
       role: requireEnum(record.role, USER_ROLES),
       isActive: requireBoolean(record.isActive),
+    };
+  });
+}
+
+export function parseAuthCodeRequestResponse(value: unknown): AuthCodeRequestResponse {
+  return parseSafely(() => {
+    const record = requireRecord(value);
+    return {
+      expiresInSeconds: requirePositiveInteger(record.expiresInSeconds),
+      resendAvailableInSeconds: requireNonNegativeInteger(record.resendAvailableInSeconds),
+    };
+  });
+}
+
+export function parseAuthCodeConfirmationResponse(
+  value: unknown,
+): AuthCodeConfirmationResponse {
+  return parseSafely(() => {
+    const record = requireRecord(value);
+    return {
+      emailVerificationToken: requireString(record.emailVerificationToken, 2_048),
+      expiresInSeconds: requirePositiveInteger(record.expiresInSeconds),
+    };
+  });
+}
+
+export function parsePasswordResetRequestResponse(
+  value: unknown,
+): PasswordResetRequestResponse {
+  return parseSafely(() => {
+    const record = requireRecord(value);
+    return {
+      message: requireString(record.message, 500),
+      expiresInSeconds: requirePositiveInteger(record.expiresInSeconds),
+      resendAvailableInSeconds: requireNonNegativeInteger(record.resendAvailableInSeconds),
+    };
+  });
+}
+
+export function parsePasswordResetConfirmationResponse(
+  value: unknown,
+): PasswordResetConfirmationResponse {
+  return parseSafely(() => {
+    const record = requireRecord(value);
+    return {
+      passwordResetToken: requireString(record.passwordResetToken, 2_048),
+      expiresInSeconds: requirePositiveInteger(record.expiresInSeconds),
     };
   });
 }

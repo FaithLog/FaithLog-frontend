@@ -136,6 +136,18 @@ const VALID_PARSER_PAYLOADS = {
   parseTokenPair: mockDomainFixtures.auth.tokenPair,
   parseLoginResponse: mockDomainFixtures.auth.login,
   parseSignupResponse: mockDomainFixtures.auth.signup,
+  parseAuthCodeRequestResponse: {expiresInSeconds: 300, resendAvailableInSeconds: 60},
+  parseAuthCodeConfirmationResponse: {
+    emailVerificationToken: 'verification-token', expiresInSeconds: 300,
+  },
+  parsePasswordResetRequestResponse: {
+    message: '가입된 이메일이라면 인증번호가 발송됩니다.',
+    expiresInSeconds: 300,
+    resendAvailableInSeconds: 60,
+  },
+  parsePasswordResetConfirmationResponse: {
+    passwordResetToken: 'reset-token', expiresInSeconds: 300,
+  },
   parseDeleteAccountResponse: VALID_DELETE_ACCOUNT_RESPONSE,
   parseFcmTokenRegisterResponse: mockDomainFixtures.notification.fcmRegistration,
   parseCurrentUser: mockDomainFixtures.auth.currentUser,
@@ -247,7 +259,7 @@ describe('runtime API response validation', () => {
     expect(Object.keys(VALID_PARSER_PAYLOADS).sort()).toEqual(
       Object.keys(responseParsers).sort(),
     );
-    expect(VALID_PARSER_CASES).toHaveLength(56);
+    expect(VALID_PARSER_CASES).toHaveLength(60);
   });
 
   it.each(VALID_PARSER_CASES)(

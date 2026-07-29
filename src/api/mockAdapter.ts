@@ -120,12 +120,17 @@ let mockMealState = createInitialMockMealState();
 let mockPollDetails = createInitialMockPollDetails();
 let mockWeeklyDevotion = createMockWeeklyDevotionState();
 let mockMonthlyDevotion = createMockMonthlyDevotionState();
+let mockSignupVerificationTokens = new Map<string, string>();
+let mockPasswordResetTokens = new Set<string>();
+let mockUsedPasswordResetTokens = new Set<string>();
+let mockAuthCodeRequestCounts = new Map<string, number>();
 
 export function resetMockAdapterStateForTests() {
   mockMealState = createInitialMockMealState();
   mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
+  resetMockOneTimeAuthState();
 }
 
 export function resetMealMockStateForTests() {
@@ -133,6 +138,7 @@ export function resetMealMockStateForTests() {
   mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
+  resetMockOneTimeAuthState();
 }
 
 export async function executeMockRequest(path: string, init: RequestInit): Promise<Response> {
@@ -246,7 +252,36 @@ function resolveMockData(
   const {admin, auth, billing, campus, devotion, notification, poll, prayer} =
     mockDomainFixtures;
 
-  if (route.method === 'POST' && path === '/auth/signup') return auth.signup;
+  if (
+    route.method === 'POST' &&
+    path === '/auth/email-verifications/signup/request'
+  ) {
+    return requestMockAuthCode(body);
+  }
+  if (
+    route.method === 'POST' &&
+    path === '/auth/email-verifications/signup/confirm'
+  ) {
+    return confirmMockSignupCode(body);
+  }
+  if (route.method === 'POST' && path === '/auth/password-resets/request') {
+    const requested = requestMockAuthCode(body);
+    return isMockErrorResult(requested)
+      ? requested
+      : {
+          ...requested,
+          message: '가입된 이메일이라면 인증번호가 발송됩니다.',
+        };
+  }
+  if (route.method === 'POST' && path === '/auth/password-resets/confirm') {
+    return confirmMockPasswordResetCode(body);
+  }
+  if (route.method === 'POST' && path === '/auth/password-resets/complete') {
+    return completeMockPasswordReset(body);
+  }
+  if (route.method === 'POST' && path === '/auth/signup') {
+    return completeMockSignup(body, auth.signup);
+  }
   if (route.method === 'POST' && path === '/auth/login') return auth.login;
   if (route.method === 'POST' && path === '/auth/refresh') return auth.tokenPair;
   if (route.method === 'POST' && path === '/auth/logout') return null;
@@ -3009,6 +3044,119 @@ function mockNotFound(code: string, message: string): MockErrorResult {
 
 function mockConflict(code: string, message: string): MockErrorResult {
   return {code, message, mockError: true, status: 409};
+}
+
+function resetMockOneTimeAuthState() {
+  mockSignupVerificationTokens = new Map();
+  mockPasswordResetTokens = new Set();
+  mockUsedPasswordResetTokens = new Set();
+  mockAuthCodeRequestCounts = new Map();
+}
+
+function requestMockAuthCode(body?: BodyInit | null) {
+  const record = toRecord(parseMockJsonBody(body));
+  const email = typeof record.email === 'string'
+    ? record.email.trim().toLowerCase()
+    : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
+  }
+  const currentCount = mockAuthCodeRequestCounts.get(email) ?? 0;
+  if (email === 'resend-limit@example.test' || currentCount >= 3) {
+    return {
+      code: 'AUTH_RESEND_LIMIT_EXCEEDED',
+      message: '인증번호 요청 횟수를 초과했습니다.',
+      mockError: true as const,
+      status: 429,
+    };
+  }
+  mockAuthCodeRequestCounts.set(email, currentCount + 1);
+  return {expiresInSeconds: 300, resendAvailableInSeconds: 60};
+}
+
+function confirmMockSignupCode(body?: BodyInit | null) {
+  const record = toRecord(parseMockJsonBody(body));
+  const email = typeof record.email === 'string'
+    ? record.email.trim().toLowerCase()
+    : '';
+  const codeError = getMockCodeError(record.code);
+  if (codeError) return codeError;
+  if (!email) return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
+  const token = `mock-signup-token-${email.replace(/[^a-z0-9]/g, '-')}`;
+  mockSignupVerificationTokens.set(email, token);
+  return {emailVerificationToken: token, expiresInSeconds: 300};
+}
+
+function confirmMockPasswordResetCode(body?: BodyInit | null) {
+  const record = toRecord(parseMockJsonBody(body));
+  const email = typeof record.email === 'string'
+    ? record.email.trim().toLowerCase()
+    : '';
+  const codeError = getMockCodeError(record.code);
+  if (codeError) return codeError;
+  if (!email) return mockBadRequest('AUTH_EMAIL_INVALID', '이메일 형식을 확인해 주세요.');
+  const token = `mock-reset-token-${email.replace(/[^a-z0-9]/g, '-')}`;
+  mockPasswordResetTokens.add(token);
+  return {passwordResetToken: token, expiresInSeconds: 300};
+}
+
+function completeMockPasswordReset(body?: BodyInit | null) {
+  const record = toRecord(parseMockJsonBody(body));
+  if (record.resetToken === 'mock-expired-reset-token') {
+    return mockBadRequest('PASSWORD_RESET_TOKEN_EXPIRED', '재설정 토큰이 만료되었습니다.');
+  }
+  if (
+    record.resetToken === 'mock-reused-reset-token' ||
+    (typeof record.resetToken === 'string' && mockUsedPasswordResetTokens.has(record.resetToken))
+  ) {
+    return mockConflict('PASSWORD_RESET_TOKEN_REUSED', '이미 사용한 재설정 토큰입니다.');
+  }
+  if (
+    typeof record.resetToken !== 'string' ||
+    !mockPasswordResetTokens.has(record.resetToken)
+  ) {
+    return mockBadRequest('PASSWORD_RESET_TOKEN_INVALID', '재설정 토큰이 올바르지 않습니다.');
+  }
+  if (typeof record.newPassword !== 'string' || record.newPassword.length < 8) {
+    return mockBadRequest('AUTH_PASSWORD_POLICY_VIOLATION', '비밀번호 정책을 확인해 주세요.');
+  }
+  mockPasswordResetTokens.delete(record.resetToken);
+  mockUsedPasswordResetTokens.add(record.resetToken);
+  return null;
+}
+
+function completeMockSignup(body: BodyInit | null | undefined, signup: unknown) {
+  const record = toRecord(parseMockJsonBody(body));
+  const email = typeof record.email === 'string'
+    ? record.email.trim().toLowerCase()
+    : '';
+  if (email === 'duplicate@example.test') {
+    return mockConflict('AUTH_EMAIL_DUPLICATE', '이미 가입된 이메일입니다.');
+  }
+  const expectedToken = mockSignupVerificationTokens.get(email);
+  if (!expectedToken || record.emailVerificationToken !== expectedToken) {
+    return mockBadRequest('EMAIL_VERIFICATION_TOKEN_INVALID', '이메일 인증이 필요합니다.');
+  }
+  mockSignupVerificationTokens.delete(email);
+  return signup;
+}
+
+function getMockCodeError(code: unknown): MockErrorResult | null {
+  if (typeof code !== 'string' || !/^\d{6}$/.test(code) || code === '000000') {
+    return mockBadRequest('AUTH_CODE_INVALID', '인증번호가 올바르지 않습니다.');
+  }
+  if (code === '111111') {
+    return mockBadRequest('AUTH_CODE_EXPIRED', '인증번호가 만료되었습니다.');
+  }
+  if (code === '222222') {
+    return {
+      code: 'AUTH_CODE_MAX_ATTEMPTS',
+      message: '인증번호 확인 횟수를 초과했습니다.',
+      mockError: true,
+      status: 429,
+    };
+  }
+  return null;
 }
 
 function isMockErrorResult(value: unknown): value is MockErrorResult {

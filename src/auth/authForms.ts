@@ -2,7 +2,7 @@ import type {LoginRequest, SignupRequest} from '../api/types';
 
 export type LoginFormValues = LoginRequest;
 
-export type SignupFormValues = SignupRequest & {
+export type SignupFormValues = Omit<SignupRequest, 'emailVerificationToken'> & {
   passwordConfirm: string;
 };
 
