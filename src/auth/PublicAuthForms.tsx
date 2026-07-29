@@ -157,8 +157,8 @@ export function LoginForm({
       </Pressable>
       {formError ? <InlineMessage message={formError} tone="error" /> : null}
       <AuthActions>
-        <AuthButton disabled={busy !== null} label={busy === 'submit' ? '로그인 중...' : '로그인'} onPress={submit} />
-        <AuthButton disabled={busy !== null} label="회원가입" onPress={exitToSignup} secondary />
+        <AuthButton disabled={busy !== null} inRow label={busy === 'submit' ? '로그인 중...' : '로그인'} onPress={submit} />
+        <AuthButton disabled={busy !== null} inRow label="회원가입" onPress={exitToSignup} secondary />
       </AuthActions>
       <Text style={styles.footnote}>초대코드는 회원가입 후 입력할 수 있어요</Text>
     </AuthFrame>
@@ -196,6 +196,7 @@ export function SignupForm({
   const updateEmail = (email: string) => {
     setVerification((current) => changeSignupEmail(current, email));
     setDetails((current) => ({...current, password: '', passwordConfirm: ''}));
+    setFieldErrors({});
     setFormError(null);
   };
 
@@ -363,10 +364,11 @@ export function SignupForm({
       <AuthActions>
         <AuthButton
           disabled={!verification.verified || busy !== null}
+          inRow
           label={busy === 'submit' ? '가입 중...' : '가입 완료'}
           onPress={submit}
         />
-        <AuthButton disabled={busy !== null} label="로그인" onPress={exitToLogin} secondary />
+        <AuthButton disabled={busy !== null} inRow label="로그인" onPress={exitToLogin} secondary />
       </AuthActions>
     </AuthFrame>
   );
@@ -388,6 +390,7 @@ function PasswordResetForm({
   state: PasswordResetState;
 }) {
   const requestGate = useRef(false);
+  const requestIdentity = useRef(0);
   const confirmGate = useRef(false);
   const completeGate = useRef(false);
   const now = useAuthClock(state.requested);
@@ -397,6 +400,8 @@ function PasswordResetForm({
   const [passwordErrors, setPasswordErrors] = useState<{
     passwordError?: string; passwordConfirmError?: string;
   }>({});
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     if (state.step === 'newPassword' && step !== 'newPassword') {
@@ -405,16 +410,27 @@ function PasswordResetForm({
   }, [setState, state, step]);
 
   const requestCode = () => {
+    setPasswordErrors({});
     const checked = changePasswordResetEmail(state, state.email);
     setState(checked);
     if (!checked.canRequestCode) return;
+    const requestedEmail = normalizeAuthEmail(checked.email);
+    const identity = ++requestIdentity.current;
     onBusyChange('request');
     const operation = runSingleFlight(requestGate, () =>
-      requestPasswordResetCode({email: normalizeAuthEmail(checked.email)}));
+      requestPasswordResetCode({email: requestedEmail}));
     void operation?.then((response) => {
+      if (
+        identity !== requestIdentity.current ||
+        normalizeAuthEmail(stateRef.current.email) !== requestedEmail
+      ) return;
       setState((current) => applyPasswordResetCodeRequested(current, response));
       setSuccessMessage('가입된 이메일이라면 인증번호가 발송됩니다.');
     }).catch((error) => {
+      if (
+        identity !== requestIdentity.current ||
+        normalizeAuthEmail(stateRef.current.email) !== requestedEmail
+      ) return;
       setState((current) => ({...current, requestError: getOneTimeAuthErrorMessage(error)}));
     }).finally(() => onBusyChange(null));
   };
@@ -428,6 +444,7 @@ function PasswordResetForm({
     }));
     void operation?.then((response) => {
       setState((current) => applyPasswordResetCodeConfirmed(current, response));
+      setPasswordErrors({});
       setSuccessMessage(null);
     }).catch((error) => {
       setState((current) => ({...current, codeError: getOneTimeAuthErrorMessage(error)}));
@@ -454,6 +471,7 @@ function PasswordResetForm({
     }).catch((error) => {
       const message = getOneTimeAuthErrorMessage(error);
       if (isTerminalPasswordResetError(error)) {
+        setPasswordErrors({});
         setState({...changePasswordResetEmail(state, state.email), requestError: message});
       } else {
         setState((current) => ({...current, requestError: message}));
@@ -467,6 +485,7 @@ function PasswordResetForm({
         <>
           <AuthTextField
             accessibilityLabel="비밀번호 재설정 이메일 입력"
+            editable={busy === null}
             error={state.emailError ?? undefined}
             keyboardType="email-address"
             label="이메일"
@@ -522,7 +541,10 @@ function PasswordResetForm({
             accessibilityLabel="새 비밀번호 입력"
             error={passwordErrors.passwordError}
             label="새 비밀번호"
-            onChangeText={(newPassword) => setState((current) => ({...current, newPassword}))}
+            onChangeText={(newPassword) => {
+              setPasswordErrors({});
+              setState((current) => ({...current, newPassword}));
+            }}
             placeholder="8자 이상 입력"
             secureTextEntry
             textContentType="newPassword"
@@ -532,7 +554,10 @@ function PasswordResetForm({
             accessibilityLabel="새 비밀번호 확인 입력"
             error={passwordErrors.passwordConfirmError}
             label="새 비밀번호 확인"
-            onChangeText={(passwordConfirm) => setState((current) => ({...current, passwordConfirm}))}
+            onChangeText={(passwordConfirm) => {
+              setPasswordErrors({});
+              setState((current) => ({...current, passwordConfirm}));
+            }}
             onSubmitEditing={complete}
             placeholder="8자 이상 다시 입력"
             secureTextEntry
@@ -634,8 +659,8 @@ function AuthActions({children}: {children: React.ReactNode}) {
   return <View style={styles.actions}>{children}</View>;
 }
 
-function AuthButton({disabled, label, onPress, secondary = false}: {
-  disabled: boolean; label: string; onPress: () => void; secondary?: boolean;
+function AuthButton({disabled, inRow = false, label, onPress, secondary = false}: {
+  disabled: boolean; inRow?: boolean; label: string; onPress: () => void; secondary?: boolean;
 }) {
   return (
     <Pressable
@@ -646,6 +671,7 @@ function AuthButton({disabled, label, onPress, secondary = false}: {
       onPress={onPress}
       style={({pressed}) => [
         styles.button,
+        inRow ? styles.rowButton : null,
         secondary ? styles.secondaryButton : styles.primaryButton,
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
@@ -713,6 +739,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', alignSelf: 'center', borderRadius: 12, justifyContent: 'center',
     minHeight: 44, paddingHorizontal: 14, width: '100%', maxWidth: 318,
   },
+  rowButton: {flexBasis: 0, flexGrow: 1, minWidth: 0, width: 'auto'},
   primaryButton: {backgroundColor: colors.primary},
   secondaryButton: {backgroundColor: colors.borderSoft, borderColor: colors.border, borderWidth: 1},
   buttonText: {fontSize: 15, fontWeight: '600', textAlign: 'center'},

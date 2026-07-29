@@ -78,6 +78,7 @@ describe('provisional auth API boundary', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
 
+    await requestSignupEmailCode({email: 'user@example.test'});
     await expect(confirmSignupEmailCode({email: 'user@example.test', code}))
       .rejects.toMatchObject({detail: {code: expectedCode}});
   });
@@ -120,5 +121,20 @@ describe('provisional auth API boundary', () => {
     const unknown = await requestPasswordResetCode({email: 'unknown@example.test'});
     expect(known.message).toBe('가입된 이메일이라면 인증번호가 발송됩니다.');
     expect(unknown.message).toBe(known.message);
+  });
+
+  it('requires a preceding mock code request and accepts the issued code only once', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    await expect(confirmSignupEmailCode({email: 'user@example.test', code: '123456'}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_CODE_REQUEST_REQUIRED'}});
+    await requestSignupEmailCode({email: 'user@example.test'});
+    await expect(confirmSignupEmailCode({email: 'user@example.test', code: '654321'}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_CODE_INVALID'}});
+    await expect(confirmSignupEmailCode({email: 'user@example.test', code: '123456'}))
+      .resolves.toHaveProperty('emailVerificationToken');
+    await expect(confirmSignupEmailCode({email: 'user@example.test', code: '123456'}))
+      .rejects.toMatchObject({detail: {code: 'AUTH_CODE_REQUEST_REQUIRED'}});
   });
 });

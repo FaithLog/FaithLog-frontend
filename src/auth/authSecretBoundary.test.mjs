@@ -25,4 +25,17 @@ describe('one-time auth secret boundary', () => {
     expect(flow).not.toMatch(/track(?:EmailVerification|PasswordReset|AuthCode)/);
     expect(flow).not.toMatch(/runWithCompletionEvent\(\s*\(\) => (?:request|confirm|complete)PasswordReset/);
   });
+
+  it('clears stale detail and password errors when an auth flow restarts', () => {
+    const flow = read('./PublicAuthForms.tsx');
+    expect(flow).toMatch(/const updateEmail[\s\S]*?setFieldErrors\(\{\}\)/);
+    expect(flow).toMatch(/const requestCode = \(\) => \{\s*setPasswordErrors\(\{\}\)/);
+    expect(flow).toMatch(/isTerminalPasswordResetError\(error\)[\s\S]*?setPasswordErrors\(\{\}\)/);
+  });
+
+  it('locks and identity-checks reset email while a code request is in flight', () => {
+    const flow = read('./PublicAuthForms.tsx');
+    expect(flow).toMatch(/비밀번호 재설정 이메일 입력"\s*editable=\{busy === null\}/);
+    expect(flow).toMatch(/normalizeAuthEmail\(stateRef\.current\.email\) !== requestedEmail/);
+  });
 });
