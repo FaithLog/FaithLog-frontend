@@ -17,7 +17,7 @@ export async function loadNativeUpdateRequirement(): Promise<UpdateRequirement> 
     !isProductionEnvironment() ||
     (Platform.OS !== 'android' && Platform.OS !== 'ios') ||
     !NativeModules.RNFBAppModule ||
-    !NativeModules.RNFBRemoteConfigModule
+    !NativeModules.RNFBConfigModule
   ) {
     return {required: false};
   }
