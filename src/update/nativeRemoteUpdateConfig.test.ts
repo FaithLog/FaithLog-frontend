@@ -13,7 +13,8 @@ const {application, firebaseRemoteConfig, reactNative, remoteConfigInstance} = v
     reactNative: {
       NativeModules: {
         RNFBAppModule: {} as object | undefined,
-        RNFBRemoteConfigModule: {} as object | undefined,
+        RNFBConfigModule: {} as object | undefined,
+        RNFBRemoteConfigModule: undefined as object | undefined,
       },
       Platform: {OS: 'android'},
     },
@@ -35,7 +36,8 @@ describe('loadNativeUpdateRequirement', () => {
     application.nativeBuildVersion = '35';
     reactNative.Platform.OS = 'android';
     reactNative.NativeModules.RNFBAppModule = {};
-    reactNative.NativeModules.RNFBRemoteConfigModule = {};
+    reactNative.NativeModules.RNFBConfigModule = {};
+    reactNative.NativeModules.RNFBRemoteConfigModule = undefined;
     remoteConfigInstance.setConfigSettings.mockResolvedValue(undefined);
     remoteConfigInstance.setDefaults.mockResolvedValue(null);
     remoteConfigInstance.fetchAndActivate.mockResolvedValue(true);
@@ -77,7 +79,7 @@ describe('loadNativeUpdateRequirement', () => {
   });
 
   it('fails open without a supported native module', async () => {
-    reactNative.NativeModules.RNFBRemoteConfigModule = undefined;
+    reactNative.NativeModules.RNFBConfigModule = undefined;
 
     await expect(loadNativeUpdateRequirement()).resolves.toEqual({required: false});
     expect(firebaseRemoteConfig).not.toHaveBeenCalled();
