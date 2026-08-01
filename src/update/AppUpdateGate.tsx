@@ -25,14 +25,19 @@ type GateState =
 export function AppUpdateGate({
   children,
   checkForUpdate = loadNativeUpdateRequirement,
-}: PropsWithChildren<{checkForUpdate?: () => Promise<UpdateRequirement>}>) {
+}: PropsWithChildren<{
+  checkForUpdate?: (options: {bypassCache: boolean}) => Promise<UpdateRequirement>;
+}>) {
   const [state, setState] = useState<GateState>({status: 'checking'});
   const [openingStore, setOpeningStore] = useState(false);
   const [storeError, setStoreError] = useState<string | null>(null);
+  const updateRequiredRef = useRef(false);
   const coordinatorRef = useRef<ReturnType<typeof createForegroundUpdateCoordinator<UpdateRequirement>> | null>(null);
   const openerRef = useRef<ReturnType<typeof createStoreUrlOpener> | null>(null);
 
-  coordinatorRef.current ??= createForegroundUpdateCoordinator(checkForUpdate);
+  coordinatorRef.current ??= createForegroundUpdateCoordinator(() => checkForUpdate({
+    bypassCache: updateRequiredRef.current,
+  }));
   openerRef.current ??= createStoreUrlOpener(Linking);
 
   useEffect(() => {
@@ -45,6 +50,7 @@ export function AppUpdateGate({
       void operation.then((requirement) => {
         if (!mounted || !coordinator.isCurrent(operation)) return;
         if (requirement.required) {
+          updateRequiredRef.current = true;
           setState({
             status: 'required',
             title: requirement.title,
@@ -53,9 +59,12 @@ export function AppUpdateGate({
           });
           return;
         }
+        updateRequiredRef.current = false;
         setState({status: 'allowed'});
       }, () => {
-        if (mounted && coordinator.isCurrent(operation)) setState({status: 'allowed'});
+        if (!mounted || !coordinator.isCurrent(operation)) return;
+        updateRequiredRef.current = false;
+        setState({status: 'allowed'});
       });
     };
 
