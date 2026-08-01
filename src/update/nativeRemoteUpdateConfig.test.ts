@@ -58,6 +58,34 @@ describe('loadNativeUpdateRequirement', () => {
     expect(remoteConfigInstance.fetchAndActivate).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['android', 'ios'] as const)(
+    'keeps the normal %s check on the 15-minute cache',
+    async (platform) => {
+      reactNative.Platform.OS = platform;
+
+      await loadNativeUpdateRequirement();
+
+      expect(remoteConfigInstance.setConfigSettings).toHaveBeenCalledWith({
+        fetchTimeMillis: 10_000,
+        minimumFetchIntervalMillis: 15 * 60 * 1_000,
+      });
+    },
+  );
+
+  it.each(['android', 'ios'] as const)(
+    'bypasses the %s cache when rechecking an active update screen',
+    async (platform) => {
+      reactNative.Platform.OS = platform;
+
+      await loadNativeUpdateRequirement({bypassCache: true});
+
+      expect(remoteConfigInstance.setConfigSettings).toHaveBeenCalledWith({
+        fetchTimeMillis: 10_000,
+        minimumFetchIntervalMillis: 0,
+      });
+    },
+  );
+
   it('uses iOS build and minimum independently', async () => {
     reactNative.Platform.OS = 'ios';
     application.nativeBuildVersion = '13';

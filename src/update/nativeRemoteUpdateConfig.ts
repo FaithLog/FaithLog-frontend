@@ -12,7 +12,13 @@ import {
 const REMOTE_CONFIG_FETCH_TIMEOUT_MS = 10_000;
 const REMOTE_CONFIG_MINIMUM_FETCH_INTERVAL_MS = 15 * 60 * 1_000;
 
-export async function loadNativeUpdateRequirement(): Promise<UpdateRequirement> {
+type NativeUpdateCheckOptions = {
+  bypassCache?: boolean;
+};
+
+export async function loadNativeUpdateRequirement(
+  {bypassCache = false}: NativeUpdateCheckOptions = {},
+): Promise<UpdateRequirement> {
   if (
     !isProductionEnvironment() ||
     (Platform.OS !== 'android' && Platform.OS !== 'ios') ||
@@ -27,7 +33,7 @@ export async function loadNativeUpdateRequirement(): Promise<UpdateRequirement> 
     try {
       await instance.setConfigSettings({
         fetchTimeMillis: REMOTE_CONFIG_FETCH_TIMEOUT_MS,
-        minimumFetchIntervalMillis: REMOTE_CONFIG_MINIMUM_FETCH_INTERVAL_MS,
+        minimumFetchIntervalMillis: bypassCache ? 0 : REMOTE_CONFIG_MINIMUM_FETCH_INTERVAL_MS,
       });
     } catch {
       // The fetch can still use SDK defaults or the last activated cache.
