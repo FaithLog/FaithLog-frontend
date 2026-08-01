@@ -62,7 +62,9 @@ export function AppUpdateGate({
         updateRequiredRef.current = false;
         setState({status: 'allowed'});
       }, () => {
-        if (mounted && coordinator.isCurrent(operation)) setState({status: 'allowed'});
+        if (!mounted || !coordinator.isCurrent(operation)) return;
+        updateRequiredRef.current = false;
+        setState({status: 'allowed'});
       });
     };
 

@@ -170,6 +170,37 @@ describe('AppUpdateGate', () => {
     expect(checkForUpdate).toHaveBeenNthCalledWith(1, {bypassCache: false});
     expect(checkForUpdate).toHaveBeenNthCalledWith(2, {bypassCache: false});
   });
+
+  it('returns to the normal cache after a required-screen recheck fails open', async () => {
+    const checkForUpdate = vi.fn()
+      .mockResolvedValueOnce({
+        required: true,
+        title: '업데이트가 필요합니다',
+        message: '최신 버전으로 업데이트해 주세요.',
+        storeUrl: 'https://play.google.com/store/apps/details?id=com.faithlog.app',
+      })
+      .mockRejectedValueOnce(new Error('remote config unavailable'))
+      .mockResolvedValueOnce({required: false});
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<AppUpdateGate checkForUpdate={checkForUpdate}><TextMarker /></AppUpdateGate>);
+    });
+    mounted.push(renderer);
+
+    await act(async () => {
+      native.appStateListener?.('background');
+      native.appStateListener?.('active');
+    });
+    expect(renderer.root.findAllByType(TextMarker)).toHaveLength(1);
+
+    await act(async () => {
+      native.appStateListener?.('background');
+      native.appStateListener?.('active');
+    });
+
+    expect(checkForUpdate).toHaveBeenNthCalledWith(2, {bypassCache: true});
+    expect(checkForUpdate).toHaveBeenNthCalledWith(3, {bypassCache: false});
+  });
 });
 
 function TextMarker() {
