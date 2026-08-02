@@ -1514,6 +1514,16 @@ export function parseCurrentUser(value: unknown): CurrentUser {
   return parseSafely(() => parseCurrentUserValue(value));
 }
 
+export function parseProfileNameUpdateResponse(value: unknown): CurrentUser {
+  return parseSafely(() => {
+    const user = parseCurrentUserValue(value);
+    if (user.name.length > 100 || user.name !== user.name.trim()) {
+      return invalidResponse();
+    }
+    return user;
+  });
+}
+
 export function parseCampusMembershipSummary(
   value: unknown,
 ): CampusMembershipSummary {

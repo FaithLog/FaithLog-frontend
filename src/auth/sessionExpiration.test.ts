@@ -17,11 +17,19 @@ import {beginFcmTransitionCleanup} from './fcmTransitionCleanup';
 import {createSessionExpirationHandler, expireAuthSession, isExpirationEventCurrent, subscribeSessionExpiration} from './sessionExpiration';
 import {resetLocalCleanupBarrierForTests, waitForLocalSessionCleanup} from './localCleanupBarrier';
 import {hasRefreshLogoutHandoff, resetRefreshLogoutHandoffForTests, trackRefreshForLogout} from './refreshLogoutHandoff';
+import {
+  beginCurrentUserMutation,
+  clearCurrentUserCache,
+  readCurrentUserCache,
+  settleCurrentUserMutation,
+} from '../api/currentUserCache';
+import {mockDomainFixtures} from '../api/mockFixtures';
 
 describe('central session expiration lineage', () => {
   beforeEach(() => {
     resetLocalCleanupBarrierForTests();
     resetRefreshLogoutHandoffForTests();
+    clearCurrentUserCache();
     storage.startAuthSessionClear.mockReset();
     vi.mocked(beginFcmTransitionCleanup).mockClear();
   });
@@ -62,6 +70,10 @@ describe('central session expiration lineage', () => {
   );
 
   it('does not emit when stale clear did not advance generation', async () => {
+    settleCurrentUserMutation(
+      beginCurrentUserMutation(5),
+      mockDomainFixtures.auth.currentUser,
+    );
     storage.startAuthSessionClear.mockReturnValue({
       cleared: false,
       previousGeneration: 5,
@@ -72,6 +84,8 @@ describe('central session expiration lineage', () => {
     const unsubscribe = subscribeSessionExpiration(listener);
     await expireAuthSession(4 as never);
     expect(listener).not.toHaveBeenCalled();
+    expect(readCurrentUserCache(5, mockDomainFixtures.auth.currentUser.id))
+      .toEqual(mockDomainFixtures.auth.currentUser);
     unsubscribe();
   });
 

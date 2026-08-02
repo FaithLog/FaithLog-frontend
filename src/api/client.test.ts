@@ -35,6 +35,7 @@ import {
   fetchPollResults,
   fetchPolls,
   getAdminChargeContractCapabilities,
+  getProfileContractCapabilities,
   getApiBaseUrl,
   isMockModeEnabled,
   loginUser,
@@ -42,6 +43,7 @@ import {
   markMyChargePaid,
   registerMyFcmToken,
   updateAdminPenaltyRule,
+  updateMyProfileName,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -176,6 +178,35 @@ describe('FaithLog API client', () => {
       'https://api.faithlog.test/root/api/v1/users/me',
     );
   });
+
+  it('fails profile name updates closed before dispatch while REST Docs are pending', () => {
+    expect(getProfileContractCapabilities()).toEqual({nameEditEnabled: false});
+    let caught: unknown;
+    try {
+      updateMyProfileName('access-token', {name: '새 이름'}, FIRST_AUTH_GENERATION);
+    } catch (error) {
+      caught = error;
+    }
+    expectApiError(caught, {code: 'API_CONTRACT_PENDING'});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['   ', '가'.repeat(101)])(
+    'rejects invalid profile name %j before capability or network dispatch',
+    (name) => {
+      let caught: unknown;
+      try {
+        updateMyProfileName('access-token', {name}, FIRST_AUTH_GENERATION);
+      } catch (error) {
+        caught = error;
+      }
+      expectApiError(caught, {
+        status: 400,
+        code: 'GLOBAL_VALIDATION_FAILED',
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     [undefined, '/api/v1/admin/campuses/3/duty-assignments'],

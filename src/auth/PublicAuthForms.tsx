@@ -69,16 +69,8 @@ export function LoginForm({
   const [resetCompleteMessage, setResetCompleteMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyOperation>(null);
   const loginGate = useRef(false);
-  const [reset, setReset] = useState(createPasswordResetState);
-  const resetRef = useRef(reset);
-
-  resetRef.current = reset;
-  useEffect(() => () => {
-    resetRef.current = clearPasswordResetFlow(resetRef.current);
-  }, []);
 
   const exitReset = () => {
-    setReset((current) => clearPasswordResetFlow(current));
     setBusy(null);
     setFormError(null);
     setFieldErrors({});
@@ -87,7 +79,6 @@ export function LoginForm({
   };
 
   const completeReset = () => {
-    setReset((current) => clearPasswordResetFlow(current));
     setBusy(null);
     setFormError(null);
     setFieldErrors({});
@@ -97,13 +88,10 @@ export function LoginForm({
 
   if (mode === 'reset') {
     return (
-      <PasswordResetForm
-        busy={busy}
-        onBusyChange={setBusy}
+      <PasswordResetFlow
+        initialEmail={values.email}
         onCancel={exitReset}
         onComplete={completeReset}
-        setState={setReset}
-        state={reset}
       />
     );
   }
@@ -132,13 +120,11 @@ export function LoginForm({
     setValues((current) => ({...current, password: ''}));
     setFieldErrors({});
     setFormError(null);
-    setReset(changePasswordResetEmail(createPasswordResetState(), values.email));
     setMode('reset');
   };
 
   const exitToSignup = () => {
     setValues({email: '', password: ''});
-    setReset(clearPasswordResetFlow(reset));
     setResetCompleteMessage(null);
     switchToSignup();
   };
@@ -394,8 +380,55 @@ export function SignupForm({
   );
 }
 
+export function PasswordResetFlow({
+  cancelLabel = '로그인으로 돌아가기',
+  initialEmail = '',
+  onCancel,
+  onComplete,
+}: {
+  cancelLabel?: string;
+  initialEmail?: string;
+  onCancel: () => void;
+  onComplete: () => void;
+}) {
+  const [busy, setBusy] = useState<BusyOperation>(null);
+  const [state, setState] = useState(() =>
+    changePasswordResetEmail(createPasswordResetState(), initialEmail));
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => () => {
+    stateRef.current = clearPasswordResetFlow(stateRef.current);
+  }, []);
+
+  const cancel = () => {
+    setState((current) => clearPasswordResetFlow(current));
+    setBusy(null);
+    onCancel();
+  };
+
+  const complete = () => {
+    setState((current) => clearPasswordResetFlow(current));
+    setBusy(null);
+    onComplete();
+  };
+
+  return (
+    <PasswordResetForm
+      busy={busy}
+      cancelLabel={cancelLabel}
+      onBusyChange={setBusy}
+      onCancel={cancel}
+      onComplete={complete}
+      setState={setState}
+      state={state}
+    />
+  );
+}
+
 function PasswordResetForm({
   busy,
+  cancelLabel,
   onBusyChange,
   onCancel,
   onComplete,
@@ -403,6 +436,7 @@ function PasswordResetForm({
   state,
 }: {
   busy: BusyOperation;
+  cancelLabel: string;
   onBusyChange: (busy: BusyOperation) => void;
   onCancel: () => void;
   onComplete: () => void;
@@ -588,7 +622,7 @@ function PasswordResetForm({
         </>
       ) : null}
       {state.requestError ? <InlineMessage message={state.requestError} tone="error" /> : null}
-      <AuthButton disabled={busy !== null} label="로그인으로 돌아가기" onPress={onCancel} secondary />
+      <AuthButton disabled={busy !== null} label={cancelLabel} onPress={onCancel} secondary />
     </AuthFrame>
   );
 }

@@ -182,6 +182,10 @@ export type CurrentUser = {
   campusMemberships: CurrentUserCampusMembershipSummary[];
 };
 
+export type UpdateMyProfileNameRequest = {
+  name: string;
+};
+
 export type ServiceAdminUserCampusSummary = {
   membershipId: number;
   campusId: number;

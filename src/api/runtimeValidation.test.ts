@@ -12,6 +12,7 @@ import {
   parseCampusMembershipSummary,
   parseChargeList,
   parseCurrentUser,
+  parseProfileNameUpdateResponse,
   parseFcmTokenRegisterResponse,
   parseLoginResponse,
   parseNullResponse,
@@ -150,6 +151,7 @@ const VALID_PARSER_PAYLOADS = {
   parseDeleteAccountResponse: VALID_DELETE_ACCOUNT_RESPONSE,
   parseFcmTokenRegisterResponse: mockDomainFixtures.notification.fcmRegistration,
   parseCurrentUser: mockDomainFixtures.auth.currentUser,
+  parseProfileNameUpdateResponse: mockDomainFixtures.auth.currentUser,
   parseCampusMembershipSummary: mockDomainFixtures.campus.memberships[0],
   parseCampusMembershipSummaries: mockDomainFixtures.campus.memberships,
   parseCampusCreateResponse: mockDomainFixtures.campus.created,
@@ -258,7 +260,7 @@ describe('runtime API response validation', () => {
     expect(Object.keys(VALID_PARSER_PAYLOADS).sort()).toEqual(
       Object.keys(responseParsers).sort(),
     );
-    expect(VALID_PARSER_CASES).toHaveLength(60);
+    expect(VALID_PARSER_CASES).toHaveLength(61);
   });
 
   it.each(VALID_PARSER_CASES)(
@@ -362,6 +364,17 @@ describe('runtime API response validation', () => {
     expect(() =>
       parseCurrentUser({...VALID_USER, lastLoginAt: 'definitely-not-a-date'}),
     ).toThrow(INVALID_RESPONSE);
+  });
+
+  it('keeps shared UserMe compatibility while PATCH validates its 100-character contract', () => {
+    expect(parseProfileNameUpdateResponse({...VALID_USER, name: '가'.repeat(100)}).name)
+      .toHaveLength(100);
+    expect(parseCurrentUser({...VALID_USER, name: '가'.repeat(101)}).name)
+      .toHaveLength(101);
+    expect(() => parseProfileNameUpdateResponse({...VALID_USER, name: '가'.repeat(101)}))
+      .toThrow(INVALID_RESPONSE);
+    expect(() => parseProfileNameUpdateResponse({...VALID_USER, name: ' 이름 '}))
+      .toThrow(INVALID_RESPONSE);
   });
 
   it('parses the current-user membership shape without a membership ID', () => {

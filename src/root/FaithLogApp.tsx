@@ -38,6 +38,11 @@ import {
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {
+  clearCurrentUserCache,
+  readCurrentUserCache,
+  subscribeCurrentUserCache,
+} from '../api/currentUserCache';
+import {
   clearTokens,
   getAuthSessionGeneration,
   getStoredAuthSession,
@@ -72,10 +77,16 @@ import {type AuthFieldErrors} from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
 import {expireMissingAuthSession, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
-import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
+import {isAuthenticatedPasswordResetCompletionCurrent} from '../auth/authenticatedPasswordReset';
+import {
+  createSessionExpirationHandler,
+  expireAuthSession,
+  subscribeSessionExpiration,
+} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   LoginForm as LoginWithPasswordResetForm,
+  PasswordResetFlow,
   SignupForm as EmailVerifiedSignupForm,
 } from '../auth/PublicAuthForms';
 import {
@@ -152,6 +163,11 @@ import {PaymentScreen} from '../payments/PaymentScreen';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
+import {ProfileNameEditor} from '../profile/ProfileNameEditor';
+import {
+  applyProfileUserUpdate,
+  applyRefreshedAuthState,
+} from '../profile/profileNameEdit';
 import {colors, spacing} from '../theme';
 import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
@@ -304,6 +320,7 @@ export function beginProtectedLogoutUiTeardown(
   transitionToSignedOut: () => void,
   invalidate: () => void = invalidatePaymentContextCache,
 ) {
+  clearCurrentUserCache();
   invalidate();
   transitionToSignedOut();
 }
@@ -367,6 +384,16 @@ export function FaithLogApp() {
     },
   )), []);
 
+  useEffect(() => subscribeCurrentUserCache(({generation, user}) => {
+    if (generation !== getAuthSessionGeneration()) return;
+    setAuthState((current) => applyProfileUserUpdate(
+      current,
+      user,
+      generation,
+      getAuthSessionGeneration(),
+    ));
+  }), []);
+
   useEffect(() => {
     const epoch = authTransitionEpoch.current;
     void initializeNativeFirebaseMessaging();
@@ -377,6 +404,9 @@ export function FaithLogApp() {
 
   useEffect(() => {
     purgePaymentContextForAuthState(authState.status);
+    if (authState.status !== 'authenticated' && authState.status !== 'noCampus') {
+      clearCurrentUserCache();
+    }
   }, [authState.status]);
 
   useEffect(() => {
@@ -1349,15 +1379,19 @@ async function refreshAuthenticatedCampusState(
   accessToken: string,
   current: Extract<AuthGateState, {status: 'authenticated'}>,
   preferredCampusId = current.selectedCampus.campusId,
+  generation = getAuthSessionGeneration(),
 ): Promise<Extract<AuthGateState, {status: 'authenticated' | 'noCampus'}>> {
   const [user, campuses] = await Promise.all([
-    fetchCurrentUser(accessToken).catch(() => current.user),
+    fetchCurrentUser(accessToken, generation).catch(() => current.user),
     fetchMyCampuses(accessToken),
   ]);
   const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
 
   if (activeCampuses.length === 0) {
-    return {status: 'noCampus', user};
+    return {
+      status: 'noCampus',
+      user: readCurrentUserCache(generation, user.id) ?? user,
+    };
   }
 
   const selectedCampus =
@@ -1369,7 +1403,7 @@ async function refreshAuthenticatedCampusState(
 
   return {
     status: 'authenticated',
-    user,
+    user: readCurrentUserCache(generation, user.id) ?? user,
     activeCampuses,
     selectedCampus,
   };
@@ -1523,7 +1557,7 @@ function AuthenticatedShell({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<
-    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications'
+    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'passwordReset'
   >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
@@ -1601,8 +1635,20 @@ function AuthenticatedShell({
       });
       if (!accessToken) return;
 
-      const nextState = await refreshAuthenticatedCampusState(accessToken, state);
-      setAuthState(nextState);
+      const requestGeneration = getAuthSessionGeneration();
+      const nextState = await refreshAuthenticatedCampusState(
+        accessToken,
+        state,
+        state.selectedCampus.campusId,
+        requestGeneration,
+      );
+      setAuthState((current) => applyRefreshedAuthState(
+        current,
+        nextState,
+        requestGeneration,
+        getAuthSessionGeneration(),
+        readCurrentUserCache(requestGeneration, nextState.user.id),
+      ));
     } catch (error) {
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
@@ -1644,17 +1690,29 @@ function AuthenticatedShell({
       if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
-      const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
+      const requestGeneration = getAuthSessionGeneration();
+      const nextState = await refreshAuthenticatedCampusState(
+        accessToken,
+        state,
+        campus.campusId,
+        requestGeneration,
+      );
 
       if (nextState.status === 'noCampus') {
-        setAuthState(nextState);
+        setAuthState((current) => applyRefreshedAuthState(
+          current, nextState, requestGeneration, getAuthSessionGeneration(),
+          readCurrentUserCache(requestGeneration, nextState.user.id),
+        ));
         setCampusSwitchVisible(false);
         return;
       }
 
       setSelectedCampusDetail(detail);
       setCampusDetailState({status: 'success', data: detail});
-      setAuthState(nextState);
+      setAuthState((current) => applyRefreshedAuthState(
+        current, nextState, requestGeneration, getAuthSessionGeneration(),
+        readCurrentUserCache(requestGeneration, nextState.user.id),
+      ));
       setCampusSwitchVisible(false);
       setUserHomeView('dashboard');
       setProfileView('main');
@@ -1796,17 +1854,29 @@ function AuthenticatedShell({
       if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
-      const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
+      const requestGeneration = getAuthSessionGeneration();
+      const nextState = await refreshAuthenticatedCampusState(
+        accessToken,
+        state,
+        campus.campusId,
+        requestGeneration,
+      );
 
       if (nextState.status === 'noCampus') {
-        setAuthState(nextState);
+        setAuthState((current) => applyRefreshedAuthState(
+          current, nextState, requestGeneration, getAuthSessionGeneration(),
+          readCurrentUserCache(requestGeneration, nextState.user.id),
+        ));
         openEntryTarget(null);
         return;
       }
 
       setSelectedCampusDetail(detail);
       setCampusDetailState({status: 'success', data: detail});
-      setAuthState(nextState);
+      setAuthState((current) => applyRefreshedAuthState(
+        current, nextState, requestGeneration, getAuthSessionGeneration(),
+        readCurrentUserCache(requestGeneration, nextState.user.id),
+      ));
       openEntryTarget(null);
       setUserHomeView('dashboard');
       setProfileView('main');
@@ -2065,6 +2135,7 @@ function AuthenticatedShell({
             onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenMealDuty={() => setProfileView('meal')}
             onOpenNotifications={() => setProfileView('notifications')}
+            onOpenPasswordReset={() => setProfileView('passwordReset')}
             profileView={profileView}
             setAuthState={setAuthState}
             state={state}
@@ -3429,6 +3500,7 @@ function ProfileScreen({
   onOpenCoffeeDuty,
   onOpenMealDuty,
   onOpenNotifications,
+  onOpenPasswordReset,
   profileView,
   setAuthState,
   state,
@@ -3444,10 +3516,14 @@ function ProfileScreen({
   onOpenCoffeeDuty: () => void;
   onOpenMealDuty: () => void;
   onOpenNotifications: () => void;
-  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications';
+  onOpenPasswordReset: () => void;
+  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'passwordReset';
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
+  const currentStateRef = useRef(state);
+  currentStateRef.current = state;
+
   if (profileView === 'accountDeletion') {
     return (
       <AccountDeletionScreen
@@ -3476,6 +3552,43 @@ function ProfileScreen({
         <NotificationSettingsDetail
           setAuthState={setAuthState}
           userId={state.user.id}
+        />
+      </View>
+    );
+  }
+
+  if (profileView === 'passwordReset') {
+    const passwordResetGeneration = getAuthSessionGeneration();
+    const passwordResetUserId = state.user.id;
+    return (
+      <View style={styles.userFrame}>
+        <View style={styles.figmaHeader}>
+          <FaithLogHeaderTopRow
+            campusLabel={state.selectedCampus.campusName}
+            contextLabel={`${state.user.name}님`}>
+            <FaithLogHeaderPillButton
+              accessibilityLabel="내정보 화면으로 돌아가기"
+              label="뒤로"
+              onPress={onBackToProfile}
+            />
+          </FaithLogHeaderTopRow>
+          <Text style={styles.figmaTitle}>비밀번호 변경</Text>
+        </View>
+        <PasswordResetFlow
+          key={`${passwordResetGeneration}:${passwordResetUserId}`}
+          cancelLabel="내정보로 돌아가기"
+          initialEmail={state.user.email}
+          onCancel={onBackToProfile}
+          onComplete={() => {
+            if (isAuthenticatedPasswordResetCompletionCurrent(
+              passwordResetGeneration,
+              passwordResetUserId,
+              getAuthSessionGeneration(),
+              currentStateRef.current.user.id,
+            )) {
+              void expireAuthSession(passwordResetGeneration);
+            }
+          }}
         />
       </View>
     );
@@ -3533,12 +3646,12 @@ function ProfileScreen({
           <IconexIcon color={colors.textPrimary} name="user" size={24} strokeWidth={1.7} />
         </View>
         <View style={styles.profileInfo}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
-            {state.user.name}
-          </Text>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileEmail}>
-            {state.user.email}
-          </Text>
+          <ProfileNameEditor
+            onSessionExpired={(message) => {
+              setAuthState({status: 'sessionExpired', message});
+            }}
+            user={state.user}
+          />
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileCampusText}>
             {state.selectedCampus.campusName} · {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
           </Text>
@@ -3603,6 +3716,13 @@ function ProfileScreen({
             title="캠퍼스 전환"
           />
         ) : null}
+        <ProfileActionRow
+          actionLabel="변경"
+          icon="lock-open"
+          onPress={onOpenPasswordReset}
+          subtitle="이메일 인증 후 새 비밀번호 설정"
+          title="비밀번호 변경"
+        />
         <ProfileActionRow
           actionLabel="로그아웃"
           actionTone="danger"

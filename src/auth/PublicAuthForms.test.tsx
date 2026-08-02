@@ -66,7 +66,7 @@ vi.mock('../theme', () => ({
 
 vi.mock('./session', () => session);
 
-import {LoginForm, SignupForm} from './PublicAuthForms';
+import {LoginForm, PasswordResetFlow, SignupForm} from './PublicAuthForms';
 
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -152,6 +152,36 @@ describe('public auth form lifecycle', () => {
     expect(byLabel(renderer, '비밀번호 찾기')).toBeTruthy();
     expect(textOccurrences(renderer, '비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.'))
       .toBe(1);
+    renderer.unmount();
+  });
+
+  it('reuses the same password reset flow with a prefilled authenticated email', async () => {
+    const onComplete = vi.fn();
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<PasswordResetFlow
+        cancelLabel="내정보로 돌아가기"
+        initialEmail="user@example.test"
+        onCancel={vi.fn()}
+        onComplete={onComplete}
+      />);
+    });
+
+    expect(byLabel(renderer, '비밀번호 재설정 이메일 입력').props.value)
+      .toBe('user@example.test');
+    await pressAndFlush(renderer, '인증번호 요청');
+    await changeText(renderer, '비밀번호 재설정 인증번호 입력', '123456');
+    await pressAndFlush(renderer, '인증번호 확인');
+    await changeText(renderer, '새 비밀번호 입력', 'password123');
+    await changeText(renderer, '새 비밀번호 확인 입력', 'password123');
+    await pressAndFlush(renderer, '비밀번호 변경');
+
+    expect(api.completePasswordReset).toHaveBeenCalledWith({
+      resetToken: 'memory-reset-token',
+      newPassword: 'password123',
+    });
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(session.loginAndEstablishSession).not.toHaveBeenCalled();
     renderer.unmount();
   });
 
