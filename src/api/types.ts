@@ -136,7 +136,7 @@ export type CurrentUserCampusMembershipSummary = Omit<
   CampusMembershipSummary,
   'membershipId'
 > & {
-  membershipId?: number;
+  campusMemberId: number;
 };
 
 export type CampusCreateRequest = {

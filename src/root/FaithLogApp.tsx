@@ -77,16 +77,10 @@ import {type AuthFieldErrors} from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
 import {expireMissingAuthSession, resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
-import {isAuthenticatedPasswordResetCompletionCurrent} from '../auth/authenticatedPasswordReset';
-import {
-  createSessionExpirationHandler,
-  expireAuthSession,
-  subscribeSessionExpiration,
-} from '../auth/sessionExpiration';
+import {createSessionExpirationHandler, subscribeSessionExpiration} from '../auth/sessionExpiration';
 import {bootstrapAuthGate} from '../auth/authGate';
 import {
   LoginForm as LoginWithPasswordResetForm,
-  PasswordResetFlow,
   SignupForm as EmailVerifiedSignupForm,
 } from '../auth/PublicAuthForms';
 import {
@@ -1557,7 +1551,7 @@ function AuthenticatedShell({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<
-    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'passwordReset'
+    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications'
   >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
@@ -2135,7 +2129,6 @@ function AuthenticatedShell({
             onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenMealDuty={() => setProfileView('meal')}
             onOpenNotifications={() => setProfileView('notifications')}
-            onOpenPasswordReset={() => setProfileView('passwordReset')}
             profileView={profileView}
             setAuthState={setAuthState}
             state={state}
@@ -3500,7 +3493,6 @@ function ProfileScreen({
   onOpenCoffeeDuty,
   onOpenMealDuty,
   onOpenNotifications,
-  onOpenPasswordReset,
   profileView,
   setAuthState,
   state,
@@ -3516,14 +3508,10 @@ function ProfileScreen({
   onOpenCoffeeDuty: () => void;
   onOpenMealDuty: () => void;
   onOpenNotifications: () => void;
-  onOpenPasswordReset: () => void;
-  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'passwordReset';
+  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications';
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
-  const currentStateRef = useRef(state);
-  currentStateRef.current = state;
-
   if (profileView === 'accountDeletion') {
     return (
       <AccountDeletionScreen
@@ -3552,43 +3540,6 @@ function ProfileScreen({
         <NotificationSettingsDetail
           setAuthState={setAuthState}
           userId={state.user.id}
-        />
-      </View>
-    );
-  }
-
-  if (profileView === 'passwordReset') {
-    const passwordResetGeneration = getAuthSessionGeneration();
-    const passwordResetUserId = state.user.id;
-    return (
-      <View style={styles.userFrame}>
-        <View style={styles.figmaHeader}>
-          <FaithLogHeaderTopRow
-            campusLabel={state.selectedCampus.campusName}
-            contextLabel={`${state.user.name}님`}>
-            <FaithLogHeaderPillButton
-              accessibilityLabel="내정보 화면으로 돌아가기"
-              label="뒤로"
-              onPress={onBackToProfile}
-            />
-          </FaithLogHeaderTopRow>
-          <Text style={styles.figmaTitle}>비밀번호 변경</Text>
-        </View>
-        <PasswordResetFlow
-          key={`${passwordResetGeneration}:${passwordResetUserId}`}
-          cancelLabel="내정보로 돌아가기"
-          initialEmail={state.user.email}
-          onCancel={onBackToProfile}
-          onComplete={() => {
-            if (isAuthenticatedPasswordResetCompletionCurrent(
-              passwordResetGeneration,
-              passwordResetUserId,
-              getAuthSessionGeneration(),
-              currentStateRef.current.user.id,
-            )) {
-              void expireAuthSession(passwordResetGeneration);
-            }
-          }}
         />
       </View>
     );
@@ -3716,13 +3667,6 @@ function ProfileScreen({
             title="캠퍼스 전환"
           />
         ) : null}
-        <ProfileActionRow
-          actionLabel="변경"
-          icon="lock-open"
-          onPress={onOpenPasswordReset}
-          subtitle="이메일 인증 후 새 비밀번호 설정"
-          title="비밀번호 변경"
-        />
         <ProfileActionRow
           actionLabel="로그아웃"
           actionTone="danger"
@@ -5502,24 +5446,10 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     lineHeight: 20,
   },
-  profileEmail: {
-    color: colors.textSecondary,
-    flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '400',
-    lineHeight: 18,
-  },
   profileInfo: {
     flex: 1,
     gap: 8,
     minWidth: 0,
-  },
-  profileName: {
-    color: authColors.text,
-    flexShrink: 1,
-    fontSize: 22,
-    fontWeight: '700',
-    lineHeight: 28,
   },
   profileRoleChip: {
     alignItems: 'center',

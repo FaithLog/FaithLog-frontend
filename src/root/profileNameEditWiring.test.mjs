@@ -6,21 +6,12 @@ import {describe, expect, it} from 'vitest';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const rootSource = fs.readFileSync(path.join(directory, 'FaithLogApp.tsx'), 'utf8');
-const authSource = fs.readFileSync(path.join(directory, '../auth/PublicAuthForms.tsx'), 'utf8');
 
-describe('profile name edit and password reset wiring', () => {
+describe('profile name edit wiring', () => {
   it('applies the full updated user through the authenticated root state boundary', () => {
     expect(rootSource).toContain('<ProfileNameEditor');
     expect(rootSource).toContain('subscribeCurrentUserCache(({generation, user})');
     expect(rootSource).toContain('applyProfileUserUpdate(');
     expect(rootSource).toContain('readCurrentUserCache(generation, user.id) ?? user');
-  });
-
-  it('connects the password button to the existing reset flow and terminal expiry path', () => {
-    expect(authSource).toContain('export function PasswordResetFlow');
-    expect(rootSource).toContain('title="비밀번호 변경"');
-    expect(rootSource).toContain('<PasswordResetFlow');
-    expect(rootSource).toContain('isAuthenticatedPasswordResetCompletionCurrent(');
-    expect(rootSource).toContain('expireAuthSession(passwordResetGeneration)');
   });
 });

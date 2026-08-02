@@ -34,6 +34,7 @@ const VALID_MEMBERSHIP = {
 };
 
 const VALID_USER_MEMBERSHIP = {
+  campusMemberId: 10,
   campusId: 20,
   campusName: '서울 캠퍼스',
   region: '서울',
@@ -377,20 +378,14 @@ describe('runtime API response validation', () => {
       .toThrow(INVALID_RESPONSE);
   });
 
-  it('parses the current-user membership shape without a membership ID', () => {
+  it('preserves and validates the backend UserMe campusMemberId', () => {
     expect(parseCurrentUser(VALID_USER).campusMemberships).toEqual([
       VALID_USER_MEMBERSHIP,
     ]);
-    expect(
-      parseCurrentUser({
-        ...VALID_USER,
-        campusMemberships: [{...VALID_USER_MEMBERSHIP, membershipId: 10}],
-      }).campusMemberships,
-    ).toEqual([{...VALID_USER_MEMBERSHIP, membershipId: 10}]);
     expect(() =>
       parseCurrentUser({
         ...VALID_USER,
-        campusMemberships: [{...VALID_USER_MEMBERSHIP, membershipId: 0}],
+        campusMemberships: [{...VALID_USER_MEMBERSHIP, campusMemberId: 0}],
       }),
     ).toThrow(INVALID_RESPONSE);
     expect(() =>

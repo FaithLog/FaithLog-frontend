@@ -96,6 +96,7 @@ import type {
 } from './types';
 import {FaithLogApiError} from './apiError';
 import {DEFAULT_PAGE_SIZE} from './pagination';
+import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import {getSafeApiErrorMessage} from './errorPolicy';
 import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
@@ -222,9 +223,9 @@ const MOCK_ALLOWED_APP_ENVIRONMENTS = new Set(['local', 'development']);
 const TRUSTED_DEPLOYMENT_API_ORIGINS = new Set([
   'https://faithlog-549871256004.asia-northeast3.run.app',
 ]);
-// Backend issue #227 is approved, but production remains disabled until the
-// canonical Spring REST Docs includes PATCH /api/v1/users/me.
-const PROFILE_NAME_EDIT_REST_DOCS_CONFIRMED = false;
+// Confirmed against backend origin/develop@6637599 and canonical Spring REST
+// Docs: PATCH /api/v1/users/me returns the complete UserMe response.
+const PROFILE_NAME_EDIT_REST_DOCS_CONFIRMED = true;
 let authRefreshInFlight: AuthRefreshFlight | null = null;
 
 export function isMockModeEnabled() {
@@ -258,8 +259,7 @@ export function getAdminChargeContractCapabilities(): AdminChargeContractCapabil
 
 export function getProfileContractCapabilities() {
   return {
-    nameEditEnabled:
-      PROFILE_NAME_EDIT_REST_DOCS_CONFIRMED || isMockModeEnabled(),
+    nameEditEnabled: PROFILE_NAME_EDIT_REST_DOCS_CONFIRMED,
   };
 }
 
@@ -1925,14 +1925,6 @@ export function updateMyProfileName(
   authSessionGeneration?: AuthSessionGeneration,
 ) {
   const request = normalizeProfileNameRequest(body);
-  if (!getProfileContractCapabilities().nameEditEnabled) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      code: 'API_CONTRACT_PENDING',
-      message: '이름 수정 API 계약 확인이 필요합니다.',
-    });
-  }
-
   const generation = authSessionGeneration ?? getAuthSessionGeneration();
   const lineage = beginCurrentUserMutation(generation);
   return apiRequest<CurrentUser>('/api/v1/users/me', {
@@ -1958,7 +1950,7 @@ function normalizeProfileNameRequest(
   body: UpdateMyProfileNameRequest,
 ): UpdateMyProfileNameRequest {
   const name = typeof body.name === 'string' ? body.name.trim() : '';
-  if (!name || name.length > 100) {
+  if (!name || name.length > PROFILE_NAME_MAX_LENGTH) {
     throw new FaithLogApiError({
       kind: 'error',
       status: 400,

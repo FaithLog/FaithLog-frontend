@@ -4,6 +4,7 @@ import {
   mockApiErrorFixtures,
   mockDomainFixtures,
 } from './mockFixtures';
+import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import type {
   AdminCampusChargeSummary,
   AdminMemberChargeList,
@@ -3080,7 +3081,7 @@ function createInitialMockCurrentUser(): CurrentUser {
 function updateMockCurrentUserName(body?: BodyInit | null) {
   const record = toRecord(parseMockJsonBody(body));
   const name = typeof record.name === 'string' ? record.name.trim() : '';
-  if (!name || name.length > 100) {
+  if (!name || name.length > PROFILE_NAME_MAX_LENGTH) {
     return mockBadRequest(
       'GLOBAL_VALIDATION_FAILED',
       '이름은 공백을 제외하고 1~100자로 입력해 주세요.',

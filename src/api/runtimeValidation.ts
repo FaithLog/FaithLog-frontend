@@ -64,6 +64,7 @@ import type {
   UserRole,
   WeeklyDevotionSummary,
 } from './types';
+import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import type {
   AdminPoll,
   AdminPollMissingMember,
@@ -412,7 +413,7 @@ function parseCurrentUserMembershipValue(
 ): CurrentUserCampusMembershipSummary {
   const record = requireRecord(value);
   return {
-    ...optionalPositiveId(record, 'membershipId'),
+    campusMemberId: requirePositiveId(record.campusMemberId),
     campusId: requirePositiveId(record.campusId),
     campusName: requireString(record.campusName, 200),
     region: requireString(record.region, 200),
@@ -1517,7 +1518,10 @@ export function parseCurrentUser(value: unknown): CurrentUser {
 export function parseProfileNameUpdateResponse(value: unknown): CurrentUser {
   return parseSafely(() => {
     const user = parseCurrentUserValue(value);
-    if (user.name.length > 100 || user.name !== user.name.trim()) {
+    if (
+      user.name.length > PROFILE_NAME_MAX_LENGTH ||
+      user.name !== user.name.trim()
+    ) {
       return invalidResponse();
     }
     return user;

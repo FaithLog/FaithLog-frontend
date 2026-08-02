@@ -1,8 +1,7 @@
 import type {ApiError, UpdateMyProfileNameRequest} from '../api/types';
+import {PROFILE_NAME_MAX_LENGTH} from '../api/profileContract';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
 import type {AuthGateState} from '../auth/authGate';
-
-const MAX_PROFILE_NAME_LENGTH = 100;
 
 export type ProfileNameValidation =
   | {valid: true; payload: UpdateMyProfileNameRequest}
@@ -21,7 +20,7 @@ export function validateProfileName(value: string): ProfileNameValidation {
   if (!name) {
     return {valid: false, error: '이름을 입력해 주세요.'};
   }
-  if (name.length > MAX_PROFILE_NAME_LENGTH) {
+  if (name.length > PROFILE_NAME_MAX_LENGTH) {
     return {valid: false, error: '이름은 100자 이하로 입력해 주세요.'};
   }
 
