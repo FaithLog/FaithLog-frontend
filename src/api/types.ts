@@ -186,6 +186,11 @@ export type UpdateMyProfileNameRequest = {
   name: string;
 };
 
+export type ChangeMyPasswordRequest = {
+  currentPassword: string;
+  newPassword: string;
+};
+
 export type ServiceAdminUserCampusSummary = {
   membershipId: number;
   campusId: number;

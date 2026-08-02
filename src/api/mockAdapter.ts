@@ -298,6 +298,9 @@ function resolveMockData(
   if (route.method === 'PATCH' && path === '/users/me') {
     return updateMockCurrentUserName(body);
   }
+  if (route.method === 'PATCH' && path === '/users/me/password') {
+    return null;
+  }
   if (route.method === 'DELETE' && path === '/users/me') {
     return {deletedAt: '2026-07-06T12:00:00'};
   }

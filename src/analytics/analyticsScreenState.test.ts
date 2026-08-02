@@ -18,6 +18,7 @@ describe('logical app screen Analytics mapping', () => {
     expect(getAuthenticatedAnalyticsScreen({entryTarget: null, profileView: 'notifications', route: 'profile'})).toBe('notifications');
     expect(getAuthenticatedAnalyticsScreen({entryTarget: null, profileView: 'coffee', route: 'profile'})).toBeNull();
     expect(getAuthenticatedAnalyticsScreen({entryTarget: null, profileView: 'meal', route: 'profile'})).toBeNull();
+    expect(getAuthenticatedAnalyticsScreen({entryTarget: null, profileView: 'password', route: 'profile'})).toBe('settings');
     expect(getAuthenticatedAnalyticsScreen({entryTarget: null, profileView: 'main', route: 'campusAdmin'})).toBe('admin_dashboard');
     expect(getAuthenticatedAnalyticsScreen({entryTarget: 'campusDetail', profileView: 'main', route: 'userHome'})).toBe('campus_join');
   });

@@ -19,6 +19,7 @@ import {
   buildAdminChargeStatusChangeRequest,
   changeAdminChargeStatus,
   changeServiceAdminStaleDutyChargeStatus,
+  changeMyPassword,
   createAdminPaymentAccount,
   createAdminPenaltyRule,
   createCoffeeDutyPaymentAccount,
@@ -268,6 +269,31 @@ describe('FaithLog API client', () => {
       expect(fetch).not.toHaveBeenCalled();
     },
   );
+
+  it('changes the authenticated user password with the exact access-token contract', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(null)));
+
+    await expect(changeMyPassword(
+      'access-token',
+      {currentPassword: ' current password ', newPassword: ' new password '},
+      FIRST_AUTH_GENERATION,
+    )).resolves.toBeNull();
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.faithlog.test/root/api/v1/users/me/password',
+      expect.objectContaining({
+        body: JSON.stringify({
+          currentPassword: ' current password ',
+          newPassword: ' new password ',
+        }),
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json',
+        }),
+        method: 'PATCH',
+      }),
+    );
+  });
 
   it.each([
     [undefined, '/api/v1/admin/campuses/3/duty-assignments'],

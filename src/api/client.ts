@@ -90,6 +90,7 @@ import type {
   SignupResponse,
   TokenPair,
   UpdateMyProfileNameRequest,
+  ChangeMyPasswordRequest,
   UserRole,
   WeeklyDevotionSaveRequest,
   WeeklyDevotionSummary,
@@ -1943,6 +1944,20 @@ export function updateMyProfileName(
   }).catch((error) => {
     settleCurrentUserMutation(lineage);
     throw error;
+  });
+}
+
+export function changeMyPassword(
+  accessToken: string,
+  body: ChangeMyPasswordRequest,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
+  return apiRequest<null>('/api/v1/users/me/password', {
+    accessToken,
+    ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+    body,
+    method: 'PATCH',
+    responseParser: parseNullResponse,
   });
 }
 
