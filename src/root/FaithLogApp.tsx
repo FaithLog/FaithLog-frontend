@@ -38,6 +38,11 @@ import {
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
 import {
+  clearCurrentUserCache,
+  readCurrentUserCache,
+  subscribeCurrentUserCache,
+} from '../api/currentUserCache';
+import {
   clearTokens,
   getAuthSessionGeneration,
   getStoredAuthSession,
@@ -152,6 +157,12 @@ import {PaymentScreen} from '../payments/PaymentScreen';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
+import {ProfileNameEditor} from '../profile/ProfileNameEditor';
+import {ProfilePasswordChangeScreen} from '../profile/ProfilePasswordChangeScreen';
+import {
+  applyProfileUserUpdate,
+  applyRefreshedAuthState,
+} from '../profile/profileNameEdit';
 import {colors, spacing} from '../theme';
 import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
@@ -304,6 +315,7 @@ export function beginProtectedLogoutUiTeardown(
   transitionToSignedOut: () => void,
   invalidate: () => void = invalidatePaymentContextCache,
 ) {
+  clearCurrentUserCache();
   invalidate();
   transitionToSignedOut();
 }
@@ -367,6 +379,16 @@ export function FaithLogApp() {
     },
   )), []);
 
+  useEffect(() => subscribeCurrentUserCache(({generation, user}) => {
+    if (generation !== getAuthSessionGeneration()) return;
+    setAuthState((current) => applyProfileUserUpdate(
+      current,
+      user,
+      generation,
+      getAuthSessionGeneration(),
+    ));
+  }), []);
+
   useEffect(() => {
     const epoch = authTransitionEpoch.current;
     void initializeNativeFirebaseMessaging();
@@ -377,6 +399,9 @@ export function FaithLogApp() {
 
   useEffect(() => {
     purgePaymentContextForAuthState(authState.status);
+    if (authState.status !== 'authenticated' && authState.status !== 'noCampus') {
+      clearCurrentUserCache();
+    }
   }, [authState.status]);
 
   useEffect(() => {
@@ -1349,15 +1374,19 @@ async function refreshAuthenticatedCampusState(
   accessToken: string,
   current: Extract<AuthGateState, {status: 'authenticated'}>,
   preferredCampusId = current.selectedCampus.campusId,
+  generation = getAuthSessionGeneration(),
 ): Promise<Extract<AuthGateState, {status: 'authenticated' | 'noCampus'}>> {
   const [user, campuses] = await Promise.all([
-    fetchCurrentUser(accessToken).catch(() => current.user),
+    fetchCurrentUser(accessToken, generation).catch(() => current.user),
     fetchMyCampuses(accessToken),
   ]);
   const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
 
   if (activeCampuses.length === 0) {
-    return {status: 'noCampus', user};
+    return {
+      status: 'noCampus',
+      user: readCurrentUserCache(generation, user.id) ?? user,
+    };
   }
 
   const selectedCampus =
@@ -1369,7 +1398,7 @@ async function refreshAuthenticatedCampusState(
 
   return {
     status: 'authenticated',
-    user,
+    user: readCurrentUserCache(generation, user.id) ?? user,
     activeCampuses,
     selectedCampus,
   };
@@ -1523,7 +1552,7 @@ function AuthenticatedShell({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<
-    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications'
+    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password'
   >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
@@ -1601,8 +1630,20 @@ function AuthenticatedShell({
       });
       if (!accessToken) return;
 
-      const nextState = await refreshAuthenticatedCampusState(accessToken, state);
-      setAuthState(nextState);
+      const requestGeneration = getAuthSessionGeneration();
+      const nextState = await refreshAuthenticatedCampusState(
+        accessToken,
+        state,
+        state.selectedCampus.campusId,
+        requestGeneration,
+      );
+      setAuthState((current) => applyRefreshedAuthState(
+        current,
+        nextState,
+        requestGeneration,
+        getAuthSessionGeneration(),
+        readCurrentUserCache(requestGeneration, nextState.user.id),
+      ));
     } catch (error) {
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
@@ -1644,17 +1685,29 @@ function AuthenticatedShell({
       if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
-      const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
+      const requestGeneration = getAuthSessionGeneration();
+      const nextState = await refreshAuthenticatedCampusState(
+        accessToken,
+        state,
+        campus.campusId,
+        requestGeneration,
+      );
 
       if (nextState.status === 'noCampus') {
-        setAuthState(nextState);
+        setAuthState((current) => applyRefreshedAuthState(
+          current, nextState, requestGeneration, getAuthSessionGeneration(),
+          readCurrentUserCache(requestGeneration, nextState.user.id),
+        ));
         setCampusSwitchVisible(false);
         return;
       }
 
       setSelectedCampusDetail(detail);
       setCampusDetailState({status: 'success', data: detail});
-      setAuthState(nextState);
+      setAuthState((current) => applyRefreshedAuthState(
+        current, nextState, requestGeneration, getAuthSessionGeneration(),
+        readCurrentUserCache(requestGeneration, nextState.user.id),
+      ));
       setCampusSwitchVisible(false);
       setUserHomeView('dashboard');
       setProfileView('main');
@@ -1796,17 +1849,29 @@ function AuthenticatedShell({
       if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
-      const nextState = await refreshAuthenticatedCampusState(accessToken, state, campus.campusId);
+      const requestGeneration = getAuthSessionGeneration();
+      const nextState = await refreshAuthenticatedCampusState(
+        accessToken,
+        state,
+        campus.campusId,
+        requestGeneration,
+      );
 
       if (nextState.status === 'noCampus') {
-        setAuthState(nextState);
+        setAuthState((current) => applyRefreshedAuthState(
+          current, nextState, requestGeneration, getAuthSessionGeneration(),
+          readCurrentUserCache(requestGeneration, nextState.user.id),
+        ));
         openEntryTarget(null);
         return;
       }
 
       setSelectedCampusDetail(detail);
       setCampusDetailState({status: 'success', data: detail});
-      setAuthState(nextState);
+      setAuthState((current) => applyRefreshedAuthState(
+        current, nextState, requestGeneration, getAuthSessionGeneration(),
+        readCurrentUserCache(requestGeneration, nextState.user.id),
+      ));
       openEntryTarget(null);
       setUserHomeView('dashboard');
       setProfileView('main');
@@ -2065,6 +2130,7 @@ function AuthenticatedShell({
             onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenMealDuty={() => setProfileView('meal')}
             onOpenNotifications={() => setProfileView('notifications')}
+            onOpenPasswordChange={() => setProfileView('password')}
             profileView={profileView}
             setAuthState={setAuthState}
             state={state}
@@ -3429,6 +3495,7 @@ function ProfileScreen({
   onOpenCoffeeDuty,
   onOpenMealDuty,
   onOpenNotifications,
+  onOpenPasswordChange,
   profileView,
   setAuthState,
   state,
@@ -3444,7 +3511,8 @@ function ProfileScreen({
   onOpenCoffeeDuty: () => void;
   onOpenMealDuty: () => void;
   onOpenNotifications: () => void;
-  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications';
+  onOpenPasswordChange: () => void;
+  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password';
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -3454,6 +3522,16 @@ function ProfileScreen({
         onBack={onBackToProfile}
         setAuthState={setAuthState}
         state={state}
+      />
+    );
+  }
+
+  if (profileView === 'password') {
+    return (
+      <ProfilePasswordChangeScreen
+        onBack={onBackToProfile}
+        onPasswordChanged={() => setAuthState({status: 'signedOut'})}
+        onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
       />
     );
   }
@@ -3533,12 +3611,12 @@ function ProfileScreen({
           <IconexIcon color={colors.textPrimary} name="user" size={24} strokeWidth={1.7} />
         </View>
         <View style={styles.profileInfo}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileName}>
-            {state.user.name}
-          </Text>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileEmail}>
-            {state.user.email}
-          </Text>
+          <ProfileNameEditor
+            onSessionExpired={(message) => {
+              setAuthState({status: 'sessionExpired', message});
+            }}
+            user={state.user}
+          />
           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileCampusText}>
             {state.selectedCampus.campusName} · {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
           </Text>
@@ -3603,6 +3681,13 @@ function ProfileScreen({
             title="캠퍼스 전환"
           />
         ) : null}
+        <ProfileActionRow
+          actionLabel="변경"
+          icon="lock"
+          onPress={onOpenPasswordChange}
+          subtitle="현재 비밀번호 확인 후 모든 세션 종료"
+          title="비밀번호"
+        />
         <ProfileActionRow
           actionLabel="로그아웃"
           actionTone="danger"
@@ -5382,24 +5467,10 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     lineHeight: 20,
   },
-  profileEmail: {
-    color: colors.textSecondary,
-    flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '400',
-    lineHeight: 18,
-  },
   profileInfo: {
     flex: 1,
     gap: 8,
     minWidth: 0,
-  },
-  profileName: {
-    color: authColors.text,
-    flexShrink: 1,
-    fontSize: 22,
-    fontWeight: '700',
-    lineHeight: 28,
   },
   profileRoleChip: {
     alignItems: 'center',

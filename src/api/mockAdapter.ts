@@ -4,6 +4,7 @@ import {
   mockApiErrorFixtures,
   mockDomainFixtures,
 } from './mockFixtures';
+import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import type {
   AdminCampusChargeSummary,
   AdminMemberChargeList,
@@ -11,6 +12,7 @@ import type {
   ChargeItem,
   ChargeList,
   ChargeSummary,
+  CurrentUser,
   DevotionMonthlySummary,
   DutyAssignment,
   MarkChargePaidResponse,
@@ -126,6 +128,7 @@ let mockMealState = createInitialMockMealState();
 let mockPollDetails = createInitialMockPollDetails();
 let mockWeeklyDevotion = createMockWeeklyDevotionState();
 let mockMonthlyDevotion = createMockMonthlyDevotionState();
+let mockCurrentUser = createInitialMockCurrentUser();
 let mockSignupVerificationTokens = new Map<string, string>();
 let mockPasswordResetTokens = new Set<string>();
 let mockUsedPasswordResetTokens = new Set<string>();
@@ -140,6 +143,7 @@ export function resetMockAdapterStateForTests() {
   mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
+  mockCurrentUser = createInitialMockCurrentUser();
   resetMockOneTimeAuthState();
 }
 
@@ -148,6 +152,7 @@ export function resetMealMockStateForTests() {
   mockPollDetails = createInitialMockPollDetails();
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
+  mockCurrentUser = createInitialMockCurrentUser();
   resetMockOneTimeAuthState();
 }
 
@@ -289,7 +294,13 @@ function resolveMockData(
   if (route.method === 'POST' && path === '/auth/login') return auth.login;
   if (route.method === 'POST' && path === '/auth/refresh') return auth.tokenPair;
   if (route.method === 'POST' && path === '/auth/logout') return null;
-  if (route.method === 'GET' && path === '/users/me') return auth.currentUser;
+  if (route.method === 'GET' && path === '/users/me') return mockCurrentUser;
+  if (route.method === 'PATCH' && path === '/users/me') {
+    return updateMockCurrentUserName(body);
+  }
+  if (route.method === 'PATCH' && path === '/users/me/password') {
+    return null;
+  }
   if (route.method === 'DELETE' && path === '/users/me') {
     return {deletedAt: '2026-07-06T12:00:00'};
   }
@@ -3059,6 +3070,32 @@ function resetMockOneTimeAuthState() {
   mockIssuedAuthCodes = new Map();
   mockSignupVerificationTokenSequence = 0;
   mockPasswordResetTokenSequence = 0;
+}
+
+function createInitialMockCurrentUser(): CurrentUser {
+  return {
+    ...mockDomainFixtures.auth.currentUser,
+    campusMemberships: mockDomainFixtures.auth.currentUser.campusMemberships.map(
+      (membership) => ({...membership}),
+    ),
+  };
+}
+
+function updateMockCurrentUserName(body?: BodyInit | null) {
+  const record = toRecord(parseMockJsonBody(body));
+  const name = typeof record.name === 'string' ? record.name.trim() : '';
+  if (!name || name.length > PROFILE_NAME_MAX_LENGTH) {
+    return mockBadRequest(
+      'GLOBAL_VALIDATION_FAILED',
+      '이름은 공백을 제외하고 1~100자로 입력해 주세요.',
+    );
+  }
+  if (Object.keys(record).some((key) => key !== 'name')) {
+    return mockBadRequest('GLOBAL_VALIDATION_FAILED', '잘못된 요청입니다.');
+  }
+
+  mockCurrentUser = {...mockCurrentUser, name};
+  return mockCurrentUser;
 }
 
 function requestMockAuthCode(body: BodyInit | null | undefined, purpose: 'signup' | 'reset') {

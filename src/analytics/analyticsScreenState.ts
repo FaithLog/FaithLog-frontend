@@ -13,7 +13,13 @@ type AuthStatus =
   | 'sessionExpired'
   | 'signedOut';
 type EntryTarget = 'login' | 'signup' | 'inviteCode' | 'campusCreate' | 'campusSelect' | 'campusDetail' | null;
-type ProfileView = 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications';
+type ProfileView =
+  | 'accountDeletion'
+  | 'coffee'
+  | 'main'
+  | 'meal'
+  | 'notifications'
+  | 'password';
 
 export function getPublicAnalyticsScreen(
   authStatus: AuthStatus,

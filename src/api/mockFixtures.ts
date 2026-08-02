@@ -115,6 +115,15 @@ const campusMembership: CampusMembershipSummary = {
   status: 'ACTIVE',
 };
 
+const currentUserCampusMembership: CurrentUser['campusMemberships'][number] = {
+  campusMemberId: campusMembership.membershipId,
+  campusId: campusMembership.campusId,
+  campusName: campusMembership.campusName,
+  region: campusMembership.region,
+  campusRole: campusMembership.campusRole,
+  status: campusMembership.status,
+};
+
 const currentUser: CurrentUser = {
   id: 7,
   name: '샘플 사용자',
@@ -122,7 +131,7 @@ const currentUser: CurrentUser = {
   role: 'ADMIN',
   isActive: true,
   lastLoginAt: '2026-06-24T09:00:00.000Z',
-  campusMemberships: [campusMembership],
+  campusMemberships: [currentUserCampusMembership],
 };
 
 const campusDetail: CampusDetail = {

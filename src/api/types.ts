@@ -136,7 +136,7 @@ export type CurrentUserCampusMembershipSummary = Omit<
   CampusMembershipSummary,
   'membershipId'
 > & {
-  membershipId?: number;
+  campusMemberId: number;
 };
 
 export type CampusCreateRequest = {
@@ -180,6 +180,15 @@ export type CurrentUser = {
   isActive: boolean;
   lastLoginAt: string | null;
   campusMemberships: CurrentUserCampusMembershipSummary[];
+};
+
+export type UpdateMyProfileNameRequest = {
+  name: string;
+};
+
+export type ChangeMyPasswordRequest = {
+  currentPassword: string;
+  newPassword: string;
 };
 
 export type ServiceAdminUserCampusSummary = {

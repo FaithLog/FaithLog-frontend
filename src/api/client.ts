@@ -89,12 +89,15 @@ import type {
   SignupRequest,
   SignupResponse,
   TokenPair,
+  UpdateMyProfileNameRequest,
+  ChangeMyPasswordRequest,
   UserRole,
   WeeklyDevotionSaveRequest,
   WeeklyDevotionSummary,
 } from './types';
 import {FaithLogApiError} from './apiError';
 import {DEFAULT_PAGE_SIZE} from './pagination';
+import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import {getSafeApiErrorMessage} from './errorPolicy';
 import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
@@ -122,6 +125,7 @@ import {
   parseCoffeeBrands,
   parseCoffeeMenus,
   parseCurrentUser,
+  parseProfileNameUpdateResponse,
   parseDeleteAccountResponse,
   parseDevotionDailyCheckSaveResponse,
   parseDevotionMonthlySummary,
@@ -163,6 +167,12 @@ import {
   type AuthSessionGeneration,
 } from './tokenStorage';
 import {hasRefreshLogoutHandoff, trackRefreshForLogout} from '../auth/refreshLogoutHandoff';
+import {
+  beginCurrentUserMutation,
+  beginCurrentUserRead,
+  reconcileCurrentUserRead,
+  settleCurrentUserMutation,
+} from './currentUserCache';
 
 type RequestOptions = {
   accessToken?: string;
@@ -214,6 +224,9 @@ const MOCK_ALLOWED_APP_ENVIRONMENTS = new Set(['local', 'development']);
 const TRUSTED_DEPLOYMENT_API_ORIGINS = new Set([
   'https://faithlog-549871256004.asia-northeast3.run.app',
 ]);
+// Confirmed against backend origin/develop@6637599 and canonical Spring REST
+// Docs: PATCH /api/v1/users/me returns the complete UserMe response.
+const PROFILE_NAME_EDIT_REST_DOCS_CONFIRMED = true;
 let authRefreshInFlight: AuthRefreshFlight | null = null;
 
 export function isMockModeEnabled() {
@@ -242,6 +255,12 @@ export function getAdminChargeContractCapabilities(): AdminChargeContractCapabil
   return {
     devotionPenaltyReopenEnabled: true,
     paidStatusEnabled: true,
+  };
+}
+
+export function getProfileContractCapabilities() {
+  return {
+    nameEditEnabled: PROFILE_NAME_EDIT_REST_DOCS_CONFIRMED,
   };
 }
 
@@ -1885,13 +1904,76 @@ export function fetchCurrentUser(
   accessToken: string,
   authSessionGeneration?: AuthSessionGeneration,
 ) {
+  const generation = authSessionGeneration ?? getAuthSessionGeneration();
+  const lineage = beginCurrentUserRead(generation);
   return apiRequest<CurrentUser>('/api/v1/users/me', {
     accessToken,
     ...(authSessionGeneration === undefined
       ? {}
       : {authSessionGeneration, allowUnstoredAccessToken: true}),
     responseParser: parseCurrentUser,
+  }).then((user) => {
+    if (isAuthSessionGenerationCurrent(generation)) {
+      return reconcileCurrentUserRead(lineage, user);
+    }
+    return user;
   });
+}
+
+export function updateMyProfileName(
+  accessToken: string,
+  body: UpdateMyProfileNameRequest,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
+  const request = normalizeProfileNameRequest(body);
+  const generation = authSessionGeneration ?? getAuthSessionGeneration();
+  const lineage = beginCurrentUserMutation(generation);
+  return apiRequest<CurrentUser>('/api/v1/users/me', {
+    accessToken,
+    ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+    body: request,
+    method: 'PATCH',
+    responseParser: parseProfileNameUpdateResponse,
+  }).then((user) => {
+    if (isAuthSessionGenerationCurrent(generation)) {
+      settleCurrentUserMutation(lineage, user);
+    } else {
+      settleCurrentUserMutation(lineage);
+    }
+    return user;
+  }).catch((error) => {
+    settleCurrentUserMutation(lineage);
+    throw error;
+  });
+}
+
+export function changeMyPassword(
+  accessToken: string,
+  body: ChangeMyPasswordRequest,
+  authSessionGeneration?: AuthSessionGeneration,
+) {
+  return apiRequest<null>('/api/v1/users/me/password', {
+    accessToken,
+    ...(authSessionGeneration === undefined ? {} : {authSessionGeneration}),
+    body,
+    method: 'PATCH',
+    responseParser: parseNullResponse,
+  });
+}
+
+function normalizeProfileNameRequest(
+  body: UpdateMyProfileNameRequest,
+): UpdateMyProfileNameRequest {
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name || name.length > PROFILE_NAME_MAX_LENGTH) {
+    throw new FaithLogApiError({
+      kind: 'error',
+      status: 400,
+      code: 'GLOBAL_VALIDATION_FAILED',
+      message: '이름은 공백을 제외하고 1~100자로 입력해 주세요.',
+    });
+  }
+  return {name};
 }
 
 export function fetchMyCampuses(
