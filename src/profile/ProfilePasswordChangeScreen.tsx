@@ -190,20 +190,33 @@ function PasswordField({
   textContentType: 'newPassword' | 'password';
   value: string;
 }) {
+  const [visible, setVisible] = useState(false);
+
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        accessibilityLabel={accessibilityLabel}
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={editable}
-        onChangeText={onChangeText}
-        secureTextEntry
-        style={styles.input}
-        textContentType={textContentType}
-        value={value}
-      />
+      <View style={styles.inputShell}>
+        <TextInput
+          accessibilityLabel={accessibilityLabel}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={editable}
+          onChangeText={onChangeText}
+          secureTextEntry={!visible}
+          style={styles.input}
+          textContentType={textContentType}
+          value={value}
+        />
+        <Pressable
+          accessibilityLabel={`${label} ${visible ? '숨기기' : '표시'}`}
+          accessibilityRole="button"
+          disabled={!editable}
+          hitSlop={8}
+          onPress={() => setVisible((current) => !current)}
+          style={({pressed}) => [styles.visibilityButton, pressed ? styles.pressed : null]}>
+          <Text style={styles.visibilityButtonText}>{visible ? '숨기기' : '표시'}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -226,14 +239,20 @@ const styles = StyleSheet.create({
   frame: {gap: 20, paddingBottom: 32},
   header: {alignItems: 'center', flexDirection: 'row', gap: 14},
   input: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 16,
+    height: 52,
+    paddingHorizontal: 16,
+  },
+  inputShell: {
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
     borderRadius: 8,
     borderWidth: 1,
-    color: colors.textPrimary,
-    fontSize: 16,
-    height: 52,
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    minHeight: 52,
   },
   label: {color: colors.textPrimary, fontSize: 15, fontWeight: '600'},
   pressed: {opacity: 0.75},
@@ -246,4 +265,11 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {color: colors.surface, fontSize: 16, fontWeight: '700'},
   title: {color: colors.textPrimary, fontSize: 24, fontWeight: '700'},
+  visibilityButton: {
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  visibilityButtonText: {color: colors.primary, fontSize: 14, fontWeight: '600'},
 });

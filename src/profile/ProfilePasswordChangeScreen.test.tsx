@@ -108,6 +108,19 @@ describe('ProfilePasswordChangeScreen', () => {
     renderer.unmount();
   });
 
+  it('lets each secure field be revealed and hidden without changing its value', async () => {
+    const renderer = await renderScreen();
+    await changeText(renderer, '현재 비밀번호', 'current-password');
+
+    expect(inputByLabel(renderer, '현재 비밀번호').props.secureTextEntry).toBe(true);
+    await press(renderer, '현재 비밀번호 표시');
+    expect(inputByLabel(renderer, '현재 비밀번호').props.secureTextEntry).toBe(false);
+    expect(inputByLabel(renderer, '현재 비밀번호').props.value).toBe('current-password');
+    await press(renderer, '현재 비밀번호 숨기기');
+    expect(inputByLabel(renderer, '현재 비밀번호').props.secureTextEntry).toBe(true);
+    renderer.unmount();
+  });
+
   it('drops a success from a changed auth generation', async () => {
     let resolve!: () => void;
     api.changeMyPassword.mockReturnValue(new Promise<void>((done) => { resolve = done; }));
@@ -153,6 +166,12 @@ async function fillValid(renderer: ReactTestRenderer) {
 
 function byLabel(renderer: ReactTestRenderer, label: string) {
   return renderer.root.find((node) => node.props.accessibilityLabel === label);
+}
+
+function inputByLabel(renderer: ReactTestRenderer, label: string) {
+  return renderer.root.find((node) =>
+    node.props.accessibilityLabel === label &&
+    typeof node.props.secureTextEntry === 'boolean');
 }
 
 async function changeText(renderer: ReactTestRenderer, label: string, value: string) {

@@ -23,6 +23,9 @@ export function validateProfilePasswordChange(
   if (input.currentPassword === input.newPassword) {
     return {valid: false, error: '현재 비밀번호와 다른 비밀번호를 입력해 주세요.'};
   }
+  if (input.newPassword.length < 8) {
+    return {valid: false, error: '새 비밀번호는 8자 이상 입력해 주세요.'};
+  }
 
   return {
     valid: true,

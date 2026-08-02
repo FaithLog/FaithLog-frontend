@@ -24,6 +24,7 @@ describe('profile password change domain', () => {
   it.each([
     [{currentPassword: '', newPassword: 'new-password', confirmPassword: 'new-password'}, '현재 비밀번호를 입력해 주세요.'],
     [{currentPassword: 'current', newPassword: '', confirmPassword: ''}, '새 비밀번호를 입력해 주세요.'],
+    [{currentPassword: 'current', newPassword: '1234567', confirmPassword: '1234567'}, '새 비밀번호는 8자 이상 입력해 주세요.'],
     [{currentPassword: 'current', newPassword: 'new-password', confirmPassword: 'different'}, '새 비밀번호 확인이 일치하지 않습니다.'],
     [{currentPassword: 'same', newPassword: 'same', confirmPassword: 'same'}, '현재 비밀번호와 다른 비밀번호를 입력해 주세요.'],
   ])('rejects invalid form input before dispatch', (input, error) => {
