@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import {
@@ -34,7 +34,10 @@ export function ProfileNameEditor({
     trackerRef.current = createProfileNameMutationTracker(user.id);
   }
   const tracker = trackerRef.current;
-  tracker.syncUser(user.id);
+
+  useLayoutEffect(() => {
+    tracker.syncUser(user.id);
+  }, [tracker, user.id]);
 
   const [displayName, setDisplayName] = useState(user.name);
   const [editing, setEditing] = useState(false);

@@ -166,6 +166,41 @@ describe('ProfileNameEditor', () => {
     renderer.unmount();
   });
 
+  it('keeps committed A lineage when a B render candidate suspends before commit', async () => {
+    let resolveUpdate!: (user: CurrentUser) => void;
+    api.updateMyProfileName.mockReturnValue(new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    const neverCommit = new Promise<void>(() => undefined);
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConcurrentProfileCandidate user={initialUser} />,
+        {unstable_isConcurrent: true} as never,
+      );
+    });
+    await press(renderer, '이름 수정');
+    await changeText(renderer, '이름 입력', '사용자 A 새 이름');
+    await press(renderer, '이름 저장');
+
+    await act(async () => {
+      React.startTransition(() => {
+        renderer.update(<ConcurrentProfileCandidate
+          suspend={neverCommit}
+          user={{...initialUser, id: 8, name: '사용자 B'}}
+        />);
+      });
+      await Promise.resolve();
+    });
+
+    resolveUpdate({...initialUser, name: '사용자 A 새 이름'});
+    await act(async () => Promise.resolve());
+
+    expect(textOccurrences(renderer, '사용자 A 새 이름')).toBe(1);
+    expect(api.updateMyProfileName).toHaveBeenCalledOnce();
+    renderer.unmount();
+  });
+
   it('allows the new identity to save while the stale identity request is still pending', async () => {
     let resolveOld!: (user: CurrentUser) => void;
     api.updateMyProfileName
@@ -197,6 +232,53 @@ describe('ProfileNameEditor', () => {
     resolveOld({...initialUser, name: '사용자 A 지연 이름'});
     await act(async () => Promise.resolve());
     expect(textOccurrences(renderer, '사용자 A 지연 이름')).toBe(0);
+    renderer.unmount();
+  });
+
+  it('does not let late A error or finally change the committed B flight or UI', async () => {
+    let rejectOld!: (error: unknown) => void;
+    let resolveNew!: (user: CurrentUser) => void;
+    api.updateMyProfileName
+      .mockReturnValueOnce(new Promise((_resolve, reject) => {
+        rejectOld = reject;
+      }))
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveNew = resolve;
+      }));
+    const renderer = await renderEditor();
+    await press(renderer, '이름 수정');
+    await changeText(renderer, '이름 입력', '사용자 A 지연 이름');
+    await press(renderer, '이름 저장');
+
+    auth.generation = 4;
+    access.readCurrentAccessToken.mockResolvedValue({
+      generation: 4,
+      accessToken: 'user-b-access-token',
+    });
+    await act(async () => {
+      renderer.update(<ProfileNameEditor
+        onSessionExpired={vi.fn()}
+        user={{...initialUser, id: 8, name: '사용자 B'}}
+      />);
+    });
+    await press(renderer, '이름 수정');
+    await changeText(renderer, '이름 입력', '사용자 B 새 이름');
+    await press(renderer, '이름 저장');
+
+    rejectOld(new FaithLogApiError({
+      kind: 'error',
+      status: 500,
+      message: 'old A raw failure',
+    }));
+    await act(async () => Promise.resolve());
+
+    expect(textOccurrences(renderer, '저장 중...')).toBe(1);
+    expect(renderer.root.findAll((node) => node.props.accessibilityRole === 'alert'))
+      .toHaveLength(0);
+
+    resolveNew({...initialUser, id: 8, name: '사용자 B 새 이름'});
+    await act(async () => Promise.resolve());
+    expect(textOccurrences(renderer, '사용자 B 새 이름')).toBe(1);
     renderer.unmount();
   });
 
@@ -245,6 +327,26 @@ describe('ProfileNameEditor', () => {
     renderer.unmount();
   });
 });
+
+function ConcurrentProfileCandidate({
+  suspend,
+  user,
+}: {
+  suspend?: Promise<void>;
+  user: CurrentUser;
+}) {
+  return (
+    <React.Suspense fallback={null}>
+      <ProfileNameEditor onSessionExpired={vi.fn()} user={user} />
+      <SuspendAfterProfile promise={suspend} />
+    </React.Suspense>
+  );
+}
+
+function SuspendAfterProfile({promise}: {promise: Promise<void> | undefined}) {
+  if (promise) throw promise;
+  return null;
+}
 
 async function renderEditor(overrides: Partial<React.ComponentProps<typeof ProfileNameEditor>> = {}) {
   let renderer!: ReactTestRenderer;

@@ -65,6 +65,8 @@ describe('profile name edit domain', () => {
     const tracker = createProfileNameMutationTracker(7);
     const first = tracker.begin(3);
     expect(tracker.isSuccessCurrent(first, 3, 7)).toBe(true);
+    tracker.syncUser(7);
+    expect(tracker.isSuccessCurrent(first, 3, 7)).toBe(true);
 
     const newer = tracker.begin(3);
     expect(tracker.isSuccessCurrent(first, 3, 7)).toBe(false);
