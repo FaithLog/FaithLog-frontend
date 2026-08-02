@@ -17,6 +17,7 @@ import {
   changeAdminChargeStatus,
   FaithLogApiError,
   fetchChargeSummary,
+  fetchCurrentUser,
   fetchDevotionMonthlySummary,
   fetchAdminCampusChargesForMyAccounts,
   fetchAdminMemberCharges,
@@ -27,6 +28,7 @@ import {
   loginUser,
   markMyChargePaid,
   savePollResponse,
+  updateMyProfileName,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -41,6 +43,10 @@ import {
   resetMockAdapterStateForTests,
 } from './mockAdapter';
 import {mealApi} from '../meal/mealApi';
+import {
+  clearCurrentUserCache,
+  subscribeCurrentUserCache,
+} from './currentUserCache';
 
 function expectApiError(error: unknown, expected: Partial<FaithLogApiError['detail']>) {
   expect(error).toBeInstanceOf(FaithLogApiError);
@@ -90,6 +96,7 @@ function patchMockAdminChargeStatus(
 describe('FaithLog mock API adapter', () => {
   beforeEach(() => {
     resetMockAdapterStateForTests();
+    clearCurrentUserCache();
     process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
     vi.stubGlobal('fetch', vi.fn());
@@ -130,6 +137,28 @@ describe('FaithLog mock API adapter', () => {
     expect(mockDomainFixtures).toHaveProperty('poll');
     expect(mockDomainFixtures).toHaveProperty('prayer');
     expect(mockDomainFixtures).toHaveProperty('notification');
+  });
+
+  it('PATCHes the exact trimmed name and keeps GET /users/me synchronized', async () => {
+    const rootConsumer = vi.fn();
+    const unsubscribe = subscribeCurrentUserCache(rootConsumer);
+    const updated = await updateMyProfileName(
+      'mock-access-token',
+      {name: '  새 이름  '},
+      0 as never,
+    );
+    const fetched = await fetchCurrentUser('mock-access-token', 0 as never);
+
+    expect(updated).toEqual({...mockDomainFixtures.auth.currentUser, name: '새 이름'});
+    expect(fetched).toEqual(updated);
+    expect(rootConsumer).toHaveBeenCalledWith({generation: 0, user: updated});
+    expect(fetch).not.toHaveBeenCalled();
+
+    resetMockAdapterStateForTests();
+    await expect(fetchCurrentUser('mock-access-token', 0 as never)).resolves.toEqual(
+      mockDomainFixtures.auth.currentUser,
+    );
+    unsubscribe();
   });
 
   it('adds a custom user option and exposes it on the refreshed detail', async () => {

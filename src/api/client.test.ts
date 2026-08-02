@@ -35,6 +35,7 @@ import {
   fetchPollResults,
   fetchPolls,
   getAdminChargeContractCapabilities,
+  getProfileContractCapabilities,
   getApiBaseUrl,
   isMockModeEnabled,
   loginUser,
@@ -42,6 +43,7 @@ import {
   markMyChargePaid,
   registerMyFcmToken,
   updateAdminPenaltyRule,
+  updateMyProfileName,
   validateRuntimeConfig,
 } from './client';
 import {
@@ -60,6 +62,11 @@ import {
   hasRefreshLogoutHandoff,
   resetRefreshLogoutHandoffForTests,
 } from '../auth/refreshLogoutHandoff';
+import {
+  clearCurrentUserCache,
+  subscribeCurrentUserCache,
+} from './currentUserCache';
+import {applyProfileUserUpdate} from '../profile/profileNameEdit';
 
 const API_BASE_URL = 'https://api.faithlog.test/root/';
 const FIRST_AUTH_GENERATION = 1 as AuthSessionGeneration;
@@ -139,6 +146,7 @@ type ResponseEnvelope<T> = {
 describe('FaithLog API client', () => {
   beforeEach(() => {
     resetRefreshLogoutHandoffForTests();
+    clearCurrentUserCache();
     currentAuthGeneration = FIRST_AUTH_GENERATION;
     process.env.EXPO_PUBLIC_API_BASE_URL = API_BASE_URL;
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
@@ -176,6 +184,90 @@ describe('FaithLog API client', () => {
       'https://api.faithlog.test/root/api/v1/users/me',
     );
   });
+
+  it('enables the confirmed production contract and synchronizes the REST Docs UserMe', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_API_BASE_URL =
+      'https://faithlog-549871256004.asia-northeast3.run.app';
+    const docsUser = {
+      id: 7,
+      name: '수정된 문서 이름',
+      email: 'docs-name-update@example.com',
+      role: 'USER' as const,
+      isActive: true,
+      lastLoginAt: '2026-08-02T12:36:34.529478Z',
+      campusMemberships: [{
+        campusMemberId: 31,
+        campusId: 1,
+        campusName: '문서 캠퍼스',
+        region: '서울',
+        campusRole: 'MEMBER' as const,
+        status: 'ACTIVE',
+      }],
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, envelope(docsUser)),
+    );
+    let authState = {
+      status: 'authenticated' as const,
+      user: {...docsUser, name: '변경 전 이름'},
+      activeCampuses: [],
+      selectedCampus: {
+        membershipId: 10,
+        campusId: 1,
+        campusName: '문서 캠퍼스',
+        region: '서울',
+        campusRole: 'MEMBER' as const,
+        status: 'ACTIVE',
+      },
+    };
+    const unsubscribe = subscribeCurrentUserCache(({generation, user}) => {
+      authState = applyProfileUserUpdate(
+        authState,
+        user,
+        generation,
+        currentAuthGeneration,
+      ) as typeof authState;
+    });
+
+    expect(getProfileContractCapabilities()).toEqual({nameEditEnabled: true});
+    await expect(updateMyProfileName(
+      'access-token',
+      {name: '  수정된 문서 이름  '},
+      FIRST_AUTH_GENERATION,
+    )).resolves.toEqual(docsUser);
+
+    expect(authState.user).toEqual(docsUser);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://faithlog-549871256004.asia-northeast3.run.app/api/v1/users/me',
+      expect.objectContaining({
+        body: JSON.stringify({name: '수정된 문서 이름'}),
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json',
+        }),
+        method: 'PATCH',
+      }),
+    );
+    unsubscribe();
+  });
+
+  it.each(['   ', '가'.repeat(101)])(
+    'rejects invalid profile name %j before capability or network dispatch',
+    (name) => {
+      let caught: unknown;
+      try {
+        updateMyProfileName('access-token', {name}, FIRST_AUTH_GENERATION);
+      } catch (error) {
+        caught = error;
+      }
+      expectApiError(caught, {
+        status: 400,
+        code: 'GLOBAL_VALIDATION_FAILED',
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     [undefined, '/api/v1/admin/campuses/3/duty-assignments'],
