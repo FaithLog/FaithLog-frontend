@@ -3530,7 +3530,10 @@ function ProfileScreen({
     return (
       <ProfilePasswordChangeScreen
         onBack={onBackToProfile}
-        onPasswordChanged={() => setAuthState({status: 'signedOut'})}
+        onPasswordChanged={(warning) => setAuthState({
+          status: 'signedOut',
+          ...(warning ? {warning} : {}),
+        })}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
       />
     );
