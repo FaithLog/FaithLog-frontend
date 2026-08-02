@@ -158,6 +158,7 @@ import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {ProfileNameEditor} from '../profile/ProfileNameEditor';
+import {ProfilePasswordChangeScreen} from '../profile/ProfilePasswordChangeScreen';
 import {
   applyProfileUserUpdate,
   applyRefreshedAuthState,
@@ -1551,7 +1552,7 @@ function AuthenticatedShell({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
   const [profileView, setProfileView] = useState<
-    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications'
+    'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password'
   >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
@@ -2129,6 +2130,7 @@ function AuthenticatedShell({
             onOpenCoffeeDuty={() => setProfileView('coffee')}
             onOpenMealDuty={() => setProfileView('meal')}
             onOpenNotifications={() => setProfileView('notifications')}
+            onOpenPasswordChange={() => setProfileView('password')}
             profileView={profileView}
             setAuthState={setAuthState}
             state={state}
@@ -3493,6 +3495,7 @@ function ProfileScreen({
   onOpenCoffeeDuty,
   onOpenMealDuty,
   onOpenNotifications,
+  onOpenPasswordChange,
   profileView,
   setAuthState,
   state,
@@ -3508,7 +3511,8 @@ function ProfileScreen({
   onOpenCoffeeDuty: () => void;
   onOpenMealDuty: () => void;
   onOpenNotifications: () => void;
-  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications';
+  onOpenPasswordChange: () => void;
+  profileView: 'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password';
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
 }) {
@@ -3518,6 +3522,16 @@ function ProfileScreen({
         onBack={onBackToProfile}
         setAuthState={setAuthState}
         state={state}
+      />
+    );
+  }
+
+  if (profileView === 'password') {
+    return (
+      <ProfilePasswordChangeScreen
+        onBack={onBackToProfile}
+        onPasswordChanged={() => setAuthState({status: 'signedOut'})}
+        onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
       />
     );
   }
@@ -3667,6 +3681,13 @@ function ProfileScreen({
             title="캠퍼스 전환"
           />
         ) : null}
+        <ProfileActionRow
+          actionLabel="변경"
+          icon="lock"
+          onPress={onOpenPasswordChange}
+          subtitle="현재 비밀번호 확인 후 모든 세션 종료"
+          title="비밀번호"
+        />
         <ProfileActionRow
           actionLabel="로그아웃"
           actionTone="danger"

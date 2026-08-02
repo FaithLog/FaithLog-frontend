@@ -15,6 +15,7 @@ import {
   addUserPollOption,
   apiRequest,
   changeAdminChargeStatus,
+  changeMyPassword,
   FaithLogApiError,
   fetchChargeSummary,
   fetchCurrentUser,
@@ -159,6 +160,15 @@ describe('FaithLog mock API adapter', () => {
       mockDomainFixtures.auth.currentUser,
     );
     unsubscribe();
+  });
+
+  it('accepts the authenticated password-change contract without network access', async () => {
+    await expect(changeMyPassword(
+      'mock-access-token',
+      {currentPassword: 'current-password', newPassword: 'new-password'},
+      0 as never,
+    )).resolves.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('adds a custom user option and exposes it on the refreshed detail', async () => {

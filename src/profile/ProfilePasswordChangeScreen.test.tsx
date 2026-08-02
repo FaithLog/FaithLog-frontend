@@ -123,6 +123,18 @@ describe('ProfilePasswordChangeScreen', () => {
     expect(onChanged).not.toHaveBeenCalled();
     renderer.unmount();
   });
+
+  it('does not sign out a newer session when durable cleanup declines the old generation', async () => {
+    session.expireAuthSession.mockResolvedValue(false);
+    const onChanged = vi.fn();
+    const renderer = await renderScreen(onChanged);
+    await fillValid(renderer);
+    await press(renderer, '비밀번호 변경 완료');
+
+    expect(session.expireAuthSession).toHaveBeenCalledWith(3);
+    expect(onChanged).not.toHaveBeenCalled();
+    renderer.unmount();
+  });
 });
 
 async function renderScreen(onChanged = vi.fn()) {
