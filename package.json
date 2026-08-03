@@ -28,7 +28,7 @@
     "@react-native-firebase/app": "^25.1.0",
     "@react-native-firebase/crashlytics": "25.1.0",
     "@react-native-firebase/messaging": "^25.1.0",
-    "@react-native-firebase/remote-config": "^25.1.0",
+    "@react-native-firebase/remote-config": "^26.0.0",
     "expo": "~56.0.18",
     "expo-application": "~56.0.3",
     "expo-build-properties": "~56.0.24",
