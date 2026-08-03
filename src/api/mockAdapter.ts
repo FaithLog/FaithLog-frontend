@@ -688,7 +688,8 @@ function resolveMockData(
     ) {
       return mockBadRequest('GLOBAL_VALIDATION_FAILED', '이미지 조회 요청이 올바르지 않습니다.');
     }
-    if (assetIds.some((assetId) => !isMockMediaAssetAvailable(campusId, assetId))) {
+    if (assetIds.some((assetId) =>
+      !canMockActorAccessMediaAsset(campusId, assetId, mealActor))) {
       return mockNotFound('MEDIA_ASSET_NOT_FOUND', '이미지를 찾을 수 없습니다.');
     }
     return {
@@ -1096,6 +1097,7 @@ function resolveMockData(
       ? request.notice.trim()
       : null;
     const pollId = getNextMockPollId();
+    const startsAt = stringField(request.startsAt, poll.detail.startsAt);
     const created: PollDetail = {
       ...poll.detail,
       id: pollId,
@@ -1105,9 +1107,9 @@ function resolveMockData(
       selectionType: stringField(request.selectionType, poll.detail.selectionType),
       isAnonymous: typeof request.isAnonymous === 'boolean' ? request.isAnonymous : poll.detail.isAnonymous,
       allowUserOptionAdd: request.allowUserOptionAdd === true,
-      startsAt: stringField(request.startsAt, poll.detail.startsAt),
+      startsAt,
       endsAt: stringField(request.endsAt, poll.detail.endsAt),
-      status: 'OPEN',
+      status: Date.parse(startsAt) > Date.now() ? 'SCHEDULED' : 'OPEN',
       responded: false,
       manageableByMe: true,
       notice,
@@ -1572,12 +1574,31 @@ function parseMockPollNoticeMutation(
   };
 }
 
-function isMockMediaAssetAvailable(campusId: number, assetId: number) {
+function isMockMediaAssetReadyForCampus(campusId: number, assetId: number) {
   const reservation = mockMediaReservations.get(assetId);
   if (reservation) {
     return reservation.campusId === campusId && reservation.status === 'READY';
   }
   return mockReadyMediaAssets.get(assetId) === campusId;
+}
+
+function canMockActorAccessMediaAsset(
+  campusId: number,
+  assetId: number,
+  actor: MockMealActor | null,
+) {
+  if (!isMockMediaAssetReadyForCampus(campusId, assetId)) return false;
+  if (actor?.adminCampusIds.includes(campusId)) return true;
+  return isMockMediaAssetAttachedToVisiblePoll(campusId, assetId);
+}
+
+function isMockMediaAssetAttachedToVisiblePoll(campusId: number, assetId: number) {
+  const now = Date.now();
+  return [...mockPollDetails, ...mockMealState.details].some((detail) =>
+    detail.campusId === campusId &&
+    (detail.status === 'OPEN' || detail.status === 'CLOSED') &&
+    Date.parse(detail.startsAt) <= now &&
+    (detail.imageAssetIds ?? []).includes(assetId));
 }
 
 function validateMockMediaAssetIds(

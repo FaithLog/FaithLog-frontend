@@ -114,6 +114,189 @@ describe('published poll notice editor', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  it('single-flights two synchronous save presses from the same render and releases after success', async () => {
+    let resolveFirstSave;
+    const firstSave = new Promise((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSave = vi.fn()
+      .mockReturnValueOnce(firstSave)
+      .mockResolvedValueOnce(pollDetail({title: '두 번째 저장'}));
+    const onSaved = vi.fn();
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PublishedPollNoticeEditor, {
+        onCancel: vi.fn(),
+        onSave,
+        onSaved,
+        poll: pollDetail(),
+      }));
+    });
+
+    const sameRenderSaveButton = renderer.root.findByProps({
+      accessibilityLabel: '게시된 투표 공지 저장',
+    });
+    await act(async () => {
+      sameRenderSaveButton.props.onPress();
+      sameRenderSaveButton.props.onPress();
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirstSave(pollDetail({title: '첫 번째 저장'}));
+      await firstSave;
+    });
+    expect(onSaved).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '게시된 투표 공지 저장'}).props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSaved).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the save flight after an error while preserving the edited draft', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new Error('first failed'))
+      .mockResolvedValueOnce(pollDetail({title: '재시도 저장'}));
+    const onSaved = vi.fn();
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PublishedPollNoticeEditor, {
+        onCancel: vi.fn(),
+        onSave,
+        onSaved,
+        poll: pollDetail(),
+      }));
+    });
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '게시된 투표 제목'}).props.onChangeText('보존할 제목');
+      renderer.root.findByProps({accessibilityLabel: '투표 공지글'}).props.onChangeText('보존할 공지');
+    });
+
+    const sameRenderSaveButton = renderer.root.findByProps({
+      accessibilityLabel: '게시된 투표 공지 저장',
+    });
+    await act(async () => {
+      sameRenderSaveButton.props.onPress();
+      sameRenderSaveButton.props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(renderer.root.findByProps({accessibilityLabel: '게시된 투표 제목'}).props.value)
+      .toBe('보존할 제목');
+    expect(renderer.root.findByProps({accessibilityLabel: '투표 공지글'}).props.value)
+      .toBe('보존할 공지');
+
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '게시된 투표 공지 저장'}).props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('catches synchronous draft validation once, preserves it, and releases for retry', async () => {
+    const invalidNotice = '가'.repeat(2_001);
+    const onSave = vi.fn().mockResolvedValue(pollDetail({title: '재시도 저장'}));
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PublishedPollNoticeEditor, {
+        onCancel: vi.fn(),
+        onSave,
+        onSaved: vi.fn(),
+        poll: pollDetail(),
+      }));
+    });
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '투표 공지글'}).props.onChangeText(invalidNotice);
+    });
+
+    const sameRenderSaveButton = renderer.root.findByProps({
+      accessibilityLabel: '게시된 투표 공지 저장',
+    });
+    await act(async () => {
+      sameRenderSaveButton.props.onPress();
+      sameRenderSaveButton.props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(renderer.root.findByProps({accessibilityLabel: '투표 공지글'}).props.value)
+      .toBe(invalidNotice);
+    expect(JSON.stringify(renderer.toJSON())).toContain('입력한 내용은 유지');
+
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '투표 공지글'}).props.onChangeText('유효한 공지');
+    });
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '게시된 투표 공지 저장'}).props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({notice: '유효한 공지'}));
+  });
+
+  it('keeps a replacement editor scope locked when the stale scope finishes', async () => {
+    let resolveStaleSave;
+    let resolveCurrentSave;
+    const staleSave = new Promise((resolve) => {
+      resolveStaleSave = resolve;
+    });
+    const currentSave = new Promise((resolve) => {
+      resolveCurrentSave = resolve;
+    });
+    const staleOnSaved = vi.fn();
+    const currentOnSave = vi.fn(() => currentSave);
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PublishedPollNoticeEditor, {
+        key: '1:701',
+        onCancel: vi.fn(),
+        onSave: vi.fn(() => staleSave),
+        onSaved: staleOnSaved,
+        poll: pollDetail(),
+      }));
+    });
+    await act(async () => {
+      renderer.root.findByProps({accessibilityLabel: '게시된 투표 공지 저장'}).props.onPress();
+    });
+    await act(async () => {
+      renderer.update(React.createElement(PublishedPollNoticeEditor, {
+        key: '1:702',
+        onCancel: vi.fn(),
+        onSave: currentOnSave,
+        onSaved: vi.fn(),
+        poll: pollDetail({id: 702}),
+      }));
+    });
+
+    const currentSaveButton = renderer.root.findByProps({
+      accessibilityLabel: '게시된 투표 공지 저장',
+    });
+    await act(async () => {
+      currentSaveButton.props.onPress();
+      resolveStaleSave(pollDetail({title: '늦은 이전 저장'}));
+      await staleSave;
+      currentSaveButton.props.onPress();
+    });
+
+    expect(staleOnSaved).not.toHaveBeenCalled();
+    expect(currentOnSave).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCurrentSave(pollDetail({id: 702, title: '현재 저장'}));
+      await currentSave;
+    });
+  });
+
   it('allocates distinct mock assets when two polls are edited in sequence', async () => {
     const firstSave = vi.fn().mockResolvedValue(pollDetail());
     const secondSave = vi.fn().mockResolvedValue(pollDetail({id: 702}));

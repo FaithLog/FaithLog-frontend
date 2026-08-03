@@ -4544,7 +4544,7 @@ function AdminPollManagement({
           ) : null}
           {section === 'noticeEdit' && noticeEditPoll ? (
             <PublishedPollNoticeEditor
-              key={noticeEditPoll.id}
+              key={`${noticeEditPoll.campusId}:${noticeEditPoll.id}`}
               onCancel={() => {
                 setNoticeEditPoll(null);
                 setSection('manage');

@@ -38,6 +38,14 @@ export type NotificationPollTargetResolution =
   | {status: 'accepted'; pollTarget: PollOpenTarget | null}
   | {status: 'rejected'};
 
+export type PushNavigationCapabilities = Readonly<{
+  pollOpenEnabled: boolean;
+}>;
+
+const FAIL_CLOSED_PUSH_CAPABILITIES: PushNavigationCapabilities = {
+  pollOpenEnabled: false,
+};
+
 type ParamNormalizer = (value: unknown) => number | string | null;
 
 const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
@@ -83,7 +91,10 @@ const ANNOUNCEMENT_EVENT_KEYS = [
 ] as const;
 const announcementEventKeySet = new Set<string>(ANNOUNCEMENT_EVENT_KEYS);
 
-export function parsePushNotificationOpenPayload(payload: unknown): PushNavigationTarget {
+export function parsePushNotificationOpenPayload(
+  payload: unknown,
+  capabilities: PushNavigationCapabilities = FAIL_CLOSED_PUSH_CAPABILITIES,
+): PushNavigationTarget {
   if (!isRecord(payload)) {
     return {status: 'invalid', reason: 'payloadNotObject'};
   }
@@ -118,7 +129,7 @@ export function parsePushNotificationOpenPayload(payload: unknown): PushNavigati
   }
 
   if (payload.eventType !== undefined) {
-    return parseEventPayload(payload);
+    return parseEventPayload(payload, capabilities);
   }
 
   const route = payload.route;
@@ -162,8 +173,10 @@ export function parsePushNotificationOpenPayload(payload: unknown): PushNavigati
 export function getPollOpenTarget(
   target: ValidPushNavigationTarget,
   currentCampusId: number,
+  capabilities: PushNavigationCapabilities = FAIL_CLOSED_PUSH_CAPABILITIES,
 ): PollOpenTarget | null {
   if (
+    !capabilities.pollOpenEnabled ||
     target.route !== 'polls' ||
     target.params.campusId !== currentCampusId ||
     typeof target.params.pollId !== 'number'
@@ -180,31 +193,58 @@ export function getPollOpenTarget(
 export function resolveNotificationPollTarget(
   target: ValidPushNavigationTarget,
   currentCampusId: number,
+  capabilities: PushNavigationCapabilities = FAIL_CLOSED_PUSH_CAPABILITIES,
 ): NotificationPollTargetResolution {
   if (target.route !== 'polls') {
     return {status: 'accepted', pollTarget: null};
   }
 
-  const pollTarget = getPollOpenTarget(target, currentCampusId);
+  if (
+    !capabilities.pollOpenEnabled &&
+    target.params.campusId !== undefined &&
+    target.params.pollId !== undefined
+  ) {
+    return {status: 'rejected'};
+  }
+
+  const pollTarget = getPollOpenTarget(target, currentCampusId, capabilities);
   return target.params.campusId !== undefined && pollTarget === null
     ? {status: 'rejected'}
     : {status: 'accepted', pollTarget};
 }
 
-function parseEventPayload(payload: Record<string, unknown>): PushNavigationTarget {
+function parseEventPayload(
+  payload: Record<string, unknown>,
+  capabilities: PushNavigationCapabilities,
+): PushNavigationTarget {
   if (payload.eventType !== 'POLL_OPEN') {
     return {status: 'invalid', reason: 'routeNotAllowed'};
   }
+  if (!capabilities.pollOpenEnabled) {
+    return {status: 'invalid', reason: 'routeNotAllowed'};
+  }
   const allowedKeys = new Set(['eventType', 'campusId', 'pollId']);
-  if (Object.keys(payload).some((key) => !allowedKeys.has(key))) {
+  const payloadKeys = Object.keys(payload);
+  if (payloadKeys.some((key) => !allowedKeys.has(key))) {
     return {status: 'invalid', reason: 'unknownParam'};
   }
-  const campusId = toPositiveInteger(payload.campusId);
-  const pollId = toPositiveInteger(payload.pollId);
+  if (payloadKeys.length !== allowedKeys.size) {
+    return {status: 'invalid', reason: 'invalidParam'};
+  }
+  const campusId = toCanonicalPositiveIntegerString(payload.campusId);
+  const pollId = toCanonicalPositiveIntegerString(payload.pollId);
   if (campusId === null || pollId === null) {
     return {status: 'invalid', reason: 'invalidParam'};
   }
   return {status: 'valid', route: 'polls', params: {campusId, pollId}};
+}
+
+function toCanonicalPositiveIntegerString(value: unknown) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    return null;
+  }
+  const numericValue = Number(value);
+  return Number.isSafeInteger(numericValue) ? numericValue : null;
 }
 
 export function getPushNavigationInvalidMessage(reason: InvalidPushNavigationReason) {

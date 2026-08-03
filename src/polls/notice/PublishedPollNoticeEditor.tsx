@@ -30,6 +30,7 @@ export function PublishedPollNoticeEditor({
   const [images, setImages] = useState<MediaUploadItem[]>(() => toSavedImages(poll));
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
   const lifecycle = useRef({mounted: true, saveRequestId: 0});
+  const saveFlight = useRef<Promise<void> | null>(null);
 
   useLayoutEffect(() => {
     lifecycle.current.mounted = true;
@@ -39,27 +40,41 @@ export function PublishedPollNoticeEditor({
     };
   }, []);
 
-  const save = async () => {
+  const save = () => {
+    if (saveFlight.current) return saveFlight.current;
     const normalizedTitle = title.trim();
     if (!normalizedTitle) {
       setSaveState('error');
-      return;
+      return Promise.resolve();
     }
     const saveRequestId = ++lifecycle.current.saveRequestId;
     const isCurrentSave = () =>
       lifecycle.current.mounted && lifecycle.current.saveRequestId === saveRequestId;
     setSaveState('saving');
-    try {
-      const noticeFields = buildPollNoticeMutationFields({
-        notice,
-        imageAssetIds: images.flatMap((item) =>
-          item.status === 'ready' && item.assetId ? [item.assetId] : []),
+
+    const request = Promise.resolve()
+      .then(() => {
+        const noticeFields = buildPollNoticeMutationFields({
+          notice,
+          imageAssetIds: images.flatMap((item) =>
+            item.status === 'ready' && item.assetId ? [item.assetId] : []),
+        });
+        return onSave({title: normalizedTitle, ...noticeFields});
+      })
+      .then((updated) => {
+        if (!isCurrentSave()) return;
+        setSaveState('idle');
+        onSaved(updated);
+      })
+      .catch(() => {
+        if (isCurrentSave()) setSaveState('error');
       });
-      const updated = await onSave({title: normalizedTitle, ...noticeFields});
-      if (isCurrentSave()) onSaved(updated);
-    } catch {
-      if (isCurrentSave()) setSaveState('error');
-    }
+    let flight!: Promise<void>;
+    flight = request.finally(() => {
+      if (saveFlight.current === flight) saveFlight.current = null;
+    });
+    saveFlight.current = flight;
+    return flight;
   };
   const busy = saveState === 'saving';
 

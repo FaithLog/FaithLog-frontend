@@ -180,6 +180,7 @@ import {
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {ProfileNameEditor} from '../profile/ProfileNameEditor';
 import {ProfilePasswordChangeScreen} from '../profile/ProfilePasswordChangeScreen';
@@ -614,7 +615,10 @@ export function FaithLogApp() {
         requestAuthState.status !== 'authenticated' ||
         requestAuthState.user.id !== notificationSessionUserId
       ) return;
-      const target = parsePushNotificationOpenPayload(payload);
+      const pushCapabilities = {
+        pollOpenEnabled: getPollNoticeCapabilities().canReadNotice,
+      };
+      const target = parsePushNotificationOpenPayload(payload, pushCapabilities);
 
       if (target.status === 'invalid') {
         return;
@@ -691,6 +695,7 @@ export function FaithLogApp() {
         const pollResolution = resolveNotificationPollTarget(
           target,
           navigationState.selectedCampus.campusId,
+          pushCapabilities,
         );
         if (pollResolution.status === 'rejected') {
           return;

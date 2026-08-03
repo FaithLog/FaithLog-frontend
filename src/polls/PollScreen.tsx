@@ -345,6 +345,7 @@ export function PollScreen({
     if (notificationCampusId === null || notificationPollId === null) return;
 
     onNotificationPollHandled();
+    if (!pollNoticeCapabilities.canReadNotice) return;
     if (notificationCampusId !== campusId) return;
 
     detailEpoch.current += 1;
@@ -359,7 +360,12 @@ export function PollScreen({
     setSelectedPollId(notificationPollId);
     setDetailTab('response');
     void loadDetail(notificationPollId, 'response', {epoch, generation});
-  }, [campusId, notificationCampusId, notificationPollId]);
+  }, [
+    campusId,
+    notificationCampusId,
+    notificationPollId,
+    pollNoticeCapabilities.canReadNotice,
+  ]);
 
   const openDetail = (poll: PollSummary) => {
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';

@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {
   createMockReadyMediaAssetForCampus,
@@ -9,8 +9,9 @@ import {
 
 describe('media mock adapter', () => {
   beforeEach(() => resetMockAdapterStateForTests());
+  afterEach(() => vi.useRealTimers());
 
-  it('keeps reservation metadata through idempotent-ready completion and ordered access lookup', async () => {
+  it('keeps reservation metadata through idempotent-ready completion and ordered admin preview', async () => {
     const reservedResponse = await executeMockRequest(
       '/api/v1/admin/campuses/1/media-assets/upload-reservations',
       {
@@ -53,6 +54,153 @@ describe('media mock adapter', () => {
     );
     const access = (await accessResponse.json()).data as {assets: Array<{assetId: number}>};
     expect(access.assets.map((asset) => asset.assetId)).toEqual([reserved.assetId, 90_001]);
+  });
+
+  it('allows a member to access READY media only after attachment to a visible poll', async () => {
+    const assetId = createMockReadyMediaAssetForCampus(1);
+    const memberAccessBeforeAttachment = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.otherDuty),
+        body: JSON.stringify({assetIds: [assetId]}),
+      },
+    );
+    const adminPreview = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.activeDuty),
+        body: JSON.stringify({assetIds: [assetId]}),
+      },
+    );
+
+    expect(memberAccessBeforeAttachment.status).toBe(404);
+    expect(adminPreview.status).toBe(200);
+
+    const attachResponse = await executeMockRequest(
+      '/api/v1/admin/campuses/1/polls/701/notice',
+      {
+        method: 'PATCH',
+        headers: authHeaders(mealMockAccessTokens.activeDuty),
+        body: JSON.stringify({
+          title: '커피 주문 투표',
+          notice: '공개 첨부',
+          imageAssetIds: [assetId],
+        }),
+      },
+    );
+    const memberAccessAfterAttachment = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.otherDuty),
+        body: JSON.stringify({assetIds: [assetId]}),
+      },
+    );
+
+    expect(attachResponse.status).toBe(200);
+    expect(memberAccessAfterAttachment.status).toBe(200);
+  });
+
+  it('revokes member access when an asset becomes unattached but preserves admin preview', async () => {
+    const assetId = createMockReadyMediaAssetForCampus(1);
+    for (const imageAssetIds of [[assetId], []]) {
+      const response = await executeMockRequest(
+        '/api/v1/admin/campuses/1/polls/701/notice',
+        {
+          method: 'PATCH',
+          headers: authHeaders(mealMockAccessTokens.activeDuty),
+          body: JSON.stringify({
+            title: '커피 주문 투표',
+            notice: '첨부 변경',
+            imageAssetIds,
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const memberAccess = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.otherDuty),
+        body: JSON.stringify({assetIds: [assetId]}),
+      },
+    );
+    const adminPreview = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.activeDuty),
+        body: JSON.stringify({assetIds: [assetId]}),
+      },
+    );
+
+    expect(memberAccess.status).toBe(404);
+    expect(adminPreview.status).toBe(200);
+  });
+
+  it('does not expose media attached only to a future hidden poll or partially mint a batch', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T00:00:00.000Z'));
+    const hiddenAssetId = createMockReadyMediaAssetForCampus(1);
+    const createResponse = await executeMockRequest('/api/v1/admin/campuses/1/polls', {
+      method: 'POST',
+      headers: authHeaders(mealMockAccessTokens.activeDuty),
+      body: JSON.stringify({
+        title: '공개 전 투표',
+        pollType: 'CUSTOM',
+        selectionType: 'SINGLE',
+        isAnonymous: false,
+        allowUserOptionAdd: false,
+        startsAt: '2099-08-03T00:00:00.000Z',
+        endsAt: '2099-08-04T00:00:00.000Z',
+        options: [
+          {content: 'A', priceAmount: 0, sortOrder: 1},
+          {content: 'B', priceAmount: 0, sortOrder: 2},
+        ],
+        notice: '아직 숨김',
+        imageAssetIds: [hiddenAssetId],
+      }),
+    });
+    expect(createResponse.status).toBe(200);
+    await expect(createResponse.json()).resolves.toMatchObject({
+      data: {status: 'SCHEDULED', imageAssetIds: [hiddenAssetId]},
+    });
+
+    vi.setSystemTime(new Date('2099-08-03T12:00:00.000Z'));
+
+    const allowedMemberAccess = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.otherDuty),
+        body: JSON.stringify({assetIds: [90_001]}),
+      },
+    );
+
+    const memberAccess = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.otherDuty),
+        body: JSON.stringify({assetIds: [90_001, hiddenAssetId]}),
+      },
+    );
+    const adminPreview = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.activeDuty),
+        body: JSON.stringify({assetIds: [hiddenAssetId]}),
+      },
+    );
+
+    expect(allowedMemberAccess.status).toBe(200);
+    expect(memberAccess.status).toBe(404);
+    expect(adminPreview.status).toBe(200);
   });
 
   it('requires an authenticated campus admin for media reservations', async () => {
@@ -161,7 +309,7 @@ describe('media mock adapter', () => {
     expect(accessResponse.status).toBe(404);
   });
 
-  it('accepts a centrally registered mock-picker asset for only its campus', async () => {
+  it('accepts an attached centrally registered mock-picker asset for only its campus', async () => {
     const assetId = createMockReadyMediaAssetForCampus(1);
     const mutationResponse = await executeMockRequest(
       '/api/v1/admin/campuses/1/polls/701/notice',
@@ -237,6 +385,16 @@ describe('media mock adapter', () => {
     expect(mealResponse.status).toBe(200);
     expect(coffeeResponse.status).toBe(200);
     expect(coffeeAssetId).toBeGreaterThan(mealAssetId);
+
+    const mealMemberAccess = await executeMockRequest(
+      '/api/v1/campuses/1/media-assets/access-urls',
+      {
+        method: 'POST',
+        headers: authHeaders(mealMockAccessTokens.otherDuty),
+        body: JSON.stringify({assetIds: [mealAssetId]}),
+      },
+    );
+    expect(mealMemberAccess.status).toBe(200);
   });
 });
 

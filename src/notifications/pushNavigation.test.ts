@@ -1,10 +1,14 @@
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {
   getPollOpenTarget,
   parsePushNotificationOpenPayload,
   resolveNotificationPollTarget,
 } from './pushNavigation';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
+
+const POLL_OPEN_ENABLED = {pollOpenEnabled: true} as const;
+const POLL_OPEN_DISABLED = {pollOpenEnabled: false} as const;
 
 const originalAppEnvironment = process.env.EXPO_PUBLIC_APP_ENV;
 const originalMockMode = process.env.EXPO_PUBLIC_MOCK_MODE;
@@ -15,21 +19,80 @@ afterEach(() => {
 });
 
 describe('push notification route payload validation', () => {
+  beforeEach(() => {
+    vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'development');
+    vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'true');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('maps a strict POLL_OPEN event payload to the existing poll detail route', () => {
     const target = parsePushNotificationOpenPayload({
         eventType: 'POLL_OPEN',
         campusId: '1',
         pollId: '100',
-      });
+      }, POLL_OPEN_ENABLED);
     expect(target).toEqual({
       status: 'valid',
       route: 'polls',
       params: {campusId: 1, pollId: 100},
     });
-    expect(target.status === 'valid' ? getPollOpenTarget(target, 1) : null).toEqual({
+    expect(target.status === 'valid'
+      ? getPollOpenTarget(target, 1, POLL_OPEN_ENABLED)
+      : null).toEqual({
       campusId: 1,
       pollId: 100,
     });
+  });
+
+  it('fails closed for POLL_OPEN outside the approved mock environment', () => {
+    vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'production');
+    vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'true');
+    const productionCapabilities = {
+      pollOpenEnabled: getPollNoticeCapabilities().canReadNotice,
+    };
+
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'POLL_OPEN',
+        campusId: '1',
+        pollId: '100',
+      }, productionCapabilities),
+    ).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
+  });
+
+  it('rejects numeric and non-canonical POLL_OPEN identifiers at the original payload boundary', () => {
+    for (const payload of [
+      {eventType: 'POLL_OPEN', campusId: 1, pollId: '100'},
+      {eventType: 'POLL_OPEN', campusId: '1', pollId: 100},
+      {eventType: 'POLL_OPEN', campusId: ' 1 ', pollId: '100'},
+      {eventType: 'POLL_OPEN', campusId: '1', pollId: '1e2'},
+      {eventType: 'POLL_OPEN', campusId: '01', pollId: '100'},
+    ]) {
+      expect(parsePushNotificationOpenPayload(payload, POLL_OPEN_ENABLED)).toEqual({
+        status: 'invalid',
+        reason: 'invalidParam',
+      });
+    }
+  });
+
+  it('requires exactly the POLL_OPEN eventType, campusId, and pollId keys', () => {
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'POLL_OPEN',
+        campusId: '1',
+      }, POLL_OPEN_ENABLED),
+    ).toEqual({status: 'invalid', reason: 'invalidParam'});
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'POLL_OPEN',
+        campusId: '1',
+        pollId: '100',
+        targetId: '100',
+      }, POLL_OPEN_ENABLED),
+    ).toEqual({status: 'invalid', reason: 'unknownParam'});
   });
 
   it('does not open a poll detail for another campus or a legacy route without a campus id', () => {
@@ -37,14 +100,19 @@ describe('push notification route payload validation', () => {
       eventType: 'POLL_OPEN',
       campusId: '2',
       pollId: '100',
-    });
+    }, POLL_OPEN_ENABLED);
     const legacyRoute = parsePushNotificationOpenPayload({
       route: 'polls',
       params: {pollId: '100'},
     });
 
-    expect(crossCampus.status === 'valid' ? getPollOpenTarget(crossCampus, 1) : null).toBeNull();
+    expect(crossCampus.status === 'valid'
+      ? getPollOpenTarget(crossCampus, 1, POLL_OPEN_ENABLED)
+      : null).toBeNull();
     expect(legacyRoute.status === 'valid' ? getPollOpenTarget(legacyRoute, 1) : null).toBeNull();
+    expect(legacyRoute.status === 'valid'
+      ? resolveNotificationPollTarget(legacyRoute, 1, POLL_OPEN_DISABLED)
+      : null).toEqual({status: 'accepted', pollTarget: null});
   });
 
   it('applies the campus gate only to poll targets and preserves other deep links', () => {
@@ -52,18 +120,29 @@ describe('push notification route payload validation', () => {
       eventType: 'POLL_OPEN',
       campusId: '2',
       pollId: '100',
-    });
+    }, POLL_OPEN_ENABLED);
     const campusAdmin = parsePushNotificationOpenPayload({
       route: 'campusAdmin',
       params: {campusId: '1', targetId: '7'},
     });
 
     expect(crossCampusPoll.status === 'valid'
-      ? resolveNotificationPollTarget(crossCampusPoll, 1)
+      ? resolveNotificationPollTarget(crossCampusPoll, 1, POLL_OPEN_ENABLED)
       : null).toEqual({status: 'rejected'});
     expect(campusAdmin.status === 'valid'
-      ? resolveNotificationPollTarget(campusAdmin, 1)
+      ? resolveNotificationPollTarget(campusAdmin, 1, POLL_OPEN_ENABLED)
       : null).toEqual({status: 'accepted', pollTarget: null});
+  });
+
+  it('rejects legacy poll detail resolution while the POLL_OPEN capability is closed', () => {
+    const legacyDetail = parsePushNotificationOpenPayload({
+      route: 'polls',
+      params: {campusId: '1', pollId: '100'},
+    });
+
+    expect(legacyDetail.status === 'valid'
+      ? resolveNotificationPollTarget(legacyDetail, 1, POLL_OPEN_DISABLED)
+      : null).toEqual({status: 'rejected'});
   });
 
   it('rejects POLL_OPEN content, image URLs, unsafe ids and unknown fields', () => {
@@ -73,14 +152,14 @@ describe('push notification route payload validation', () => {
         campusId: '1',
         pollId: '100',
         imageUrl: 'https://signed.invalid/private',
-      }),
+      }, POLL_OPEN_ENABLED),
     ).toEqual({status: 'invalid', reason: 'unknownParam'});
     expect(
       parsePushNotificationOpenPayload({
         eventType: 'POLL_OPEN',
         campusId: '1',
         pollId: '0',
-      }),
+      }, POLL_OPEN_ENABLED),
     ).toEqual({status: 'invalid', reason: 'invalidParam'});
   });
 

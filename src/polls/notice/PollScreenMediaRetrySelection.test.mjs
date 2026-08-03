@@ -246,6 +246,24 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     expect(mocks.fetchPollDetail).toHaveBeenCalledTimes(1);
   });
 
+  it('consumes a production notification target without issuing detail or media requests', async () => {
+    vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'production');
+    vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'false');
+    mocks.getAccessUrls.mockReset();
+    const props = screenProps(45);
+
+    await act(async () => {
+      create(React.createElement(PollScreen, props));
+      await settle();
+    });
+
+    expect(props.onNotificationPollHandled).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchPollDetail).not.toHaveBeenCalled();
+    expect(mocks.fetchPollComments).not.toHaveBeenCalled();
+    expect(mocks.fetchPollResults).not.toHaveBeenCalled();
+    expect(mocks.getAccessUrls).not.toHaveBeenCalled();
+  });
+
   it('consumes but never loads a notification poll target from another campus', async () => {
     mocks.getAccessUrls.mockReset();
     const props = screenProps(45, 2);
