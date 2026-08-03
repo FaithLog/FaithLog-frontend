@@ -3530,7 +3530,10 @@ function ProfileScreen({
     return (
       <ProfilePasswordChangeScreen
         onBack={onBackToProfile}
-        onPasswordChanged={() => setAuthState({status: 'signedOut'})}
+        onPasswordChanged={(warning) => setAuthState({
+          status: 'signedOut',
+          ...(warning ? {warning} : {}),
+        })}
         onSessionExpired={(message) => setAuthState({status: 'sessionExpired', message})}
       />
     );
@@ -3603,7 +3606,7 @@ function ProfileScreen({
             />
           ) : null}
         </FaithLogHeaderTopRow>
-        <Text style={styles.figmaTitle}>내정보</Text>
+        <Text style={styles.figmaTitle}>내 정보</Text>
       </View>
 
       <View style={styles.profileCard}>
@@ -3621,14 +3624,9 @@ function ProfileScreen({
             {state.selectedCampus.campusName} · {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
           </Text>
         </View>
-        <View style={styles.profileRoleChip}>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileRoleText}>
-            {getCampusRoleDisplayLabel(state.selectedCampus.campusRole)}
-          </Text>
-        </View>
       </View>
 
-      <Text style={styles.figmaSectionTitle}>공동체 메뉴</Text>
+      <Text style={styles.figmaSectionTitle}>공동체</Text>
       <View style={styles.profileRowList}>
         <ProfileActionRow
           actionLabel={canSwitchCampus ? '관리' : '입력'}
@@ -3639,7 +3637,7 @@ function ProfileScreen({
         />
       </View>
 
-      <Text style={styles.figmaSectionTitle}>계정</Text>
+      <Text style={styles.figmaSectionTitle}>계정 설정</Text>
       <View style={styles.profileRowList}>
         <CoffeeDutyProfileRow
           onOpen={onOpenCoffeeDuty}
@@ -5381,9 +5379,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.borderSoft,
     borderRadius: 12,
     flexShrink: 0,
-    height: 34,
+    height: 32,
     justifyContent: 'center',
-    width: 58,
+    width: 54,
   },
   profileActionButtonText: {
     color: colors.primary,
@@ -5397,11 +5395,11 @@ const styles = StyleSheet.create({
   profileActionIcon: {
     alignItems: 'center',
     backgroundColor: authColors.buttonSecondary,
-    borderRadius: 14,
+    borderRadius: 12,
     flexShrink: 0,
-    height: 44,
+    height: 40,
     justifyContent: 'center',
-    width: 44,
+    width: 40,
   },
   profileActionIconText: {
     color: authColors.text,
@@ -5410,12 +5408,13 @@ const styles = StyleSheet.create({
   },
   profileActionRow: {
     alignItems: 'center',
-    backgroundColor: authColors.input,
-    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderRadius: 0,
     flexDirection: 'row',
     gap: 12,
-    minHeight: 86,
-    paddingHorizontal: 24,
+    minHeight: 72,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   profileActionSubtitle: {
     color: colors.textMuted,
@@ -5426,7 +5425,7 @@ const styles = StyleSheet.create({
   },
   profileActionText: {
     flex: 1,
-    gap: 6,
+    gap: 2,
     minWidth: 0,
   },
   profileActionTitle: {
@@ -5439,11 +5438,11 @@ const styles = StyleSheet.create({
   profileAvatar: {
     alignItems: 'center',
     backgroundColor: authColors.buttonSecondary,
-    borderRadius: 14,
+    borderRadius: 16,
     flexShrink: 0,
-    height: 44,
+    height: 52,
     justifyContent: 'center',
-    width: 44,
+    width: 52,
   },
   profileAvatarText: {
     color: authColors.text,
@@ -5455,10 +5454,11 @@ const styles = StyleSheet.create({
     backgroundColor: authColors.input,
     borderRadius: 24,
     flexDirection: 'row',
-    gap: 18,
+    gap: 16,
     justifyContent: 'space-between',
-    minHeight: 112,
-    paddingHorizontal: 24,
+    minHeight: 108,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
   profileCampusText: {
     color: colors.textMuted,
@@ -5472,26 +5472,11 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
-  profileRoleChip: {
-    alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderRadius: 12,
-    flexShrink: 0,
-    height: 28,
-    justifyContent: 'center',
-    maxWidth: '100%',
-    paddingHorizontal: 12,
-  },
-  profileRoleText: {
-    color: colors.faith,
-    flexShrink: 1,
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 16,
-    maxWidth: '100%',
-  },
   profileRowList: {
-    gap: 16,
+    backgroundColor: colors.borderSoft,
+    borderRadius: 20,
+    gap: 1,
+    overflow: 'hidden',
   },
   homeHeaderRow: {
     alignItems: 'flex-start',

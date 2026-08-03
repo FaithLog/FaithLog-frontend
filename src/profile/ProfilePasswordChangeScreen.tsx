@@ -10,10 +10,12 @@ import {
   expireMissingAuthSession,
   readCurrentAccessToken,
 } from '../auth/accessTokenResolver';
-import {expireAuthSession} from '../auth/sessionExpiration';
+import {clearPasswordChangedSession} from '../auth/passwordChangeSession';
 import {colors} from '../theme';
 import {
-  getProfilePasswordErrorMessage,
+  getProfilePasswordErrorPresentation,
+  type ProfilePasswordField,
+  type ProfilePasswordFieldErrors,
   validateProfilePasswordChange,
 } from './profilePasswordChange';
 
@@ -23,13 +25,14 @@ export function ProfilePasswordChangeScreen({
   onSessionExpired = () => undefined,
 }: {
   onBack: () => void;
-  onPasswordChanged: () => void;
+  onPasswordChanged: (warning?: string) => void;
   onSessionExpired?: (message: string) => void;
 }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<ProfilePasswordFieldErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const inFlightRef = useRef(false);
   const mountedRef = useRef(true);
@@ -38,9 +41,18 @@ export function ProfilePasswordChangeScreen({
     mountedRef.current = false;
   }, []);
 
-  const updateField = (setter: (value: string) => void) => (value: string) => {
+  const updateField = (
+    field: ProfilePasswordField,
+    setter: (value: string) => void,
+  ) => (value: string) => {
     setter(value);
-    setError(null);
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = {...current};
+      delete next[field];
+      return next;
+    });
+    setFormError(null);
   };
 
   const submit = () => {
@@ -52,14 +64,16 @@ export function ProfilePasswordChangeScreen({
       newPassword,
     });
     if (!validation.valid) {
-      setError(validation.error);
+      setFieldErrors(validation.fieldErrors);
+      setFormError(null);
       return;
     }
 
     const requestGeneration = getAuthSessionGeneration();
     inFlightRef.current = true;
     setSaving(true);
-    setError(null);
+    setFieldErrors({});
+    setFormError(null);
 
     void (async () => {
       try {
@@ -83,9 +97,19 @@ export function ProfilePasswordChangeScreen({
         );
         if (!isAuthSessionRequestAllowed(requestGeneration)) return;
 
-        const cleared = await expireAuthSession(requestGeneration);
-        if (cleared && mountedRef.current) {
+        if (mountedRef.current) {
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setFieldErrors({});
+          setFormError(null);
+        }
+
+        const result = await clearPasswordChangedSession(requestGeneration);
+        if (result.status === 'cleared') {
           onPasswordChanged();
+        } else if (result.status === 'cleanupFailed') {
+          onPasswordChanged(result.warning);
         }
       } catch (caught) {
         if (!mountedRef.current) return;
@@ -98,10 +122,18 @@ export function ProfilePasswordChangeScreen({
             onSessionExpired('로그인이 만료되었습니다. 다시 로그인해 주세요.');
             return;
           }
-          setError(getProfilePasswordErrorMessage(caught.detail));
+          const presentation = getProfilePasswordErrorPresentation(caught.detail);
+          if ('fieldErrors' in presentation) {
+            setFieldErrors(presentation.fieldErrors);
+            setFormError(null);
+          } else {
+            setFieldErrors({});
+            setFormError(presentation.formError);
+          }
           return;
         }
-        setError('비밀번호를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        setFieldErrors({});
+        setFormError('비밀번호를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       } finally {
         inFlightRef.current = false;
         if (mountedRef.current) setSaving(false);
@@ -130,30 +162,36 @@ export function ProfilePasswordChangeScreen({
       <PasswordField
         accessibilityLabel="현재 비밀번호"
         editable={!saving}
+        error={fieldErrors.currentPassword}
+        field="currentPassword"
         label="현재 비밀번호"
-        onChangeText={updateField(setCurrentPassword)}
+        onChangeText={updateField('currentPassword', setCurrentPassword)}
         textContentType="password"
         value={currentPassword}
       />
       <PasswordField
         accessibilityLabel="새 비밀번호"
         editable={!saving}
+        error={fieldErrors.newPassword}
+        field="newPassword"
         label="새 비밀번호"
-        onChangeText={updateField(setNewPassword)}
+        onChangeText={updateField('newPassword', setNewPassword)}
         textContentType="newPassword"
         value={newPassword}
       />
       <PasswordField
         accessibilityLabel="새 비밀번호 확인"
         editable={!saving}
+        error={fieldErrors.confirmPassword}
+        field="confirmPassword"
         label="새 비밀번호 확인"
-        onChangeText={updateField(setConfirmPassword)}
+        onChangeText={updateField('confirmPassword', setConfirmPassword)}
         textContentType="newPassword"
         value={confirmPassword}
       />
 
-      {error ? (
-        <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+      {formError ? (
+        <Text accessibilityRole="alert" style={styles.error}>{formError}</Text>
       ) : null}
 
       <Pressable
@@ -178,6 +216,8 @@ export function ProfilePasswordChangeScreen({
 function PasswordField({
   accessibilityLabel,
   editable,
+  error,
+  field,
   label,
   onChangeText,
   textContentType,
@@ -185,6 +225,8 @@ function PasswordField({
 }: {
   accessibilityLabel: string;
   editable: boolean;
+  error?: string | undefined;
+  field: ProfilePasswordField;
   label: string;
   onChangeText: (value: string) => void;
   textContentType: 'newPassword' | 'password';
@@ -195,8 +237,9 @@ function PasswordField({
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <View style={styles.inputShell}>
+      <View style={[styles.inputShell, error ? styles.inputShellError : null]}>
         <TextInput
+          accessibilityHint={error}
           accessibilityLabel={accessibilityLabel}
           autoCapitalize="none"
           autoCorrect={false}
@@ -217,6 +260,15 @@ function PasswordField({
           <Text style={styles.visibilityButtonText}>{visible ? '숨기기' : '표시'}</Text>
         </Pressable>
       </View>
+      {error ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+          nativeID={`profile-password-${field}-error`}
+          style={styles.fieldError}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -236,6 +288,7 @@ const styles = StyleSheet.create({
   disabled: {opacity: 0.55},
   error: {color: colors.danger, fontSize: 14, lineHeight: 20},
   field: {gap: 8},
+  fieldError: {color: colors.danger, fontSize: 14, lineHeight: 20},
   frame: {gap: 20, paddingBottom: 32},
   header: {alignItems: 'center', flexDirection: 'row', gap: 14},
   input: {
@@ -254,6 +307,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     minHeight: 52,
   },
+  inputShellError: {borderColor: colors.danger},
   label: {color: colors.textPrimary, fontSize: 15, fontWeight: '600'},
   pressed: {opacity: 0.75},
   submitButton: {

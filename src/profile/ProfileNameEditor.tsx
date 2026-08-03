@@ -205,6 +205,7 @@ export function ProfileNameEditor({
               <Pressable
                 accessibilityLabel="이름 수정"
                 accessibilityRole="button"
+                hitSlop={5}
                 onPress={startEditing}
                 style={({pressed}) => [styles.editButton, pressed ? styles.pressed : null]}>
                 <Text style={styles.editButtonText}>수정</Text>
@@ -249,6 +250,7 @@ function ProfileEditButton({
       accessibilityRole="button"
       accessibilityState={{busy: label === '저장 중...', disabled}}
       disabled={disabled}
+      hitSlop={4}
       onPress={onPress}
       style={({pressed}) => [
         styles.actionButton,
@@ -267,21 +269,21 @@ const styles = StyleSheet.create({
   actionButton: {
     alignItems: 'center',
     borderRadius: 10,
+    height: 36,
     justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 58,
-    paddingHorizontal: 12,
+    minWidth: 52,
+    paddingHorizontal: 10,
   },
-  actions: {flexDirection: 'row', gap: 8},
+  actions: {alignSelf: 'flex-start', flexDirection: 'row', gap: 6},
   disabled: {opacity: 0.54},
   editButton: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
     borderRadius: 10,
+    height: 34,
     justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 52,
-    paddingHorizontal: 12,
+    minWidth: 48,
+    paddingHorizontal: 10,
   },
   editButtonText: {color: colors.primary, fontSize: 13, fontWeight: '600'},
   editor: {flex: 1, gap: 8},

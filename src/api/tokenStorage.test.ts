@@ -1017,6 +1017,66 @@ describe('native auth token storage', () => {
     expect(testState.storage.has('faithlog.authTokens.v2')).toBe(false);
   });
 
+  it('clears password-change credentials while preserving the stored FCM registration', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const generation = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveSelectedCampusId(17);
+    await tokenStorage.saveTokens(
+      {accessToken: 'old-access', refreshToken: 'old-refresh'},
+      generation,
+    );
+    await tokenStorage.saveFcmRegistration({
+      token: 'device-token',
+      tokenId: 71,
+      userId: 42,
+      clientInstanceId: 'client-instance-1',
+    }, generation);
+
+    const transition = tokenStorage.startPasswordChangeCredentialClear(generation);
+    expect(transition.cleared).toBe(true);
+    await transition.completion;
+
+    await expect(tokenStorage.getStoredAuthSession(transition.currentGeneration))
+      .resolves.toMatchObject({accessToken: null, refreshToken: null});
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toEqual({
+      token: 'device-token',
+      tokenId: 71,
+      userId: 42,
+      clientInstanceId: 'client-instance-1',
+    });
+    expect(testState.storage.has('faithlog.fcmRegistrationInvalidated')).toBe(false);
+    await expect(tokenStorage.getStoredSelectedCampusId()).resolves.toBe(17);
+  });
+
+  it('declines an old password-change clear without deleting a newer login session', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    const oldGeneration = await tokenStorage.beginAuthSession();
+    const newGeneration = await tokenStorage.beginAuthSession();
+    await tokenStorage.saveTokens(
+      {accessToken: 'new-access', refreshToken: 'new-refresh'},
+      newGeneration,
+    );
+    await tokenStorage.saveFcmRegistration({
+      token: 'new-device-token',
+      tokenId: 72,
+      userId: 43,
+      clientInstanceId: 'client-instance-2',
+    }, newGeneration);
+
+    const transition = tokenStorage.startPasswordChangeCredentialClear(oldGeneration);
+    expect(transition.cleared).toBe(false);
+    await transition.completion;
+
+    await expect(tokenStorage.getStoredAuthSession(newGeneration)).resolves.toMatchObject({
+      accessToken: 'new-access',
+      refreshToken: 'new-refresh',
+    });
+    await expect(tokenStorage.getStoredFcmRegistration()).resolves.toMatchObject({
+      token: 'new-device-token',
+      tokenId: 72,
+    });
+  });
+
   it('reports failure when neither a tombstone nor token deletion is durable', async () => {
     testState.storage.set(
       'faithlog.authTokens.v2',

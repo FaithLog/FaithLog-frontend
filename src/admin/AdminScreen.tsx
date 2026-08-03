@@ -11079,12 +11079,11 @@ function NotificationSentSheet({
             {sourceLabel} 대상 {targetCount}명 중 {queuedCount}명에게 발송 요청을 완료했습니다.
           </Body>
           {skippedCount > 0 ? (
-            <AdminInlineError
-              error={{
-                kind: 'conflict',
-                message: `${skippedCount}명은 알림 수신 정보가 없어 제외되었습니다.`,
-              }}
-            />
+            <View accessibilityRole="alert" style={styles.notificationSkippedNotice}>
+              <Text style={styles.notificationSkippedNoticeText}>
+                {skippedCount}명은 알림 수신 정보가 없어 제외되었습니다.
+              </Text>
+            </View>
           ) : null}
           <View style={styles.metricGrid}>
             <Metric label="대상" value={`${targetCount}명`} />
@@ -15405,6 +15404,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 22,
     width: '100%',
+  },
+  notificationSkippedNotice: {
+    backgroundColor: adminFigmaTokens.borderSoft,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  notificationSkippedNoticeText: {
+    color: adminFigmaTokens.textSecondary,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   sectionTitle: {
     color: adminFigmaTokens.textPrimary,
