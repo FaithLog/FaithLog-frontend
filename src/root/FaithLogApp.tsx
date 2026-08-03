@@ -154,6 +154,10 @@ import {
   clearAnnouncementImageCacheForUser,
 } from '../announcements/announcementImageRuntime';
 import {mealApi} from '../meal/mealApi';
+import {YearlyRecapHomeCard} from '../recap/YearlyRecapHomeCard';
+import {YearlyRecapScreen} from '../recap/YearlyRecapScreen';
+import {useYearlyRecapExperience} from '../recap/useYearlyRecapExperience';
+import type {YearlyRecap} from '../recap/yearlyRecapTypes';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -1842,6 +1846,11 @@ function AuthenticatedShell({
   });
   const canCreateCampus = canCreateCampusWithRole(state.user.role);
   const canManageCampuses = canCreateCampus;
+  const recapExperience = useYearlyRecapExperience({
+    campusId: state.selectedCampus.campusId,
+    enabled: entryTarget === null,
+    userId: state.user.id,
+  });
   const adminModeRoutes = useMemo(
     () => getAdminModeRoutes(state.user, state.selectedCampus),
     [state.selectedCampus, state.user],
@@ -2462,6 +2471,10 @@ function AuthenticatedShell({
               onOpenAdminMode={openAdminMode}
               onOpenPayments={() => setRoute('payments')}
               onOpenPrayers={openPrayers}
+              onOpenYearlyRecap={recapExperience.open}
+              yearlyRecap={
+                recapExperience.homeCardVisible ? recapExperience.recap : null
+              }
               setAuthState={setAuthState}
               state={state}
             />
@@ -2576,6 +2589,14 @@ function AuthenticatedShell({
         routes={adminModeRoutes}
         visible={adminModeSelectorVisible}
       />
+      {recapExperience.recap ? (
+        <YearlyRecapScreen
+          onClose={recapExperience.close}
+          onFirstFrame={recapExperience.markFirstFramePresented}
+          recap={recapExperience.recap}
+          visible={recapExperience.visible}
+        />
+      ) : null}
     </View>
   );
 }
@@ -2805,8 +2826,10 @@ function UserHomeDashboard({
   onOpenNotifications,
   onOpenPayments,
   onOpenPrayers,
+  onOpenYearlyRecap,
   setAuthState,
   state,
+  yearlyRecap,
 }: {
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
@@ -2817,8 +2840,10 @@ function UserHomeDashboard({
   onOpenNotifications: () => void;
   onOpenPayments: () => void;
   onOpenPrayers: (entryMode: PrayerEntryMode) => void;
+  onOpenYearlyRecap: () => void;
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
+  yearlyRecap: YearlyRecap | null;
 }) {
   const [today, setToday] = useState(() => new Date());
   const weekStartDate = useMemo(() => getWeekStartDate(today), [today]);
@@ -2980,6 +3005,13 @@ function UserHomeDashboard({
           {displayUserName}님, 오늘의 FaithLog
         </Text>
       </View>
+
+      {yearlyRecap ? (
+        <YearlyRecapHomeCard
+          onPress={onOpenYearlyRecap}
+          recapYear={yearlyRecap.recapYear}
+        />
+      ) : null}
 
       <HomeAnnouncementCapabilitySection
         campusId={campusId}
