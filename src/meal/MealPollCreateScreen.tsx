@@ -23,6 +23,9 @@ import {getCurrentMealRequestError, MealErrorState, MealLoading, toMealApiError}
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {useMealRequestTracker} from './useMealRequestTracker';
+import {isMockModeEnabled} from '../api/client';
+import type {MediaUploadItem} from '../media/mediaUploadPolicy';
+import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
 
 type MealPollCreateScreenProps = {
   api?: MealApi;
@@ -57,6 +60,10 @@ export function MealPollCreateScreen({
     {id: 2, value: ''},
   ]);
   const [allowUserOptionAdd, setAllowUserOptionAdd] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [noticeImages, setNoticeImages] = useState<MediaUploadItem[]>([]);
+  const nextMockNoticeImageId = useRef(1);
+  const noticeFeatureEnabled = isMockModeEnabled();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
@@ -78,6 +85,9 @@ export function MealPollCreateScreen({
         endsAt: deadline.toISOString(),
         options: options.map((option) => option.value),
         allowUserOptionAdd,
+        notice,
+        imageAssetIds: noticeImages.flatMap((item) =>
+          item.status === 'ready' && item.assetId ? [item.assetId] : []),
       });
       const access = await resolveMealRequestAccess(tracker, 'create', onSessionExpired);
       identity = access.status === 'ready' ? access.request.identity : access.identity;
@@ -146,6 +156,41 @@ export function MealPollCreateScreen({
           value={title}
         />
       </DutyFormSection>
+
+      {noticeFeatureEnabled ? (
+        <DutyFormSection>
+          <PollNoticeEditorSection
+            disabled={saving}
+            notice={notice}
+            onAddImages={() => {
+              const sequence = nextMockNoticeImageId.current;
+              nextMockNoticeImageId.current += 1;
+              setNoticeImages((current) => [...current, {
+                localId: `mock-meal-image-${sequence}`,
+                previewUri: `mock://poll-notice/meal/${sequence}`,
+                status: 'ready',
+                progress: 1,
+                assetId: 91_000 + sequence,
+                sha256: sequence.toString(16).padStart(64, '0'),
+              }]);
+            }}
+            onChangeNotice={setNotice}
+            onMove={(localId, direction) => setNoticeImages((current) => {
+              const from = current.findIndex((item) => item.localId === localId);
+              const to = direction === 'up' ? from - 1 : from + 1;
+              if (from < 0 || to < 0 || to >= current.length) return current;
+              const next = [...current];
+              const [moving] = next.splice(from, 1);
+              if (!moving) return current;
+              next.splice(to, 0, moving);
+              return next;
+            })}
+            onRemove={(localId) => setNoticeImages((current) => current.filter((item) => item.localId !== localId))}
+            onRetry={() => undefined}
+            uploadItems={noticeImages}
+          />
+        </DutyFormSection>
+      ) : null}
 
       <DutyDateTimeField
         accessibilityLabel="밥 투표 마감 일시 선택"

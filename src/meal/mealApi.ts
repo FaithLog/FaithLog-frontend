@@ -1,4 +1,4 @@
-import {apiRequest, FaithLogApiError} from '../api/client';
+import {apiRequest, FaithLogApiError, isMockModeEnabled} from '../api/client';
 import {DEFAULT_PAGE_SIZE} from '../api/pagination';
 import {
   parseClosedMealPollDetailForContext,
@@ -124,6 +124,7 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
   const request: MealRequestDispatcher = dependencies.request ?? (<T>(path: string, options: MealRequestOptions<T>) =>
     apiRequest<T>(path, options));
   const dispatch = request;
+  const isMockMode = dependencies.isMockMode ?? isMockModeEnabled;
 
   return {
     getMyDuty(accessToken, campusId, currentUserId) {
@@ -232,7 +233,7 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
         requestOptions(accessToken, (value) => parseCreatedMealPollDetailForContext(value, {
           campusId: expectedCampusId,
         }), 'POST', {
-          body: sanitizePollCreateRequest(body),
+          body: sanitizePollCreateRequest(body, isMockMode()),
         }),
       );
     },
@@ -346,7 +347,7 @@ function sanitizePaymentAccountRequest(
   };
 }
 
-function sanitizePollCreateRequest(body: MealPollCreateRequest): MealPollCreateRequest {
+function sanitizePollCreateRequest(body: MealPollCreateRequest, includeProvisionalNotice: boolean): MealPollCreateRequest {
   if (
     !body ||
     typeof body !== 'object' ||
@@ -368,13 +369,22 @@ function sanitizePollCreateRequest(body: MealPollCreateRequest): MealPollCreateR
   if (new Set(options.map((option) => option.content.toLocaleLowerCase())).size !== options.length) {
     throw invalidMealRequest('서로 다른 선택지를 입력해 주세요.');
   }
-  return {
+  const request: MealPollCreateRequest = {
     title: requireText(body.title, '제목'),
     isAnonymous: body.isAnonymous,
     endsAt: body.endsAt,
     options,
     allowUserOptionAdd: body.allowUserOptionAdd,
   };
+  if (includeProvisionalNotice && body.notice !== undefined) {
+    request.notice = typeof body.notice === 'string' ? body.notice.trim() || null : null;
+  }
+  if (includeProvisionalNotice && body.imageAssetIds !== undefined) {
+    request.imageAssetIds = Array.isArray(body.imageAssetIds)
+      ? [...new Set(body.imageAssetIds.map((assetId) => positiveId(assetId, 'assetId')))]
+      : [];
+  }
+  return request;
 }
 
 function sanitizeMealChargeRequest(body: MealChargeRequest): MealChargeRequest {

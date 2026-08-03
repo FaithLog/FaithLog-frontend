@@ -124,6 +124,8 @@ const MOCK_AUTH_REQUEST_LIMIT = 5;
 const MOCK_AUTH_REQUEST_WINDOW_MS = 60 * 60 * 1_000;
 
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
+let mockMediaAssetSequence = 9000;
+let mockMediaReservations = new Map<number, {byteSize: number; sha256: string}>();
 let mockMealState = createInitialMockMealState();
 let mockPollDetails = createInitialMockPollDetails();
 let mockWeeklyDevotion = createMockWeeklyDevotionState();
@@ -144,6 +146,8 @@ export function resetMockAdapterStateForTests() {
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
   mockCurrentUser = createInitialMockCurrentUser();
+  mockMediaAssetSequence = 9000;
+  mockMediaReservations = new Map();
   resetMockOneTimeAuthState();
 }
 
@@ -153,6 +157,8 @@ export function resetMealMockStateForTests() {
   mockWeeklyDevotion = createMockWeeklyDevotionState();
   mockMonthlyDevotion = createMockMonthlyDevotionState();
   mockCurrentUser = createInitialMockCurrentUser();
+  mockMediaAssetSequence = 9000;
+  mockMediaReservations = new Map();
   resetMockOneTimeAuthState();
 }
 
@@ -573,12 +579,80 @@ function resolveMockData(
   if (route.method === 'GET' && /^\/coffee-brands\/\d+\/menus$/.test(path)) {
     return billing.coffeeMenus;
   }
+  if (
+    route.method === 'POST' &&
+    /^\/admin\/campuses\/\d+\/media-assets\/upload-reservations$/.test(path)
+  ) {
+    const request = toRecord(parseMockJsonBody(body));
+    if (
+      (request.contentType !== 'image/jpeg' && request.contentType !== 'image/png') ||
+      typeof request.byteSize !== 'number' || !Number.isSafeInteger(request.byteSize) ||
+      request.byteSize <= 0 || typeof request.sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(request.sha256)
+    ) {
+      return mockBadRequest('GLOBAL_VALIDATION_FAILED', '업로드할 이미지 정보가 올바르지 않습니다.');
+    }
+    const assetId = ++mockMediaAssetSequence;
+    mockMediaReservations.set(assetId, {
+      byteSize: request.byteSize,
+      sha256: request.sha256,
+    });
+    return {
+      assetId,
+      uploadUrl: `https://mock-media.faithlog.test/upload/${assetId}`,
+      requiredHeaders: {'Content-Type': request.contentType},
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    };
+  }
+  if (
+    route.method === 'POST' &&
+    /^\/admin\/campuses\/\d+\/media-assets\/\d+\/complete$/.test(path)
+  ) {
+    const assetId = getPathNumberBeforeSuffix(path, 'complete');
+    const reservation = assetId === null ? undefined : mockMediaReservations.get(assetId);
+    if (!assetId || !reservation) {
+      return mockNotFound('MEDIA_ASSET_NOT_FOUND', '업로드 예약을 찾을 수 없습니다.');
+    }
+    return {
+      assetId,
+      status: 'READY',
+      sha256: reservation.sha256,
+      byteSize: reservation.byteSize,
+      width: 1200,
+      height: 900,
+    };
+  }
+  if (
+    route.method === 'POST' &&
+    /^\/campuses\/\d+\/media-assets\/access-urls$/.test(path)
+  ) {
+    const request = toRecord(parseMockJsonBody(body));
+    const assetIds = Array.isArray(request.assetIds) ? request.assetIds : [];
+    if (
+      assetIds.length > 100 ||
+      assetIds.some((assetId) =>
+        typeof assetId !== 'number' || !Number.isSafeInteger(assetId) || assetId <= 0)
+    ) {
+      return mockBadRequest('GLOBAL_VALIDATION_FAILED', '이미지 조회 요청이 올바르지 않습니다.');
+    }
+    return {
+      assets: assetIds.map((assetId) => ({
+        assetId,
+        thumbnailUrl: `https://mock-media.faithlog.test/${assetId}/thumbnail.jpg`,
+        detailUrl: `https://mock-media.faithlog.test/${assetId}/detail.jpg`,
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      })),
+    };
+  }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls$/.test(path)) {
     const campusId = getCampusId(path);
     const membershipDenied = authorizeCampusMember(mealActor, campusId);
     if (membershipDenied) return membershipDenied;
     return [
-      ...poll.summaries,
+      ...poll.summaries.map((summary, index) => ({
+        ...summary,
+        hasNotice: index === 0,
+      })),
       ...mockMealState.polls
         .filter((item) => item.campusId === campusId)
         .map((item) => toGeneralMealPollSummary(item, mealActor?.userId ?? 0)),
@@ -830,12 +904,37 @@ function resolveMockData(
     return template;
   }
   if (route.method === 'POST' && /^\/admin\/campuses\/\d+\/polls$/.test(path)) {
-    return {
+    const request = toRecord(parseMockJsonBody(body));
+    const imageAssetIds = Array.isArray(request.imageAssetIds)
+      ? request.imageAssetIds.filter((value): value is number =>
+          typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
+      : [];
+    const notice = typeof request.notice === 'string' && request.notice.trim() !== ''
+      ? request.notice.trim()
+      : null;
+    const created: PollDetail = {
       ...poll.detail,
       id: 701,
-      pollType: 'COFFEE',
-      selectionType: 'SINGLE',
+      campusId: getCampusId(path),
+      title: stringField(request.title, poll.detail.title),
+      pollType: stringField(request.pollType, poll.detail.pollType),
+      selectionType: stringField(request.selectionType, poll.detail.selectionType),
+      isAnonymous: typeof request.isAnonymous === 'boolean' ? request.isAnonymous : poll.detail.isAnonymous,
+      allowUserOptionAdd: request.allowUserOptionAdd === true,
+      startsAt: stringField(request.startsAt, poll.detail.startsAt),
+      endsAt: stringField(request.endsAt, poll.detail.endsAt),
+      status: 'OPEN',
+      responded: false,
+      manageableByMe: true,
+      notice,
+      imageAssetIds,
+      hasNotice: notice !== null || imageAssetIds.length > 0,
+      options: Array.isArray(request.options)
+        ? createMockPollTemplateOptions(request.options, 701)
+        : poll.detail.options,
     };
+    mockPollDetails = [created, ...mockPollDetails.filter((item) => item.id !== 701)];
+    return created;
   }
   if (
     route.method === 'GET' &&
@@ -1231,8 +1330,11 @@ function createMockAdminPollTemplate() {
 }
 
 function createInitialMockPollDetails(): PollDetail[] {
-  return mockDomainFixtures.poll.details.map((detail) => ({
+  return mockDomainFixtures.poll.details.map((detail, index) => ({
     ...detail,
+    hasNotice: index === 0,
+    notice: index === 0 ? '투표 전에 공지 내용을 확인해 주세요.' : null,
+    imageAssetIds: index === 0 ? [90_001, 90_002] : [],
     myResponse: detail.myResponse
       ? {...detail.myResponse, optionIds: [...detail.myResponse.optionIds]}
       : null,
@@ -1925,6 +2027,8 @@ function toMealPollMutationResponse(detail: MockMealPollDetail) {
     startsAt: detail.startsAt,
     endsAt: detail.endsAt,
     status: detail.status,
+    ...(detail.notice === undefined ? {} : {notice: detail.notice}),
+    ...(detail.imageAssetIds === undefined ? {} : {imageAssetIds: detail.imageAssetIds}),
     options: detail.options.map((option, sortOrder) => ({
       id: option.optionId,
       content: option.content,
@@ -1957,7 +2061,9 @@ function mealPollSummary(patch: Partial<MockMealPollSummary>): MockMealPollSumma
 
 function createMockMealPoll(campusId: number, body: unknown) {
   const record = toRecord(body);
-  if (hasUnexpectedKeys(record, ['title', 'isAnonymous', 'endsAt', 'options', 'allowUserOptionAdd'])) {
+  if (hasUnexpectedKeys(record, [
+    'title', 'isAnonymous', 'endsAt', 'options', 'allowUserOptionAdd', 'notice', 'imageAssetIds',
+  ])) {
     return mockBadRequest('MEAL_POLL_FIELDS_FORBIDDEN', '투표 생성 요청에 지원하지 않는 값이 포함되어 있습니다.');
   }
   if (
@@ -2000,9 +2106,19 @@ function createMockMealPoll(campusId: number, body: unknown) {
     endsAt: record.endsAt,
     status: 'OPEN',
     totalResponseCount: 0,
+    hasNotice:
+      (typeof record.notice === 'string' && record.notice.trim() !== '') ||
+      (Array.isArray(record.imageAssetIds) && record.imageAssetIds.length > 0),
   });
   const detail: MockMealPollDetail = {
     ...summary,
+    notice: typeof record.notice === 'string' && record.notice.trim() !== ''
+      ? record.notice.trim()
+      : null,
+    imageAssetIds: Array.isArray(record.imageAssetIds)
+      ? record.imageAssetIds.filter((value): value is number =>
+          typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
+      : [],
     options: contents.map((content, index) => ({
       optionId: id * 10 + index + 1,
       content,

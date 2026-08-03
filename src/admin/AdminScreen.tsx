@@ -48,6 +48,7 @@ import {
   fetchPaymentAccounts,
   fetchPenaltyRules,
   getAdminChargeContractCapabilities,
+  isMockModeEnabled,
   revokeCoffeeDuty,
   sendAdminNotification,
   updateAdminPenaltyRule,
@@ -199,6 +200,9 @@ import {
 } from './ChargeStatusConfirmSheet';
 import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
+import type {MediaUploadItem} from '../media/mediaUploadPolicy';
+import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
+import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {formatCompactWon, formatWon} from '../utils/money';
 import {
@@ -3699,6 +3703,8 @@ type AdminPollCreateForm = {
   startsAt: string;
   templateId: string;
   title: string;
+  notice: string;
+  noticeImages: MediaUploadItem[];
 };
 
 const pollPrimarySections: Array<{id: AdminPollPrimarySection; label: string}> = [
@@ -3792,6 +3798,8 @@ function createEmptyAdminPollForm(): AdminPollCreateForm {
     startsAt: startsAt.toISOString(),
     templateId: '',
     title: '새 투표',
+    notice: '',
+    noticeImages: [],
   };
 }
 
@@ -3834,6 +3842,7 @@ function AdminPollManagement({
   const [pollForm, setPollForm] = useState<AdminPollCreateForm>(() =>
     createEmptyAdminPollForm(),
   );
+  const pollNoticeMockEnabled = isMockModeEnabled();
 
   const loadPolls = async (options: AdminPollLoadOptions = {}) => {
     setListState({status: 'loading'});
@@ -4375,6 +4384,7 @@ function AdminPollManagement({
               currentUserId={currentUserId}
               form={pollForm}
               knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+              noticeFeatureEnabled={pollNoticeMockEnabled}
               onCancel={() => {
                 setPollForm(createEmptyAdminPollForm());
                 setCreateStep('type');
@@ -5780,6 +5790,7 @@ function AdminPollCreatePanel({
   form,
   currentUserId,
   knownOwnedCoffeeAccountIds,
+  noticeFeatureEnabled,
   onCancel,
   onChangeForm,
   onChangeStep,
@@ -5798,6 +5809,7 @@ function AdminPollCreatePanel({
   form: AdminPollCreateForm;
   currentUserId: number;
   knownOwnedCoffeeAccountIds: Set<number>;
+  noticeFeatureEnabled: boolean;
   onCancel: () => void;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
   onChangeStep: (step: AdminPollCreateStep) => void;
@@ -5808,6 +5820,7 @@ function AdminPollCreatePanel({
   templates: AdminPollTemplate[];
 }) {
   const options = splitAdminPollOptionsText(form.optionsText);
+  const nextMockNoticeImageId = useRef(1);
   const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
   const [coffeeMenuPickerVisible, setCoffeeMenuPickerVisible] = useState(false);
   const [selectedCoffeeBrandId, setSelectedCoffeeBrandId] = useState<number | null>(null);
@@ -5861,6 +5874,30 @@ function AdminPollCreatePanel({
         coffeeMenuIds.filter((selectedMenuId) => selectedMenuId !== menuId),
       ),
     });
+  };
+  const addMockNoticeImage = () => {
+    if (!noticeFeatureEnabled || busy) return;
+    const sequence = nextMockNoticeImageId.current;
+    nextMockNoticeImageId.current += 1;
+    const item: MediaUploadItem = {
+      localId: `mock-poll-image-${sequence}`,
+      previewUri: `mock://poll-notice/${sequence}`,
+      status: 'ready',
+      progress: 1,
+      assetId: 90_000 + sequence,
+      sha256: sequence.toString(16).padStart(64, '0'),
+    };
+    onChangeForm({noticeImages: [...form.noticeImages, item]});
+  };
+  const moveNoticeImage = (localId: string, direction: 'up' | 'down') => {
+    const currentIndex = form.noticeImages.findIndex((item) => item.localId === localId);
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= form.noticeImages.length) return;
+    const next = [...form.noticeImages];
+    const [moving] = next.splice(currentIndex, 1);
+    if (!moving) return;
+    next.splice(targetIndex, 0, moving);
+    onChangeForm({noticeImages: next});
   };
 
   useEffect(() => {
@@ -5962,6 +5999,22 @@ function AdminPollCreatePanel({
           value={form.title}
         />
       </Card>
+      {noticeFeatureEnabled ? (
+        <Card>
+          <PollNoticeEditorSection
+            disabled={busy}
+            notice={form.notice}
+            onAddImages={addMockNoticeImage}
+            onChangeNotice={(notice) => onChangeForm({notice})}
+            onMove={moveNoticeImage}
+            onRemove={(localId) => onChangeForm({
+              noticeImages: form.noticeImages.filter((item) => item.localId !== localId),
+            })}
+            onRetry={() => undefined}
+            uploadItems={form.noticeImages}
+          />
+        </Card>
+      ) : null}
       <Card>
         <Eyebrow>마감 일시</Eyebrow>
         <Pressable
@@ -12091,6 +12144,11 @@ function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreat
   const templateId = parseNullablePositiveInt(form.templateId);
   const directCreateStartsAt =
     templateId === null ? new Date().toISOString() : form.startsAt;
+  const noticeFields = buildPollNoticeMutationFields({
+    notice: form.notice,
+    imageAssetIds: form.noticeImages.flatMap((item) =>
+      item.status === 'ready' && item.assetId ? [item.assetId] : []),
+  });
 
   return {
     templateId,
@@ -12105,6 +12163,7 @@ function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreat
     startsAt: directCreateStartsAt,
     endsAt: form.endsAt,
     options: templateId === null ? parseAdminPollOptionsText(form.optionsText) : [],
+    ...noticeFields,
   };
 }
 
@@ -12147,6 +12206,15 @@ function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
     startsAt: poll.startsAt,
     templateId: poll.templateId ? String(poll.templateId) : '',
     title: poll.title,
+    notice: poll.notice ?? '',
+    noticeImages: (poll.imageAssetIds ?? []).map((assetId, index) => ({
+      localId: `saved-${assetId}`,
+      previewUri: `mock://poll-notice/${assetId}`,
+      status: 'ready' as const,
+      progress: 1,
+      assetId,
+      sha256: String(index + 1).padStart(64, '0'),
+    })),
   };
 }
 
@@ -12166,6 +12234,7 @@ function toPollSummary(poll: AdminPoll): PollSummary {
     // A successful create/close command proves this requester can manage the returned poll.
     // Public list/detail responses still use the server-provided manageableByMe capability.
     manageableByMe: true,
+    hasNotice: Boolean(poll.notice) || (poll.imageAssetIds?.length ?? 0) > 0,
   };
 }
 

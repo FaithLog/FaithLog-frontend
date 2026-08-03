@@ -173,7 +173,9 @@ import {
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
+  getPollOpenTarget,
   parsePushNotificationOpenPayload,
+  type PollOpenTarget,
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
@@ -370,6 +372,7 @@ export function FaithLogApp() {
   const [route, setRoute] = useState<ShellRoute>('userHome');
   const [announcementInitialId, setAnnouncementInitialId] = useState<number | null>(null);
   const [announcementOpenRequestKey, setAnnouncementOpenRequestKey] = useState(0);
+  const [notificationPollTarget, setNotificationPollTarget] = useState<PollOpenTarget | null>(null);
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const notificationOpenSequenceRef = useRef(0);
@@ -580,6 +583,7 @@ export function FaithLogApp() {
     ) {
       initialNotificationOpenHandledRef.current = false;
       notificationOpenSequenceRef.current += 1;
+      setNotificationPollTarget(null);
       return undefined;
     }
 
@@ -684,6 +688,14 @@ export function FaithLogApp() {
         const routes = getAvailableRoutes(navigationState.user, navigationState.selectedCampus);
         if (!routes.includes(target.route)) return;
 
+        const pollOpenTarget = getPollOpenTarget(
+          target,
+          navigationState.selectedCampus.campusId,
+        );
+        if (target.route === 'polls' && target.params.campusId !== undefined && pollOpenTarget === null) {
+          return;
+        }
+
         const refreshed = navigationState;
         const commitGeneration = navigationGeneration;
         navigationCommitted = await campusNavigationIntentRef.current.enqueue({
@@ -698,11 +710,16 @@ export function FaithLogApp() {
               ));
             }
             if (target.route === 'announcements') {
+              setNotificationPollTarget(null);
               setAnnouncementInitialId(target.params.announcementId ?? null);
               setAnnouncementOpenRequestKey((current) =>
                 current >= Number.MAX_SAFE_INTEGER ? 1 : current + 1);
+            } else if (target.route === 'polls') {
+              setAnnouncementInitialId(null);
+              setNotificationPollTarget(pollOpenTarget);
             } else {
               setAnnouncementInitialId(null);
+              setNotificationPollTarget(null);
             }
             setRoute(target.route);
           },
@@ -817,6 +834,8 @@ export function FaithLogApp() {
                 announcementOpenRequestKey={announcementOpenRequestKey}
                 campusNavigation={campusNavigationIntentRef.current}
                 entryTarget={entryTarget}
+                notificationPollTarget={notificationPollTarget}
+                onNotificationPollTargetHandled={() => setNotificationPollTarget(null)}
                 openEntryTarget={setEntryTarget}
                 route={route}
                 setAuthState={setAuthState}
@@ -1772,6 +1791,8 @@ function AuthenticatedShell({
   announcementOpenRequestKey,
   campusNavigation,
   entryTarget,
+  notificationPollTarget = null,
+  onNotificationPollTargetHandled = () => {},
   openEntryTarget,
   route,
   setAuthState,
@@ -1784,6 +1805,8 @@ function AuthenticatedShell({
   announcementOpenRequestKey: number;
   campusNavigation: CampusNavigationIntentCoordinator;
   entryTarget: EntryTarget | null;
+  notificationPollTarget?: PollOpenTarget | null;
+  onNotificationPollTargetHandled?: () => void;
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
@@ -2319,6 +2342,8 @@ function AuthenticatedShell({
             <PollScreen
               androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
               canOpenAdminMode={adminModeRoutes.length > 0}
+              notificationPollId={notificationPollTarget?.pollId ?? null}
+              onNotificationPollHandled={onNotificationPollTargetHandled}
               onOpenAdminMode={openAdminMode}
               onOpenNotifications={openNotificationSettings}
               setAuthState={setAuthState}

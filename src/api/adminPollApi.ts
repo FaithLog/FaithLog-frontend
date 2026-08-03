@@ -5,6 +5,7 @@ import {
   buildPollListPath,
   toPositiveIntegerPathSegment,
   FaithLogApiError,
+  isMockModeEnabled,
 } from './client';
 import type {
   AdminNotificationRequest,
@@ -94,6 +95,8 @@ export type AdminPollCreateRequest = {
   startsAt: string;
   endsAt: string;
   options: AdminPollTemplateOptionRequest[];
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type AdminPoll = {
@@ -112,6 +115,8 @@ export type AdminPoll = {
   endsAt: string;
   status: AdminPollStatus;
   options: PollOption[];
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type AdminPollMissingMember = {
@@ -371,6 +376,11 @@ function toAdminPollCreateRequest(body: AdminPollCreateRequest): AdminPollCreate
   if (chargeGenerationType === 'OPTION_PRICE') {
     request.paymentCategory = paymentCategory;
     request.paymentAccountId = paymentAccountId;
+  }
+
+  if (isMockModeEnabled()) {
+    request.notice = body.notice ?? null;
+    request.imageAssetIds = body.imageAssetIds ?? [];
   }
 
   return request;

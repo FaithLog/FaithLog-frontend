@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it} from 'vitest';
 
-import {parsePushNotificationOpenPayload} from './pushNavigation';
+import {getPollOpenTarget, parsePushNotificationOpenPayload} from './pushNavigation';
 
 const originalAppEnvironment = process.env.EXPO_PUBLIC_APP_ENV;
 const originalMockMode = process.env.EXPO_PUBLIC_MOCK_MODE;
@@ -11,6 +11,56 @@ afterEach(() => {
 });
 
 describe('push notification route payload validation', () => {
+  it('maps a strict POLL_OPEN event payload to the existing poll detail route', () => {
+    const target = parsePushNotificationOpenPayload({
+        eventType: 'POLL_OPEN',
+        campusId: '1',
+        pollId: '100',
+      });
+    expect(target).toEqual({
+      status: 'valid',
+      route: 'polls',
+      params: {campusId: 1, pollId: 100},
+    });
+    expect(target.status === 'valid' ? getPollOpenTarget(target, 1) : null).toEqual({
+      campusId: 1,
+      pollId: 100,
+    });
+  });
+
+  it('does not open a poll detail for another campus or a legacy route without a campus id', () => {
+    const crossCampus = parsePushNotificationOpenPayload({
+      eventType: 'POLL_OPEN',
+      campusId: '2',
+      pollId: '100',
+    });
+    const legacyRoute = parsePushNotificationOpenPayload({
+      route: 'polls',
+      params: {pollId: '100'},
+    });
+
+    expect(crossCampus.status === 'valid' ? getPollOpenTarget(crossCampus, 1) : null).toBeNull();
+    expect(legacyRoute.status === 'valid' ? getPollOpenTarget(legacyRoute, 1) : null).toBeNull();
+  });
+
+  it('rejects POLL_OPEN content, image URLs, unsafe ids and unknown fields', () => {
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'POLL_OPEN',
+        campusId: '1',
+        pollId: '100',
+        imageUrl: 'https://signed.invalid/private',
+      }),
+    ).toEqual({status: 'invalid', reason: 'unknownParam'});
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'POLL_OPEN',
+        campusId: '1',
+        pollId: '0',
+      }),
+    ).toEqual({status: 'invalid', reason: 'invalidParam'});
+  });
+
   it('accepts only the route/params shape and normalizes allowed params', () => {
     expect(
       parsePushNotificationOpenPayload({

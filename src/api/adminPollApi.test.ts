@@ -226,6 +226,35 @@ describe('admin poll API', () => {
     });
   });
 
+  it('does not send provisional notice fields to production before REST Docs confirmation', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(pollResponse)));
+
+    await createAdminPoll('access-token', 1, {
+      ...baseRequest,
+      notice: '운영 공지',
+      imageAssetIds: [10, 11],
+    });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]!;
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('notice');
+    expect(body).not.toHaveProperty('imageAssetIds');
+  });
+
+  it('supports the full provisional notice flow in development mock mode', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    const created = await createAdminPoll('mock-access-token', 1, {
+      ...baseRequest,
+      notice: '  운영 공지  ',
+      imageAssetIds: [10, 11],
+    });
+
+    expect(created).toMatchObject({notice: '운영 공지', imageAssetIds: [10, 11]});
+    delete process.env.EXPO_PUBLIC_APP_ENV;
+  });
+
   it('exposes backend validation messages for admin poll create failures', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(

@@ -29,6 +29,11 @@ export type PushNavigationTarget =
   | ValidPushNavigationTarget
   | {status: 'invalid'; reason: InvalidPushNavigationReason};
 
+export type PollOpenTarget = {
+  campusId: number;
+  pollId: number;
+};
+
 type ParamNormalizer = (value: unknown) => number | string | null;
 
 const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
@@ -40,6 +45,7 @@ const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
     targetId: toPositiveInteger,
   },
   polls: {
+    campusId: toPositiveInteger,
     pollId: toPositiveInteger,
     targetId: toPositiveInteger,
   },
@@ -107,6 +113,10 @@ export function parsePushNotificationOpenPayload(payload: unknown): PushNavigati
     };
   }
 
+  if (payload.eventType !== undefined) {
+    return parseEventPayload(payload);
+  }
+
   const route = payload.route;
 
   if (!isShellRoute(route)) {
@@ -143,6 +153,40 @@ export function parsePushNotificationOpenPayload(payload: unknown): PushNavigati
   }
 
   return {status: 'valid', route, params};
+}
+
+export function getPollOpenTarget(
+  target: ValidPushNavigationTarget,
+  currentCampusId: number,
+): PollOpenTarget | null {
+  if (
+    target.route !== 'polls' ||
+    target.params.campusId !== currentCampusId ||
+    typeof target.params.pollId !== 'number'
+  ) {
+    return null;
+  }
+
+  return {
+    campusId: currentCampusId,
+    pollId: target.params.pollId,
+  };
+}
+
+function parseEventPayload(payload: Record<string, unknown>): PushNavigationTarget {
+  if (payload.eventType !== 'POLL_OPEN') {
+    return {status: 'invalid', reason: 'routeNotAllowed'};
+  }
+  const allowedKeys = new Set(['eventType', 'campusId', 'pollId']);
+  if (Object.keys(payload).some((key) => !allowedKeys.has(key))) {
+    return {status: 'invalid', reason: 'unknownParam'};
+  }
+  const campusId = toPositiveInteger(payload.campusId);
+  const pollId = toPositiveInteger(payload.pollId);
+  if (campusId === null || pollId === null) {
+    return {status: 'invalid', reason: 'invalidParam'};
+  }
+  return {status: 'valid', route: 'polls', params: {campusId, pollId}};
 }
 
 export function getPushNavigationInvalidMessage(reason: InvalidPushNavigationReason) {

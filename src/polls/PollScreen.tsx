@@ -42,6 +42,8 @@ import type {
   PollResults,
   PollSummary,
 } from '../api/types';
+import {mediaApi} from '../media/mediaApi';
+import type {MediaAccessUrl} from '../media/mediaTypes';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
@@ -82,6 +84,11 @@ import {
   createPollOptionAddRequest,
   getPollOptionAddLabel,
 } from './pollResponsePresentation';
+import {
+  PollNoticeBadge,
+  PollNoticeBlock,
+  PollNoticeMediaPanel,
+} from './notice/PollNoticeComponents';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -94,6 +101,8 @@ type Notice = {
 type PollScreenProps = {
   androidContentBottomPadding: number;
   canOpenAdminMode: boolean;
+  notificationPollId: number | null;
+  onNotificationPollHandled: () => void;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
   setAuthState: (state: AuthGateState) => void;
@@ -114,6 +123,7 @@ type DetailState =
       coffeeCatalog: CoffeeCatalogState;
       comments: PollComment[];
       detail: PollDetail;
+      noticeMedia: NoticeMediaState;
       resultError: ApiError | null;
       results: PollResults | null;
     }
@@ -128,6 +138,10 @@ type CoffeeCatalogState =
   | {status: 'notNeeded'}
   | {status: 'success'; brands: CoffeeBrand[]; menus: CoffeeMenu[]}
   | {status: 'error'; error: ApiError};
+type NoticeMediaState =
+  | {status: 'empty'}
+  | {status: 'success'; assets: MediaAccessUrl[]}
+  | {status: 'error'; error: ApiError};
 
 const RESPONSE_ERROR_CODES = new Set([
   'POLL_RESPONSE_DUPLICATE_OPTION',
@@ -139,6 +153,8 @@ const POLL_RESPONDENTS_PER_ROW = 2;
 export function PollScreen({
   androidContentBottomPadding,
   canOpenAdminMode,
+  notificationPollId,
+  onNotificationPollHandled,
   onOpenAdminMode,
   onOpenNotifications,
   setAuthState,
@@ -225,10 +241,16 @@ export function PollScreen({
         fetchPollResultState(accessToken, campusId, pollId),
       ]);
       const detail = fetchedDetail;
-      const coffeeCatalog = await loadCoffeeCatalog(accessToken, detail);
+      const [coffeeCatalog, noticeMedia] = await Promise.all([
+        loadCoffeeCatalog(accessToken, detail),
+        loadPollNoticeMedia(accessToken, campusId, detail),
+      ]);
       if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
       if (coffeeCatalog.status === 'error') {
         handleAuthError(coffeeCatalog.error, setAuthState);
+      }
+      if (noticeMedia.status === 'error') {
+        handleAuthError(noticeMedia.error, setAuthState);
       }
       setDetailState({
         status: 'success',
@@ -237,6 +259,7 @@ export function PollScreen({
         results: resultState.results,
         resultError: resultState.error,
         coffeeCatalog,
+        noticeMedia,
       });
       setSelectedOptionIds(detail.myResponse?.optionIds ?? []);
       setDetailTab(tab);
@@ -255,6 +278,24 @@ export function PollScreen({
   useEffect(() => {
     void loadPolls();
   }, [campusId]);
+
+  useEffect(() => {
+    if (notificationPollId === null) return;
+
+    detailEpoch.current += 1;
+    const epoch = detailEpoch.current;
+    const generation = getAuthSessionGeneration();
+    optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
+    currentPollId.current = notificationPollId;
+    commentDraftStore.open(notificationPollId);
+    setEditingComment(null);
+    setActionState(null);
+    setActionError(null);
+    setSelectedPollId(notificationPollId);
+    setDetailTab('response');
+    onNotificationPollHandled();
+    void loadDetail(notificationPollId, 'response', {epoch, generation});
+  }, [notificationPollId]);
 
   const openDetail = (poll: PollSummary) => {
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
@@ -616,7 +657,9 @@ export function PollScreen({
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
+                  noticeMedia={detailState.noticeMedia}
                   onBack={closeDetail}
+                  onRetryNoticeMedia={() => loadDetail(detailState.detail.id, detailTab)}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
                 />
@@ -655,7 +698,9 @@ export function PollScreen({
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
+                  noticeMedia={detailState.noticeMedia}
                   onBack={closeDetail}
+                  onRetryNoticeMedia={() => loadDetail(detailState.detail.id, detailTab)}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
                 />
@@ -679,7 +724,9 @@ export function PollScreen({
           campusLabel={state.selectedCampus.campusName}
           contextLabel={`${state.user.name}님`}
           detail={detailState.detail}
+          noticeMedia={detailState.noticeMedia}
           onBack={closeDetail}
+          onRetryNoticeMedia={() => loadDetail(detailState.detail.id, detailTab)}
           onOpenAdminMode={onOpenAdminMode}
           onOpenNotifications={onOpenNotifications}
         />
@@ -917,7 +964,9 @@ function PollDetailHeader({
   campusLabel,
   contextLabel,
   detail,
+  noticeMedia,
   onBack,
+  onRetryNoticeMedia,
   onOpenAdminMode,
   onOpenNotifications,
 }: {
@@ -925,7 +974,9 @@ function PollDetailHeader({
   campusLabel: string;
   contextLabel: string;
   detail: PollDetail;
+  noticeMedia: NoticeMediaState;
   onBack: () => void;
+  onRetryNoticeMedia: () => void;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
 }) {
@@ -959,6 +1010,8 @@ function PollDetailHeader({
           </Text>
         </View>
       </View>
+      <PollNoticeBlock notice={detail.notice} />
+      <PollNoticeMediaPanel onRetry={onRetryNoticeMedia} state={noticeMedia} />
       {detail.status === 'SCHEDULED' ? (
         <InlineNotice message="아직 시작 전인 투표라 응답과 댓글 작성이 제한됩니다." tone="warning" />
       ) : null}
@@ -1556,6 +1609,7 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
         <Text style={styles.figmaPollMeta}>
           {getPollTypeLabel(poll.pollType)} · {poll.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {poll.isAnonymous ? '익명' : '공개'}
         </Text>
+        <PollNoticeBadge hasNotice={poll.hasNotice} />
       </View>
       <View style={styles.figmaPollButton}>
         <Text style={styles.figmaPollButtonText}>
@@ -1919,6 +1973,26 @@ async function loadCoffeeCatalog(
     coffeeCatalogFlight = null;
   }
   return result;
+}
+
+async function loadPollNoticeMedia(
+  accessToken: string,
+  campusId: number,
+  detail: PollDetail,
+): Promise<NoticeMediaState> {
+  const assetIds = detail.imageAssetIds ?? [];
+  if (assetIds.length === 0) return {status: 'empty'};
+
+  try {
+    return {
+      status: 'success',
+      assets: await mediaApi.getAccessUrls(accessToken, campusId, assetIds),
+    };
+  } catch (error) {
+    const apiError = toApiError(error, '투표 공지 이미지를 불러오지 못했습니다.');
+    if (apiError.kind === 'sessionExpired') throw error;
+    return {status: 'error', error: apiError};
+  }
 }
 
 async function fetchPollResultState(

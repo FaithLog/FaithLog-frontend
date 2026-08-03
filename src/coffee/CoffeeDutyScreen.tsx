@@ -24,6 +24,7 @@ import {
   fetchCoffeeMenus,
   fetchMyDutyAssignment,
   fetchPaymentAccounts,
+  isMockModeEnabled,
 } from '../api/client';
 import {
   getAuthSessionGeneration,
@@ -48,6 +49,9 @@ import {
   TextField,
 } from '../components/ui';
 import {colors, spacing} from '../theme';
+import type {MediaUploadItem} from '../media/mediaUploadPolicy';
+import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
+import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
 import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
 import {
   dutyChargeReminderApi,
@@ -192,6 +196,8 @@ export function CoffeeDutyScreen({
   const [settlementPage, setSettlementPage] = useState(0);
   const [settlementIncludeArchived, setSettlementIncludeArchived] = useState(false);
   const [title, setTitle] = useState(DEFAULT_COFFEE_POLL_TITLE);
+  const [pollNotice, setPollNotice] = useState('');
+  const [pollNoticeImages, setPollNoticeImages] = useState<MediaUploadItem[]>([]);
   const [deadlineText, setDeadlineText] = useState(() =>
     formatLocalDateTimeInput(new Date(Date.now() + DEFAULT_DEADLINE_OFFSET_MS)),
   );
@@ -386,6 +392,11 @@ export function CoffeeDutyScreen({
         return;
       }
 
+      const noticeFields = buildPollNoticeMutationFields({
+        notice: pollNotice,
+        imageAssetIds: pollNoticeImages.flatMap((item) =>
+          item.status === 'ready' && item.assetId ? [item.assetId] : []),
+      });
       const created = await runWithCompletionEvent(() => createAdminPoll(accessToken, campusId, {
         chargeGenerationType: 'OPTION_PRICE',
         endsAt: endsAt.toISOString(),
@@ -404,11 +415,14 @@ export function CoffeeDutyScreen({
         startsAt: new Date().toISOString(),
         templateId: null,
         title: trimmedTitle,
+        ...noticeFields,
       }), () => trackPollCreateComplete('coffee'));
 
       setCreateState({status: 'success', title: trimmedTitle});
       setTitle(DEFAULT_COFFEE_POLL_TITLE);
       setSelectedMenuIds([]);
+      setPollNotice('');
+      setPollNoticeImages([]);
       setCreatedPollId(created.id);
       setPage('manage');
       setPollRefreshKey((current) => current + 1);
@@ -608,6 +622,11 @@ export function CoffeeDutyScreen({
               onOpenAccounts={() => setPage('accounts')}
               onRefresh={() => void load()}
               onSelectAccount={setSelectedAccountId}
+              notice={pollNotice}
+              noticeFeatureEnabled={isMockModeEnabled()}
+              noticeImages={pollNoticeImages}
+              onChangeNotice={setPollNotice}
+              onChangeNoticeImages={setPollNoticeImages}
               onToggleMenu={(menuId) =>
                 setSelectedMenuIds((current) =>
                   current.includes(menuId)
@@ -936,6 +955,11 @@ function CoffeePollCreator({
   onOpenAccounts,
   onRefresh,
   onSelectAccount,
+  notice,
+  noticeFeatureEnabled,
+  noticeImages,
+  onChangeNotice,
+  onChangeNoticeImages,
   onTitleChange,
   onToggleMenu,
   selectedAccountId,
@@ -950,6 +974,11 @@ function CoffeePollCreator({
   onOpenAccounts: () => void;
   onRefresh: () => void;
   onSelectAccount: (accountId: number) => void;
+  notice: string;
+  noticeFeatureEnabled: boolean;
+  noticeImages: MediaUploadItem[];
+  onChangeNotice: (value: string) => void;
+  onChangeNoticeImages: (items: MediaUploadItem[]) => void;
   onTitleChange: (value: string) => void;
   onToggleMenu: (menuId: number) => void;
   selectedAccountId: number | null;
@@ -960,6 +989,7 @@ function CoffeePollCreator({
   const busy = createState.status === 'creating';
   const [menuPickerVisible, setMenuPickerVisible] = useState(false);
   const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
+  const nextMockNoticeImageId = useRef(1);
   const selectedMenus = state.menus.filter((menu) => selectedMenuIds.includes(menu.id));
   const missingOwnedCoffeeAccount = state.accounts.length === 0;
 
@@ -985,6 +1015,41 @@ function CoffeePollCreator({
           value={title}
         />
       </DutyFormSection>
+
+      {noticeFeatureEnabled ? (
+        <DutyFormSection>
+          <PollNoticeEditorSection
+            disabled={busy}
+            notice={notice}
+            onAddImages={() => {
+              const sequence = nextMockNoticeImageId.current;
+              nextMockNoticeImageId.current += 1;
+              onChangeNoticeImages([...noticeImages, {
+                localId: `mock-coffee-image-${sequence}`,
+                previewUri: `mock://poll-notice/coffee/${sequence}`,
+                status: 'ready',
+                progress: 1,
+                assetId: 92_000 + sequence,
+                sha256: sequence.toString(16).padStart(64, '0'),
+              }]);
+            }}
+            onChangeNotice={onChangeNotice}
+            onMove={(localId, direction) => {
+              const from = noticeImages.findIndex((item) => item.localId === localId);
+              const to = direction === 'up' ? from - 1 : from + 1;
+              if (from < 0 || to < 0 || to >= noticeImages.length) return;
+              const next = [...noticeImages];
+              const [moving] = next.splice(from, 1);
+              if (!moving) return;
+              next.splice(to, 0, moving);
+              onChangeNoticeImages(next);
+            }}
+            onRemove={(localId) => onChangeNoticeImages(noticeImages.filter((item) => item.localId !== localId))}
+            onRetry={() => undefined}
+            uploadItems={noticeImages}
+          />
+        </DutyFormSection>
+      ) : null}
 
       <DutyDateTimeField
         accessibilityLabel="커피 투표 마감 일시 선택"

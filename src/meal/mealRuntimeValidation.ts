@@ -172,6 +172,8 @@ export function parseMealPollDetail(value: unknown): MealPollDetail {
     requireExactKeys(record, [
       'allowUserOptionAdd', 'campusId', 'endsAt', 'id', 'isAnonymous', 'options',
       'pollType', 'selectionType', 'startsAt', 'status', 'title',
+      ...(record.notice === undefined ? [] : ['notice']),
+      ...(record.imageAssetIds === undefined ? [] : ['imageAssetIds']),
     ]);
     const detail: MealPollDetail = {
       id: requirePositiveId(record.id),
@@ -185,6 +187,8 @@ export function parseMealPollDetail(value: unknown): MealPollDetail {
       endsAt: requireDateTime(record.endsAt),
       status: requireEnum(record.status, pollStatuses),
       options: requireArray(record.options).map(parseMealPollOption),
+      ...(record.notice === undefined ? {} : {notice: parseOptionalPollNotice(record.notice)}),
+      ...(record.imageAssetIds === undefined ? {} : {imageAssetIds: parseOptionalImageAssetIds(record.imageAssetIds)}),
     };
     validateMealPollDetailSemantics(detail);
     return detail;
@@ -389,7 +393,10 @@ function isOwnedAccount(
 
 function parseMealPollSummary(value: unknown): MealPollSummary {
   const record = requireRecord(value);
-  requireExactKeys(record, ['endsAt', 'id', 'settlementStatus', 'startsAt', 'status', 'title']);
+  requireExactKeys(record, [
+    'endsAt', 'id', 'settlementStatus', 'startsAt', 'status', 'title',
+    ...(record.hasNotice === undefined ? [] : ['hasNotice']),
+  ]);
 
   return {
     id: requirePositiveId(record.id),
@@ -398,6 +405,7 @@ function parseMealPollSummary(value: unknown): MealPollSummary {
     endsAt: requireDateTime(record.endsAt),
     status: requireEnum(record.status, pollStatuses),
     settlementStatus: requireEnum(record.settlementStatus, settlementStatuses),
+    ...(record.hasNotice === undefined ? {} : {hasNotice: requireBoolean(record.hasNotice)}),
   };
 }
 
@@ -460,6 +468,8 @@ function parseMealPollMutationResponse(value: unknown): MealPollMutationResponse
     'allowUserOptionAdd', 'campusId', 'chargeGenerationType', 'endsAt', 'id',
     'isAnonymous', 'options', 'paymentAccountId', 'paymentCategory', 'pollType',
     'selectionType', 'startsAt', 'status', 'templateId', 'title',
+    ...(record.notice === undefined ? [] : ['notice']),
+    ...(record.imageAssetIds === undefined ? [] : ['imageAssetIds']),
   ]);
   if (
     record.templateId !== null ||
@@ -496,7 +506,23 @@ function parseMealPollMutationResponse(value: unknown): MealPollMutationResponse
     endsAt: requireDateTime(record.endsAt),
     status: requireEnum(record.status, pollStatuses),
     options,
+    ...(record.notice === undefined ? {} : {notice: parseOptionalPollNotice(record.notice)}),
+    ...(record.imageAssetIds === undefined ? {} : {imageAssetIds: parseOptionalImageAssetIds(record.imageAssetIds)}),
   };
+}
+
+function parseOptionalPollNotice(value: unknown) {
+  if (value === undefined || value === null) return null;
+  const notice = requireString(value).trim();
+  if (notice.length > 2_000) invalidResponse();
+  return notice === '' ? null : notice;
+}
+
+function parseOptionalImageAssetIds(value: unknown) {
+  if (value === undefined) return [];
+  const ids = requireArray(value).map(requirePositiveId);
+  requireUniqueNumbers(ids);
+  return ids;
 }
 
 function parseCharged(record: UnknownRecord): MealCharged {

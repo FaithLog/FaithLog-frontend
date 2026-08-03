@@ -555,6 +555,7 @@ export type PollSummary = {
   status: string;
   responded: boolean;
   manageableByMe: boolean;
+  hasNotice?: boolean;
 };
 
 export type PollOption = {
@@ -580,6 +581,8 @@ export type PollDetail = PollSummary & {
   paymentAccountId: number | null;
   options: PollOption[];
   myResponse: PollResponse | null;
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type PollOptionAddRequest = {
