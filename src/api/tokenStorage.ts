@@ -363,6 +363,28 @@ export function startAuthSessionClear(
   };
 }
 
+export function startPasswordChangeCredentialClear(
+  expectedGeneration: AuthSessionGeneration | number,
+) {
+  const previousGeneration = authSessionGeneration;
+  if (!isAuthSessionGenerationCurrent(expectedGeneration)) {
+    return {
+      cleared: false as const,
+      previousGeneration,
+      currentGeneration: authSessionGeneration,
+      completion: Promise.resolve(),
+    };
+  }
+
+  const currentGeneration = advanceAuthSessionGeneration();
+  return {
+    cleared: true as const,
+    previousGeneration,
+    currentGeneration,
+    completion: withSecureStorageLock(invalidateStoredCredentialsOnly),
+  };
+}
+
 export async function getStoredSelectedCampusId(): Promise<number | null> {
   const value = await getStorageItem(LAST_SELECTED_CAMPUS_ID_KEY);
   const campusId = value ? Number(value) : null;
@@ -1266,6 +1288,31 @@ async function invalidateStoredAuthData() {
     (!fcmTombstoneWritten && !everyFcmRecordDeleted)
   ) {
     throw new Error('Unable to invalidate stored authentication data.');
+  }
+}
+
+async function invalidateStoredCredentialsOnly() {
+  const [
+    authTombstoneResult,
+    tokenResult,
+    legacyAccessResult,
+    legacyRefreshResult,
+  ] = await Promise.allSettled([
+    setStorageItem(AUTH_INVALIDATED_KEY, INVALIDATED_VALUE),
+    deleteStorageItem(AUTH_TOKENS_KEY),
+    deleteStorageItem(LEGACY_ACCESS_TOKEN_KEY),
+    deleteStorageItem(LEGACY_REFRESH_TOKEN_KEY),
+  ]);
+
+  const authTombstoneWritten = authTombstoneResult.status === 'fulfilled';
+  const everyAuthRecordDeleted = [
+    tokenResult,
+    legacyAccessResult,
+    legacyRefreshResult,
+  ].every((result) => result.status === 'fulfilled');
+
+  if (!authTombstoneWritten && !everyAuthRecordDeleted) {
+    throw new Error('Unable to invalidate stored credentials.');
   }
 }
 
