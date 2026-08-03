@@ -2,8 +2,9 @@ import {FaithLogApiError} from '../api/apiError';
 import type {
   YearlyRecap,
   YearlyRecapCampus,
+  YearlyRecapCommentActivity,
   YearlyRecapDevotion,
-  YearlyRecapPollActivity,
+  YearlyRecapPenaltySummary,
   YearlyRecapPrayerActivity,
 } from './yearlyRecapTypes';
 
@@ -47,7 +48,12 @@ export function parseYearlyRecapData(value: unknown): YearlyRecap {
       campusJourney: {campuses},
       devotion: parseDevotion(data.devotion),
       prayerActivity: parsePrayerActivity(data.prayerActivity),
-      pollActivity: parsePollActivity(data.pollActivity),
+      ...(hasOwn(data, 'commentActivity')
+        ? {commentActivity: parseCommentActivity(data.commentActivity)}
+        : {}),
+      ...(hasOwn(data, 'penaltySummary')
+        ? {penaltySummary: parsePenaltySummary(data.penaltySummary)}
+        : {}),
     };
     assertRecapConsistency(recap);
     return recap;
@@ -90,17 +96,24 @@ function parsePrayerActivity(value: unknown): YearlyRecapPrayerActivity {
   };
 }
 
-function parsePollActivity(value: unknown): YearlyRecapPollActivity {
+function parseCommentActivity(value: unknown): YearlyRecapCommentActivity {
   const activity = record(value);
-  return {
-    participatedCount: nonNegativeSafeInteger(activity.participatedCount),
-    wedServicePollCount: nonNegativeSafeInteger(activity.wedServicePollCount),
-    saturdayLeaderPollCount: nonNegativeSafeInteger(activity.saturdayLeaderPollCount),
-    coffeePollCount: nonNegativeSafeInteger(activity.coffeePollCount),
-    mealPollCount: nonNegativeSafeInteger(activity.mealPollCount),
-    customPollCount: nonNegativeSafeInteger(activity.customPollCount),
-    commentCount: nonNegativeSafeInteger(activity.commentCount),
+  return {writtenCount: nonNegativeSafeInteger(activity.writtenCount)};
+}
+
+function parsePenaltySummary(value: unknown): YearlyRecapPenaltySummary {
+  const summary = record(value);
+  const parsed = {
+    totalCount: nonNegativeSafeInteger(summary.totalCount),
+    totalAmount: nonNegativeSafeInteger(summary.totalAmount),
+    paidCount: nonNegativeSafeInteger(summary.paidCount),
+    paidAmount: nonNegativeSafeInteger(summary.paidAmount),
+    unpaidCount: nonNegativeSafeInteger(summary.unpaidCount),
+    unpaidAmount: nonNegativeSafeInteger(summary.unpaidAmount),
   };
+  assertSafeSum(parsed.totalCount, parsed.paidCount, parsed.unpaidCount);
+  assertSafeSum(parsed.totalAmount, parsed.paidAmount, parsed.unpaidAmount);
+  return parsed;
 }
 
 function record(value: unknown): UnknownRecord {
@@ -156,6 +169,15 @@ function positiveSafeInteger(value: unknown): number {
   return parsed;
 }
 
+function hasOwn(recordValue: UnknownRecord, key: string) {
+  return Object.prototype.hasOwnProperty.call(recordValue, key);
+}
+
+function assertSafeSum(total: number, first: number, second: number) {
+  const sum = first + second;
+  if (!Number.isSafeInteger(sum) || total !== sum) throw new Error();
+}
+
 function assertUnique(values: number[]) {
   if (new Set(values).size !== values.length) throw new Error();
 }
@@ -175,14 +197,6 @@ function assertRecapConsistency(recap: YearlyRecap) {
     devotion.allCompletedDayCount > devotion.bibleReadingCount ||
     devotion.allCompletedDayCount > devotion.prayerCount
   ) throw new Error();
-  const poll = recap.pollActivity;
-  const typeTotal =
-    poll.wedServicePollCount +
-    poll.saturdayLeaderPollCount +
-    poll.coffeePollCount +
-    poll.mealPollCount +
-    poll.customPollCount;
-  if (typeTotal !== poll.participatedCount) throw new Error();
 }
 
 function invalidResponse() {

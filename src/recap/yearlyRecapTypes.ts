@@ -20,21 +20,23 @@ export type YearlyRecapPrayerActivity = {
   submittedWeekCount: number;
 };
 
-export type YearlyRecapPollActivity = {
-  coffeePollCount: number;
-  commentCount: number;
-  customPollCount: number;
-  mealPollCount: number;
-  participatedCount: number;
-  saturdayLeaderPollCount: number;
-  wedServicePollCount: number;
+export type YearlyRecapCommentActivity = {
+  writtenCount: number;
 };
 
-export type YearlyRecap = {
+export type YearlyRecapPenaltySummary = {
+  paidAmount: number;
+  paidCount: number;
+  totalAmount: number;
+  totalCount: number;
+  unpaidAmount: number;
+  unpaidCount: number;
+};
+
+type YearlyRecapCore = {
   campusJourney: {campuses: YearlyRecapCampus[]};
   devotion: YearlyRecapDevotion;
   hasRecapData: boolean;
-  pollActivity: YearlyRecapPollActivity;
   prayerActivity: YearlyRecapPrayerActivity;
   presentation: {
     firstPresentedAt: string | null;
@@ -43,6 +45,16 @@ export type YearlyRecap = {
     shouldAutoPresent: boolean;
   };
   recapYear: number;
+};
+
+export type YearlyRecapDto = YearlyRecapCore & {
+  commentActivity: YearlyRecapCommentActivity;
+  penaltySummary: YearlyRecapPenaltySummary;
+};
+
+export type YearlyRecap = YearlyRecapCore & {
+  commentActivity?: YearlyRecapCommentActivity;
+  penaltySummary?: YearlyRecapPenaltySummary;
 };
 
 export type YearlyRecapApi = {

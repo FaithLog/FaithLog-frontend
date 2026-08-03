@@ -19,6 +19,7 @@ import {
   buildYearlyRecapChapters,
   getYearlyRecapChapterAnnouncement,
 } from './yearlyRecapPresentation';
+import {YEARLY_RECAP_ACCENT} from './yearlyRecapTheme';
 import type {YearlyRecap} from './yearlyRecapTypes';
 
 export function YearlyRecapScreen({
@@ -46,11 +47,23 @@ export function YearlyRecapScreen({
   const fade = useRef(new Animated.Value(1)).current;
   const contentHeightRef = useRef(0);
   const firstFrameReported = useRef(false);
+  const layoutReadyRef = useRef(false);
+  const modalShownRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const viewportHeightRef = useRef(0);
   const modalVisible = visible && accessibilityPreferencesReady;
   const motionDisabled =
     !accessibilityPreferencesReady || reduceMotion || screenReaderEnabled || !appActive;
+  const reportFirstFrameIfReady = useCallback(() => {
+    if (
+      !modalVisible ||
+      !modalShownRef.current ||
+      !layoutReadyRef.current ||
+      firstFrameReported.current
+    ) return;
+    firstFrameReported.current = true;
+    onFirstFrame();
+  }, [modalVisible, onFirstFrame]);
 
   const goNext = useCallback(
     () => setScene((current) => {
@@ -119,6 +132,8 @@ export function YearlyRecapScreen({
   useEffect(() => {
     if (!visible) {
       firstFrameReported.current = false;
+      layoutReadyRef.current = false;
+      modalShownRef.current = false;
       setModalShown(false);
       setScene((current) =>
         current.index === 0 && current.animationIndex === 0
@@ -181,7 +196,11 @@ export function YearlyRecapScreen({
     <Modal
       animationType={motionDisabled ? 'none' : 'fade'}
       onRequestClose={onClose}
-      onShow={() => setModalShown(true)}
+      onShow={() => {
+        modalShownRef.current = true;
+        setModalShown(true);
+        reportFirstFrameIfReady();
+      }}
       presentationStyle="fullScreen"
       visible={modalVisible}>
       <SafeAreaView style={styles.safeArea}>
@@ -227,9 +246,8 @@ export function YearlyRecapScreen({
             }}
             onLayout={(event) => {
               viewportHeightRef.current = event.nativeEvent.layout.height;
-              if (!modalVisible || firstFrameReported.current) return;
-              firstFrameReported.current = true;
-              onFirstFrame();
+              layoutReadyRef.current = true;
+              reportFirstFrameIfReady();
             }}
             ref={scrollRef}
             style={styles.scroll}
@@ -289,7 +307,7 @@ const styles = StyleSheet.create({
   pressed: {opacity: 0.76},
   primaryAction: {
     alignItems: 'center',
-    backgroundColor: colors.primary,
+    backgroundColor: YEARLY_RECAP_ACCENT,
     borderRadius: 14,
     flex: 1.4,
     justifyContent: 'center',
@@ -297,7 +315,7 @@ const styles = StyleSheet.create({
   },
   primaryActionText: {color: colors.surface, fontSize: 16, fontWeight: '700'},
   progress: {flex: 1, flexDirection: 'row', gap: 5},
-  progressActive: {backgroundColor: colors.primary},
+  progressActive: {backgroundColor: YEARLY_RECAP_ACCENT},
   progressTrack: {backgroundColor: '#D7E1EE', borderRadius: 3, flex: 1, height: 4},
   root: {backgroundColor: '#F1F7FF', flex: 1},
   safeArea: {backgroundColor: '#F1F7FF', flex: 1},

@@ -3,9 +3,19 @@ import {apiRequest, isMockModeEnabled} from '../api/client';
 import type {AuthSessionGeneration} from '../api/tokenStorage';
 import {getMockYearlyRecap} from './yearlyRecapMock';
 import {parseYearlyRecapData} from './yearlyRecapRuntimeValidation';
-import type {YearlyRecapApi} from './yearlyRecapTypes';
+import type {YearlyRecap, YearlyRecapApi} from './yearlyRecapTypes';
 
-export const YEARLY_RECAP_CONTRACT_STATUS = 'pending' as const;
+export const YEARLY_RECAP_CONTRACT_STATUS = 'final' as const;
+export const YEARLY_RECAP_PRODUCTION_CAPABILITIES = {
+  commentActivity: false,
+  endpoint: false,
+  penaltySummary: false,
+} as const;
+
+type YearlyRecapSectionCapabilities = {
+  commentActivity: boolean;
+  penaltySummary: boolean;
+};
 
 type RequestOptions<T> = {
   accessToken: string;
@@ -31,17 +41,19 @@ export function createYearlyRecapApi(dependencies: Dependencies = {}): YearlyRec
   return {
     async getPreviousYearRecap(accessToken, authGeneration) {
       validateAuth(accessToken, authGeneration);
-      if (!mockMode) throw pendingContract();
+      if (!mockMode && !YEARLY_RECAP_PRODUCTION_CAPABILITIES.endpoint) {
+        throw productionGateClosed();
+      }
       if (!dependencies.request) {
         const scenario = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
         if (scenario === 'recap-error') throw mockNetworkError();
         if (scenario === 'recap-forbidden') throw mockPermissionError();
-        return getMockYearlyRecap(scenario);
+        return parseYearlyRecapData(getMockYearlyRecap(scenario));
       }
       return request('/api/v1/users/me/yearly-recaps/previous', {
         accessToken,
         authSessionGeneration: authGeneration,
-        responseParser: parseYearlyRecapData,
+        responseParser: mockMode ? parseYearlyRecapData : parseProductionYearlyRecapData,
       });
     },
     async markPresented(accessToken, authGeneration, recapYear) {
@@ -49,7 +61,9 @@ export function createYearlyRecapApi(dependencies: Dependencies = {}): YearlyRec
       if (!Number.isSafeInteger(recapYear) || recapYear <= 0) {
         throw invalidRequest('회고 연도가 올바르지 않습니다.');
       }
-      if (!mockMode) throw pendingContract();
+      if (!mockMode && !YEARLY_RECAP_PRODUCTION_CAPABILITIES.endpoint) {
+        throw productionGateClosed();
+      }
       if (!dependencies.request) {
         if (process.env.EXPO_PUBLIC_MOCK_SCENARIO === 'recap-presented-error') {
           throw mockNetworkError();
@@ -92,10 +106,29 @@ function validateAuth(accessToken: string, generation: AuthSessionGeneration) {
   }
 }
 
-function pendingContract() {
+export function applyYearlyRecapSectionCapabilities(
+  recap: YearlyRecap,
+  capabilities: YearlyRecapSectionCapabilities,
+): YearlyRecap {
+  const {commentActivity, penaltySummary, ...baseRecap} = recap;
+  return {
+    ...baseRecap,
+    ...(capabilities.commentActivity && commentActivity ? {commentActivity} : {}),
+    ...(capabilities.penaltySummary && penaltySummary ? {penaltySummary} : {}),
+  };
+}
+
+function parseProductionYearlyRecapData(value: unknown) {
+  return applyYearlyRecapSectionCapabilities(
+    parseYearlyRecapData(value),
+    YEARLY_RECAP_PRODUCTION_CAPABILITIES,
+  );
+}
+
+function productionGateClosed() {
   return new FaithLogApiError({
     kind: 'error',
-    code: 'API_CONTRACT_PENDING',
+    code: 'YEARLY_RECAP_PRODUCTION_GATE_CLOSED',
     message: '연간 회고 기능을 준비하고 있습니다.',
   });
 }

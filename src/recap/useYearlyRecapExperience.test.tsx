@@ -49,14 +49,14 @@ const RECAP: YearlyRecap = {
     mostActiveMonth: 8,
   },
   prayerActivity: {submittedWeekCount: 0, participatedSeasonCount: 0},
-  pollActivity: {
-    participatedCount: 0,
-    wedServicePollCount: 0,
-    saturdayLeaderPollCount: 0,
-    coffeePollCount: 0,
-    mealPollCount: 0,
-    customPollCount: 0,
-    commentCount: 0,
+  commentActivity: {writtenCount: 0},
+  penaltySummary: {
+    totalCount: 0,
+    totalAmount: 0,
+    paidCount: 0,
+    paidAmount: 0,
+    unpaidCount: 0,
+    unpaidAmount: 0,
   },
 };
 

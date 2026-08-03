@@ -4,6 +4,7 @@ import {Animated, Image, StyleSheet, Text, useWindowDimensions, View} from 'reac
 import {colors} from '../../theme';
 import {getFaithLogRecapLogo} from '../yearlyRecapAssets';
 import type {YearlyRecapChapter} from '../yearlyRecapPresentation';
+import {YEARLY_RECAP_ACCENT} from '../yearlyRecapTheme';
 
 export const RecapChapterPage = memo(function RecapChapterPage({
   animationsEnabled,
@@ -64,15 +65,26 @@ export const RecapChapterPage = memo(function RecapChapterPage({
           {chapter.lines.map((line) => <Text key={line} style={styles.line}>{line}</Text>)}
         </View>
       ) : null}
+      {chapter.summary ? (
+        <View
+          accessible
+          accessibilityLabel={`내 기록. ${chapter.summary}`}
+          style={styles.summaryCard}>
+          <Text importantForAccessibility="no" style={styles.summaryText}>
+            {chapter.summary}
+          </Text>
+        </View>
+      ) : null}
       {chapter.metrics ? (
         <View style={styles.metrics}>
           {chapter.metrics.map((metric, index) => (
             <Animated.View
               accessible
-              accessibilityLabel={`${metric.label} ${metric.value}`}
+              accessibilityLabel={`내 기록. ${metric.label} ${metric.value}`}
               key={metric.label}
               style={[
                 styles.metric,
+                chapter.compact ? styles.metricCompact : null,
                 largeText ? styles.metricLargeText : null,
                 {
                   opacity: metricAnimations[index],
@@ -82,8 +94,20 @@ export const RecapChapterPage = memo(function RecapChapterPage({
                   })}],
                 },
               ]}>
-              <Text importantForAccessibility="no" style={styles.metricValue}>{metric.value}</Text>
-              <Text importantForAccessibility="no" style={styles.metricLabel}>{metric.label}</Text>
+              {chapter.compact ? (
+                <Text importantForAccessibility="no" style={styles.compactMetricText}>
+                  {metric.label} {metric.value}
+                </Text>
+              ) : (
+                <>
+                  <Text importantForAccessibility="no" style={styles.metricValue}>
+                    {metric.value}
+                  </Text>
+                  <Text importantForAccessibility="no" style={styles.metricLabel}>
+                    {metric.label}
+                  </Text>
+                </>
+              )}
             </Animated.View>
           ))}
         </View>
@@ -95,8 +119,15 @@ export const RecapChapterPage = memo(function RecapChapterPage({
 const styles = StyleSheet.create({
   brand: {alignItems: 'center', gap: 8},
   brandName: {color: colors.textPrimary, fontSize: 20, fontWeight: '800'},
+  compactMetricText: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 19,
+    fontWeight: '700',
+    lineHeight: 28,
+  },
   description: {color: colors.textSecondary, fontSize: 17, lineHeight: 26},
-  eyebrow: {color: colors.primary, fontSize: 14, fontWeight: '800', letterSpacing: 1.1},
+  eyebrow: {color: YEARLY_RECAP_ACCENT, fontSize: 14, fontWeight: '800', letterSpacing: 1.1},
   line: {color: colors.textPrimary, fontSize: 18, fontWeight: '600', lineHeight: 27},
   lines: {gap: 14},
   metric: {
@@ -109,10 +140,31 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   metricLabel: {color: colors.textSecondary, fontSize: 14, lineHeight: 20},
+  metricCompact: {flexBasis: '100%', minHeight: 64, paddingVertical: 14},
   metricLargeText: {flexBasis: '100%'},
-  metricValue: {color: colors.textPrimary, fontSize: 25, fontWeight: '800', lineHeight: 32},
+  metricValue: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 25,
+    fontWeight: '800',
+    lineHeight: 32,
+    minWidth: 0,
+  },
   metrics: {flexDirection: 'row', flexWrap: 'wrap', gap: 10},
   logo: {borderRadius: 22, height: 88, width: 88},
   page: {gap: 22, minHeight: 420, paddingBottom: 24, paddingTop: 28},
+  summaryCard: {
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    borderRadius: 18,
+    minHeight: 64,
+    padding: 16,
+  },
+  summaryText: {
+    color: colors.textPrimary,
+    flexShrink: 1,
+    fontSize: 19,
+    fontWeight: '700',
+    lineHeight: 28,
+  },
   title: {color: colors.textPrimary, fontSize: 32, fontWeight: '800', lineHeight: 41},
 });
