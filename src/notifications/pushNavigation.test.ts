@@ -30,6 +30,21 @@ describe('push notification route payload validation', () => {
     });
   });
 
+  it('routes published announcement events to a safe announcement detail target', () => {
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'ANNOUNCEMENT_PUBLISHED',
+        campusId: '1',
+        announcementId: '100',
+        categoryId: '12',
+      }),
+    ).toEqual({
+      status: 'valid',
+      route: 'announcements',
+      params: {announcementId: 100, campusId: 1, categoryId: 12},
+    });
+  });
+
   it('rejects arbitrary deep links, paths, and unknown routes', () => {
     expect(parsePushNotificationOpenPayload('faithlog://polls/1')).toEqual({
       status: 'invalid',

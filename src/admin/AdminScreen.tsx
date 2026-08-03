@@ -226,6 +226,7 @@ import {
   type AdminMemberFilter,
 } from './adminMemberDutyFilter';
 import {coordinateAdminMealDutyRefresh} from './adminMealDutyRefresh';
+import {AdminAnnouncementScreen} from '../announcements/AdminAnnouncementScreen';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -254,6 +255,7 @@ type AdminTab =
   | 'home'
   | 'devotion'
   | 'polls'
+  | 'announcements'
   | 'notificationLogs'
   | 'prayer'
   | 'members'
@@ -3011,6 +3013,7 @@ export function AdminScreen({
             onOpenUserMode={onBackToUserMode}
           />
           <AdminHome
+            onOpenAnnouncements={() => setTab('announcements')}
             prayerState={prayerState}
             summary={loadState.summary}
             onOpenMembers={() => setTab('members')}
@@ -3105,6 +3108,7 @@ export function AdminScreen({
         />
       ) : tab === 'home' ? (
         <AdminHome
+          onOpenAnnouncements={() => setTab('announcements')}
           prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
@@ -3166,6 +3170,8 @@ export function AdminScreen({
           onSessionStateChange={setAuthState}
           setNotice={setNotice}
         />
+      ) : tab === 'announcements' ? (
+        <AdminAnnouncementScreen campusId={campusId} onBack={() => setTab('home')} />
       ) : tab === 'notificationLogs' ? (
         <AdminNotificationCenter
           filters={notificationLogFilters}
@@ -3501,12 +3507,14 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 }
 
 function AdminHome({
+  onOpenAnnouncements,
   onOpenPrayer,
   onOpenRoles,
   prayerState,
   summary,
 }: {
   coffeeDuty?: DutyAssignment | null;
+  onOpenAnnouncements?: () => void;
   onOpenMembers?: () => void;
   onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
@@ -3531,6 +3539,15 @@ function AdminHome({
       </Card>
       <Card>
         <Eyebrow>바로가기</Eyebrow>
+        {onOpenAnnouncements ? (
+          <ListRow
+            label="공지 관리"
+            supportingText="공지 작성, 예약 게시와 카테고리 관리"
+            value="보기"
+            onPress={onOpenAnnouncements}
+            accessibilityLabel="관리자 공지 관리 화면으로 이동"
+          />
+        ) : null}
         {onOpenRoles ? (
           <ListRow
             label="역할 관리"
@@ -11748,6 +11765,8 @@ function getAdminShellTitle(tab: AdminTab) {
       return '경건';
     case 'polls':
       return '투표';
+    case 'announcements':
+      return '공지 관리';
     case 'notificationLogs':
       return '알림';
     case 'prayer':
@@ -11771,6 +11790,8 @@ function getAdminTabIcon(tab: AdminTab): IconexIconName {
       return 'check';
     case 'polls':
       return 'document';
+    case 'announcements':
+      return 'bell';
     case 'notificationLogs':
       return 'bell';
     case 'prayer':

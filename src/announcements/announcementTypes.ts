@@ -1,0 +1,69 @@
+export type AnnouncementStatus = 'ARCHIVED' | 'PUBLISHED' | 'SCHEDULED';
+
+export type AnnouncementCategory = {
+  color: string;
+  id: number;
+  isActive: boolean;
+  name: string;
+  sortOrder: number;
+};
+
+export type AnnouncementSummary = {
+  body: string;
+  campusId: number;
+  category: AnnouncementCategory;
+  id: number;
+  imageAssetIds: number[];
+  pinned: boolean;
+  publishAt: string | null;
+  publishedAt: string | null;
+  status: AnnouncementStatus;
+  title: string;
+};
+
+export type AnnouncementDetail = AnnouncementSummary;
+
+export type AnnouncementSaveRequest = {
+  body: string;
+  categoryId: number;
+  imageAssetIds: number[];
+  pinned: boolean;
+  publishAt: string | null;
+  publishMode: 'NOW' | 'SCHEDULED';
+  title: string;
+};
+
+export type AnnouncementCategorySaveRequest = {
+  color: string;
+  isActive: boolean;
+  name: string;
+  sortOrder: number;
+};
+
+export type MediaUploadReservationRequest = {
+  byteSize: number;
+  contentType: 'image/jpeg' | 'image/png';
+  sha256: string;
+};
+
+export type MediaUploadReservation = {
+  assetId: number;
+  expiresAt: string;
+  requiredHeaders: Record<string, string>;
+  uploadUrl: string;
+};
+
+export type MediaAssetReady = {
+  assetId: number;
+  byteSize: number;
+  contentType: 'image/jpeg' | 'image/png';
+  sha256: string;
+  status: 'READY';
+};
+
+export type MediaAccessUrl = {
+  assetId: number;
+  detailUrl: string;
+  expiresAt: string;
+  thumbnailUrl: string;
+};

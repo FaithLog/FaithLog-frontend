@@ -7,6 +7,8 @@ export type PushRouteParams = Partial<{
   targetWeekStartDate: string;
   userId: number;
   weekStartDate: string;
+  announcementId: number;
+  categoryId: number;
 }>;
 
 export type ValidPushNavigationTarget = {
@@ -44,6 +46,11 @@ const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
     targetId: toPositiveInteger,
     targetWeekStartDate: toValidDateString,
   },
+  announcements: {
+    announcementId: toPositiveInteger,
+    campusId: toPositiveInteger,
+    categoryId: toPositiveInteger,
+  },
   profile: {},
   campusAdmin: {
     campusId: toPositiveInteger,
@@ -61,6 +68,20 @@ const routeAllowlist = Object.keys(routeParamSchemas) as ShellRoute[];
 export function parsePushNotificationOpenPayload(payload: unknown): PushNavigationTarget {
   if (!isRecord(payload)) {
     return {status: 'invalid', reason: 'payloadNotObject'};
+  }
+
+  if (payload.eventType === 'ANNOUNCEMENT_PUBLISHED') {
+    const announcementId = toPositiveInteger(payload.announcementId);
+    const campusId = toPositiveInteger(payload.campusId);
+    const categoryId = toPositiveInteger(payload.categoryId);
+    if (announcementId === null || campusId === null || categoryId === null) {
+      return {status: 'invalid', reason: 'invalidParam'};
+    }
+    return {
+      status: 'valid',
+      route: 'announcements',
+      params: {announcementId, campusId, categoryId},
+    };
   }
 
   const route = payload.route;

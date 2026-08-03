@@ -6,5 +6,7 @@ export function getShellScrollOwner(
   route: ShellRoute,
   authenticatedEntryTargetActive: boolean,
 ): ShellScrollOwner {
-  return route === 'polls' && !authenticatedEntryTargetActive ? 'route' : 'shell';
+  return (route === 'polls' || route === 'announcements') && !authenticatedEntryTargetActive
+    ? 'route'
+    : 'shell';
 }

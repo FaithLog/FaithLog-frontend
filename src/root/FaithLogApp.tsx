@@ -131,6 +131,7 @@ import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {MealDutyScreen} from '../meal/MealDutyScreen';
+import {AnnouncementRouteScreen} from '../announcements/AnnouncementRouteScreen';
 import {mealApi} from '../meal/mealApi';
 import {
   deactivateCurrentFcmToken,
@@ -163,7 +164,7 @@ import {
   applyProfileUserUpdate,
   applyRefreshedAuthState,
 } from '../profile/profileNameEdit';
-import {colors, spacing} from '../theme';
+import {colors, radius, spacing} from '../theme';
 import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
 
@@ -344,6 +345,7 @@ export function FaithLogApp() {
   const [authState, setAuthState] = useState<AuthGateState>(initialState);
   const [entryTarget, setEntryTarget] = useState<EntryTarget | null>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
+  const [announcementInitialId, setAnnouncementInitialId] = useState<number | null>(null);
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const autoFcmRegistrationAttemptRef = useRef<string | null>(null);
@@ -541,6 +543,15 @@ export function FaithLogApp() {
         return;
       }
 
+      if (target.route === 'announcements') {
+        if (
+          target.params.campusId !== undefined &&
+          target.params.campusId !== authState.selectedCampus.campusId
+        ) {
+          return;
+        }
+        setAnnouncementInitialId(target.params.announcementId ?? null);
+      }
       setRoute(target.route);
     };
 
@@ -586,6 +597,7 @@ export function FaithLogApp() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
               {renderAuthState({
+                announcementInitialId,
                 clearNotice: clearAppMessage,
                 entryTarget,
                 openEntryTarget: setEntryTarget,
@@ -594,18 +606,21 @@ export function FaithLogApp() {
                 setAuthState,
                 setNotice: ignoreAppMessage,
                 setRoute,
+                setAnnouncementInitialId,
                 state: authState,
               })}
             </ScrollView>
           ) : authState.status === 'authenticated' ? (
             <Screen variant="appShell">
               <AuthenticatedShell
+                announcementInitialId={announcementInitialId}
                 entryTarget={entryTarget}
                 openEntryTarget={setEntryTarget}
                 route={route}
                 setAuthState={setAuthState}
                 setNotice={ignoreAppMessage}
                 setRoute={setRoute}
+                setAnnouncementInitialId={setAnnouncementInitialId}
                 state={authState}
               />
             </Screen>
@@ -615,6 +630,7 @@ export function FaithLogApp() {
                 contentContainerStyle={styles.content}
                 keyboardShouldPersistTaps="handled">
                 {renderAuthState({
+                  announcementInitialId,
                   clearNotice: clearAppMessage,
                   entryTarget,
                   openEntryTarget: setEntryTarget,
@@ -623,6 +639,7 @@ export function FaithLogApp() {
                   setAuthState,
                   setNotice: ignoreAppMessage,
                   setRoute,
+                  setAnnouncementInitialId,
                   state: authState,
                 })}
               </ScrollView>
@@ -635,6 +652,7 @@ export function FaithLogApp() {
 }
 
 function renderAuthState({
+  announcementInitialId,
   clearNotice,
   entryTarget,
   openEntryTarget,
@@ -643,8 +661,10 @@ function renderAuthState({
   setAuthState,
   setNotice,
   setRoute,
+  setAnnouncementInitialId,
   state,
 }: {
+  announcementInitialId: number | null;
   clearNotice: () => void;
   entryTarget: EntryTarget | null;
   openEntryTarget: (target: EntryTarget | null) => void;
@@ -653,6 +673,7 @@ function renderAuthState({
   setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
   setRoute: (route: ShellRoute) => void;
+  setAnnouncementInitialId: (id: number | null) => void;
   state: AuthGateState;
 }) {
   switch (state.status) {
@@ -760,6 +781,7 @@ function renderAuthState({
     case 'authenticated':
       return (
         <AuthenticatedShell
+          announcementInitialId={announcementInitialId}
           entryTarget={entryTarget}
           openEntryTarget={openEntryTarget}
           setAuthState={setAuthState}
@@ -767,6 +789,7 @@ function renderAuthState({
           state={state}
           route={route}
           setRoute={setRoute}
+          setAnnouncementInitialId={setAnnouncementInitialId}
         />
       );
     default:
@@ -1533,14 +1556,17 @@ function StatusCard({
 }
 
 function AuthenticatedShell({
+  announcementInitialId,
   entryTarget,
   openEntryTarget,
   route,
   setAuthState,
   setNotice,
   setRoute,
+  setAnnouncementInitialId,
   state,
 }: {
+  announcementInitialId: number | null;
   entryTarget: EntryTarget | null;
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: SetAuthState;
@@ -1548,6 +1574,7 @@ function AuthenticatedShell({
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   route: ShellRoute;
   setRoute: (route: ShellRoute) => void;
+  setAnnouncementInitialId: (id: number | null) => void;
 }) {
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
@@ -1974,15 +2001,26 @@ function AuthenticatedShell({
         )
       ) : shellScrollOwner === 'route' ? (
         <View style={styles.pollRouteHost}>
-          <PollScreen
-            androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
-            canOpenAdminMode={adminModeRoutes.length > 0}
-            onOpenAdminMode={openAdminMode}
-            onOpenNotifications={openNotificationSettings}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
+          {route === 'announcements' ? (
+            <AnnouncementRouteScreen
+              campusId={state.selectedCampus.campusId}
+              initialAnnouncementId={announcementInitialId}
+              onBack={() => {
+                setAnnouncementInitialId(null);
+                setRoute('userHome');
+              }}
+            />
+          ) : (
+            <PollScreen
+              androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
+              canOpenAdminMode={adminModeRoutes.length > 0}
+              onOpenAdminMode={openAdminMode}
+              onOpenNotifications={openNotificationSettings}
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          )}
         </View>
       ) : (
         <ScrollView
@@ -2070,6 +2108,10 @@ function AuthenticatedShell({
             />
           ) : (
             <UserHomeDashboard
+              onOpenAnnouncements={() => {
+                setAnnouncementInitialId(null);
+                setRoute('announcements');
+              }}
               onOpenDevotion={() => {
                 setDevotionInitialDate(null);
                 setRoute('devotion');
@@ -2147,14 +2189,7 @@ function AuthenticatedShell({
           />
         )}
 
-        {route === 'profile' ||
-        route === 'userHome' ||
-        route === 'devotion' ||
-        route === 'payments' ||
-        route === 'polls' ||
-        route === 'prayers' ||
-        route === 'campusAdmin' ||
-        route === 'serviceAdmin' ? null : (
+        {(['profile', 'userHome', 'devotion', 'payments', 'polls', 'prayers', 'announcements', 'campusAdmin', 'serviceAdmin'] as ShellRoute[]).includes(route) ? null : (
           <Card>
             <Eyebrow>{getRouteLabel(route)}</Eyebrow>
             <Title>{getRouteTitle(route)}</Title>
@@ -2423,6 +2458,7 @@ function CampusDetailScreen({
 function UserHomeDashboard({
   canOpenAdminMode,
   onOpenAdminMode,
+  onOpenAnnouncements,
   onOpenDevotion,
   onOpenMonthlyCalendar,
   onOpenNotifications,
@@ -2433,6 +2469,7 @@ function UserHomeDashboard({
 }: {
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
+  onOpenAnnouncements: () => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
   onOpenNotifications: () => void;
@@ -2600,6 +2637,23 @@ function UserHomeDashboard({
           style={styles.figmaTitle}>
           {displayUserName}님, 오늘의 FaithLog
         </Text>
+      </View>
+
+      <View style={styles.homeAnnouncementRow}>
+        <Text style={styles.figmaSectionTitle}>공지</Text>
+        <Pressable
+          accessibilityLabel="캠퍼스 공지 전체 보기"
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={onOpenAnnouncements}
+          style={({pressed}) => [
+            styles.homeAnnouncementButtonTouch,
+            pressed ? styles.authButtonPressed : null,
+          ]}>
+          <View style={styles.homeAnnouncementButtonVisual}>
+            <Text style={styles.homeAnnouncementButtonText}>공지 보기</Text>
+          </View>
+        </Pressable>
       </View>
 
       <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
@@ -4307,6 +4361,8 @@ function getRouteTitle(route: ShellRoute) {
       return '투표';
     case 'prayers':
       return '기도제목';
+    case 'announcements':
+      return '공지';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -4330,6 +4386,8 @@ function getRouteIcon(route: ShellRoute) {
       return '▤';
     case 'prayers':
       return 'R';
+    case 'announcements':
+      return 'N';
     case 'profile':
       return '○';
     case 'campusAdmin':
@@ -4353,6 +4411,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return '사용자 투표 목록, 상세, 응답, 댓글, 결과 조회를 다루는 일반 사용자 화면입니다.';
     case 'prayers':
       return '사용자 조별 기도제목 조회, 사람별 입력, version 충돌 복구를 다루는 일반 사용자 화면입니다.';
+    case 'announcements':
+      return '캠퍼스의 게시 공지를 확인하는 화면입니다.';
     case 'profile':
       return '내 정보 새로고침, 공동체 메뉴, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':
@@ -5070,6 +5130,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 28,
     textAlign: 'left',
+  },
+  homeAnnouncementRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  homeAnnouncementButtonTouch: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  homeAnnouncementButtonVisual: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    height: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  homeAnnouncementButtonText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   homeCalendarBody: {
     color: colors.textMuted,
