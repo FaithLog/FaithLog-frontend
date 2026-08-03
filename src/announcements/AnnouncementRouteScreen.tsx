@@ -83,8 +83,15 @@ export function AnnouncementRouteScreen({
 }
 
 export function AnnouncementListScreen({items, onBack, onOpen, onRefresh, thumbnails}: {items: AnnouncementSummary[]; onBack: () => void; onOpen: (id: number) => void; onRefresh: () => void; thumbnails: Record<number, string>}) {
-  const pinned = items.filter((item) => item.pinned);
-  const rest = items.filter((item) => !item.pinned);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const categories = Array.from(
+    new Map(items.map((item) => [item.category.id, item.category])).values(),
+  ).sort((left, right) => left.sortOrder - right.sortOrder);
+  const filtered = categoryId === null
+    ? items
+    : items.filter((item) => item.category.id === categoryId);
+  const pinned = filtered.filter((item) => item.pinned);
+  const rest = filtered.filter((item) => !item.pinned);
   const ordered = [...pinned, ...rest];
   return (
     <FlatList
@@ -92,7 +99,7 @@ export function AnnouncementListScreen({items, onBack, onOpen, onRefresh, thumbn
       data={ordered}
       keyExtractor={(item) => String(item.id)}
       ListEmptyComponent={<Empty title="등록된 공지가 없습니다" message="새 공지가 게시되면 이곳에서 확인할 수 있습니다." />}
-      ListHeaderComponent={<ScreenHeader eyebrow="캠퍼스 소식" title="공지" subtitle="중요한 소식을 빠르게 확인하세요." action={<CompactBackButton onPress={onBack} />} />}
+      ListHeaderComponent={<View style={styles.listHeader}><ScreenHeader eyebrow="캠퍼스 소식" title="공지" subtitle="중요한 소식을 빠르게 확인하세요." action={<CompactBackButton onPress={onBack} />} /><View accessibilityRole="radiogroup" style={styles.categoryFilters}><Pressable accessibilityRole="radio" accessibilityState={{checked: categoryId === null}} onPress={() => setCategoryId(null)} style={[styles.categoryFilter, categoryId === null && styles.categoryFilterActive]}><Text style={[styles.categoryFilterText, categoryId === null && styles.categoryFilterTextActive]}>전체</Text></Pressable>{categories.map((category) => <Pressable accessibilityLabel={`${category.name} 공지만 보기`} accessibilityRole="radio" accessibilityState={{checked: categoryId === category.id}} key={category.id} onPress={() => setCategoryId(category.id)} style={[styles.categoryFilter, categoryId === category.id && styles.categoryFilterActive]}><View style={[styles.categoryFilterDot, {backgroundColor: category.color}]} /><Text style={[styles.categoryFilterText, categoryId === category.id && styles.categoryFilterTextActive]}>{category.name}</Text></Pressable>)}</View></View>}
       onRefresh={onRefresh}
       refreshing={false}
       renderItem={({item}) => <AnnouncementRow item={item} onPress={onOpen} thumbnailUrl={item.imageAssetIds[0] ? thumbnails[item.imageAssetIds[0]] : undefined} />}
@@ -137,5 +144,12 @@ function toApiError(error: unknown): ApiError { if (error instanceof FaithLogApi
 function safeMessage(error: ApiError) { if (error.kind === 'permissionDenied') return '현재 계정으로는 이 공지를 볼 수 없습니다.'; if (error.code === 'API_CONTRACT_PENDING') return '공지 기능을 준비하고 있습니다.'; return '잠시 후 다시 시도해 주세요.'; }
 
 const styles = StyleSheet.create({
+  categoryFilter: {alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.pill, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 44, paddingHorizontal: 12},
+  categoryFilterActive: {backgroundColor: colors.primarySoft, borderColor: colors.primarySoft},
+  categoryFilterDot: {borderRadius: 4, height: 8, width: 8},
+  categoryFilters: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
+  categoryFilterText: {color: colors.textSecondary, fontSize: 13, fontWeight: '700'},
+  categoryFilterTextActive: {color: colors.primary},
+  listHeader: {gap: 14},
   body: {...typography.body, color: colors.textSecondary, lineHeight: 24}, card: {backgroundColor: colors.surface, borderRadius: radius.card, gap: 10, padding: spacing.card}, compactButton: {alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.pill, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12}, compactButtonText: {color: colors.primary, fontSize: 13, fontWeight: '700'}, date: {color: colors.textMuted, fontSize: 13, lineHeight: 18}, detail: {gap: 14}, detailTitle: {...typography.screenTitle, color: colors.textPrimary}, image: {height: 220, width: '100%'}, imageFrame: {alignSelf: 'center', backgroundColor: colors.borderSoft, borderRadius: radius.item, marginTop: 12, overflow: 'hidden'}, imageHeading: {...typography.cardTitle, color: colors.textPrimary, marginTop: 8}, listContent: {flexGrow: 1, gap: spacing.gap, paddingBottom: 120, paddingHorizontal: spacing.screenX, paddingTop: 20}, pinned: {color: colors.primary, fontSize: 12, fontWeight: '700'}, pressed: {opacity: 0.72}, rowTop: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between'}, stateHost: {flex: 1, justifyContent: 'center', padding: spacing.screenX}, thumbnail: {borderRadius: radius.control, height: 92, width: '100%'}, title: {...typography.cardTitle, color: colors.textPrimary},
 });
