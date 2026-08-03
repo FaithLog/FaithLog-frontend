@@ -10,6 +10,8 @@ export type ImagePreflight = {
   width: number;
 };
 
+export const ANNOUNCEMENT_IMAGE_MAX_BYTE_SIZE = 5 * 1024 * 1024;
+
 export function validateImagePreflight(value: ImagePreflight):
   | {ok: true}
   | {ok: false; reason: 'conversionRequired' | 'invalidDimensions' | 'tooLarge' | 'unsupportedType'} {
@@ -19,7 +21,11 @@ export function validateImagePreflight(value: ImagePreflight):
   if (value.contentType !== 'image/jpeg' && value.contentType !== 'image/png') {
     return {ok: false, reason: 'unsupportedType'};
   }
-  if (value.byteSize <= 0 || value.byteSize > 5 * 1024 * 1024) {
+  if (
+    !Number.isSafeInteger(value.byteSize) ||
+    value.byteSize <= 0 ||
+    value.byteSize > ANNOUNCEMENT_IMAGE_MAX_BYTE_SIZE
+  ) {
     return {ok: false, reason: 'tooLarge'};
   }
   if (

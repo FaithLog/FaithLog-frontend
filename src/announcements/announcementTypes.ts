@@ -40,9 +40,11 @@ export type AnnouncementCategorySaveRequest = {
   sortOrder: number;
 };
 
+export type MediaUploadContentType = 'image/jpeg' | 'image/png';
+
 export type MediaUploadReservationRequest = {
   byteSize: number;
-  contentType: 'image/jpeg' | 'image/png';
+  contentType: MediaUploadContentType;
   sha256: string;
 };
 
@@ -53,13 +55,13 @@ export type MediaUploadReservation = {
   uploadUrl: string;
 };
 
-export type MediaAssetReady = {
+export type MediaAssetIdentity = MediaUploadReservationRequest & {
   assetId: number;
-  byteSize: number;
-  contentType: 'image/jpeg' | 'image/png';
-  sha256: string;
-  status: 'READY';
 };
+
+export type MediaAssetProcessing = MediaAssetIdentity & {status: 'PROCESSING'};
+export type MediaAssetReady = MediaAssetIdentity & {status: 'READY'};
+export type MediaAssetCompletion = MediaAssetProcessing | MediaAssetReady;
 
 export type MediaAccessUrl = {
   assetId: number;

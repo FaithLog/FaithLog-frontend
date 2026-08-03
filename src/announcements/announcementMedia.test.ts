@@ -14,6 +14,27 @@ describe('announcement media policy', () => {
     expect(validateImagePreflight({contentType: 'image/png', byteSize: 1024, width: 4097, height: 600})).toEqual({ok: false, reason: 'invalidDimensions'});
   });
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects a non-finite or unsafe byte size at preflight: %s',
+    (byteSize) => {
+      expect(validateImagePreflight({contentType: 'image/jpeg', byteSize, width: 800, height: 600})).toEqual({
+        ok: false,
+        reason: 'tooLarge',
+      });
+    },
+  );
+
+  it('allows only the upload content types in the media contract', () => {
+    expect(validateImagePreflight({contentType: 'image/gif', byteSize: 1024, width: 800, height: 600})).toEqual({
+      ok: false,
+      reason: 'unsupportedType',
+    });
+    expect(validateImagePreflight({contentType: 'image/jpeg; charset=utf-8', byteSize: 1024, width: 800, height: 600})).toEqual({
+      ok: false,
+      reason: 'unsupportedType',
+    });
+  });
+
   it('reorders uploads and preserves successful items when another item fails', () => {
     const items = [
       {localId: 'a', status: 'ready' as const, assetId: 1},

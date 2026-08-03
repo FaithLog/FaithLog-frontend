@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it} from 'vitest';
 
 import type {CampusMembershipSummary, CurrentUser} from '../api/types';
 
@@ -8,6 +8,14 @@ import {
   getRouteLabel,
   USER_BOTTOM_NAV_ROUTES,
 } from './shellRoutes';
+
+const originalAppEnvironment = process.env.EXPO_PUBLIC_APP_ENV;
+const originalMockMode = process.env.EXPO_PUBLIC_MOCK_MODE;
+
+afterEach(() => {
+  restoreEnvironment('EXPO_PUBLIC_APP_ENV', originalAppEnvironment);
+  restoreEnvironment('EXPO_PUBLIC_MOCK_MODE', originalMockMode);
+});
 
 describe('USER_BOTTOM_NAV_ROUTES', () => {
   it('keeps the Figma user shell bottom nav to five fixed tabs', () => {
@@ -64,6 +72,26 @@ describe('admin mode routes', () => {
   });
 });
 
+describe('announcement capability route', () => {
+  it('excludes announcements from live available routes while approval is pending', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+
+    expect(getAvailableRoutes(createUser('USER'), createCampus('MEMBER'))).not.toContain(
+      'announcements',
+    );
+  });
+
+  it('keeps announcements available in an allowed mock run', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    expect(getAvailableRoutes(createUser('USER'), createCampus('MEMBER'))).toContain(
+      'announcements',
+    );
+  });
+});
+
 function createUser(role: CurrentUser['role']): CurrentUser {
   return {
     campusMemberships: [],
@@ -85,4 +113,13 @@ function createCampus(campusRole: CampusMembershipSummary['campusRole']): Campus
     region: '서울',
     status: 'ACTIVE',
   };
+}
+
+function restoreEnvironment(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
 }

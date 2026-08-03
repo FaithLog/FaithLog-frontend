@@ -22,4 +22,25 @@ describe('logical app screen Analytics mapping', () => {
     expect(getAuthenticatedAnalyticsScreen({entryTarget: null, profileView: 'main', route: 'campusAdmin'})).toBe('admin_dashboard');
     expect(getAuthenticatedAnalyticsScreen({entryTarget: 'campusDetail', profileView: 'main', route: 'userHome'})).toBe('campus_join');
   });
+
+  it('maps announcement list and detail state to fixed content-free screen names', () => {
+    expect(getAuthenticatedAnalyticsScreen({
+      announcementView: 'list',
+      entryTarget: null,
+      profileView: 'main',
+      route: 'announcements',
+    })).toBe('announcement_list');
+    expect(getAuthenticatedAnalyticsScreen({
+      announcementView: 'detail',
+      entryTarget: null,
+      profileView: 'main',
+      route: 'announcements',
+    })).toBe('announcement_detail');
+    expect(getAuthenticatedAnalyticsScreen({
+      announcementView: null,
+      entryTarget: null,
+      profileView: 'main',
+      route: 'announcements',
+    })).toBeNull();
+  });
 });

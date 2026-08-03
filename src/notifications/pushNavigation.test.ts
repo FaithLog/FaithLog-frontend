@@ -1,6 +1,14 @@
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it} from 'vitest';
 
 import {parsePushNotificationOpenPayload} from './pushNavigation';
+
+const originalAppEnvironment = process.env.EXPO_PUBLIC_APP_ENV;
+const originalMockMode = process.env.EXPO_PUBLIC_MOCK_MODE;
+
+afterEach(() => {
+  restoreEnvironment('EXPO_PUBLIC_APP_ENV', originalAppEnvironment);
+  restoreEnvironment('EXPO_PUBLIC_MOCK_MODE', originalMockMode);
+});
 
 describe('push notification route payload validation', () => {
   it('accepts only the route/params shape and normalizes allowed params', () => {
@@ -31,6 +39,8 @@ describe('push notification route payload validation', () => {
   });
 
   it('routes published announcement events to a safe announcement detail target', () => {
+    enableAnnouncementMockCapability();
+
     expect(
       parsePushNotificationOpenPayload({
         eventType: 'ANNOUNCEMENT_PUBLISHED',
@@ -43,6 +53,66 @@ describe('push notification route payload validation', () => {
       route: 'announcements',
       params: {announcementId: 100, campusId: 1, categoryId: 12},
     });
+  });
+
+  it('requires the exact announcement event keys', () => {
+    enableAnnouncementMockCapability();
+
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'ANNOUNCEMENT_PUBLISHED',
+        campusId: '1',
+        announcementId: '100',
+        categoryId: '12',
+        title: 'sensitive content',
+      }),
+    ).toEqual({status: 'invalid', reason: 'unknownParam'});
+
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'ANNOUNCEMENT_PUBLISHED',
+        campusId: '1',
+        announcementId: '100',
+      }),
+    ).toEqual({status: 'invalid', reason: 'invalidParam'});
+  });
+
+  it.each([
+    {campusId: 1, announcementId: '100', categoryId: '12'},
+    {campusId: '1', announcementId: 100, categoryId: '12'},
+    {campusId: '1', announcementId: '100', categoryId: 12},
+    {campusId: '01', announcementId: '100', categoryId: '12'},
+    {campusId: '1', announcementId: '9007199254740992', categoryId: '12'},
+    {campusId: '1', announcementId: '100', categoryId: '0'},
+  ])('rejects non-canonical announcement identifier strings: %j', (identifiers) => {
+    enableAnnouncementMockCapability();
+
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'ANNOUNCEMENT_PUBLISHED',
+        ...identifiers,
+      }),
+    ).toEqual({status: 'invalid', reason: 'invalidParam'});
+  });
+
+  it('disables announcement event and route navigation outside the capability gate', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+
+    expect(
+      parsePushNotificationOpenPayload({
+        eventType: 'ANNOUNCEMENT_PUBLISHED',
+        campusId: '1',
+        announcementId: '100',
+        categoryId: '12',
+      }),
+    ).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
+    expect(
+      parsePushNotificationOpenPayload({
+        route: 'announcements',
+        params: {announcementId: '100', campusId: '1', categoryId: '12'},
+      }),
+    ).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
   });
 
   it('rejects arbitrary deep links, paths, and unknown routes', () => {
@@ -97,3 +167,17 @@ describe('push notification route payload validation', () => {
     });
   });
 });
+
+function enableAnnouncementMockCapability() {
+  process.env.EXPO_PUBLIC_APP_ENV = 'development';
+  process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+}
+
+function restoreEnvironment(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
+}

@@ -1,12 +1,13 @@
 import {apiRequest, FaithLogApiError} from '../api/client';
 import {isAnnouncementMockModeEnabled} from './announcementEnvironment';
+import {ANNOUNCEMENT_IMAGE_MAX_BYTE_SIZE} from './announcementMedia';
 import {
   dedupeOrderedImageAssetIds,
   parseAnnouncementCategories,
   parseAnnouncementDetail,
   parseAnnouncementList,
   parseMediaAccessUrls,
-  parseMediaAssetReady,
+  parseMediaAssetCompletion,
   parseMediaUploadReservation,
 } from './announcementDomain';
 import type {
@@ -17,7 +18,8 @@ import type {
   AnnouncementStatus,
   AnnouncementSummary,
   MediaAccessUrl,
-  MediaAssetReady,
+  MediaAssetCompletion,
+  MediaAssetIdentity,
   MediaUploadReservation,
   MediaUploadReservationRequest,
 } from './announcementTypes';
@@ -34,7 +36,7 @@ type Dependencies = {isMockMode?: () => boolean; request?: AnnouncementRequestDi
 
 export type AnnouncementApi = {
   archiveAnnouncement(token: string, campusId: number, announcementId: number): Promise<AnnouncementDetail>;
-  completeMediaUpload(token: string, campusId: number, assetId: number): Promise<MediaAssetReady>;
+  completeMediaUpload(token: string, campusId: number, expected: MediaAssetIdentity): Promise<MediaAssetCompletion>;
   createAnnouncement(token: string, campusId: number, body: AnnouncementSaveRequest): Promise<AnnouncementDetail>;
   createCategory(token: string, campusId: number, body: AnnouncementCategorySaveRequest): Promise<AnnouncementCategory>;
   getDetail(token: string, campusId: number, announcementId: number): Promise<AnnouncementDetail>;
@@ -56,10 +58,15 @@ export function createAnnouncementApi(dependencies: Dependencies = {}): Announce
   };
   return {
     archiveAnnouncement: pending,
-    completeMediaUpload(token, campusId, assetId) {
+    async completeMediaUpload(token, campusId, expected) {
+      validateMediaIdentity(expected);
       return request(
-        `/api/v1/admin/campuses/${positiveId(campusId)}/media-assets/${positiveId(assetId)}/complete`,
-        {accessToken: token, method: 'POST', responseParser: parseMediaAssetReady},
+        `/api/v1/admin/campuses/${positiveId(campusId)}/media-assets/${expected.assetId}/complete`,
+        {
+          accessToken: token,
+          method: 'POST',
+          responseParser: (value) => parseMediaAssetCompletion(value, expected),
+        },
       );
     },
     createAnnouncement: pending,
@@ -81,7 +88,7 @@ export function createAnnouncementApi(dependencies: Dependencies = {}): Announce
     listAdmin: pending,
     listCategories: pending,
     listPublished: pending,
-    reserveMediaUpload(token, campusId, body) {
+    async reserveMediaUpload(token, campusId, body) {
       validateMediaRequest(body);
       return request(
         `/api/v1/admin/campuses/${positiveId(campusId)}/media-assets/upload-reservations`,
@@ -126,7 +133,7 @@ function createMockAnnouncementApi(): AnnouncementApi {
       const previous = store.announcements[index];
       if (!previous) notFound();
       const now = new Date().toISOString();
-      const next: AnnouncementDetail = {...previous, body: required(body.body), category: getCategory(store.categories, campusId, body.categoryId), imageAssetIds: exactImageIds(body.imageAssetIds), pinned: body.pinned, publishAt: body.publishMode === 'NOW' ? now : required(body.publishAt), publishedAt: body.publishMode === 'NOW' ? (previous.publishedAt ?? now) : null, status: body.publishMode === 'NOW' ? 'PUBLISHED' : 'SCHEDULED', title: required(body.title)};
+      const next: AnnouncementDetail = {...previous, body: required(body.body), category: getCategory(store.categories, campusId, body.categoryId, previous.category.id === body.categoryId), imageAssetIds: exactImageIds(body.imageAssetIds), pinned: body.pinned, publishAt: body.publishMode === 'NOW' ? now : required(body.publishAt), publishedAt: body.publishMode === 'NOW' ? (previous.publishedAt ?? now) : null, status: body.publishMode === 'NOW' ? 'PUBLISHED' : 'SCHEDULED', title: required(body.title)};
       store.announcements[index] = next;
       return parseAnnouncementDetail(next);
     },
@@ -151,19 +158,43 @@ function createMockAnnouncementApi(): AnnouncementApi {
       const next = sanitizeCategory(id, campusId, body);
       assertUniqueCategory(store.categories.filter((item) => item.id !== id), next);
       store.categories[index] = next;
+      store.announcements.forEach((announcement) => {
+        if (announcement.campusId === campusId && announcement.category.id === id) {
+          announcement.category = next;
+        }
+      });
       return parseAnnouncementCategories([next])[0]!;
     },
     async reserveMediaUpload(_token, campusId, body) {
       validateMediaRequest(body);
-      const assetId = store.nextAssetId++;
+      const assetId = nextMockAssetId();
       store.assets.set(assetId, {...body, campusId, ready: false});
       return {assetId, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), requiredHeaders: {'Content-Type': body.contentType}, uploadUrl: `https://mock-upload.invalid/${assetId}`};
     },
-    async completeMediaUpload(_token, campusId, assetId) {
-      const asset = store.assets.get(assetId);
+    async completeMediaUpload(_token, campusId, expected) {
+      validateMediaIdentity(expected);
+      const asset = store.assets.get(expected.assetId);
       if (!asset || asset.campusId !== campusId) notFound();
+      if (
+        asset.byteSize !== expected.byteSize ||
+        asset.contentType !== expected.contentType ||
+        asset.sha256.toLowerCase() !== expected.sha256.toLowerCase()
+      ) {
+        throw new FaithLogApiError({
+          kind: 'conflict',
+          code: 'MEDIA_ASSET_LINEAGE_CONFLICT',
+          message: '예약한 이미지 정보와 완료 요청이 일치하지 않습니다.',
+          status: 409,
+        });
+      }
       asset.ready = true;
-      return {assetId, byteSize: asset.byteSize, contentType: asset.contentType, sha256: asset.sha256, status: 'READY'};
+      return {
+        assetId: expected.assetId,
+        byteSize: asset.byteSize,
+        contentType: asset.contentType,
+        sha256: asset.sha256,
+        status: 'READY',
+      };
     },
     async getMediaAccessUrls(_token, campusId, assetIds) {
       const ordered = exactImageIds(assetIds);
@@ -186,7 +217,6 @@ type MockStore = {
   assets: Map<number, MediaUploadReservationRequest & {campusId: number; ready: boolean}>;
   categories: StoredCategory[];
   nextAnnouncementId: number;
-  nextAssetId: number;
   nextCategoryId: number;
 };
 function createMockStore(): MockStore {
@@ -194,7 +224,7 @@ function createMockStore(): MockStore {
   return {
     announcements: [{body: '이번 주 예배 안내를 확인해 주세요.', campusId: 1, category, id: 1, imageAssetIds: [], pinned: true, publishAt: '2026-08-03T09:00:00Z', publishedAt: '2026-08-03T09:00:00Z', status: 'PUBLISHED' as const, title: '주일 예배 안내'}],
     assets: new Map<number, MediaUploadReservationRequest & {campusId: number; ready: boolean}>(),
-    categories: [category], nextAnnouncementId: 100, nextAssetId: 1000, nextCategoryId: 10,
+    categories: [category], nextAnnouncementId: 100, nextCategoryId: 10,
   };
 }
 
@@ -204,13 +234,35 @@ function exactImageIds(ids: number[]) {
   return next;
 }
 function required(value: string | null) { if (typeof value !== 'string' || !value.trim()) invalid('입력값을 확인해 주세요.'); return value.trim(); }
-function getCategory(categories: StoredCategory[], campusId: number, id: number) { const value = categories.find((item) => item.campusId === campusId && item.id === id && item.isActive); if (!value) notFound(); return value; }
+function getCategory(categories: StoredCategory[], campusId: number, id: number, allowInactive = false) { const value = categories.find((item) => item.campusId === campusId && item.id === id && (item.isActive || allowInactive)); if (!value) notFound(); return value; }
 function sanitizeCategory(id: number, campusId: number, body: AnnouncementCategorySaveRequest): StoredCategory { return {campusId, color: body.color.toUpperCase(), id, isActive: body.isActive, name: required(body.name), sortOrder: body.sortOrder}; }
 function assertUniqueCategory(categories: StoredCategory[], value: StoredCategory) { if (categories.some((item) => item.campusId === value.campusId && item.name.toLowerCase() === value.name.toLowerCase())) throw new FaithLogApiError({kind: 'conflict', code: 'ANNOUNCEMENT_CATEGORY_DUPLICATE', message: '같은 이름의 카테고리가 있습니다.', status: 409}); }
-function validateMediaRequest(body: MediaUploadReservationRequest) { if (body.byteSize <= 0 || body.byteSize > 5 * 1024 * 1024 || !/^[a-f0-9]{64}$/i.test(body.sha256)) invalid('이미지 정보를 확인해 주세요.'); }
+function validateMediaRequest(body: MediaUploadReservationRequest) {
+  if (
+    !Number.isSafeInteger(body.byteSize) ||
+    body.byteSize <= 0 ||
+    body.byteSize > ANNOUNCEMENT_IMAGE_MAX_BYTE_SIZE ||
+    (body.contentType !== 'image/jpeg' && body.contentType !== 'image/png') ||
+    !/^[a-f0-9]{64}$/i.test(body.sha256)
+  ) {
+    invalid('이미지 정보를 확인해 주세요.');
+  }
+}
+function validateMediaIdentity(value: MediaAssetIdentity) {
+  positiveId(value.assetId);
+  validateMediaRequest(value);
+}
 function positiveId(value: number) { if (!Number.isSafeInteger(value) || value <= 0) invalid('식별자를 확인해 주세요.'); return value; }
 function notFound(): never { throw new FaithLogApiError({kind: 'error', code: 'ANNOUNCEMENT_NOT_FOUND', message: '공지를 찾을 수 없습니다.', status: 404}); }
 function invalid(message: string): never { throw new FaithLogApiError({kind: 'error', code: 'GLOBAL_VALIDATION_FAILED', message, status: 400}); }
+
+let mockAssetIdSequence = 1000;
+function nextMockAssetId() {
+  if (!Number.isSafeInteger(mockAssetIdSequence) || mockAssetIdSequence <= 0) {
+    invalid('이미지 식별자를 생성할 수 없습니다.');
+  }
+  return mockAssetIdSequence++;
+}
 
 let defaultApi: AnnouncementApi | null = null;
 function getDefaultApi() {

@@ -1,4 +1,5 @@
 import type {ShellRoute} from '../navigation/shellRoutes';
+import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 
 export type PushRouteParams = Partial<{
   campusId: number;
@@ -64,6 +65,13 @@ const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
 };
 
 const routeAllowlist = Object.keys(routeParamSchemas) as ShellRoute[];
+const ANNOUNCEMENT_EVENT_KEYS = [
+  'announcementId',
+  'campusId',
+  'categoryId',
+  'eventType',
+] as const;
+const announcementEventKeySet = new Set<string>(ANNOUNCEMENT_EVENT_KEYS);
 
 export function parsePushNotificationOpenPayload(payload: unknown): PushNavigationTarget {
   if (!isRecord(payload)) {
@@ -71,12 +79,27 @@ export function parsePushNotificationOpenPayload(payload: unknown): PushNavigati
   }
 
   if (payload.eventType === 'ANNOUNCEMENT_PUBLISHED') {
-    const announcementId = toPositiveInteger(payload.announcementId);
-    const campusId = toPositiveInteger(payload.campusId);
-    const categoryId = toPositiveInteger(payload.categoryId);
+    const payloadKeys = Object.keys(payload).sort();
+
+    if (payloadKeys.some((key) => !announcementEventKeySet.has(key))) {
+      return {status: 'invalid', reason: 'unknownParam'};
+    }
+
+    if (!sameKeys(payloadKeys, ANNOUNCEMENT_EVENT_KEYS)) {
+      return {status: 'invalid', reason: 'invalidParam'};
+    }
+
+    const announcementId = toPositiveSafeIntegerString(payload.announcementId);
+    const campusId = toPositiveSafeIntegerString(payload.campusId);
+    const categoryId = toPositiveSafeIntegerString(payload.categoryId);
     if (announcementId === null || campusId === null || categoryId === null) {
       return {status: 'invalid', reason: 'invalidParam'};
     }
+
+    if (!isAnnouncementCapabilityEnabled()) {
+      return {status: 'invalid', reason: 'routeNotAllowed'};
+    }
+
     return {
       status: 'valid',
       route: 'announcements',
@@ -87,6 +110,10 @@ export function parsePushNotificationOpenPayload(payload: unknown): PushNavigati
   const route = payload.route;
 
   if (!isShellRoute(route)) {
+    return {status: 'invalid', reason: 'routeNotAllowed'};
+  }
+
+  if (route === 'announcements' && !isAnnouncementCapabilityEnabled()) {
     return {status: 'invalid', reason: 'routeNotAllowed'};
   }
 
@@ -159,6 +186,20 @@ function toPositiveInteger(value: unknown) {
   return numericValue;
 }
 
+function toPositiveSafeIntegerString(value: unknown) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  if (!Number.isSafeInteger(numericValue)) {
+    return null;
+  }
+
+  return numericValue;
+}
+
 function toValidDateString(value: unknown) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return null;
@@ -179,6 +220,11 @@ function formatLocalDate(date: Date) {
   const day = String(date.getDate()).padStart(2, '0');
 
   return `${year}-${month}-${day}`;
+}
+
+function sameKeys(actual: readonly string[], expected: readonly string[]) {
+  return actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index]);
 }
 
 function assertNever(value: never): never {

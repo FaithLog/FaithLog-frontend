@@ -1,4 +1,5 @@
 import type {CampusMembershipSummary, CurrentUser} from '../api/types';
+import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 
 export type ShellRoute =
   | 'userHome'
@@ -58,8 +59,12 @@ export function getAvailableRoutes(
     'polls',
     'prayers',
     'profile',
-    'announcements',
   ];
+
+  if (isAnnouncementCapabilityEnabled()) {
+    routes.push('announcements');
+  }
+
   return [...routes, ...getAdminModeRoutes(user, campus)];
 }
 

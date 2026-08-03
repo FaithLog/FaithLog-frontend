@@ -34,11 +34,14 @@ API base URL의 source of truth는 `EXPO_PUBLIC_API_BASE_URL`입니다. `app.jso
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
 EXPO_PUBLIC_APP_ENV=local
 EXPO_PUBLIC_MOCK_MODE=false
+EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true
 ```
 
 EAS preview/production은 앱의 런타임 allowlist, `eas.json`, GitHub Actions workflow에 함께 명시된 승인 API origin만 사용합니다. 현재 승인 origin은 MVP Cloud Run URL인 `https://faithlog-549871256004.asia-northeast3.run.app`입니다. Origin을 변경할 때는 세 위치를 같은 PR에서 함께 수정하고 검증해야 합니다. Expo token과 Firebase native config 값은 repository, PR 본문, QA 보고에 남기지 않습니다.
 
 `EXPO_PUBLIC_MOCK_MODE=true`로 설정하면 API client 내부 mock adapter가 live backend 대신 도메인 fixture를 반환합니다. 화면 코드와 feature service는 live/mock 분기를 직접 알지 않아야 합니다. 기본 MVP QA는 live backend mode(`false`)를 기준으로 하고, mock QA는 fixture adapter 사용 여부와 scenario를 함께 기록합니다.
+
+일반 공지와 native 이미지 picker/upload 통합 QA는 local/development에서만 `EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true`로 명시적으로 엽니다. 이 플래그와 `EXPO_PUBLIC_MOCK_MODE=false`를 함께 사용해야 실제 개발 backend의 reserve → signed PUT → complete 흐름을 검증할 수 있습니다. preview/production은 플래그 값과 관계없이 코드에서 fail-closed이며 `eas.json`에도 `false`를 고정합니다.
 
 API base URL이 비어 있거나 `http://` 또는 `https://` URL이 아니면 앱 시작 시 빈 화면 대신 복구 가능한 설정 오류 화면을 보여줍니다. 이 오류 화면은 token, request payload, endpoint 값을 로그나 화면에 노출하지 않습니다.
 
@@ -53,6 +56,7 @@ Firebase native config는 repository에 두지 않습니다. 로컬 native 빌�
 ```bash
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
 EXPO_PUBLIC_MOCK_MODE=false
+EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true
 npm run start
 ```
 
@@ -62,11 +66,11 @@ Mock QA는 `EXPO_PUBLIC_MOCK_MODE=true`로 실행합니다. 기본 fixture는 `s
 
 `eas.json`의 profile env는 아래 public 값을 사용합니다.
 
-| Profile | `EXPO_PUBLIC_APP_ENV` | `EXPO_PUBLIC_API_BASE_URL` | `EXPO_PUBLIC_MOCK_MODE` |
-| --- | --- | --- | --- |
-| `development` | `development` | `http://localhost:8080` | `false` |
-| `preview` | `preview` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` |
-| `production` | `production` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` |
+| Profile | `EXPO_PUBLIC_APP_ENV` | `EXPO_PUBLIC_API_BASE_URL` | `EXPO_PUBLIC_MOCK_MODE` | `EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED` |
+| --- | --- | --- | --- | --- |
+| `development` | `development` | `http://localhost:8080` | `false` | `true` |
+| `preview` | `preview` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` | `false` |
+| `production` | `production` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` | `false` |
 
 Preview/production API origin은 public runtime config이므로 승인값을 코드와 함께 검토합니다. Firebase native config, service files, token, private key는 repository에 커밋하지 않고 EAS/CI secret injection으로 제공하며, PR 본문과 QA 보고에는 placeholder 또는 “주입됨/미확인” 상태만 기록합니다.
 

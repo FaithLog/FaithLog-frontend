@@ -226,7 +226,8 @@ import {
   type AdminMemberFilter,
 } from './adminMemberDutyFilter';
 import {coordinateAdminMealDutyRefresh} from './adminMealDutyRefresh';
-import {AdminAnnouncementScreen} from '../announcements/AdminAnnouncementScreen';
+import {AdminAnnouncementCapabilityRoute} from '../announcements/AnnouncementCapabilitySurfaces';
+import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -648,6 +649,7 @@ export function AdminScreen({
 }: AdminScreenProps) {
   const androidShellInsets = useAndroidShellLayoutInsets();
   const campusId = state.selectedCampus.campusId;
+  const announcementCapabilityEnabled = isAnnouncementCapabilityEnabled();
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
   const [memberSection, setMemberSection] = useState<AdminMemberSection>('list');
@@ -2954,6 +2956,10 @@ export function AdminScreen({
   };
 
   const selectAdminTab = (nextTab: AdminTab) => {
+    if (nextTab === 'announcements' && !announcementCapabilityEnabled) {
+      return;
+    }
+
     const changeTab = () => {
       if (tab === 'settlement' && nextTab !== 'settlement') {
         invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
@@ -2986,6 +2992,41 @@ export function AdminScreen({
     setTab('devotion');
   };
 
+  if (tab === 'announcements') {
+    return (
+      <View style={styles.adminModeFrame}>
+        <ScrollView
+          accessibilityLabel="관리자 공지 스크롤 영역"
+          contentContainerStyle={[
+            styles.adminModeContent,
+            Platform.OS === 'android'
+              ? {paddingBottom: androidShellInsets.shellContentBottomPadding}
+              : null,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.adminModeScroll}>
+          <AdminShellHeader
+            activeTab={tab}
+            campusLabel={getCampusLabel(state)}
+            onOpenUserMode={onBackToUserMode}
+          />
+          <AdminAnnouncementCapabilityRoute
+            campusId={campusId}
+            key={`admin-announcements-campus-${campusId}`}
+            onBack={() => setTab('home')}
+            userId={state.user.id}
+          />
+        </ScrollView>
+        <AdminBottomNav
+          activeTab={tab}
+          bottomInset={androidShellInsets.bottomNavInset}
+          onSelectTab={selectAdminTab}
+        />
+      </View>
+    );
+  }
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -3013,7 +3054,9 @@ export function AdminScreen({
             onOpenUserMode={onBackToUserMode}
           />
           <AdminHome
-            onOpenAnnouncements={() => setTab('announcements')}
+            {...(announcementCapabilityEnabled
+              ? {onOpenAnnouncements: () => setTab('announcements')}
+              : {})}
             prayerState={prayerState}
             summary={loadState.summary}
             onOpenMembers={() => setTab('members')}
@@ -3108,7 +3151,9 @@ export function AdminScreen({
         />
       ) : tab === 'home' ? (
         <AdminHome
-          onOpenAnnouncements={() => setTab('announcements')}
+          {...(announcementCapabilityEnabled
+            ? {onOpenAnnouncements: () => setTab('announcements')}
+            : {})}
           prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
@@ -3170,8 +3215,6 @@ export function AdminScreen({
           onSessionStateChange={setAuthState}
           setNotice={setNotice}
         />
-      ) : tab === 'announcements' ? (
-        <AdminAnnouncementScreen campusId={campusId} onBack={() => setTab('home')} />
       ) : tab === 'notificationLogs' ? (
         <AdminNotificationCenter
           filters={notificationLogFilters}

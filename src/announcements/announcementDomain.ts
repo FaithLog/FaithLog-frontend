@@ -5,7 +5,14 @@ import type {
   AnnouncementStatus,
   AnnouncementSummary,
 } from './announcementTypes';
-import type {MediaAccessUrl, MediaAssetReady, MediaUploadReservation} from './announcementTypes';
+import type {
+  MediaAccessUrl,
+  MediaAssetCompletion,
+  MediaAssetIdentity,
+  MediaAssetReady,
+  MediaUploadContentType,
+  MediaUploadReservation,
+} from './announcementTypes';
 
 const statuses = new Set<AnnouncementStatus>(['ARCHIVED', 'PUBLISHED', 'SCHEDULED']);
 const colorPattern = /^#[0-9A-F]{6}$/i;
@@ -70,22 +77,45 @@ export function parseMediaUploadReservation(value: unknown): MediaUploadReservat
 }
 
 export function parseMediaAssetReady(value: unknown): MediaAssetReady {
-  if (!isRecord(value) || value.status !== 'READY') invalid();
-  const contentType = value.contentType;
-  if (contentType !== 'image/jpeg' && contentType !== 'image/png') invalid();
-  if (typeof value.byteSize !== 'number' || !Number.isSafeInteger(value.byteSize) || value.byteSize <= 0) invalid();
-  const sha256 = requiredString(value.sha256);
-  if (!/^[a-f0-9]{64}$/i.test(sha256)) invalid();
-  return {assetId: positiveId(value.assetId), byteSize: value.byteSize, contentType, sha256, status: 'READY'};
+  const completion = parseMediaAssetCompletionValue(value);
+  if (completion.status !== 'READY') invalid();
+  return completion;
+}
+
+export function parseMediaAssetCompletion(
+  value: unknown,
+  expected: MediaAssetIdentity,
+): MediaAssetCompletion {
+  const completion = parseMediaAssetCompletionValue(value);
+  if (
+    completion.assetId !== expected.assetId ||
+    completion.byteSize !== expected.byteSize ||
+    completion.contentType !== expected.contentType ||
+    completion.sha256.toLowerCase() !== expected.sha256.toLowerCase()
+  ) {
+    invalid();
+  }
+  return completion;
 }
 
 export function parseMediaAccessUrls(value: unknown, expectedIds: number[]): MediaAccessUrl[] {
   if (!isRecord(value) || !Array.isArray(value.assets)) invalid();
+  const expectedIndexById = new Map<number, number>();
+  expectedIds.forEach((assetId, index) => {
+    const parsedAssetId = positiveId(assetId);
+    if (expectedIndexById.has(parsedAssetId)) invalid();
+    expectedIndexById.set(parsedAssetId, index);
+  });
   const assets = value.assets.map((item) => {
     if (!isRecord(item)) invalid();
     return {assetId: positiveId(item.assetId), detailUrl: requiredHttps(item.detailUrl), expiresAt: requiredIso(item.expiresAt), thumbnailUrl: requiredHttps(item.thumbnailUrl)};
   });
-  if (assets.length !== expectedIds.length || assets.some((asset, index) => asset.assetId !== expectedIds[index])) invalid();
+  let previousExpectedIndex = -1;
+  for (const asset of assets) {
+    const expectedIndex = expectedIndexById.get(asset.assetId);
+    if (expectedIndex === undefined || expectedIndex <= previousExpectedIndex) invalid();
+    previousExpectedIndex = expectedIndex;
+  }
   return assets;
 }
 
@@ -102,6 +132,27 @@ function parseCategory(value: unknown): AnnouncementCategory {
     name: requiredString(value.name),
     sortOrder,
   };
+}
+
+function parseMediaAssetCompletionValue(value: unknown): MediaAssetCompletion {
+  if (!isRecord(value) || (value.status !== 'PROCESSING' && value.status !== 'READY')) invalid();
+  const contentType = mediaUploadContentType(value.contentType);
+  const byteSize = value.byteSize;
+  if (typeof byteSize !== 'number' || !Number.isSafeInteger(byteSize) || byteSize <= 0) invalid();
+  const sha256 = requiredString(value.sha256);
+  if (!/^[a-f0-9]{64}$/i.test(sha256)) invalid();
+  return {
+    assetId: positiveId(value.assetId),
+    byteSize,
+    contentType,
+    sha256,
+    status: value.status,
+  };
+}
+
+function mediaUploadContentType(value: unknown): MediaUploadContentType {
+  if (value !== 'image/jpeg' && value !== 'image/png') invalid();
+  return value;
 }
 
 function positiveIdArray(value: unknown) {
