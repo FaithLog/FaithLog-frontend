@@ -25,6 +25,27 @@ export type CampusNavigationIntentCoordinator = {
   isCurrent(intent: CampusNavigationIntent): boolean;
 };
 
+export async function enqueueCampusNavigationRecovery({
+  coordinator,
+  intent,
+  isSessionCurrent,
+  persistCampusId,
+  readAuthoritativeCampusId,
+}: {
+  coordinator: CampusNavigationIntentCoordinator;
+  intent: CampusNavigationIntent;
+  isSessionCurrent: () => boolean;
+  persistCampusId: (campusId: number | null) => Promise<void>;
+  readAuthoritativeCampusId: () => number | null;
+}) {
+  return coordinator.enqueue({
+    apply: () => undefined,
+    intent,
+    isSessionCurrent,
+    persist: () => persistCampusId(readAuthoritativeCampusId()),
+  });
+}
+
 export async function handleInitialAnnouncementNotificationOpen({
   getPayload,
   handlePayload,
@@ -64,10 +85,10 @@ export function createAnnouncementDeepLinkCommitQueue(): AnnouncementDeepLinkCom
       const result = tail.then(async () => {
         if (!isLatest() || !isSessionCurrent()) return false;
         await persist();
-        // A newer notification may arrive while persistence is in flight. Once
-        // this commit starts, finish persistence + UI apply as one unit; a newer
-        // valid queued commit will run afterwards and become the final state.
-        if (!isSessionCurrent()) return false;
+        // Persistence cannot be cancelled once it starts, but its UI transition
+        // must still be rejected when a newer navigation intent supersedes it.
+        // The newer intent queues an authoritative persistence correction.
+        if (!isLatest() || !isSessionCurrent()) return false;
         apply();
         return true;
       });

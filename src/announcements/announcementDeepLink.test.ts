@@ -3,6 +3,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {
   createAnnouncementDeepLinkCommitQueue,
   createCampusNavigationIntentCoordinator,
+  enqueueCampusNavigationRecovery,
   handleInitialAnnouncementNotificationOpen,
   resolveAnnouncementDeepLinkCampus,
 } from './announcementDeepLink';
@@ -70,12 +71,12 @@ describe('announcement cross-campus deep links', () => {
     });
     firstPersistence.resolve();
 
-    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    await expect(Promise.all([first, second])).resolves.toEqual([false, true]);
     expect(persisted).toEqual([7, 9]);
-    expect(applied).toEqual([7, 9]);
+    expect(applied).toEqual([9]);
   });
 
-  it('finishes persistence and apply atomically after a valid commit has started', async () => {
+  it('does not apply a commit that becomes stale while persistence is in flight', async () => {
     const queue = createAnnouncementDeepLinkCommitQueue();
     const persistence = deferred<void>();
     const persisted: number[] = [];
@@ -95,9 +96,9 @@ describe('announcement cross-campus deep links', () => {
     latestSequence = 2;
     persistence.resolve();
 
-    await expect(committing).resolves.toBe(true);
+    await expect(committing).resolves.toBe(false);
     expect(persisted).toEqual([7]);
-    expect(applied).toEqual([7]);
+    expect(applied).toEqual([]);
   });
 
   it('does not begin a stale queued commit or apply after the auth session changes', async () => {
@@ -260,9 +261,9 @@ describe('announcement cross-campus deep links', () => {
     });
     notificationPersistence.resolve();
 
-    await expect(Promise.all([notification, manual])).resolves.toEqual([true, true]);
+    await expect(Promise.all([notification, manual])).resolves.toEqual([false, true]);
     expect(persisted).toEqual([2, 1]);
-    expect(applied).toEqual([2, 1]);
+    expect(applied).toEqual([1]);
     expect(persisted.at(-1)).toBe(1);
     expect(applied.at(-1)).toBe(1);
   });
@@ -289,7 +290,54 @@ describe('announcement cross-campus deep links', () => {
     });
     notificationPersistence.resolve();
 
-    await expect(Promise.all([notification, refresh])).resolves.toEqual([true, true]);
+    await expect(Promise.all([notification, refresh])).resolves.toEqual([false, true]);
+    expect(state).toEqual({announcementId: null, campusId: 1, route: 'profile'});
+  });
+
+  it('restores authoritative state when a newer failed read supersedes pending persistence', async () => {
+    const coordinator = createCampusNavigationIntentCoordinator();
+    const stalePersistence = deferred<void>();
+    const staleApply = vi.fn();
+    const persistedCampuses: number[] = [];
+    let persistedCampusId = 1;
+    let state = {announcementId: null as number | null, campusId: 1, route: 'profile'};
+
+    const staleIntent = coordinator.begin();
+    const staleCommit = coordinator.enqueue({
+      apply: () => {
+        staleApply();
+        state = {announcementId: 77, campusId: 2, route: 'announcements'};
+      },
+      intent: staleIntent,
+      isSessionCurrent: () => true,
+      persist: async () => {
+        await stalePersistence.promise;
+        persistedCampusId = 2;
+        persistedCampuses.push(2);
+      },
+    });
+    await Promise.resolve();
+
+    const failedIntent = coordinator.begin();
+    const failedCampusRead = vi.fn().mockRejectedValue(new Error('campus membership read failed'));
+    await expect(failedCampusRead()).rejects.toThrow('campus membership read failed');
+    const recoveryCommit = enqueueCampusNavigationRecovery({
+      coordinator,
+      intent: failedIntent,
+      isSessionCurrent: () => true,
+      persistCampusId: async (campusId) => {
+        persistedCampusId = campusId ?? 0;
+        persistedCampuses.push(campusId ?? 0);
+      },
+      readAuthoritativeCampusId: () => state.campusId,
+    });
+    stalePersistence.resolve();
+
+    await expect(Promise.all([staleCommit, recoveryCommit])).resolves.toEqual([false, true]);
+    expect(failedCampusRead).toHaveBeenCalledOnce();
+    expect(staleApply).not.toHaveBeenCalled();
+    expect(persistedCampuses).toEqual([2, 1]);
+    expect(persistedCampusId).toBe(1);
     expect(state).toEqual({announcementId: null, campusId: 1, route: 'profile'});
   });
 });

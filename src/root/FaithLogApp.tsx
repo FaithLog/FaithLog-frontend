@@ -138,8 +138,10 @@ import {
 } from '../announcements/AnnouncementCapabilitySurfaces';
 import {
   createCampusNavigationIntentCoordinator,
+  enqueueCampusNavigationRecovery,
   handleInitialAnnouncementNotificationOpen,
   resolveAnnouncementDeepLinkCampus,
+  type CampusNavigationIntent,
   type CampusNavigationIntentCoordinator,
 } from '../announcements/announcementDeepLink';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
@@ -582,24 +584,45 @@ export function FaithLogApp() {
     }
 
     let active = true;
+    const recoverCampusNavigation = (
+      intent: CampusNavigationIntent,
+      requestGeneration: AuthSessionGeneration,
+      requestUserId: number,
+    ) => enqueueCampusNavigationRecovery({
+      coordinator: campusNavigationIntentRef.current,
+      intent,
+      isSessionCurrent: () => {
+        const current = authStateRef.current;
+        return active &&
+          isAuthSessionRequestAllowed(requestGeneration) &&
+          (current.status === 'authenticated' || current.status === 'noCampus') &&
+          current.user.id === requestUserId;
+      },
+      persistCampusId: saveSelectedCampusId,
+      readAuthoritativeCampusId: () => {
+        const current = authStateRef.current;
+        return current.status === 'authenticated' ? current.selectedCampus.campusId : null;
+      },
+    });
     const handlePayload = async (payload: unknown) => {
       const requestAuthState = authStateRef.current;
       if (
         requestAuthState.status !== 'authenticated' ||
         requestAuthState.user.id !== notificationSessionUserId
       ) return;
-      const requestSequence = ++notificationOpenSequenceRef.current;
       const target = parsePushNotificationOpenPayload(payload);
 
       if (target.status === 'invalid') {
         return;
       }
+      const requestSequence = ++notificationOpenSequenceRef.current;
       const campusNavigationIntent = campusNavigationIntentRef.current.begin();
+      const requestGeneration = getAuthSessionGeneration();
+      let navigationCommitted = false;
 
       try {
         let navigationState: Extract<AuthGateState, {status: 'authenticated'}> = requestAuthState;
         let navigationGeneration: number | null = null;
-        const requestGeneration = getAuthSessionGeneration();
 
         if (target.route === 'announcements' && target.params.campusId !== undefined) {
           const resolution = await resolveAnnouncementDeepLinkCampus({
@@ -663,7 +686,7 @@ export function FaithLogApp() {
 
         const refreshed = navigationState;
         const commitGeneration = navigationGeneration;
-        await campusNavigationIntentRef.current.enqueue({
+        navigationCommitted = await campusNavigationIntentRef.current.enqueue({
           apply: () => {
             if (commitGeneration !== null) {
               setAuthState((current) => applyRefreshedAuthState(
@@ -685,11 +708,8 @@ export function FaithLogApp() {
           },
           intent: campusNavigationIntent,
           isLatest: () => requestSequence === notificationOpenSequenceRef.current,
-          isSessionCurrent: () => active &&
-            (commitGeneration === null || commitGeneration === getAuthSessionGeneration()),
-          persist: () => commitGeneration === null
-            ? Promise.resolve()
-            : saveSelectedCampusId(refreshed.selectedCampus.campusId),
+          isSessionCurrent: () => active && isAuthSessionRequestAllowed(requestGeneration),
+          persist: () => saveSelectedCampusId(refreshed.selectedCampus.campusId),
         });
       } catch (error) {
         if (
@@ -703,19 +723,40 @@ export function FaithLogApp() {
           return;
         }
         Alert.alert('공지를 열 수 없습니다', '캠퍼스 정보를 확인한 뒤 다시 시도해 주세요.');
+      } finally {
+        if (
+          !navigationCommitted &&
+          requestSequence === notificationOpenSequenceRef.current &&
+          campusNavigationIntentRef.current.isCurrent(campusNavigationIntent)
+        ) {
+          await recoverCampusNavigation(
+            campusNavigationIntent,
+            requestGeneration,
+            requestAuthState.user.id,
+          ).catch(() => false);
+        }
       }
     };
 
     if (!initialNotificationOpenHandledRef.current) {
       initialNotificationOpenHandledRef.current = true;
       const initialCampusIntent = campusNavigationIntentRef.current.begin();
+      const initialGeneration = getAuthSessionGeneration();
       void handleInitialAnnouncementNotificationOpen({
         getPayload: getInitialNotificationOpenPayload,
         handlePayload,
         isActive: () => active,
         isCurrent: () => campusNavigationIntentRef.current.isCurrent(initialCampusIntent),
         readSequence: () => notificationOpenSequenceRef.current,
-      });
+      }).finally(async () => {
+        if (campusNavigationIntentRef.current.isCurrent(initialCampusIntent)) {
+          await recoverCampusNavigation(
+            initialCampusIntent,
+            initialGeneration,
+            subscribedAuthState.user.id,
+          ).catch(() => false);
+        }
+      }).catch(() => false);
     }
 
     const unsubscribe = subscribeNotificationOpenPayload((payload) => {
@@ -1576,6 +1617,7 @@ async function refreshAuthenticatedCampusState(
   const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
 
   if (activeCampuses.length === 0) {
+    if (persistSelection) await saveSelectedCampusId(null);
     return {
       status: 'noCampus',
       user: readCurrentUserCache(generation, user.id) ?? user,
@@ -1825,6 +1867,17 @@ function AuthenticatedShell({
     setRoute('prayers');
   };
 
+  const recoverCampusNavigation = (
+    intent: CampusNavigationIntent,
+    requestGeneration: AuthSessionGeneration,
+  ) => enqueueCampusNavigationRecovery({
+    coordinator: campusNavigation,
+    intent,
+    isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+    persistCampusId: saveSelectedCampusId,
+    readAuthoritativeCampusId: () => state.selectedCampus.campusId,
+  });
+
   const refreshCampuses = async () => {
     if (campusSwitchLoading) {
       return;
@@ -1833,6 +1886,8 @@ function AuthenticatedShell({
     const returnAnnouncementId = announcementInitialId;
     const returnRoute = route;
     const campusIntent = campusNavigation.begin();
+    const requestGeneration = getAuthSessionGeneration();
+    let campusIntentCommitted = false;
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
@@ -1844,7 +1899,6 @@ function AuthenticatedShell({
       });
       if (!accessToken) return;
 
-      const requestGeneration = getAuthSessionGeneration();
       const nextState = await refreshAuthenticatedCampusState(
         accessToken,
         state,
@@ -1852,7 +1906,7 @@ function AuthenticatedShell({
         requestGeneration,
         false,
       );
-      await campusNavigation.enqueue({
+      campusIntentCommitted = await campusNavigation.enqueue({
         apply: () => {
           setAuthState((current) => applyRefreshedAuthState(
             current,
@@ -1865,10 +1919,10 @@ function AuthenticatedShell({
           setRoute(returnRoute);
         },
         intent: campusIntent,
-        isSessionCurrent: () => requestGeneration === getAuthSessionGeneration(),
-        persist: () => nextState.status === 'authenticated'
-          ? saveSelectedCampusId(nextState.selectedCampus.campusId)
-          : Promise.resolve(),
+        isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+        persist: () => saveSelectedCampusId(
+          nextState.status === 'authenticated' ? nextState.selectedCampus.campusId : null,
+        ),
       });
     } catch (error) {
       if (!campusNavigation.isCurrent(campusIntent)) return;
@@ -1881,6 +1935,9 @@ function AuthenticatedShell({
         setCampusSwitchError({kind: 'error', message: '캠퍼스 목록을 불러오지 못했습니다.'});
       }
     } finally {
+      if (!campusIntentCommitted && campusNavigation.isCurrent(campusIntent)) {
+        await recoverCampusNavigation(campusIntent, requestGeneration).catch(() => false);
+      }
       setCampusSwitchLoading(false);
     }
   };
@@ -1897,12 +1954,13 @@ function AuthenticatedShell({
   const selectCampus = async (campus: CampusMembershipSummary) => {
     if (campusSwitchLoading) return;
     const campusIntent = campusNavigation.begin();
+    const requestGeneration = getAuthSessionGeneration();
+    let campusIntentCommitted = false;
     if (campus.campusId === state.selectedCampus.campusId) {
-      const requestGeneration = getAuthSessionGeneration();
       setCampusSwitchLoading(true);
       setCampusSwitchError(null);
       try {
-        await campusNavigation.enqueue({
+        campusIntentCommitted = await campusNavigation.enqueue({
           apply: () => {
             setAuthState((current) => applyRefreshedAuthState(
               current,
@@ -1918,7 +1976,7 @@ function AuthenticatedShell({
             setRoute('userHome');
           },
           intent: campusIntent,
-          isSessionCurrent: () => requestGeneration === getAuthSessionGeneration(),
+          isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
           persist: () => saveSelectedCampusId(state.selectedCampus.campusId),
         });
       } catch {
@@ -1926,6 +1984,9 @@ function AuthenticatedShell({
           setCampusSwitchError({kind: 'error', message: '캠퍼스를 변경하지 못했습니다.'});
         }
       } finally {
+        if (!campusIntentCommitted && campusNavigation.isCurrent(campusIntent)) {
+          await recoverCampusNavigation(campusIntent, requestGeneration).catch(() => false);
+        }
         setCampusSwitchLoading(false);
       }
       return;
@@ -1942,7 +2003,6 @@ function AuthenticatedShell({
       });
       if (!accessToken) return;
 
-      const requestGeneration = getAuthSessionGeneration();
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
       const nextState = await refreshAuthenticatedCampusState(
         accessToken,
@@ -1952,7 +2012,7 @@ function AuthenticatedShell({
         false,
       );
 
-      await campusNavigation.enqueue({
+      campusIntentCommitted = await campusNavigation.enqueue({
         apply: () => {
           if (nextState.status === 'authenticated') {
             setSelectedCampusDetail(detail);
@@ -1971,10 +2031,10 @@ function AuthenticatedShell({
           }
         },
         intent: campusIntent,
-        isSessionCurrent: () => requestGeneration === getAuthSessionGeneration(),
-        persist: () => nextState.status === 'authenticated'
-          ? saveSelectedCampusId(nextState.selectedCampus.campusId)
-          : Promise.resolve(),
+        isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+        persist: () => saveSelectedCampusId(
+          nextState.status === 'authenticated' ? nextState.selectedCampus.campusId : null,
+        ),
       });
     } catch (error) {
       if (!campusNavigation.isCurrent(campusIntent)) return;
@@ -1987,6 +2047,9 @@ function AuthenticatedShell({
         setCampusSwitchError({kind: 'error', message: '캠퍼스를 변경하지 못했습니다.'});
       }
     } finally {
+      if (!campusIntentCommitted && campusNavigation.isCurrent(campusIntent)) {
+        await recoverCampusNavigation(campusIntent, requestGeneration).catch(() => false);
+      }
       setCampusSwitchLoading(false);
     }
   };
