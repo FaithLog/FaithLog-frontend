@@ -3,6 +3,7 @@ import {FaithLogApiError} from '../../api/apiError';
 // Provisional until backend #238 REST Docs fixes the exact limit. Keeping the
 // value in one place lets the transport contract change without touching UI.
 export const POLL_NOTICE_MAX_LENGTH = 2_000;
+export const POLL_TITLE_MAX_LENGTH = 500;
 
 export type PollNoticeDraft = {
   notice: string;

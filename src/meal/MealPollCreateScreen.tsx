@@ -24,6 +24,7 @@ import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {useMealRequestTracker} from './useMealRequestTracker';
 import {isMockModeEnabled} from '../api/client';
+import {createMockReadyMediaAssetForCampus} from '../api/mockAdapter';
 import type {MediaUploadItem} from '../media/mediaUploadPolicy';
 import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
 
@@ -62,7 +63,6 @@ export function MealPollCreateScreen({
   const [allowUserOptionAdd, setAllowUserOptionAdd] = useState(true);
   const [notice, setNotice] = useState('');
   const [noticeImages, setNoticeImages] = useState<MediaUploadItem[]>([]);
-  const nextMockNoticeImageId = useRef(1);
   const noticeFeatureEnabled = isMockModeEnabled();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -163,16 +163,20 @@ export function MealPollCreateScreen({
             disabled={saving}
             notice={notice}
             onAddImages={() => {
-              const sequence = nextMockNoticeImageId.current;
-              nextMockNoticeImageId.current += 1;
-              setNoticeImages((current) => [...current, {
-                localId: `mock-meal-image-${sequence}`,
-                previewUri: `mock://poll-notice/meal/${sequence}`,
+              setNoticeImages((current) => {
+                const assetId = createMockReadyMediaAssetForCampus(
+                  campusId,
+                  current.flatMap((item) => item.assetId ? [item.assetId] : []),
+                );
+                return [...current, {
+                localId: `mock-meal-image-${assetId}`,
+                previewUri: `mock://poll-notice/meal/${assetId}`,
                 status: 'ready',
                 progress: 1,
-                assetId: 91_000 + sequence,
-                sha256: sequence.toString(16).padStart(64, '0'),
-              }]);
+                assetId,
+                sha256: assetId.toString(16).padStart(64, '0'),
+              }];
+              });
             }}
             onChangeNotice={setNotice}
             onMove={(localId, direction) => setNoticeImages((current) => {

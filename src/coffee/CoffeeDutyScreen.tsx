@@ -38,6 +38,7 @@ import type {
   PollResults,
   PollSummary,
 } from '../api/types';
+import {createMockReadyMediaAssetForCampus} from '../api/mockAdapter';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {trackPollCloseComplete, trackPollCreateComplete} from '../analytics/appAnalytics';
@@ -615,6 +616,7 @@ export function CoffeeDutyScreen({
           ) : null}
           {page === 'create' ? (
             <CoffeePollCreator
+              campusId={campusId}
               createState={createState}
               deadlineText={deadlineText}
               onCreate={createCoffeePoll}
@@ -948,6 +950,7 @@ function CoffeeAccountManagement({
 }
 
 function CoffeePollCreator({
+  campusId,
   createState,
   deadlineText,
   onCreate,
@@ -967,6 +970,7 @@ function CoffeePollCreator({
   state,
   title,
 }: {
+  campusId: number;
   createState: CoffeePollCreateState;
   deadlineText: string;
   onCreate: () => void;
@@ -989,7 +993,6 @@ function CoffeePollCreator({
   const busy = createState.status === 'creating';
   const [menuPickerVisible, setMenuPickerVisible] = useState(false);
   const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
-  const nextMockNoticeImageId = useRef(1);
   const selectedMenus = state.menus.filter((menu) => selectedMenuIds.includes(menu.id));
   const missingOwnedCoffeeAccount = state.accounts.length === 0;
 
@@ -1022,15 +1025,17 @@ function CoffeePollCreator({
             disabled={busy}
             notice={notice}
             onAddImages={() => {
-              const sequence = nextMockNoticeImageId.current;
-              nextMockNoticeImageId.current += 1;
+              const assetId = createMockReadyMediaAssetForCampus(
+                campusId,
+                noticeImages.flatMap((item) => item.assetId ? [item.assetId] : []),
+              );
               onChangeNoticeImages([...noticeImages, {
-                localId: `mock-coffee-image-${sequence}`,
-                previewUri: `mock://poll-notice/coffee/${sequence}`,
+                localId: `mock-coffee-image-${assetId}`,
+                previewUri: `mock://poll-notice/coffee/${assetId}`,
                 status: 'ready',
                 progress: 1,
-                assetId: 92_000 + sequence,
-                sha256: sequence.toString(16).padStart(64, '0'),
+                assetId,
+                sha256: assetId.toString(16).padStart(64, '0'),
               }]);
             }}
             onChangeNotice={onChangeNotice}

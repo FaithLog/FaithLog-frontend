@@ -18,9 +18,11 @@ import type {
   MarkChargePaidResponse,
   PaymentCategory,
   PollDetail,
+  PollResults,
   WeeklyDevotionSummary,
 } from './types';
 import {calculateMealChargeGroup} from '../meal/mealModel';
+import {POLL_TITLE_MAX_LENGTH} from '../polls/notice/pollNoticeContract';
 import type {
   MealChargeResult,
   MealChargeGroupResult,
@@ -46,6 +48,7 @@ type MockMealPollSummary = MealPollSummary & {
 
 type MockMealPollDetail = Omit<MealPollDetail, 'options'> & {
   description: string | null;
+  hasNotice?: boolean;
   settlementStatus: 'NOT_CHARGED' | 'CHARGED';
   totalResponseCount: number;
   options: Array<Omit<MealPollDetail['options'][number], 'charge'> & {
@@ -71,6 +74,13 @@ type MockMealActor = {
   adminCampusIds: number[];
   campusIds: number[];
   userId: number;
+};
+
+type MockGeneralPollResponse = {
+  responseId: number;
+  pollId: number;
+  optionIds: number[];
+  respondedAt: string;
 };
 
 type MockChargePeriod = {month: number; year: number};
@@ -125,9 +135,16 @@ const MOCK_AUTH_REQUEST_WINDOW_MS = 60 * 60 * 1_000;
 
 const mockCreatedPollTemplates: Array<Record<string, unknown>> = [];
 let mockMediaAssetSequence = 9000;
-let mockMediaReservations = new Map<number, {byteSize: number; sha256: string}>();
+let mockLocalReadyMediaAssetSequence = 95_000;
+let mockMediaReservations = new Map<
+  number,
+  {byteSize: number; campusId: number; sha256: string; status: 'RESERVED' | 'READY'}
+>();
 let mockMealState = createInitialMockMealState();
 let mockPollDetails = createInitialMockPollDetails();
+let mockReadyMediaAssets = createInitialMockReadyMediaAssets();
+let mockGeneralPollResponses = createInitialMockGeneralPollResponses();
+let mockGeneralPollResults = createInitialMockGeneralPollResults();
 let mockWeeklyDevotion = createMockWeeklyDevotionState();
 let mockMonthlyDevotion = createMockMonthlyDevotionState();
 let mockCurrentUser = createInitialMockCurrentUser();
@@ -147,7 +164,11 @@ export function resetMockAdapterStateForTests() {
   mockMonthlyDevotion = createMockMonthlyDevotionState();
   mockCurrentUser = createInitialMockCurrentUser();
   mockMediaAssetSequence = 9000;
+  mockLocalReadyMediaAssetSequence = 95_000;
   mockMediaReservations = new Map();
+  mockReadyMediaAssets = createInitialMockReadyMediaAssets();
+  mockGeneralPollResponses = createInitialMockGeneralPollResponses();
+  mockGeneralPollResults = createInitialMockGeneralPollResults();
   resetMockOneTimeAuthState();
 }
 
@@ -158,8 +179,28 @@ export function resetMealMockStateForTests() {
   mockMonthlyDevotion = createMockMonthlyDevotionState();
   mockCurrentUser = createInitialMockCurrentUser();
   mockMediaAssetSequence = 9000;
+  mockLocalReadyMediaAssetSequence = 95_000;
   mockMediaReservations = new Map();
+  mockReadyMediaAssets = createInitialMockReadyMediaAssets();
+  mockGeneralPollResponses = createInitialMockGeneralPollResponses();
+  mockGeneralPollResults = createInitialMockGeneralPollResults();
   resetMockOneTimeAuthState();
+}
+
+export function createMockReadyMediaAssetForCampus(
+  campusId: number,
+  existingAssetIds: readonly number[] = [],
+) {
+  if (!Number.isSafeInteger(campusId) || campusId <= 0) {
+    throw new Error('Mock media campus identity must be a positive integer.');
+  }
+  let assetId = Math.max(mockLocalReadyMediaAssetSequence, ...existingAssetIds) + 1;
+  while (mockMediaReservations.has(assetId) || mockReadyMediaAssets.has(assetId)) {
+    assetId += 1;
+  }
+  mockLocalReadyMediaAssetSequence = assetId;
+  mockReadyMediaAssets.set(assetId, campusId);
+  return assetId;
 }
 
 export async function executeMockRequest(path: string, init: RequestInit): Promise<Response> {
@@ -583,6 +624,9 @@ function resolveMockData(
     route.method === 'POST' &&
     /^\/admin\/campuses\/\d+\/media-assets\/upload-reservations$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
     const request = toRecord(parseMockJsonBody(body));
     if (
       (request.contentType !== 'image/jpeg' && request.contentType !== 'image/png') ||
@@ -592,10 +636,12 @@ function resolveMockData(
     ) {
       return mockBadRequest('GLOBAL_VALIDATION_FAILED', '업로드할 이미지 정보가 올바르지 않습니다.');
     }
-    const assetId = ++mockMediaAssetSequence;
+    const assetId = nextMockMediaReservationAssetId();
     mockMediaReservations.set(assetId, {
       byteSize: request.byteSize,
+      campusId,
       sha256: request.sha256,
+      status: 'RESERVED',
     });
     return {
       assetId,
@@ -608,11 +654,15 @@ function resolveMockData(
     route.method === 'POST' &&
     /^\/admin\/campuses\/\d+\/media-assets\/\d+\/complete$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
     const assetId = getPathNumberBeforeSuffix(path, 'complete');
     const reservation = assetId === null ? undefined : mockMediaReservations.get(assetId);
-    if (!assetId || !reservation) {
+    if (!assetId || !reservation || reservation.campusId !== campusId) {
       return mockNotFound('MEDIA_ASSET_NOT_FOUND', '업로드 예약을 찾을 수 없습니다.');
     }
+    mockMediaReservations.set(assetId, {...reservation, status: 'READY'});
     return {
       assetId,
       status: 'READY',
@@ -626,6 +676,9 @@ function resolveMockData(
     route.method === 'POST' &&
     /^\/campuses\/\d+\/media-assets\/access-urls$/.test(path)
   ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeCampusMember(mealActor, campusId);
+    if (denied) return denied;
     const request = toRecord(parseMockJsonBody(body));
     const assetIds = Array.isArray(request.assetIds) ? request.assetIds : [];
     if (
@@ -634,6 +687,9 @@ function resolveMockData(
         typeof assetId !== 'number' || !Number.isSafeInteger(assetId) || assetId <= 0)
     ) {
       return mockBadRequest('GLOBAL_VALIDATION_FAILED', '이미지 조회 요청이 올바르지 않습니다.');
+    }
+    if (assetIds.some((assetId) => !isMockMediaAssetAvailable(campusId, assetId))) {
+      return mockNotFound('MEDIA_ASSET_NOT_FOUND', '이미지를 찾을 수 없습니다.');
     }
     return {
       assets: assetIds.map((assetId) => ({
@@ -644,15 +700,74 @@ function resolveMockData(
       })),
     };
   }
+  if (
+    route.method === 'PATCH' &&
+    /^\/admin\/campuses\/\d+\/polls\/\d+\/notice$/.test(path)
+  ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
+    const pollId = getPathNumberBeforeSuffix(path, 'notice');
+    const detailIndex = mockPollDetails.findIndex(
+      (detail) => detail.id === pollId && detail.campusId === campusId,
+    );
+    const detail = mockPollDetails[detailIndex];
+    if (!detail) return mockNotFound('POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
+    const mutation = parseMockPollNoticeMutation(body);
+    if (isMockErrorResult(mutation)) return mutation;
+    const invalidMedia = validateMockMediaAssetIds(campusId, mutation.imageAssetIds);
+    if (invalidMedia) return invalidMedia;
+    const updated: PollDetail = {
+      ...detail,
+      ...mutation,
+      hasNotice: hasMockPollNotice(mutation),
+    };
+    mockPollDetails[detailIndex] = updated;
+    return toRequesterGeneralPollDetail(updated, mealActor);
+  }
+  if (
+    route.method === 'PATCH' &&
+    /^\/campuses\/\d+\/meal\/polls\/\d+\/notice$/.test(path)
+  ) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealDuty(mealActor, campusId);
+    if (denied) return denied;
+    const pollId = getPathNumberBeforeSuffix(path, 'notice');
+    const detailIndex = mockMealState.details.findIndex(
+      (detail) => detail.id === pollId && detail.campusId === campusId,
+    );
+    const detail = mockMealState.details[detailIndex];
+    if (!detail) return mockNotFound('MEAL_POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
+    const mutation = parseMockPollNoticeMutation(body);
+    if (isMockErrorResult(mutation)) return mutation;
+    const invalidMedia = validateMockMediaAssetIds(campusId, mutation.imageAssetIds);
+    if (invalidMedia) return invalidMedia;
+    const hasNotice = hasMockPollNotice(mutation);
+    const updated: MockMealPollDetail = {...detail, ...mutation, hasNotice};
+    mockMealState.details[detailIndex] = updated;
+    mockMealState.polls = mockMealState.polls.map((pollSummary) =>
+      pollSummary.id === pollId && pollSummary.campusId === campusId
+        ? {...pollSummary, title: mutation.title, hasNotice}
+        : pollSummary,
+    );
+    return toGeneralMealPollDetail(updated, mealActor?.userId ?? 0);
+  }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls$/.test(path)) {
     const campusId = getCampusId(path);
     const membershipDenied = authorizeCampusMember(mealActor, campusId);
     if (membershipDenied) return membershipDenied;
+    const fixtureSummaries = poll.summaries.filter((summary) => summary.campusId === campusId);
+    const fixturePollIds = new Set(fixtureSummaries.map((summary) => summary.id));
     return [
-      ...poll.summaries.map((summary, index) => ({
-        ...summary,
-        hasNotice: index === 0,
-      })),
+      ...mockPollDetails
+        .filter((detail) => detail.campusId === campusId && !fixturePollIds.has(detail.id))
+        .map((detail) => toMockPollSummary(detail, mealActor)),
+      ...fixtureSummaries.map((summary) => {
+        const detail = mockPollDetails.find(
+          (item) => item.id === summary.id && item.campusId === campusId,
+        );
+        return detail ? toMockPollSummary(detail, mealActor) : summary;
+      }),
       ...mockMealState.polls
         .filter((item) => item.campusId === campusId)
         .map((item) => toGeneralMealPollSummary(item, mealActor?.userId ?? 0)),
@@ -664,10 +779,15 @@ function resolveMockData(
     if (membershipDenied) return membershipDenied;
     const pollId = getLastPathNumber(path);
     const mealDetail = mockMealState.details.find((detail) => detail.id === pollId && detail.campusId === campusId);
+    const regularDetail = mockPollDetails.find(
+      (detail) => detail.id === pollId && detail.campusId === campusId,
+    );
 
     return mealDetail
       ? toGeneralMealPollDetail(mealDetail, mealActor?.userId ?? 0)
-      : mockPollDetails.find((detail) => detail.id === pollId) ?? poll.detail;
+      : regularDetail
+        ? toRequesterGeneralPollDetail(regularDetail, mealActor)
+        : mockNotFound('POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
   }
   if (
     route.method === 'PUT' &&
@@ -728,7 +848,44 @@ function resolveMockData(
       };
       return mockMealState.responses[responseKey];
     }
-    return poll.response;
+    const detailIndex = mockPollDetails.findIndex(
+      (detail) => detail.id === pollId && detail.campusId === campusId,
+    );
+    const detail = mockPollDetails[detailIndex];
+    if (!detail || pollId === null) {
+      return mockNotFound('POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
+    }
+    if (detail.status !== 'OPEN') {
+      return mockConflict('POLL_CLOSED', '마감된 투표에는 응답할 수 없습니다.');
+    }
+    const request = toRecord(parseMockJsonBody(body));
+    const optionIds = Array.isArray(request.optionIds)
+      ? request.optionIds.filter((value): value is number =>
+          typeof value === 'number' && Number.isSafeInteger(value))
+      : [];
+    const uniqueOptionIds = [...new Set(optionIds)];
+    const selectionInvalid = detail.selectionType === 'SINGLE'
+      ? uniqueOptionIds.length !== 1
+      : uniqueOptionIds.length === 0;
+    if (
+      selectionInvalid ||
+      uniqueOptionIds.length !== optionIds.length ||
+      uniqueOptionIds.some((optionId) => !detail.options.some((option) => option.id === optionId))
+    ) {
+      return mockBadRequest('POLL_RESPONSE_INVALID', '선택한 응답을 확인해 주세요.');
+    }
+    const userId = mealActor?.userId ?? 0;
+    const responseKey = mockGeneralPollResponseKey(campusId, pollId, userId);
+    const previousResponse = mockGeneralPollResponses.get(responseKey) ?? null;
+    const response: MockGeneralPollResponse = {
+      responseId: previousResponse?.responseId ?? 10_000 + pollId * 100 + userId,
+      pollId,
+      optionIds: uniqueOptionIds,
+      respondedAt: new Date().toISOString(),
+    };
+    applyMockGeneralPollResponse(detail, userId, previousResponse, response);
+    mockGeneralPollResponses.set(responseKey, response);
+    return response;
   }
   if (
     route.method === 'POST' &&
@@ -839,9 +996,22 @@ function resolveMockData(
     return option;
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+\/results$/.test(path)) {
+    const campusId = getCampusId(path);
+    const membershipDenied = authorizeCampusMember(mealActor, campusId);
+    if (membershipDenied) return membershipDenied;
     const pollId = getPathNumberBeforeSuffix(path, 'results');
-
-    return poll.resultsByPollId.find((results) => results.pollId === pollId) ?? poll.results;
+    const mealDetail = mockMealState.details.find(
+      (detail) => detail.id === pollId && detail.campusId === campusId,
+    );
+    const regularDetail = mockPollDetails.find(
+      (item) => item.id === pollId && item.campusId === campusId,
+    );
+    const detail = mealDetail
+      ? toGeneralMealPollDetail(mealDetail, mealActor?.userId ?? 0)
+      : regularDetail;
+    if (!detail) return mockNotFound('POLL_NOT_FOUND', '투표를 찾을 수 없습니다.');
+    if (mealDetail) return createMockMealPollResults(mealDetail);
+    return getOrCreateMockGeneralPollResults(detail);
   }
   if (route.method === 'GET' && /^\/campuses\/\d+\/polls\/\d+\/comments$/.test(path)) {
     return poll.comments;
@@ -904,18 +1074,32 @@ function resolveMockData(
     return template;
   }
   if (route.method === 'POST' && /^\/admin\/campuses\/\d+\/polls$/.test(path)) {
+    const campusId = getCampusId(path);
+    const denied = authorizeMealAdmin(mealActor, campusId);
+    if (denied) return denied;
     const request = toRecord(parseMockJsonBody(body));
-    const imageAssetIds = Array.isArray(request.imageAssetIds)
-      ? request.imageAssetIds.filter((value): value is number =>
-          typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
-      : [];
+    const rawImageAssetIds = request.imageAssetIds ?? [];
+    if (
+      !Array.isArray(rawImageAssetIds) ||
+      rawImageAssetIds.some((value) =>
+        typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)
+    ) {
+      return mockBadRequest(
+        'POLL_NOTICE_IMAGE_ASSET_IDS_INVALID',
+        '공지 이미지 정보가 올바르지 않습니다.',
+      );
+    }
+    const imageAssetIds = [...new Set(rawImageAssetIds as number[])];
+    const invalidMedia = validateMockMediaAssetIds(campusId, imageAssetIds);
+    if (invalidMedia) return invalidMedia;
     const notice = typeof request.notice === 'string' && request.notice.trim() !== ''
       ? request.notice.trim()
       : null;
+    const pollId = getNextMockPollId();
     const created: PollDetail = {
       ...poll.detail,
-      id: 701,
-      campusId: getCampusId(path),
+      id: pollId,
+      campusId,
       title: stringField(request.title, poll.detail.title),
       pollType: stringField(request.pollType, poll.detail.pollType),
       selectionType: stringField(request.selectionType, poll.detail.selectionType),
@@ -930,10 +1114,11 @@ function resolveMockData(
       imageAssetIds,
       hasNotice: notice !== null || imageAssetIds.length > 0,
       options: Array.isArray(request.options)
-        ? createMockPollTemplateOptions(request.options, 701)
+        ? createMockPollTemplateOptions(request.options, pollId)
         : poll.detail.options,
+      myResponse: null,
     };
-    mockPollDetails = [created, ...mockPollDetails.filter((item) => item.id !== 701)];
+    mockPollDetails = [created, ...mockPollDetails];
     return created;
   }
   if (
@@ -1340,6 +1525,389 @@ function createInitialMockPollDetails(): PollDetail[] {
       : null,
     options: detail.options.map((option) => ({...option})),
   }));
+}
+
+function parseMockPollNoticeMutation(
+  body?: BodyInit | null,
+): MockErrorResult | {title: string; notice: string | null; imageAssetIds: number[]} {
+  const request = toRecord(parseMockJsonBody(body));
+  if (
+    hasUnexpectedKeys(request, ['title', 'notice', 'imageAssetIds']) ||
+    typeof request.title !== 'string' ||
+    request.title.trim() === '' ||
+    request.title.trim().length > POLL_TITLE_MAX_LENGTH ||
+    (request.notice !== null && typeof request.notice !== 'string') ||
+    !Array.isArray(request.imageAssetIds)
+  ) {
+    return mockBadRequest(
+      'POLL_NOTICE_FIELDS_INVALID',
+      '투표 공지 수정 요청이 올바르지 않습니다.',
+    );
+  }
+
+  const notice = typeof request.notice === 'string' && request.notice.trim() !== ''
+    ? request.notice.trim()
+    : null;
+  if (notice !== null && notice.length > 2_000) {
+    return mockBadRequest(
+      'POLL_NOTICE_TOO_LONG',
+      '공지글은 2000자 이하로 입력해 주세요.',
+    );
+  }
+
+  const rawImageAssetIds = request.imageAssetIds;
+  if (rawImageAssetIds.some((value) =>
+    typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0
+  )) {
+    return mockBadRequest(
+      'POLL_NOTICE_IMAGE_ASSET_IDS_INVALID',
+      '공지 이미지 정보가 올바르지 않습니다.',
+    );
+  }
+
+  return {
+    title: request.title.trim(),
+    notice,
+    imageAssetIds: [...new Set(rawImageAssetIds as number[])],
+  };
+}
+
+function isMockMediaAssetAvailable(campusId: number, assetId: number) {
+  const reservation = mockMediaReservations.get(assetId);
+  if (reservation) {
+    return reservation.campusId === campusId && reservation.status === 'READY';
+  }
+  return mockReadyMediaAssets.get(assetId) === campusId;
+}
+
+function validateMockMediaAssetIds(
+  campusId: number,
+  assetIds: readonly number[],
+): MockErrorResult | null {
+  for (const assetId of assetIds) {
+    const reservation = mockMediaReservations.get(assetId);
+    if (reservation) {
+      if (reservation.campusId !== campusId || reservation.status !== 'READY') {
+        return mockBadRequest(
+          'POLL_NOTICE_IMAGE_ASSET_IDS_INVALID',
+          '완료된 같은 캠퍼스 이미지만 공지에 첨부할 수 있습니다.',
+        );
+      }
+      continue;
+    }
+    if (mockReadyMediaAssets.get(assetId) !== campusId) {
+      return mockBadRequest(
+        'POLL_NOTICE_IMAGE_ASSET_IDS_INVALID',
+        '등록된 같은 캠퍼스 이미지만 공지에 첨부할 수 있습니다.',
+      );
+    }
+  }
+  return null;
+}
+
+function toMockPollSummary(detail: PollDetail, actor: MockMealActor | null) {
+  const requesterDetail = toRequesterGeneralPollDetail(detail, actor);
+  return {
+    id: requesterDetail.id,
+    campusId: requesterDetail.campusId,
+    title: requesterDetail.title,
+    pollType: requesterDetail.pollType,
+    selectionType: requesterDetail.selectionType,
+    isAnonymous: requesterDetail.isAnonymous,
+    allowUserOptionAdd: requesterDetail.allowUserOptionAdd,
+    startsAt: requesterDetail.startsAt,
+    endsAt: requesterDetail.endsAt,
+    status: requesterDetail.status,
+    responded: requesterDetail.responded,
+    manageableByMe: requesterDetail.manageableByMe,
+    hasNotice: hasMockPollNotice(requesterDetail),
+  };
+}
+
+function toRequesterGeneralPollDetail(detail: PollDetail, actor: MockMealActor | null): PollDetail {
+  const response = actor
+    ? mockGeneralPollResponses.get(
+        mockGeneralPollResponseKey(detail.campusId, detail.id, actor.userId),
+      ) ?? null
+    : null;
+  return {
+    ...detail,
+    responded: response !== null,
+    manageableByMe: actor?.adminCampusIds.includes(detail.campusId) === true,
+    myResponse: response === null ? null : {...response, optionIds: [...response.optionIds]},
+  };
+}
+
+function createInitialMockReadyMediaAssets() {
+  const readyAssets = new Map<number, number>();
+  for (const detail of mockPollDetails) {
+    for (const assetId of detail.imageAssetIds ?? []) {
+      readyAssets.set(assetId, detail.campusId);
+    }
+  }
+  for (const detail of mockMealState.details) {
+    for (const assetId of detail.imageAssetIds ?? []) {
+      readyAssets.set(assetId, detail.campusId);
+    }
+  }
+  return readyAssets;
+}
+
+function createInitialMockGeneralPollResponses() {
+  const responses = new Map<string, MockGeneralPollResponse>();
+  for (const fixture of [
+    mockDomainFixtures.poll.results,
+    ...mockDomainFixtures.poll.resultsByPollId,
+  ]) {
+    for (const option of fixture.optionResults) {
+      for (const respondent of option.respondents) {
+        const key = mockGeneralPollResponseKey(
+          fixture.campusId,
+          fixture.pollId,
+          respondent.userId,
+        );
+        const current = responses.get(key);
+        responses.set(key, {
+          responseId: current?.responseId ??
+            20_000 + fixture.pollId * 100 + respondent.userId,
+          pollId: fixture.pollId,
+          optionIds: current
+            ? [...new Set([...current.optionIds, option.id])]
+            : [option.id],
+          respondedAt: current?.respondedAt ?? fixture.startsAt,
+        });
+      }
+    }
+  }
+  for (const detail of mockPollDetails) {
+    if (!detail.responded) continue;
+    const key = mockGeneralPollResponseKey(detail.campusId, detail.id, 7);
+    const seeded = responses.get(key);
+    const optionIds = detail.myResponse?.optionIds ?? seeded?.optionIds ??
+      (detail.options[0] ? [detail.options[0].id] : []);
+    if (optionIds.length === 0) continue;
+    responses.set(key, {
+      responseId: detail.myResponse?.responseId ?? seeded?.responseId ?? 20_000 + detail.id,
+      pollId: detail.id,
+      optionIds: [...optionIds],
+      respondedAt: detail.myResponse?.respondedAt ?? seeded?.respondedAt ?? detail.startsAt,
+    });
+  }
+  return responses;
+}
+
+function createInitialMockGeneralPollResults() {
+  const results = new Map<string, PollResults>();
+  for (const fixture of [
+    mockDomainFixtures.poll.results,
+    ...mockDomainFixtures.poll.resultsByPollId,
+  ]) {
+    results.set(mockGeneralPollKey(fixture.campusId, fixture.pollId), cloneMockPollResults(fixture));
+  }
+  return results;
+}
+
+function cloneMockPollResults(results: PollResults): PollResults {
+  return {
+    ...results,
+    optionResults: results.optionResults.map((option) => ({
+      ...option,
+      respondents: option.respondents.map((respondent) => ({...respondent})),
+    })),
+  };
+}
+
+function getOrCreateMockGeneralPollResults(detail: PollDetail): PollResults {
+  const key = mockGeneralPollKey(detail.campusId, detail.id);
+  const existing = mockGeneralPollResults.get(key) ??
+    createMockGeneralPollResultsFromResponses(detail);
+  const synchronized: PollResults = {
+    ...existing,
+    campusId: detail.campusId,
+    pollId: detail.id,
+    title: detail.title,
+    pollType: detail.pollType,
+    selectionType: detail.selectionType,
+    anonymous: detail.isAnonymous,
+    status: detail.status,
+    startsAt: detail.startsAt,
+    endsAt: detail.endsAt,
+    optionResults: detail.options.map((option) => {
+      const current = existing.optionResults.find((result) => result.id === option.id);
+      return current
+        ? {...current, content: option.content, sortOrder: option.sortOrder}
+        : {
+            id: option.id,
+            content: option.content,
+            sortOrder: option.sortOrder,
+            responseCount: 0,
+            respondents: [],
+          };
+    }),
+  };
+  mockGeneralPollResults.set(key, synchronized);
+  return cloneMockPollResults(synchronized);
+}
+
+function createMockGeneralPollResultsFromResponses(detail: PollDetail): PollResults {
+  const empty = createEmptyMockPollResults(detail);
+  const responsePrefix = `${mockGeneralPollKey(detail.campusId, detail.id)}:`;
+  const responses = [...mockGeneralPollResponses.entries()]
+    .filter(([key]) => key.startsWith(responsePrefix));
+  const optionResults = empty.optionResults.map((option) => {
+    const selectedResponses = responses.filter(([, response]) =>
+      response.optionIds.includes(option.id));
+    return {
+      ...option,
+      responseCount: selectedResponses.length,
+      respondents: detail.isAnonymous
+        ? []
+        : selectedResponses.map(([key]) =>
+            getMockPollRespondent(Number(key.slice(responsePrefix.length)))),
+    };
+  });
+  return {
+    ...empty,
+    targetMemberCount: responses.length,
+    respondedCount: responses.length,
+    optionResults,
+  };
+}
+
+function applyMockGeneralPollResponse(
+  detail: PollDetail,
+  userId: number,
+  previousResponse: MockGeneralPollResponse | null,
+  response: MockGeneralPollResponse,
+) {
+  const current = getOrCreateMockGeneralPollResults(detail);
+  const respondent = getMockPollRespondent(userId);
+  let hadResponse = previousResponse !== null;
+  const optionResults = current.optionResults.map((option) => {
+    const hadIdentifiedRespondent = option.respondents.some((item) => item.userId === userId);
+    const hadStoredSelection = previousResponse?.optionIds.includes(option.id) === true;
+    const removePrevious = hadIdentifiedRespondent || hadStoredSelection;
+    if (removePrevious) hadResponse = true;
+    const selected = response.optionIds.includes(option.id);
+    return {
+      ...option,
+      responseCount: Math.max(0, option.responseCount - (removePrevious ? 1 : 0)) +
+        (selected ? 1 : 0),
+      respondents: detail.isAnonymous
+        ? []
+        : [
+            ...option.respondents.filter((item) => item.userId !== userId),
+            ...(selected ? [respondent] : []),
+          ],
+    };
+  });
+  const respondedCount = current.respondedCount + (hadResponse ? 0 : 1);
+  mockGeneralPollResults.set(mockGeneralPollKey(detail.campusId, detail.id), {
+    ...current,
+    targetMemberCount: Math.max(current.targetMemberCount, respondedCount),
+    respondedCount,
+    notRespondedCount: Math.max(0, current.targetMemberCount - respondedCount),
+    optionResults,
+  });
+}
+
+function getMockPollRespondent(userId: number) {
+  const duty = mockMealState.duties.find((item) => item.userId === userId);
+  return {
+    userId,
+    name: duty?.name ?? `사용자 ${userId}`,
+    email: duty?.email ?? `mock.user.${userId}@example.test`,
+  };
+}
+
+function mockGeneralPollKey(campusId: number, pollId: number) {
+  return `${campusId}:${pollId}`;
+}
+
+function mockGeneralPollResponseKey(campusId: number, pollId: number, userId: number) {
+  return `${mockGeneralPollKey(campusId, pollId)}:${userId}`;
+}
+
+function nextMockMediaReservationAssetId() {
+  do {
+    mockMediaAssetSequence += 1;
+  } while (
+    mockMediaReservations.has(mockMediaAssetSequence) ||
+    mockReadyMediaAssets.has(mockMediaAssetSequence)
+  );
+  return mockMediaAssetSequence;
+}
+
+function getNextMockPollId() {
+  return Math.max(
+    1_000,
+    ...mockPollDetails.map((detail) => detail.id),
+    ...mockMealState.details.map((detail) => detail.id),
+  ) + 1;
+}
+
+function createMockMealPollResults(detail: MockMealPollDetail): PollResults {
+  const respondedCount = detail.options.reduce(
+    (total, option) => total + option.responseCount,
+    0,
+  );
+  return {
+    pollId: detail.id,
+    campusId: detail.campusId,
+    title: detail.title,
+    pollType: detail.pollType,
+    selectionType: detail.selectionType,
+    anonymous: detail.isAnonymous,
+    status: detail.status,
+    startsAt: detail.startsAt,
+    endsAt: detail.endsAt,
+    targetMemberCount: respondedCount,
+    respondedCount,
+    notRespondedCount: 0,
+    optionResults: detail.options.map((option, optionIndex) => ({
+      id: option.optionId,
+      content: option.content,
+      sortOrder: optionIndex + 1,
+      responseCount: option.responseCount,
+      respondents: detail.isAnonymous
+        ? []
+        : Array.from({length: option.responseCount}, (_, respondentIndex) => ({
+            userId: detail.id * 100_000 + (optionIndex + 1) * 1_000 + respondentIndex + 1,
+            name: `응답자 ${respondentIndex + 1}`,
+            email: `meal.poll.${detail.id}.${optionIndex + 1}.${respondentIndex + 1}@example.test`,
+          })),
+    })),
+  };
+}
+
+function createEmptyMockPollResults(detail: PollDetail): PollResults {
+  return {
+    pollId: detail.id,
+    campusId: detail.campusId,
+    title: detail.title,
+    pollType: detail.pollType,
+    selectionType: detail.selectionType,
+    anonymous: detail.isAnonymous,
+    status: detail.status,
+    startsAt: detail.startsAt,
+    endsAt: detail.endsAt,
+    targetMemberCount: 0,
+    respondedCount: 0,
+    notRespondedCount: 0,
+    optionResults: detail.options.map((option) => ({
+      id: option.id,
+      content: option.content,
+      sortOrder: option.sortOrder,
+      responseCount: 0,
+      respondents: [],
+    })),
+  };
+}
+
+function hasMockPollNotice(
+  poll: {notice?: string | null; imageAssetIds?: readonly number[]} | undefined,
+) {
+  return Boolean(poll?.notice?.trim()) || Boolean(poll?.imageAssetIds?.length);
 }
 
 function createMockAdminPollTemplates() {
@@ -1933,6 +2501,7 @@ function toGeneralMealPollSummary(poll: MockMealPollSummary, userId: number) {
     manageableByMe: mockMealState.duties.some(
       (duty) => duty.campusId === poll.campusId && duty.userId === userId && duty.isActive,
     ),
+    hasNotice: poll.hasNotice === true,
   };
 }
 
@@ -1952,6 +2521,10 @@ function toGeneralMealPollDetail(detail: MockMealPollDetail, userId: number) {
       userAdded: option.userAdded,
     })),
     myResponse: mockMealState.responses[mockMealResponseKey(detail.id, userId)] ?? null,
+    ...(detail.notice === undefined ? {} : {notice: detail.notice}),
+    ...(detail.imageAssetIds === undefined
+      ? {}
+      : {imageAssetIds: [...detail.imageAssetIds]}),
   };
 }
 
@@ -2093,7 +2666,21 @@ function createMockMealPoll(campusId: number, body: unknown) {
   ) {
     return mockBadRequest('MEAL_POLL_OPTIONS_INVALID', '서로 다른 선택지를 두 개 이상 입력해 주세요.');
   }
-  const id = Math.max(...mockMealState.polls.map((poll) => poll.id)) + 1;
+  const rawImageAssetIds = record.imageAssetIds ?? [];
+  if (
+    !Array.isArray(rawImageAssetIds) ||
+    rawImageAssetIds.some((value) =>
+      typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)
+  ) {
+    return mockBadRequest(
+      'POLL_NOTICE_IMAGE_ASSET_IDS_INVALID',
+      '공지 이미지 정보가 올바르지 않습니다.',
+    );
+  }
+  const imageAssetIds = [...new Set(rawImageAssetIds as number[])];
+  const invalidMedia = validateMockMediaAssetIds(campusId, imageAssetIds);
+  if (invalidMedia) return invalidMedia;
+  const id = getNextMockPollId();
   const now = new Date().toISOString();
   const summary = mealPollSummary({
     campusId,
@@ -2115,10 +2702,7 @@ function createMockMealPoll(campusId: number, body: unknown) {
     notice: typeof record.notice === 'string' && record.notice.trim() !== ''
       ? record.notice.trim()
       : null,
-    imageAssetIds: Array.isArray(record.imageAssetIds)
-      ? record.imageAssetIds.filter((value): value is number =>
-          typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
-      : [],
+    imageAssetIds,
     options: contents.map((content, index) => ({
       optionId: id * 10 + index + 1,
       content,

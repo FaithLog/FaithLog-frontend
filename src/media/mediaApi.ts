@@ -2,9 +2,9 @@ import {apiRequest, toPositiveIntegerPathSegment} from '../api/client';
 import {FaithLogApiError} from '../api/apiError';
 import type {
   MediaAccessUrl,
+  MediaAssetCompletion,
   MediaUploadReservation,
   MediaUploadReservationRequest,
-  ReadyMediaAsset,
 } from './mediaTypes';
 
 type MediaRequestOptions<T> = {
@@ -23,7 +23,7 @@ export type MediaApi = {
     campusId: number,
     body: MediaUploadReservationRequest,
   ): Promise<MediaUploadReservation>;
-  complete(accessToken: string, campusId: number, assetId: number): Promise<ReadyMediaAsset>;
+  complete(accessToken: string, campusId: number, assetId: number): Promise<MediaAssetCompletion>;
   getAccessUrls(
     accessToken: string,
     campusId: number,
@@ -48,7 +48,7 @@ export function createMediaApi({request}: {request: MediaRequest}): MediaApi {
         {
           accessToken,
           method: 'POST',
-          responseParser: parseReadyMediaAsset,
+          responseParser: (value) => parseMediaAssetCompletion(value, assetId),
         },
       );
     },
@@ -122,14 +122,28 @@ function parseMediaUploadReservation(value: unknown): MediaUploadReservation {
   };
 }
 
-function parseReadyMediaAsset(value: unknown): ReadyMediaAsset {
+function parseMediaAssetCompletion(
+  value: unknown,
+  expectedAssetId: number,
+): MediaAssetCompletion {
   const record = requireRecord(value);
+  const assetId = requirePositiveId(record.assetId);
+  if (assetId !== expectedAssetId) return invalidResponse();
+  if (record.status === 'PROCESSING') {
+    return {
+      assetId,
+      status: 'PROCESSING',
+      ...(record.retryAfterMs === undefined
+        ? {}
+        : {retryAfterMs: requireNonNegativeInteger(record.retryAfterMs)}),
+    };
+  }
   if (record.status !== 'READY') return invalidResponse();
   const sha256 = typeof record.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(record.sha256)
     ? record.sha256
     : invalidResponse();
   return {
-    assetId: requirePositiveId(record.assetId),
+    assetId,
     status: 'READY',
     sha256,
     byteSize: requirePositiveId(record.byteSize),
@@ -175,6 +189,11 @@ function requireRecord(value: unknown): Record<string, unknown> {
 
 function requirePositiveId(value: unknown) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) return invalidResponse();
+  return value;
+}
+
+function requireNonNegativeInteger(value: unknown) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return invalidResponse();
   return value;
 }
 

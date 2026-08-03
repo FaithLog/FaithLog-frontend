@@ -34,6 +34,10 @@ export type PollOpenTarget = {
   pollId: number;
 };
 
+export type NotificationPollTargetResolution =
+  | {status: 'accepted'; pollTarget: PollOpenTarget | null}
+  | {status: 'rejected'};
+
 type ParamNormalizer = (value: unknown) => number | string | null;
 
 const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
@@ -171,6 +175,20 @@ export function getPollOpenTarget(
     campusId: currentCampusId,
     pollId: target.params.pollId,
   };
+}
+
+export function resolveNotificationPollTarget(
+  target: ValidPushNavigationTarget,
+  currentCampusId: number,
+): NotificationPollTargetResolution {
+  if (target.route !== 'polls') {
+    return {status: 'accepted', pollTarget: null};
+  }
+
+  const pollTarget = getPollOpenTarget(target, currentCampusId);
+  return target.params.campusId !== undefined && pollTarget === null
+    ? {status: 'rejected'}
+    : {status: 'accepted', pollTarget};
 }
 
 function parseEventPayload(payload: Record<string, unknown>): PushNavigationTarget {

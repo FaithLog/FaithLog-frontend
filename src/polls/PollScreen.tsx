@@ -43,7 +43,6 @@ import type {
   PollSummary,
 } from '../api/types';
 import {mediaApi} from '../media/mediaApi';
-import type {MediaAccessUrl} from '../media/mediaTypes';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {shouldHandleRequestError} from '../auth/requestErrorLineage';
@@ -65,6 +64,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import type {PollOpenTarget} from '../notifications/pushNavigation';
 import {colors, radius, spacing} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {chunkForVirtualizedRows} from '../utils/listVirtualization';
@@ -89,6 +89,11 @@ import {
   PollNoticeBlock,
   PollNoticeMediaPanel,
 } from './notice/PollNoticeComponents';
+import {getPollNoticeCapabilities} from './notice/pollNoticeCapabilities';
+import {
+  createPollNoticeMediaCoordinator,
+  type PollNoticeMediaState,
+} from './notice/pollNoticeMediaCoordinator';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -101,7 +106,7 @@ type Notice = {
 type PollScreenProps = {
   androidContentBottomPadding: number;
   canOpenAdminMode: boolean;
-  notificationPollId: number | null;
+  notificationPollTarget: PollOpenTarget | null;
   onNotificationPollHandled: () => void;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
@@ -123,7 +128,7 @@ type DetailState =
       coffeeCatalog: CoffeeCatalogState;
       comments: PollComment[];
       detail: PollDetail;
-      noticeMedia: NoticeMediaState;
+      noticeMedia: PollNoticeMediaState;
       resultError: ApiError | null;
       results: PollResults | null;
     }
@@ -138,11 +143,6 @@ type CoffeeCatalogState =
   | {status: 'notNeeded'}
   | {status: 'success'; brands: CoffeeBrand[]; menus: CoffeeMenu[]}
   | {status: 'error'; error: ApiError};
-type NoticeMediaState =
-  | {status: 'empty'}
-  | {status: 'success'; assets: MediaAccessUrl[]}
-  | {status: 'error'; error: ApiError};
-
 const RESPONSE_ERROR_CODES = new Set([
   'POLL_RESPONSE_DUPLICATE_OPTION',
   'POLL_RESPONSE_INVALID_SELECTION_COUNT',
@@ -153,7 +153,7 @@ const POLL_RESPONDENTS_PER_ROW = 2;
 export function PollScreen({
   androidContentBottomPadding,
   canOpenAdminMode,
-  notificationPollId,
+  notificationPollTarget,
   onNotificationPollHandled,
   onOpenAdminMode,
   onOpenNotifications,
@@ -162,6 +162,8 @@ export function PollScreen({
   state,
 }: PollScreenProps) {
   const campusId = state.selectedCampus.campusId;
+  const notificationCampusId = notificationPollTarget?.campusId ?? null;
+  const notificationPollId = notificationPollTarget?.pollId ?? null;
   const [listState, setListState] = useState<ListState>({status: 'loading'});
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null);
   useAnalyticsScreen(selectedPollId === null ? 'poll_list' : 'poll_detail');
@@ -179,6 +181,14 @@ export function PollScreen({
   const optionAddOperation = useRef({id: 0, inFlight: false});
   const screenMounted = useRef(true);
   const commentDraftStore = useRef(new PollCommentDraftStore()).current;
+  const pollNoticeCapabilities = getPollNoticeCapabilities();
+  const noticeMediaCoordinator = useMemo(
+    () => createPollNoticeMediaCoordinator({
+      getAccessUrls: (token, selectedCampusId, assetIds) =>
+        mediaApi.getAccessUrls(token, selectedCampusId, assetIds),
+    }),
+    [],
+  );
   currentPollId.current = selectedPollId;
 
   const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
@@ -197,6 +207,7 @@ export function PollScreen({
       screenMounted.current = false;
       detailEpoch.current += 1;
       currentPollId.current = null;
+      noticeMediaCoordinator.invalidate();
     };
   }, []);
 
@@ -241,11 +252,22 @@ export function PollScreen({
         fetchPollResultState(accessToken, campusId, pollId),
       ]);
       const detail = fetchedDetail;
-      const [coffeeCatalog, noticeMedia] = await Promise.all([
+      const [coffeeCatalog, noticeMediaResult] = await Promise.all([
         loadCoffeeCatalog(accessToken, detail),
-        loadPollNoticeMedia(accessToken, campusId, detail),
+        noticeMediaCoordinator.load({
+          accessToken,
+          assetIds: detail.imageAssetIds ?? [],
+          authSessionGeneration: generation,
+          campusId,
+          enabled: pollNoticeCapabilities.canAccessMedia,
+          pollId: detail.id,
+        }),
       ]);
-      if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
+      const noticeMedia = noticeMediaResult.state;
+      if (
+        !noticeMediaCoordinator.isCurrent(noticeMediaResult) ||
+        !isCurrentDetailOperation(pollId, epoch, generation)
+      ) return;
       if (coffeeCatalog.status === 'error') {
         handleAuthError(coffeeCatalog.error, setAuthState);
       }
@@ -275,12 +297,55 @@ export function PollScreen({
     }
   };
 
+  const retryNoticeMedia = async () => {
+    if (detailState.status !== 'success') return false;
+    const pollId = detailState.detail.id;
+    const epoch = detailEpoch.current;
+    const generation = getAuthSessionGeneration();
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken || !isCurrentDetailOperation(pollId, epoch, generation)) return false;
+
+      const result = await noticeMediaCoordinator.load({
+        accessToken,
+        assetIds: detailState.detail.imageAssetIds ?? [],
+        authSessionGeneration: generation,
+        campusId,
+        enabled: pollNoticeCapabilities.canAccessMedia,
+        pollId,
+      });
+      if (
+        !noticeMediaCoordinator.isCurrent(result) ||
+        !isCurrentDetailOperation(pollId, epoch, generation)
+      ) return false;
+      if (result.state.status === 'error') {
+        handleAuthError(result.state.error, setAuthState);
+      }
+      setDetailState((current) =>
+        current.status === 'success' && current.detail.id === pollId
+          ? {...current, noticeMedia: result.state}
+          : current,
+      );
+      return result.state.status !== 'error';
+    } catch (error) {
+      const apiError = toApiError(error, '투표 공지 이미지를 불러오지 못했습니다.');
+      if (shouldHandleDetailError(apiError, pollId, epoch, generation)) {
+        handleAuthError(apiError, setAuthState);
+      }
+      return false;
+    }
+  };
+
   useEffect(() => {
     void loadPolls();
   }, [campusId]);
 
   useEffect(() => {
-    if (notificationPollId === null) return;
+    if (notificationCampusId === null || notificationPollId === null) return;
+
+    onNotificationPollHandled();
+    if (notificationCampusId !== campusId) return;
 
     detailEpoch.current += 1;
     const epoch = detailEpoch.current;
@@ -293,9 +358,8 @@ export function PollScreen({
     setActionError(null);
     setSelectedPollId(notificationPollId);
     setDetailTab('response');
-    onNotificationPollHandled();
     void loadDetail(notificationPollId, 'response', {epoch, generation});
-  }, [notificationPollId]);
+  }, [campusId, notificationCampusId, notificationPollId]);
 
   const openDetail = (poll: PollSummary) => {
     const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
@@ -657,9 +721,11 @@ export function PollScreen({
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
+                  mediaEnabled={pollNoticeCapabilities.canAccessMedia}
                   noticeMedia={detailState.noticeMedia}
+                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
                   onBack={closeDetail}
-                  onRetryNoticeMedia={() => loadDetail(detailState.detail.id, detailTab)}
+                  onRetryNoticeMedia={retryNoticeMedia}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
                 />
@@ -698,9 +764,11 @@ export function PollScreen({
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
+                  mediaEnabled={pollNoticeCapabilities.canAccessMedia}
                   noticeMedia={detailState.noticeMedia}
+                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
                   onBack={closeDetail}
-                  onRetryNoticeMedia={() => loadDetail(detailState.detail.id, detailTab)}
+                  onRetryNoticeMedia={retryNoticeMedia}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
                 />
@@ -724,9 +792,11 @@ export function PollScreen({
           campusLabel={state.selectedCampus.campusName}
           contextLabel={`${state.user.name}님`}
           detail={detailState.detail}
+          mediaEnabled={pollNoticeCapabilities.canAccessMedia}
           noticeMedia={detailState.noticeMedia}
+          noticeEnabled={pollNoticeCapabilities.canReadNotice}
           onBack={closeDetail}
-          onRetryNoticeMedia={() => loadDetail(detailState.detail.id, detailTab)}
+          onRetryNoticeMedia={retryNoticeMedia}
           onOpenAdminMode={onOpenAdminMode}
           onOpenNotifications={onOpenNotifications}
         />
@@ -853,14 +923,24 @@ export function PollScreen({
           ) : null}
           {pollGroups.activePolls.length > 0 ? (
             pollGroups.activePolls.slice(0, 4).map((poll) => (
-              <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+              <PollListCard
+                key={poll.id}
+                noticeEnabled={pollNoticeCapabilities.canReadNotice}
+                onPress={() => openDetail(poll)}
+                poll={poll}
+              />
             ))
           ) : null}
           {pollGroups.scheduledPolls.length > 0 ? (
             <>
               <Text style={styles.figmaSectionTitle}>예정된 투표</Text>
               {pollGroups.scheduledPolls.slice(0, 2).map((poll) => (
-                <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+                <PollListCard
+                  key={poll.id}
+                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
+                  onPress={() => openDetail(poll)}
+                  poll={poll}
+                />
               ))}
             </>
           ) : null}
@@ -869,7 +949,12 @@ export function PollScreen({
             <Text style={styles.figmaMutedText}>아직 응답한 투표가 없습니다.</Text>
           ) : (
             pollGroups.respondedPolls.slice(0, 2).map((poll) => (
-              <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+              <PollListCard
+                key={poll.id}
+                noticeEnabled={pollNoticeCapabilities.canReadNotice}
+                onPress={() => openDetail(poll)}
+                poll={poll}
+              />
             ))
           )}
         </>
@@ -880,7 +965,12 @@ export function PollScreen({
             <Text style={styles.figmaMutedText}>최근 마감한 투표가 없습니다.</Text>
           ) : (
             pollGroups.recentlyClosedPolls.slice(0, 6).map((poll) => (
-              <PollListCard key={poll.id} onPress={() => openDetail(poll)} poll={poll} />
+              <PollListCard
+                key={poll.id}
+                noticeEnabled={pollNoticeCapabilities.canReadNotice}
+                onPress={() => openDetail(poll)}
+                poll={poll}
+              />
             ))
           )}
         </>
@@ -964,7 +1054,9 @@ function PollDetailHeader({
   campusLabel,
   contextLabel,
   detail,
+  mediaEnabled,
   noticeMedia,
+  noticeEnabled,
   onBack,
   onRetryNoticeMedia,
   onOpenAdminMode,
@@ -974,9 +1066,11 @@ function PollDetailHeader({
   campusLabel: string;
   contextLabel: string;
   detail: PollDetail;
-  noticeMedia: NoticeMediaState;
+  mediaEnabled: boolean;
+  noticeMedia: PollNoticeMediaState;
+  noticeEnabled: boolean;
   onBack: () => void;
-  onRetryNoticeMedia: () => void;
+  onRetryNoticeMedia: () => Promise<boolean>;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
 }) {
@@ -1010,8 +1104,8 @@ function PollDetailHeader({
           </Text>
         </View>
       </View>
-      <PollNoticeBlock notice={detail.notice} />
-      <PollNoticeMediaPanel onRetry={onRetryNoticeMedia} state={noticeMedia} />
+      <PollNoticeBlock enabled={noticeEnabled} notice={detail.notice} />
+      <PollNoticeMediaPanel enabled={mediaEnabled} onRetry={onRetryNoticeMedia} state={noticeMedia} />
       {detail.status === 'SCHEDULED' ? (
         <InlineNotice message="아직 시작 전인 투표라 응답과 댓글 작성이 제한됩니다." tone="warning" />
       ) : null}
@@ -1588,7 +1682,15 @@ const MemoizedPollRespondent = memo(function MemoizedPollRespondent({
   );
 });
 
-function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary}) {
+function PollListCard({
+  noticeEnabled,
+  onPress,
+  poll,
+}: {
+  noticeEnabled: boolean;
+  onPress: () => void;
+  poll: PollSummary;
+}) {
   const respondedOrClosed = poll.responded || poll.status !== 'OPEN';
 
   return (
@@ -1609,7 +1711,10 @@ function PollListCard({onPress, poll}: {onPress: () => void; poll: PollSummary})
         <Text style={styles.figmaPollMeta}>
           {getPollTypeLabel(poll.pollType)} · {poll.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {poll.isAnonymous ? '익명' : '공개'}
         </Text>
-        <PollNoticeBadge hasNotice={poll.hasNotice} />
+        <PollNoticeBadge
+          enabled={noticeEnabled}
+          hasNotice={poll.hasNotice}
+        />
       </View>
       <View style={styles.figmaPollButton}>
         <Text style={styles.figmaPollButtonText}>
@@ -1973,26 +2078,6 @@ async function loadCoffeeCatalog(
     coffeeCatalogFlight = null;
   }
   return result;
-}
-
-async function loadPollNoticeMedia(
-  accessToken: string,
-  campusId: number,
-  detail: PollDetail,
-): Promise<NoticeMediaState> {
-  const assetIds = detail.imageAssetIds ?? [];
-  if (assetIds.length === 0) return {status: 'empty'};
-
-  try {
-    return {
-      status: 'success',
-      assets: await mediaApi.getAccessUrls(accessToken, campusId, assetIds),
-    };
-  } catch (error) {
-    const apiError = toApiError(error, '투표 공지 이미지를 불러오지 못했습니다.');
-    if (apiError.kind === 'sessionExpired') throw error;
-    return {status: 'error', error: apiError};
-  }
 }
 
 async function fetchPollResultState(

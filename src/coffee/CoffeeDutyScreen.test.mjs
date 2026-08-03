@@ -34,6 +34,7 @@ vi.mock('react-native', async () => {
       )),
     ),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
+    Image: host('Image'),
     Modal: ({children, visible, ...props}) => visible
       ? ReactModule.createElement('Modal', props, children)
       : null,
@@ -107,6 +108,7 @@ vi.mock('../api/client', () => {
 
 import {CoffeeDutyScreen} from './CoffeeDutyScreen';
 import {FaithLogApiError} from '../api/client';
+import {resetMockAdapterStateForTests} from '../api/mockAdapter';
 import {
   DutyEntityCard,
   DutyMetricSurface,
@@ -120,6 +122,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
   beforeEach(() => {
     auth.generation = 1;
     vi.clearAllMocks();
+    resetMockAdapterStateForTests();
     mocks.resolveCurrentAccessToken.mockResolvedValue('A1');
     mocks.fetchMyDutyAssignment.mockResolvedValue({
       campusId: 1,
@@ -314,6 +317,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     });
 
     await press(renderer, '커피 투표 생성 페이지 열기');
+    await press(renderer, '투표 공지 이미지 추가');
     await press(renderer, '커피 메뉴 추가 모달 열기');
     await press(renderer, '아메리카노 메뉴 추가');
     const createButton = findByLabel(renderer, '커피 주문 투표 생성');
@@ -324,6 +328,11 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     });
 
     expect(mocks.createAdminPoll).toHaveBeenCalledTimes(1);
+    expect(mocks.createAdminPoll).toHaveBeenCalledWith(
+      'A1',
+      1,
+      expect.objectContaining({imageAssetIds: [95_001]}),
+    );
     expect(findByLabel(renderer, '커피 투표 페이지 열기').props.accessibilityState).toEqual({selected: true});
     expect(rendered(renderer)).toContain('새 커피 주문');
   });

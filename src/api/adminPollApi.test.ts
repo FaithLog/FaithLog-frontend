@@ -248,10 +248,13 @@ describe('admin poll API', () => {
     const created = await createAdminPoll('mock-access-token', 1, {
       ...baseRequest,
       notice: '  운영 공지  ',
-      imageAssetIds: [10, 11],
+      imageAssetIds: [90_001, 90_002],
     });
 
-    expect(created).toMatchObject({notice: '운영 공지', imageAssetIds: [10, 11]});
+    expect(created).toMatchObject({
+      notice: '운영 공지',
+      imageAssetIds: [90_001, 90_002],
+    });
     delete process.env.EXPO_PUBLIC_APP_ENV;
   });
 

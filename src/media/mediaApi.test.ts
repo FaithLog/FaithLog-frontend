@@ -61,6 +61,23 @@ describe('approved media API contract', () => {
     );
   });
 
+  it('parses PROCESSING as a pending completion result instead of a malformed READY response', async () => {
+    const request = vi.fn().mockImplementation((_path: string, options: {
+      responseParser: (value: unknown) => unknown;
+    }) => Promise.resolve(options.responseParser({
+      assetId: 101,
+      status: 'PROCESSING',
+      retryAfterMs: 25,
+    })));
+    const api = createMediaApi({request});
+
+    await expect(api.complete('token', 7, 101)).resolves.toEqual({
+      assetId: 101,
+      status: 'PROCESSING',
+      retryAfterMs: 25,
+    });
+  });
+
   it('batches access URL requests at 100 ids without N+1 calls', async () => {
     const request = vi.fn().mockImplementation((_path: string, options: {
       body: {assetIds: number[]};

@@ -24,6 +24,7 @@ import {
   PollNoticeBlock,
   PollNoticeEditorSection,
   PollNoticeGallery,
+  PollNoticeMediaPanel,
 } from './PollNoticeComponents';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,8 +34,8 @@ describe('poll notice components', () => {
     let visible;
     let hidden;
     await act(async () => {
-      visible = create(React.createElement(PollNoticeBadge, {hasNotice: true}));
-      hidden = create(React.createElement(PollNoticeBadge, {hasNotice: false}));
+      visible = create(React.createElement(PollNoticeBadge, {enabled: true, hasNotice: true}));
+      hidden = create(React.createElement(PollNoticeBadge, {enabled: true, hasNotice: false}));
     });
     expect(rendered(visible)).toContain('공지 있음');
     expect(hidden.toJSON()).toBeNull();
@@ -44,12 +45,41 @@ describe('poll notice components', () => {
     let visible;
     let blank;
     await act(async () => {
-      visible = create(React.createElement(PollNoticeBlock, {notice: '장소 변경 안내'}));
-      blank = create(React.createElement(PollNoticeBlock, {notice: '  '}));
+      visible = create(React.createElement(PollNoticeBlock, {enabled: true, notice: '장소 변경 안내'}));
+      blank = create(React.createElement(PollNoticeBlock, {enabled: true, notice: '  '}));
     });
     expect(rendered(visible)).toContain('투표 공지');
     expect(rendered(visible)).toContain('장소 변경 안내');
     expect(blank.toJSON()).toBeNull();
+  });
+
+  it('renders no badge, detail, or media subtree when the capability is pending', async () => {
+    let badge;
+    let detail;
+    let media;
+    await act(async () => {
+      badge = create(React.createElement(PollNoticeBadge, {enabled: false, hasNotice: true}));
+      detail = create(React.createElement(PollNoticeBlock, {
+        enabled: false,
+        notice: 'production에서 숨길 공지',
+      }));
+      media = create(React.createElement(PollNoticeMediaPanel, {
+        enabled: false,
+        onRetry: vi.fn(),
+        state: {
+          status: 'success',
+          assets: [{
+            assetId: 10,
+            thumbnailUrl: 'https://signed.invalid/10/thumb',
+            detailUrl: 'https://signed.invalid/10/detail',
+            expiresAt: '2026-08-03T03:10:00Z',
+          }],
+        },
+      }));
+    });
+    expect(badge.toJSON()).toBeNull();
+    expect(detail.toJSON()).toBeNull();
+    expect(media.toJSON()).toBeNull();
   });
 
   it('keeps notice draft and successful assets while retrying only the failed image', async () => {
@@ -85,7 +115,11 @@ describe('poll notice components', () => {
   });
 
   it('uses a horizontal lazy list for detail images and no original URL', async () => {
-    const onRetry = vi.fn();
+    let resolveRetry;
+    const retryFinished = new Promise((resolve) => {
+      resolveRetry = resolve;
+    });
+    const onRetry = vi.fn(() => retryFinished);
     let renderer;
     await act(async () => {
       renderer = create(React.createElement(PollNoticeGallery, {
@@ -105,11 +139,103 @@ describe('poll notice components', () => {
       renderer.root.findByType('Image').props.onError();
     });
     expect(onRetry).not.toHaveBeenCalled();
+    const retryButton = renderer.root.findByProps({
+      accessibilityLabel: '투표 공지 이미지 1 다시 불러오기',
+    });
     await act(async () => {
-      renderer.root.findByProps({accessibilityLabel: '투표 공지 이미지 1 다시 불러오기'}).props.onPress();
+      retryButton.props.onPress();
+      retryButton.props.onPress();
     });
     expect(onRetry).toHaveBeenCalledWith(10);
-    expect(renderer.root.findByType('Image').props.source).toEqual({uri: 'https://signed.invalid/10/detail'});
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(rendered(renderer)).toContain('이미지를 불러오지 못했습니다.');
+    expect(renderer.root.findAllByType('Image')).toHaveLength(0);
+    await act(async () => {
+      resolveRetry(true);
+      await retryFinished;
+    });
+    expect(rendered(renderer)).not.toContain('이미지를 불러오지 못했습니다.');
+    expect(renderer.root.findByType('Image').props.source).toEqual({
+      uri: 'https://signed.invalid/10/detail',
+    });
+  });
+
+  it('treats a rotated URL for the same asset as a fresh image identity', async () => {
+    const asset = {
+      assetId: 10,
+      thumbnailUrl: 'https://signed.invalid/10/thumb-a',
+      detailUrl: 'https://signed.invalid/10/detail-a',
+      expiresAt: '2026-08-03T03:10:00Z',
+    };
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollNoticeGallery, {
+        assets: [asset],
+        onRetry: vi.fn(),
+      }));
+    });
+    await act(async () => {
+      renderer.root.findByType('Image').props.onError();
+    });
+    expect(rendered(renderer)).toContain('이미지를 불러오지 못했습니다.');
+
+    await act(async () => {
+      renderer.update(React.createElement(PollNoticeGallery, {
+        assets: [{
+          ...asset,
+          thumbnailUrl: 'https://signed.invalid/10/thumb-b',
+          detailUrl: 'https://signed.invalid/10/detail-b',
+        }],
+        onRetry: vi.fn(),
+      }));
+    });
+    expect(renderer.root.findByType('Image').props.source).toEqual({
+      uri: 'https://signed.invalid/10/detail-b',
+    });
+  });
+
+  it('single-flights retries across two failed gallery assets', async () => {
+    let resolveRetry;
+    const retryFinished = new Promise((resolve) => {
+      resolveRetry = resolve;
+    });
+    const onRetry = vi.fn(() => retryFinished);
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollNoticeGallery, {
+        assets: [10, 11].map((assetId) => ({
+          assetId,
+          thumbnailUrl: `https://signed.invalid/${assetId}/thumb`,
+          detailUrl: `https://signed.invalid/${assetId}/detail`,
+          expiresAt: '2026-08-03T03:10:00Z',
+        })),
+        onRetry,
+      }));
+    });
+    await act(async () => {
+      for (const image of renderer.root.findAllByType('Image')) image.props.onError();
+    });
+    const retryButtons = renderer.root.findAllByType('Pressable').filter((node) =>
+      node.props.accessibilityLabel?.endsWith('다시 불러오기'));
+    expect(retryButtons.map((button) => button.props.accessibilityLabel)).toEqual([
+      '투표 공지 이미지 1 다시 불러오기',
+      '투표 공지 이미지 2 다시 불러오기',
+    ]);
+    const retryFirst = retryButtons[0].props.onPress;
+    const retrySecond = retryButtons[1].props.onPress;
+    await act(async () => {
+      retryFirst();
+      retrySecond();
+    });
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledWith(10);
+    expect(renderer.root.findAllByType('Image')).toHaveLength(0);
+    await act(async () => {
+      resolveRetry(true);
+      await retryFinished;
+    });
+    expect(renderer.root.findAllByType('Image')).toHaveLength(1);
   });
 });
 

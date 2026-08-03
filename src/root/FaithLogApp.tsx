@@ -173,8 +173,8 @@ import {
   subscribeNotificationOpenPayload,
 } from '../notifications/notificationAdapter';
 import {
-  getPollOpenTarget,
   parsePushNotificationOpenPayload,
+  resolveNotificationPollTarget,
   type PollOpenTarget,
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
@@ -688,13 +688,14 @@ export function FaithLogApp() {
         const routes = getAvailableRoutes(navigationState.user, navigationState.selectedCampus);
         if (!routes.includes(target.route)) return;
 
-        const pollOpenTarget = getPollOpenTarget(
+        const pollResolution = resolveNotificationPollTarget(
           target,
           navigationState.selectedCampus.campusId,
         );
-        if (target.route === 'polls' && target.params.campusId !== undefined && pollOpenTarget === null) {
+        if (pollResolution.status === 'rejected') {
           return;
         }
+        const pollOpenTarget = pollResolution.pollTarget;
 
         const refreshed = navigationState;
         const commitGeneration = navigationGeneration;
@@ -2342,7 +2343,7 @@ function AuthenticatedShell({
             <PollScreen
               androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
               canOpenAdminMode={adminModeRoutes.length > 0}
-              notificationPollId={notificationPollTarget?.pollId ?? null}
+              notificationPollTarget={notificationPollTarget}
               onNotificationPollHandled={onNotificationPollTargetHandled}
               onOpenAdminMode={openAdminMode}
               onOpenNotifications={openNotificationSettings}

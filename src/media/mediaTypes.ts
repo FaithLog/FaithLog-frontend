@@ -21,6 +21,14 @@ export type ReadyMediaAsset = {
   height: number;
 };
 
+export type ProcessingMediaAsset = {
+  assetId: number;
+  status: 'PROCESSING';
+  retryAfterMs?: number;
+};
+
+export type MediaAssetCompletion = ReadyMediaAsset | ProcessingMediaAsset;
+
 export type MediaAccessUrl = {
   assetId: number;
   thumbnailUrl: string;

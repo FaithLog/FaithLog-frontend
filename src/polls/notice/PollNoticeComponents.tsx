@@ -1,4 +1,4 @@
-import {memo, useMemo, useState} from 'react';
+import {memo, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   Image,
@@ -18,8 +18,14 @@ import {
   POLL_NOTICE_MAX_LENGTH,
 } from './pollNoticeContract';
 
-export const PollNoticeBadge = memo(function PollNoticeBadge({hasNotice}: {hasNotice?: boolean | undefined}) {
-  if (hasNotice !== true) return null;
+export const PollNoticeBadge = memo(function PollNoticeBadge({
+  enabled,
+  hasNotice,
+}: {
+  enabled: boolean;
+  hasNotice?: boolean | undefined;
+}) {
+  if (!enabled || hasNotice !== true) return null;
   return (
     <View accessibilityLabel="공지 있음" accessibilityRole="text" style={styles.badge}>
       <Text style={styles.badgeText}>공지 있음</Text>
@@ -27,7 +33,14 @@ export const PollNoticeBadge = memo(function PollNoticeBadge({hasNotice}: {hasNo
   );
 });
 
-export const PollNoticeBlock = memo(function PollNoticeBlock({notice}: {notice?: string | null | undefined}) {
+export const PollNoticeBlock = memo(function PollNoticeBlock({
+  enabled,
+  notice,
+}: {
+  enabled: boolean;
+  notice?: string | null | undefined;
+}) {
+  if (!enabled) return null;
   const normalized = typeof notice === 'string' ? normalizePollNotice(notice) : null;
   if (normalized === null) return null;
   return (
@@ -80,7 +93,7 @@ export function PollNoticeEditorSection({
         value={notice}
       />
       {validationMessage ? <Text style={styles.errorText}>{validationMessage}</Text> : null}
-      <PollNoticeBlock notice={notice} />
+      <PollNoticeBlock enabled notice={notice} />
       <View style={styles.imageHeader}>
         <View style={styles.grow}>
           <Text style={styles.editorTitle}>이미지</Text>
@@ -173,9 +186,19 @@ function SmallAction({accessibilityLabel, disabled, label, onPress}: {accessibil
   );
 }
 
-export function PollNoticeGallery({assets, onRetry}: {assets: MediaAccessUrl[]; onRetry: (assetId: number) => void}) {
+export function PollNoticeGallery({
+  assets,
+  onRetry,
+}: {
+  assets: MediaAccessUrl[];
+  onRetry: (assetId: number) => Promise<boolean> | boolean;
+}) {
   const data = useMemo(() => assets, [assets]);
-  const [failedAssetIds, setFailedAssetIds] = useState<Set<number>>(() => new Set());
+  const [failedAssetIdentities, setFailedAssetIdentities] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const retryInFlightRef = useRef(false);
+  const [retryInFlight, setRetryInFlight] = useState(false);
   if (data.length === 0) return null;
   return (
     <FlatList
@@ -184,42 +207,68 @@ export function PollNoticeGallery({assets, onRetry}: {assets: MediaAccessUrl[]; 
       decelerationRate="fast"
       horizontal
       initialNumToRender={2}
-      keyExtractor={(item) => String(item.assetId)}
+      keyExtractor={getMediaFailureIdentity}
       maxToRenderPerBatch={3}
       onEndReachedThreshold={0.5}
       pagingEnabled
       removeClippedSubviews
-      renderItem={({item, index}) => (
-        <View style={styles.galleryItem}>
-          {failedAssetIds.has(item.assetId) ? (
-            <View style={[styles.galleryImage, styles.galleryFallback]}>
-              <Text style={styles.editorDescription}>이미지를 불러오지 못했습니다.</Text>
-              <Pressable
-                accessibilityLabel={`투표 공지 이미지 ${index + 1} 다시 불러오기`}
-                accessibilityRole="button"
-                onPress={() => {
-                  setFailedAssetIds((current) => {
-                    const next = new Set(current);
-                    next.delete(item.assetId);
-                    return next;
-                  });
-                  onRetry(item.assetId);
-                }}
-                style={styles.addButton}>
-                <Text style={styles.addButtonText}>다시 시도</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <Image
-              accessibilityLabel={`투표 공지 이미지 ${index + 1}`}
-              onError={() => setFailedAssetIds((current) => new Set(current).add(item.assetId))}
-              resizeMode="cover"
-              source={{uri: item.detailUrl}}
-              style={styles.galleryImage}
-            />
-          )}
-        </View>
-      )}
+      renderItem={({item, index}) => {
+        const failureIdentity = getMediaFailureIdentity(item);
+        return (
+          <View style={styles.galleryItem}>
+            {failedAssetIdentities.has(failureIdentity) ? (
+              <View style={[styles.galleryImage, styles.galleryFallback]}>
+                <Text style={styles.editorDescription}>이미지를 불러오지 못했습니다.</Text>
+                <Pressable
+                  accessibilityLabel={`투표 공지 이미지 ${index + 1} 다시 불러오기`}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    busy: retryInFlight,
+                    disabled: retryInFlight,
+                  }}
+                  disabled={retryInFlight}
+                  onPress={() => {
+                    if (retryInFlightRef.current) return;
+                    retryInFlightRef.current = true;
+                    setRetryInFlight(true);
+                    void (async () => {
+                      try {
+                        const committed = await onRetry(item.assetId);
+                        if (committed) {
+                          setFailedAssetIdentities((current) => {
+                            const next = new Set(current);
+                            next.delete(failureIdentity);
+                            return next;
+                          });
+                        }
+                      } catch {
+                        // Keep the known-failed URL hidden until a retry succeeds.
+                      } finally {
+                        retryInFlightRef.current = false;
+                        setRetryInFlight(false);
+                      }
+                    })();
+                  }}
+                  style={styles.addButton}>
+                  <Text style={styles.addButtonText}>다시 시도</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Image
+                accessibilityLabel={`투표 공지 이미지 ${index + 1}`}
+                onError={() =>
+                  setFailedAssetIdentities((current) =>
+                    new Set(current).add(failureIdentity),
+                  )
+                }
+                resizeMode="cover"
+                source={{uri: item.detailUrl}}
+                style={styles.galleryImage}
+              />
+            )}
+          </View>
+        );
+      }}
       showsHorizontalScrollIndicator={false}
       windowSize={3}
     />
@@ -227,27 +276,34 @@ export function PollNoticeGallery({assets, onRetry}: {assets: MediaAccessUrl[]; 
 }
 
 export function PollNoticeMediaPanel({
+  enabled,
   onRetry,
   state,
 }: {
-  onRetry: () => void;
+  enabled: boolean;
+  onRetry: () => Promise<boolean> | boolean;
   state:
     | {status: 'empty'}
     | {status: 'success'; assets: MediaAccessUrl[]}
     | {status: 'error'};
 }) {
+  if (!enabled) return null;
   if (state.status === 'empty') return null;
   if (state.status === 'error') {
     return (
       <View style={styles.mediaError}>
         <Text style={styles.editorDescription}>이미지를 불러오지 못했습니다.</Text>
-        <Pressable accessibilityLabel="투표 공지 이미지 다시 불러오기" accessibilityRole="button" onPress={onRetry} style={styles.addButton}>
+        <Pressable accessibilityLabel="투표 공지 이미지 다시 불러오기" accessibilityRole="button" onPress={() => { void onRetry(); }} style={styles.addButton}>
           <Text style={styles.addButtonText}>다시 시도</Text>
         </Pressable>
       </View>
     );
   }
   return <PollNoticeGallery assets={state.assets} onRetry={() => onRetry()} />;
+}
+
+function getMediaFailureIdentity(asset: MediaAccessUrl) {
+  return `${asset.assetId}:${asset.detailUrl}`;
 }
 
 function getUploadStatusLabel(item: MediaUploadItem) {

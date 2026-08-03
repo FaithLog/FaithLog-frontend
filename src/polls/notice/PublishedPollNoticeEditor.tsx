@@ -1,0 +1,177 @@
+import {useLayoutEffect, useRef, useState} from 'react';
+import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+
+import type {PollDetail} from '../../api/types';
+import {createMockReadyMediaAssetForCampus} from '../../api/mockAdapter';
+import type {MediaUploadItem} from '../../media/mediaUploadPolicy';
+import {colors, radius, spacing, typography} from '../../theme';
+import {PollNoticeEditorSection} from './PollNoticeComponents';
+import {buildPollNoticeMutationFields} from './pollNoticeContract';
+
+export type PublishedPollNoticeUpdateDraft = {
+  title: string;
+  notice: string | null;
+  imageAssetIds: number[];
+};
+
+export function PublishedPollNoticeEditor({
+  onCancel,
+  onSave,
+  onSaved,
+  poll,
+}: {
+  onCancel: () => void;
+  onSave: (draft: PublishedPollNoticeUpdateDraft) => Promise<PollDetail>;
+  onSaved: (poll: PollDetail) => void;
+  poll: PollDetail;
+}) {
+  const [title, setTitle] = useState(poll.title);
+  const [notice, setNotice] = useState(poll.notice ?? '');
+  const [images, setImages] = useState<MediaUploadItem[]>(() => toSavedImages(poll));
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
+  const lifecycle = useRef({mounted: true, saveRequestId: 0});
+
+  useLayoutEffect(() => {
+    lifecycle.current.mounted = true;
+    return () => {
+      lifecycle.current.mounted = false;
+      lifecycle.current.saveRequestId += 1;
+    };
+  }, []);
+
+  const save = async () => {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      setSaveState('error');
+      return;
+    }
+    const saveRequestId = ++lifecycle.current.saveRequestId;
+    const isCurrentSave = () =>
+      lifecycle.current.mounted && lifecycle.current.saveRequestId === saveRequestId;
+    setSaveState('saving');
+    try {
+      const noticeFields = buildPollNoticeMutationFields({
+        notice,
+        imageAssetIds: images.flatMap((item) =>
+          item.status === 'ready' && item.assetId ? [item.assetId] : []),
+      });
+      const updated = await onSave({title: normalizedTitle, ...noticeFields});
+      if (isCurrentSave()) onSaved(updated);
+    } catch {
+      if (isCurrentSave()) setSaveState('error');
+    }
+  };
+  const busy = saveState === 'saving';
+
+  return (
+    <View style={styles.shell}>
+      <View style={styles.heading}>
+        <Text style={styles.title}>게시된 투표 공지 수정</Text>
+        <Text style={styles.description}>기존 투표 응답과 선택지는 그대로 유지됩니다.</Text>
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.label}>투표 제목</Text>
+        <TextInput
+          accessibilityLabel="게시된 투표 제목"
+          editable={!busy}
+          onChangeText={setTitle}
+          style={styles.input}
+          value={title}
+        />
+      </View>
+      <View style={styles.card}>
+        <PollNoticeEditorSection
+          disabled={busy}
+          notice={notice}
+          onAddImages={() => {
+            const assetId = createMockReadyMediaAssetForCampus(
+              poll.campusId,
+              images.flatMap((item) => item.assetId ? [item.assetId] : []),
+            );
+            setImages((current) => [...current, {
+              localId: `mock-edit-${assetId}`,
+              previewUri: `mock://poll-notice/edit/${assetId}`,
+              status: 'ready',
+              progress: 1,
+              assetId,
+              sha256: assetId.toString(16).padStart(64, '0'),
+            }]);
+          }}
+          onChangeNotice={setNotice}
+          onMove={(localId, direction) => setImages((current) =>
+            moveImage(current, localId, direction))}
+          onRemove={(localId) => setImages((current) =>
+            current.filter((item) => item.localId !== localId))}
+          onRetry={() => undefined}
+          uploadItems={images}
+        />
+      </View>
+      {saveState === 'error' ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          공지를 저장하지 못했습니다. 입력한 내용은 유지되니 다시 시도해 주세요.
+        </Text>
+      ) : null}
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityLabel="게시된 투표 공지 수정 취소"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onCancel}
+          style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>취소</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="게시된 투표 공지 저장"
+          accessibilityRole="button"
+          accessibilityState={{busy, disabled: busy}}
+          disabled={busy}
+          onPress={() => void save()}
+          style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>{busy ? '저장 중' : '저장'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function toSavedImages(poll: PollDetail): MediaUploadItem[] {
+  return (poll.imageAssetIds ?? []).map((assetId, index) => ({
+    localId: `saved-${assetId}`,
+    previewUri: `mock://poll-notice/${assetId}`,
+    status: 'ready',
+    progress: 1,
+    assetId,
+    sha256: String(index + 1).padStart(64, '0'),
+  }));
+}
+
+function moveImage(
+  images: MediaUploadItem[],
+  localId: string,
+  direction: 'up' | 'down',
+) {
+  const currentIndex = images.findIndex((item) => item.localId === localId);
+  const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= images.length) return images;
+  const next = [...images];
+  const [moving] = next.splice(currentIndex, 1);
+  if (!moving) return images;
+  next.splice(targetIndex, 0, moving);
+  return next;
+}
+
+const styles = StyleSheet.create({
+  actions: {flexDirection: 'row', gap: spacing.gap},
+  card: {backgroundColor: colors.surface, borderRadius: radius.card, gap: spacing.gap, padding: spacing.card},
+  description: {color: colors.textSecondary, fontSize: 14, lineHeight: 20},
+  error: {color: colors.danger, fontSize: 13, fontWeight: '700', lineHeight: 18},
+  heading: {gap: 4},
+  input: {backgroundColor: colors.surface, borderColor: colors.borderSoft, borderRadius: radius.control, borderWidth: 1, color: colors.textPrimary, minHeight: 48, paddingHorizontal: 14},
+  label: {color: colors.textPrimary, fontSize: 14, fontWeight: '700'},
+  primaryButton: {alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.control, flex: 1, minHeight: 48, justifyContent: 'center'},
+  primaryButtonText: {color: colors.surface, fontSize: 15, fontWeight: '800'},
+  secondaryButton: {alignItems: 'center', backgroundColor: colors.borderSoft, borderRadius: radius.control, flex: 1, minHeight: 48, justifyContent: 'center'},
+  secondaryButtonText: {color: colors.textPrimary, fontSize: 15, fontWeight: '700'},
+  shell: {gap: spacing.gap},
+  title: {...typography.cardTitle, color: colors.textPrimary},
+});

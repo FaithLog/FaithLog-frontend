@@ -1,6 +1,10 @@
 import {afterEach, describe, expect, it} from 'vitest';
 
-import {getPollOpenTarget, parsePushNotificationOpenPayload} from './pushNavigation';
+import {
+  getPollOpenTarget,
+  parsePushNotificationOpenPayload,
+  resolveNotificationPollTarget,
+} from './pushNavigation';
 
 const originalAppEnvironment = process.env.EXPO_PUBLIC_APP_ENV;
 const originalMockMode = process.env.EXPO_PUBLIC_MOCK_MODE;
@@ -41,6 +45,25 @@ describe('push notification route payload validation', () => {
 
     expect(crossCampus.status === 'valid' ? getPollOpenTarget(crossCampus, 1) : null).toBeNull();
     expect(legacyRoute.status === 'valid' ? getPollOpenTarget(legacyRoute, 1) : null).toBeNull();
+  });
+
+  it('applies the campus gate only to poll targets and preserves other deep links', () => {
+    const crossCampusPoll = parsePushNotificationOpenPayload({
+      eventType: 'POLL_OPEN',
+      campusId: '2',
+      pollId: '100',
+    });
+    const campusAdmin = parsePushNotificationOpenPayload({
+      route: 'campusAdmin',
+      params: {campusId: '1', targetId: '7'},
+    });
+
+    expect(crossCampusPoll.status === 'valid'
+      ? resolveNotificationPollTarget(crossCampusPoll, 1)
+      : null).toEqual({status: 'rejected'});
+    expect(campusAdmin.status === 'valid'
+      ? resolveNotificationPollTarget(campusAdmin, 1)
+      : null).toEqual({status: 'accepted', pollTarget: null});
   });
 
   it('rejects POLL_OPEN content, image URLs, unsafe ids and unknown fields', () => {
