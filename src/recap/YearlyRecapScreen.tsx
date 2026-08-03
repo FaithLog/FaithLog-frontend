@@ -15,11 +15,11 @@ import {
 
 import {colors, spacing} from '../theme';
 import {RecapChapterPage} from './components/RecapChapterPage';
-import {createRecapAutoAdvanceController} from './yearlyRecapAutoAdvance';
-import {buildYearlyRecapChapters} from './yearlyRecapPresentation';
+import {
+  buildYearlyRecapChapters,
+  getYearlyRecapChapterAnnouncement,
+} from './yearlyRecapPresentation';
 import type {YearlyRecap} from './yearlyRecapTypes';
-
-const AUTO_ADVANCE_MS = 6500;
 
 export function YearlyRecapScreen({
   onClose,
@@ -33,36 +33,57 @@ export function YearlyRecapScreen({
   visible: boolean;
 }) {
   const chapters = useMemo(() => buildYearlyRecapChapters(recap), [recap]);
-  const [index, setIndex] = useState(0);
+  const [scene, setScene] = useState<{animationIndex: number | null; index: number}>({
+    animationIndex: 0,
+    index: 0,
+  });
+  const {index} = scene;
   const [accessibilityPreferencesReady, setAccessibilityPreferencesReady] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [screenReaderEnabled, setScreenReaderEnabled] = useState(false);
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [modalShown, setModalShown] = useState(false);
   const fade = useRef(new Animated.Value(1)).current;
   const contentHeightRef = useRef(0);
   const firstFrameReported = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
   const viewportHeightRef = useRef(0);
+  const modalVisible = visible && accessibilityPreferencesReady;
+  const motionDisabled =
+    !accessibilityPreferencesReady || reduceMotion || screenReaderEnabled || !appActive;
 
   const goNext = useCallback(
-    () => setIndex((current) => Math.min(current + 1, chapters.length - 1)),
-    [chapters.length],
+    () => setScene((current) => {
+      const nextIndex = Math.min(current.index + 1, chapters.length - 1);
+      return nextIndex === current.index ? current : {
+        animationIndex: motionDisabled ? null : nextIndex,
+        index: nextIndex,
+      };
+    }),
+    [chapters.length, motionDisabled],
   );
   const goPrevious = useCallback(
-    () => setIndex((current) => Math.max(current - 1, 0)),
-    [],
+    () => setScene((current) => {
+      const nextIndex = Math.max(current.index - 1, 0);
+      return nextIndex === current.index ? current : {
+        animationIndex: motionDisabled ? null : nextIndex,
+        index: nextIndex,
+      };
+    }),
+    [motionDisabled],
   );
-  const goToStart = useCallback(() => setIndex(0), []);
-  const autoAdvance = useMemo(() => createRecapAutoAdvanceController({
-    delayMs: AUTO_ADVANCE_MS,
-    onAdvance: goNext,
-  }), [goNext]);
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) =>
-      contentHeightRef.current <= viewportHeightRef.current + 1 && Math.abs(gesture.dy) > 18,
+      !screenReaderEnabled &&
+      contentHeightRef.current <= viewportHeightRef.current + 1 &&
+      Math.abs(gesture.dy) > 18 &&
+      Math.abs(gesture.dy) > Math.abs(gesture.dx),
     onPanResponderRelease: (_event, gesture) => {
+      if (screenReaderEnabled || Math.abs(gesture.dy) <= Math.abs(gesture.dx)) return;
       if (gesture.dy < -54) goNext();
       if (gesture.dy > 54) goPrevious();
     },
-  }), [goNext, goPrevious]);
+  }), [goNext, goPrevious, screenReaderEnabled]);
 
   useEffect(() => {
     let active = true;
@@ -74,7 +95,12 @@ export function YearlyRecapScreen({
       setReduceMotion(nextReduceMotion);
       setScreenReaderEnabled(nextScreenReader);
       setAccessibilityPreferencesReady(true);
-    }).catch(() => undefined);
+    }).catch(() => {
+      if (!active) return;
+      setReduceMotion(true);
+      setScreenReaderEnabled(true);
+      setAccessibilityPreferencesReady(true);
+    });
     const reduceMotionSubscription = AccessibilityInfo.addEventListener(
       'reduceMotionChanged',
       setReduceMotion,
@@ -91,59 +117,95 @@ export function YearlyRecapScreen({
   }, []);
 
   useEffect(() => {
-    if (!visible || !accessibilityPreferencesReady) {
-      autoAdvance.stop();
-      if (!visible) {
-        firstFrameReported.current = false;
-        setIndex(0);
-      }
-      return undefined;
+    if (!visible) {
+      firstFrameReported.current = false;
+      setModalShown(false);
+      setScene((current) =>
+        current.index === 0 && current.animationIndex === 0
+          ? current
+          : {animationIndex: 0, index: 0});
+      return;
     }
-    autoAdvance.start({reduceMotion, screenReaderEnabled});
+    if (accessibilityPreferencesReady && motionDisabled) {
+      setScene((current) => current.animationIndex === null
+        ? current
+        : {...current, animationIndex: null});
+    }
+  }, [accessibilityPreferencesReady, motionDisabled, visible]);
+
+  useEffect(() => {
+    setAppActive(AppState.currentState === 'active');
     const subscription = AppState.addEventListener('change', (state) => {
-      autoAdvance.onAppStateChange(state);
-      if (state === 'active') autoAdvance.start({reduceMotion, screenReaderEnabled});
+      setAppActive(state === 'active');
     });
-    return () => {
-      autoAdvance.stop();
-      subscription.remove();
-    };
-  }, [accessibilityPreferencesReady, autoAdvance, index, reduceMotion, screenReaderEnabled, visible]);
+    return () => subscription.remove();
+  }, []);
+
+  const shouldAnimateChapter =
+    modalVisible && !motionDisabled && scene.animationIndex === index;
+
+  useEffect(() => {
+    if (!modalVisible) return;
+    scrollRef.current?.scrollTo({animated: false, y: 0});
+  }, [index, modalVisible]);
 
   useEffect(() => {
     fade.stopAnimation();
-    if (!accessibilityPreferencesReady || reduceMotion) {
+    if (!shouldAnimateChapter) {
       fade.setValue(1);
-      return;
+      return undefined;
     }
     fade.setValue(0);
-    Animated.timing(fade, {
+    const animation = Animated.timing(fade, {
       duration: 360,
       toValue: 1,
       useNativeDriver: true,
-    }).start();
-    return () => fade.stopAnimation();
-  }, [accessibilityPreferencesReady, fade, index, reduceMotion]);
+    });
+    animation.start();
+    return () => {
+      animation.stop();
+      fade.stopAnimation();
+    };
+  }, [fade, index, shouldAnimateChapter]);
 
   useEffect(() => {
-    if (!visible || !screenReaderEnabled) return;
+    if (!modalVisible || !modalShown || !screenReaderEnabled) return;
     const chapter = chapters[index];
-    if (chapter) AccessibilityInfo.announceForAccessibility(chapter.title);
-  }, [chapters, index, screenReaderEnabled, visible]);
+    if (chapter) {
+      AccessibilityInfo.announceForAccessibility(getYearlyRecapChapterAnnouncement(chapter));
+    }
+  }, [chapters, index, modalShown, modalVisible, screenReaderEnabled]);
 
   const currentChapter = chapters[index]!;
   return (
     <Modal
-      animationType={!accessibilityPreferencesReady || reduceMotion ? 'none' : 'fade'}
+      animationType={motionDisabled ? 'none' : 'fade'}
       onRequestClose={onClose}
+      onShow={() => setModalShown(true)}
       presentationStyle="fullScreen"
-      visible={visible}>
+      visible={modalVisible}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.root} {...panResponder.panHandlers}>
+        <View
+          accessibilityViewIsModal
+          onAccessibilityEscape={onClose}
+          style={styles.root}
+          {...panResponder.panHandlers}>
           <View style={styles.topBar}>
-            <View accessibilityLabel={`${index + 1} / ${chapters.length}`} style={styles.progress}>
+            <View
+              accessible
+              accessibilityLabel="연간 회고 진행"
+              accessibilityRole="progressbar"
+              accessibilityValue={{
+                max: chapters.length,
+                min: 1,
+                now: index + 1,
+                text: `${index + 1} / ${chapters.length}`,
+              }}
+              style={styles.progress}>
               {chapters.map((chapter, chapterIndex) => (
                 <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
                   key={chapter.kind}
                   style={[styles.progressTrack, chapterIndex <= index ? styles.progressActive : null]}
                 />
@@ -165,35 +227,37 @@ export function YearlyRecapScreen({
             }}
             onLayout={(event) => {
               viewportHeightRef.current = event.nativeEvent.layout.height;
-              if (!visible || firstFrameReported.current) return;
+              if (!modalVisible || firstFrameReported.current) return;
               firstFrameReported.current = true;
               onFirstFrame();
             }}
+            ref={scrollRef}
+            style={styles.scroll}
             showsVerticalScrollIndicator={false}>
             <Animated.View style={{opacity: fade, transform: [{translateY: fade.interpolate({
               inputRange: [0, 1],
-              outputRange: reduceMotion ? [0, 0] : [16, 0],
+              outputRange: motionDisabled ? [0, 0] : [16, 0],
             })}]}}>
-              <RecapChapterPage chapter={currentChapter} />
+              <RecapChapterPage
+                animationsEnabled={shouldAnimateChapter}
+                chapter={currentChapter}
+                key={`${currentChapter.kind}:${shouldAnimateChapter ? 'animated' : 'static'}`}
+              />
             </Animated.View>
           </ScrollView>
           <View style={styles.actions}>
             <Pressable
-              accessibilityLabel={
-                index === chapters.length - 1 ? '연간 회고 처음부터 보기' : '이전 회고 장면'
-              }
+              accessibilityLabel="이전 회고 장면"
               accessibilityRole="button"
               accessibilityState={{disabled: index === 0}}
               disabled={index === 0}
-              onPress={index === chapters.length - 1 ? goToStart : goPrevious}
+              onPress={goPrevious}
               style={({pressed}) => [
                 styles.secondaryAction,
                 index === 0 ? styles.disabled : null,
                 pressed ? styles.pressed : null,
               ]}>
-              <Text style={styles.secondaryActionText}>
-                {index === chapters.length - 1 ? '처음부터' : '이전'}
-              </Text>
+              <Text style={styles.secondaryActionText}>이전</Text>
             </Pressable>
             <Pressable
               accessibilityLabel={index === chapters.length - 1 ? '연간 회고 마치기' : '다음 회고 장면'}
@@ -212,7 +276,13 @@ export function YearlyRecapScreen({
 }
 
 const styles = StyleSheet.create({
-  actions: {flexDirection: 'row', gap: 10, paddingHorizontal: spacing.screenX, paddingVertical: 14},
+  actions: {
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 10,
+    paddingHorizontal: spacing.screenX,
+    paddingVertical: 14,
+  },
   close: {alignItems: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 8},
   closeText: {color: colors.textSecondary, fontSize: 15, fontWeight: '700'},
   disabled: {opacity: 0.35},
@@ -231,7 +301,13 @@ const styles = StyleSheet.create({
   progressTrack: {backgroundColor: '#D7E1EE', borderRadius: 3, flex: 1, height: 4},
   root: {backgroundColor: '#F1F7FF', flex: 1},
   safeArea: {backgroundColor: '#F1F7FF', flex: 1},
-  scrollContent: {flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.screenX},
+  scroll: {flex: 1, minHeight: 0},
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.screenX,
+    paddingVertical: 8,
+  },
   secondaryAction: {
     alignItems: 'center',
     backgroundColor: colors.surface,

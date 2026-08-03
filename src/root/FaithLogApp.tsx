@@ -1847,8 +1847,7 @@ function AuthenticatedShell({
   const canCreateCampus = canCreateCampusWithRole(state.user.role);
   const canManageCampuses = canCreateCampus;
   const recapExperience = useYearlyRecapExperience({
-    campusId: state.selectedCampus.campusId,
-    enabled: entryTarget === null,
+    canAutoPresent: entryTarget === null,
     userId: state.user.id,
   });
   const adminModeRoutes = useMemo(

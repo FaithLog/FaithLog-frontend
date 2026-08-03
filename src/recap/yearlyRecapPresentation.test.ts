@@ -1,6 +1,10 @@
 import {describe, expect, it} from 'vitest';
 
-import {buildYearlyRecapChapters, formatCampusJourney} from './yearlyRecapPresentation';
+import {
+  buildYearlyRecapChapters,
+  formatCampusJourney,
+  getYearlyRecapChapterAnnouncement,
+} from './yearlyRecapPresentation';
 import type {YearlyRecap} from './yearlyRecapTypes';
 
 const recap: YearlyRecap = {
@@ -36,11 +40,17 @@ const recap: YearlyRecap = {
 
 describe('yearly recap presentation', () => {
   it('orders chapters and omits optional all-zero sections', () => {
-    expect(buildYearlyRecapChapters(recap).map((chapter) => chapter.kind)).toEqual([
+    const chapters = buildYearlyRecapChapters(recap);
+    expect(chapters.map((chapter) => chapter.kind)).toEqual([
       'intro',
       'devotion',
       'consistency',
       'closing',
+    ]);
+    expect(chapters[0]?.metrics).toEqual([
+      {label: '큐티한 날', value: '10일'},
+      {label: '말씀 읽은 날', value: '8일'},
+      {label: '기도한 날', value: '12일'},
     ]);
   });
 
@@ -56,5 +66,14 @@ describe('yearly recap presentation', () => {
   it('does not expose prayer, vote, comment, account, or identity source text', () => {
     const serialized = JSON.stringify(buildYearlyRecapChapters(recap));
     expect(serialized).not.toMatch(/email|token|accountNumber|prayerContent|commentContent|choiceContent/i);
+  });
+
+  it('builds a screen-reader announcement with the title and key metric values', () => {
+    const devotion = buildYearlyRecapChapters(recap).find((chapter) => chapter.kind === 'devotion');
+
+    expect(devotion).toBeDefined();
+    expect(getYearlyRecapChapterAnnouncement(devotion!)).toBe(
+      '매일의 작은 실천이 모였어요. 큐티한 날 10일, 말씀 읽은 날 8일, 기도한 날 12일',
+    );
   });
 });

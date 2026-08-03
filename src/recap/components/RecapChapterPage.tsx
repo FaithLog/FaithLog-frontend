@@ -1,16 +1,61 @@
-import {memo} from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import {memo, useEffect, useRef} from 'react';
+import {Animated, Image, StyleSheet, Text, useWindowDimensions, View} from 'react-native';
 
 import {colors} from '../../theme';
+import {getFaithLogRecapLogo} from '../yearlyRecapAssets';
 import type {YearlyRecapChapter} from '../yearlyRecapPresentation';
 
 export const RecapChapterPage = memo(function RecapChapterPage({
+  animationsEnabled,
   chapter,
 }: {
+  animationsEnabled: boolean;
   chapter: YearlyRecapChapter;
 }) {
+  const {fontScale} = useWindowDimensions();
+  const largeText = fontScale >= 1.5;
+  const metricAnimationEnabled = animationsEnabled && chapter.kind === 'intro';
+  const metricAnimations = useRef(
+    (chapter.metrics ?? []).map(() => new Animated.Value(metricAnimationEnabled ? 0 : 1)),
+  ).current;
+  const emphasisRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    emphasisRef.current?.stop();
+    if (!metricAnimationEnabled) {
+      metricAnimations.forEach((value) => value.setValue(1));
+      emphasisRef.current = null;
+      return undefined;
+    }
+    metricAnimations.forEach((value) => value.setValue(0));
+    const emphasis = Animated.stagger(120, metricAnimations.map((value) =>
+      Animated.timing(value, {
+        duration: 420,
+        toValue: 1,
+        useNativeDriver: true,
+      })));
+    emphasisRef.current = emphasis;
+    emphasis.start();
+    return () => {
+      emphasis.stop();
+      if (emphasisRef.current === emphasis) emphasisRef.current = null;
+    };
+  }, [metricAnimationEnabled, metricAnimations]);
+
   return (
-    <View accessibilityRole="summary" style={styles.page}>
+    <View style={styles.page}>
+      {chapter.kind === 'intro' ? (
+        <View style={styles.brand}>
+          <Image
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            resizeMode="cover"
+            source={getFaithLogRecapLogo()}
+            style={styles.logo}
+          />
+          <Text style={styles.brandName}>FaithLog</Text>
+        </View>
+      ) : null}
       <Text style={styles.eyebrow}>{chapter.eyebrow}</Text>
       <Text accessibilityRole="header" style={styles.title}>{chapter.title}</Text>
       {chapter.description ? <Text style={styles.description}>{chapter.description}</Text> : null}
@@ -21,11 +66,25 @@ export const RecapChapterPage = memo(function RecapChapterPage({
       ) : null}
       {chapter.metrics ? (
         <View style={styles.metrics}>
-          {chapter.metrics.map((metric) => (
-            <View key={metric.label} style={styles.metric}>
-              <Text style={styles.metricValue}>{metric.value}</Text>
-              <Text style={styles.metricLabel}>{metric.label}</Text>
-            </View>
+          {chapter.metrics.map((metric, index) => (
+            <Animated.View
+              accessible
+              accessibilityLabel={`${metric.label} ${metric.value}`}
+              key={metric.label}
+              style={[
+                styles.metric,
+                largeText ? styles.metricLargeText : null,
+                {
+                  opacity: metricAnimations[index],
+                  transform: [{scale: metricAnimations[index]!.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.94, 1],
+                  })}],
+                },
+              ]}>
+              <Text importantForAccessibility="no" style={styles.metricValue}>{metric.value}</Text>
+              <Text importantForAccessibility="no" style={styles.metricLabel}>{metric.label}</Text>
+            </Animated.View>
           ))}
         </View>
       ) : null}
@@ -34,6 +93,8 @@ export const RecapChapterPage = memo(function RecapChapterPage({
 });
 
 const styles = StyleSheet.create({
+  brand: {alignItems: 'center', gap: 8},
+  brandName: {color: colors.textPrimary, fontSize: 20, fontWeight: '800'},
   description: {color: colors.textSecondary, fontSize: 17, lineHeight: 26},
   eyebrow: {color: colors.primary, fontSize: 14, fontWeight: '800', letterSpacing: 1.1},
   line: {color: colors.textPrimary, fontSize: 18, fontWeight: '600', lineHeight: 27},
@@ -48,8 +109,10 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   metricLabel: {color: colors.textSecondary, fontSize: 14, lineHeight: 20},
+  metricLargeText: {flexBasis: '100%'},
   metricValue: {color: colors.textPrimary, fontSize: 25, fontWeight: '800', lineHeight: 32},
   metrics: {flexDirection: 'row', flexWrap: 'wrap', gap: 10},
+  logo: {borderRadius: 22, height: 88, width: 88},
   page: {gap: 22, minHeight: 420, paddingBottom: 24, paddingTop: 28},
   title: {color: colors.textPrimary, fontSize: 32, fontWeight: '800', lineHeight: 41},
 });

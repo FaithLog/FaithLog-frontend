@@ -12,20 +12,37 @@ export function createYearlyRecapCoordinator() {
   let currentContextKey: string | null = null;
   let operation = 0;
   let inFlight: Promise<RecapCandidate> | null = null;
+  let cachedRecap: RecapCandidate | null = null;
   let autoPresentedKey: string | null = null;
   const presentedRequests = new Map<string, Promise<unknown>>();
+
+  const activateContext = (contextKey: string | null) => {
+    if (currentContextKey === contextKey) return;
+    currentContextKey = contextKey;
+    operation += 1;
+    inFlight = null;
+    cachedRecap = null;
+    autoPresentedKey = null;
+    presentedRequests.clear();
+  };
+
+  const successResult = <T extends RecapCandidate>(contextKey: string, recap: T): LoadResult<T> => {
+    const autoKey = `${contextKey}:${recap.recapYear}`;
+    const shouldAutoPresent =
+      recap.hasRecapData &&
+      recap.presentation.shouldAutoPresent &&
+      autoPresentedKey !== autoKey;
+    if (shouldAutoPresent) autoPresentedKey = autoKey;
+    return {status: 'success', recap, shouldAutoPresent};
+  };
 
   return {
     async load<T extends RecapCandidate>({contextKey, load}: {
       contextKey: string;
       load: () => Promise<T>;
     }): Promise<LoadResult<T>> {
-      if (currentContextKey !== contextKey) {
-        currentContextKey = contextKey;
-        operation += 1;
-        inFlight = null;
-        autoPresentedKey = null;
-      }
+      activateContext(contextKey);
+      if (cachedRecap) return successResult(contextKey, cachedRecap as T);
       const requestOperation = operation;
       const shared = (inFlight ??= load()) as Promise<T>;
       try {
@@ -33,13 +50,8 @@ export function createYearlyRecapCoordinator() {
         if (currentContextKey !== contextKey || operation !== requestOperation) {
           return {status: 'stale'};
         }
-        const autoKey = `${contextKey}:${recap.recapYear}`;
-        const shouldAutoPresent =
-          recap.hasRecapData &&
-          recap.presentation.shouldAutoPresent &&
-          autoPresentedKey !== autoKey;
-        if (shouldAutoPresent) autoPresentedKey = autoKey;
-        return {status: 'success', recap, shouldAutoPresent};
+        cachedRecap = recap;
+        return successResult(contextKey, recap);
       } finally {
         if (inFlight === shared) inFlight = null;
       }
@@ -52,11 +64,7 @@ export function createYearlyRecapCoordinator() {
       return next;
     },
     reset(nextContextKey: string | null = null) {
-      currentContextKey = nextContextKey;
-      operation += 1;
-      inFlight = null;
-      autoPresentedKey = null;
-      presentedRequests.clear();
+      activateContext(nextContextKey);
     },
   };
 }

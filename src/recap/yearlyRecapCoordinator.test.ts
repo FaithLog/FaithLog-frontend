@@ -21,6 +21,24 @@ describe('yearly recap coordinator', () => {
     await expect(second).resolves.toMatchObject({shouldAutoPresent: false});
   });
 
+  it('reuses the successful GET result for sequential A to B to A UI contexts', async () => {
+    const coordinator = createYearlyRecapCoordinator();
+    const load = vi.fn(async () => ({
+      recapYear: 2026,
+      hasRecapData: true,
+      presentation: {shouldAutoPresent: true},
+    }));
+
+    const firstCampus = await coordinator.load({contextKey: '7:42', load});
+    const campusEntryTarget = await coordinator.load({contextKey: '7:42', load});
+    const returnedCampus = await coordinator.load({contextKey: '7:42', load});
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(firstCampus).toMatchObject({status: 'success', shouldAutoPresent: true});
+    expect(campusEntryTarget).toMatchObject({status: 'success', shouldAutoPresent: false});
+    expect(returnedCampus).toMatchObject({status: 'success', shouldAutoPresent: false});
+  });
+
   it('discards a response after account/auth context changes', async () => {
     type Candidate = {recapYear: number; hasRecapData: boolean; presentation: {shouldAutoPresent: boolean}};
     let resolve: ((value: Candidate) => void) | undefined;

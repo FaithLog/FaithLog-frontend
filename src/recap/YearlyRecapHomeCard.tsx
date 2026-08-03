@@ -22,7 +22,7 @@ export const YearlyRecapHomeCard = memo(function YearlyRecapHomeCard({
         <IconexIcon color={colors.primary} name="calendar" size={22} strokeWidth={1.7} />
       </View>
       <View style={styles.copy}>
-        <Text numberOfLines={1} style={styles.title}>{recapYear}년 기록 돌아보기</Text>
+        <Text style={styles.title}>{recapYear}년 기록 돌아보기</Text>
         <Text style={styles.body}>FaithLog와 함께한 지난 한 해를 다시 확인해 보세요.</Text>
       </View>
       <View style={styles.action}>

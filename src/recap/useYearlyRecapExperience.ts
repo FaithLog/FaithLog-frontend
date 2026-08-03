@@ -12,17 +12,17 @@ import {getYearlyRecapDisplayPolicy} from './yearlyRecapPolicy';
 import type {YearlyRecap} from './yearlyRecapTypes';
 
 type ExperienceState = {
+  autoPresentationPending: boolean;
+  identityKey: string;
   recap: YearlyRecap | null;
   visible: boolean;
 };
 
 export function useYearlyRecapExperience({
-  campusId,
-  enabled,
+  canAutoPresent,
   userId,
 }: {
-  campusId: number;
-  enabled: boolean;
+  canAutoPresent: boolean;
   userId: number;
 }) {
   const api = useMemo(() => createYearlyRecapApi(), []);
@@ -31,28 +31,34 @@ export function useYearlyRecapExperience({
     coordinatorRef.current = createYearlyRecapCoordinator();
   }
   const coordinator = coordinatorRef.current;
-  const [state, setState] = useState<ExperienceState>({recap: null, visible: false});
-  const contextKeyRef = useRef('');
+  const generation = getAuthSessionGeneration();
+  const identityKey = `${generation}:${userId}`;
+  const identityKeyRef = useRef(identityKey);
+  identityKeyRef.current = identityKey;
+  const [state, setState] = useState<ExperienceState>({
+    autoPresentationPending: false,
+    identityKey,
+    recap: null,
+    visible: false,
+  });
+  const activeState = state.identityKey === identityKey ? state : null;
+  const recap = activeState?.recap ?? null;
 
   useEffect(() => {
-    if (!enabled) {
-      coordinator.reset(null);
-      contextKeyRef.current = '';
-      setState({recap: null, visible: false});
-      return undefined;
-    }
-    const generation = getAuthSessionGeneration();
-    const contextKey = `${generation}:${userId}:${campusId}`;
-    contextKeyRef.current = contextKey;
-    coordinator.reset(contextKey);
-    setState({recap: null, visible: false});
+    coordinator.reset(identityKey);
+    setState((current) => current.identityKey === identityKey ? current : {
+      autoPresentationPending: false,
+      identityKey,
+      recap: null,
+      visible: false,
+    });
     let active = true;
 
     void resolveCurrentAccessToken(() => undefined)
       .then((accessToken) => {
         if (!accessToken || !active || !isAuthSessionRequestAllowed(generation)) return null;
         return coordinator.load({
-          contextKey,
+          contextKey: identityKey,
           load: () => api.getPreviousYearRecap(accessToken, generation),
         });
       })
@@ -61,12 +67,17 @@ export function useYearlyRecapExperience({
           !active ||
           !result ||
           result.status === 'stale' ||
-          contextKeyRef.current !== contextKey ||
+          identityKeyRef.current !== identityKey ||
           !isAuthSessionRequestAllowed(generation)
         ) return;
-        const recap = result.recap;
-        if (!recap.hasRecapData) return;
-        setState({recap, visible: result.shouldAutoPresent});
+        const nextRecap = result.recap;
+        if (!nextRecap.hasRecapData) return;
+        setState((current) => current.identityKey === identityKey ? {
+          ...current,
+          autoPresentationPending: result.shouldAutoPresent,
+          recap: nextRecap,
+          visible: false,
+        } : current);
       })
       .catch((error: unknown) => {
         if (error instanceof StaleAuthSessionReadError) return;
@@ -75,42 +86,56 @@ export function useYearlyRecapExperience({
 
     return () => {
       active = false;
-      coordinator.reset(null);
     };
-  }, [api, campusId, coordinator, enabled, userId]);
+  }, [api, coordinator, generation, identityKey]);
+
+  useEffect(() => {
+    setState((current) => {
+      if (current.identityKey !== identityKey) return current;
+      if (!canAutoPresent) {
+        return current.visible ? {...current, visible: false} : current;
+      }
+      if (!current.autoPresentationPending) return current;
+      return {...current, autoPresentationPending: false, visible: true};
+    });
+  }, [activeState?.autoPresentationPending, canAutoPresent, identityKey]);
 
   const open = useCallback(() => {
-    setState((current) => current.recap ? {...current, visible: true} : current);
-  }, []);
+    setState((current) =>
+      current.identityKey === identityKey && current.recap
+        ? {...current, visible: true}
+        : current,
+    );
+  }, [identityKey]);
   const close = useCallback(() => {
-    setState((current) => ({...current, visible: false}));
-  }, []);
+    setState((current) =>
+      current.identityKey === identityKey ? {...current, visible: false} : current,
+    );
+  }, [identityKey]);
   const markFirstFramePresented = useCallback(() => {
-    const recap = state.recap;
     if (!recap) return;
-    const contextKey = contextKeyRef.current;
-    const generation = getAuthSessionGeneration();
-    const expectedContextKey = `${generation}:${userId}:${campusId}`;
-    if (contextKey !== expectedContextKey || !isAuthSessionRequestAllowed(generation)) return;
-    const presentedKey = `${contextKey}:${recap.recapYear}`;
+    const currentGeneration = getAuthSessionGeneration();
+    const expectedIdentityKey = `${currentGeneration}:${userId}`;
+    if (identityKey !== expectedIdentityKey || !isAuthSessionRequestAllowed(currentGeneration)) return;
+    const presentedKey = `${identityKey}:${recap.recapYear}`;
     void coordinator.markPresentedOnce(presentedKey, async () => {
       const accessToken = await resolveCurrentAccessToken(() => undefined);
       if (
         !accessToken ||
-        contextKeyRef.current !== contextKey ||
-        !isAuthSessionRequestAllowed(generation)
+        identityKeyRef.current !== identityKey ||
+        !isAuthSessionRequestAllowed(currentGeneration)
       ) return null;
-      return api.markPresented(accessToken, generation, recap.recapYear);
+      return api.markPresented(accessToken, currentGeneration, recap.recapYear);
     }).catch(() => undefined);
-  }, [api, campusId, coordinator, state.recap, userId]);
+  }, [api, coordinator, identityKey, recap, userId]);
 
   return {
     close,
     homeCardVisible:
-      state.recap ? getYearlyRecapDisplayPolicy(state.recap).showHomeCard : false,
+      recap ? getYearlyRecapDisplayPolicy(recap).showHomeCard : false,
     markFirstFramePresented,
     open,
-    recap: state.recap,
-    visible: state.visible,
+    recap,
+    visible: activeState?.visible ?? false,
   };
 }

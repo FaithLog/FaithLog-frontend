@@ -13,12 +13,14 @@ export type YearlyRecapChapter = {
 const numberFormatter = new Intl.NumberFormat('ko-KR');
 
 export function buildYearlyRecapChapters(recap: YearlyRecap): YearlyRecapChapter[] {
+  const introMetrics = buildIntroMetrics(recap);
   const chapters: YearlyRecapChapter[] = [
     {
       kind: 'intro',
       eyebrow: 'YEAR IN FAITH',
       title: `${recap.recapYear}년, FaithLog와 함께한 기록`,
       description: '한 해 동안 차곡차곡 쌓인 믿음의 발걸음을 돌아봐요.',
+      ...(introMetrics.length > 0 ? {metrics: introMetrics} : {}),
     },
   ];
 
@@ -103,6 +105,14 @@ export function buildYearlyRecapChapters(recap: YearlyRecap): YearlyRecapChapter
   return chapters;
 }
 
+export function getYearlyRecapChapterAnnouncement(chapter: YearlyRecapChapter) {
+  const metricSummary = chapter.metrics
+    ?.slice(0, 3)
+    .map((metricItem) => `${metricItem.label} ${metricItem.value}`)
+    .join(', ');
+  return metricSummary ? `${chapter.title}. ${metricSummary}` : chapter.title;
+}
+
 export function formatCampusJourney(campus: YearlyRecapCampus, recapYear: number) {
   if (!campus.joinedDuringRecapYear) {
     return `${recapYear}년에도 ${campus.campusName}와 함께했어요`;
@@ -113,6 +123,23 @@ export function formatCampusJourney(campus: YearlyRecapCampus, recapYear: number
 
 function metric(label: string, value: number, suffix: string): RecapMetric {
   return {label, value: `${numberFormatter.format(value)}${suffix}`};
+}
+
+function buildIntroMetrics(recap: YearlyRecap) {
+  const candidates = [
+    {label: '큐티한 날', value: recap.devotion.quietTimeCount, suffix: '일'},
+    {label: '말씀 읽은 날', value: recap.devotion.bibleReadingCount, suffix: '일'},
+    {label: '기도한 날', value: recap.devotion.prayerCount, suffix: '일'},
+    {label: '모두 실천한 날', value: recap.devotion.allCompletedDayCount, suffix: '일'},
+    {label: '참여한 투표', value: recap.pollActivity.participatedCount, suffix: '회'},
+    {label: '함께한 공동체', value: recap.campusJourney.campuses.length, suffix: '곳'},
+    {label: '경건생활 제출', value: recap.devotion.submittedWeekCount, suffix: '주'},
+    {label: '기도제목 제출', value: recap.prayerActivity.submittedWeekCount, suffix: '주'},
+  ];
+  return candidates
+    .filter((candidate) => candidate.value > 0)
+    .slice(0, 3)
+    .map((candidate) => metric(candidate.label, candidate.value, candidate.suffix));
 }
 
 function hasDevotionActivity(recap: YearlyRecap) {
