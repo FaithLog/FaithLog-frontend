@@ -72,10 +72,6 @@ type ListConfirmationTarget = {
   kind: 'archive' | 'publish';
   item: AnnouncementSummary;
 };
-type AdminThumbnailState =
-  | {status: 'idle' | 'loading'}
-  | {status: 'ready'; urls: Record<number, string>}
-  | {status: 'error'};
 type ExistingMediaState =
   | {status: 'idle' | 'loading'}
   | {status: 'ready'; urls: Record<number, string>}
@@ -117,9 +113,7 @@ export function AdminAnnouncementScreen({
   const [confirmationTarget, setConfirmationTarget] = useState<ListConfirmationTarget | null>(null);
   const [actionBusy, setActionBusy] = useState<'archive' | 'publish' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [thumbnailState, setThumbnailState] = useState<AdminThumbnailState>({status: 'idle'});
   const requestRef = useRef(0);
-  const mediaRequestRef = useRef(0);
   const archiveFlightRef = useRef(false);
   const publishFlightRef = useRef(false);
 
@@ -131,61 +125,20 @@ export function AdminAnnouncementScreen({
     return operation(token);
   }, []);
 
-  const loadThumbnails = useCallback(async (
-    items: AnnouncementSummary[],
-    contentRequest = requestRef.current,
-    preserveCurrentUrls = false,
-  ): Promise<Record<number, string> | null> => {
-    const mediaRequest = ++mediaRequestRef.current;
-    const assetIds = Array.from(new Set(
-      items.flatMap((item) => item.imageAssetIds.slice(0, 1)),
-    ));
-    if (assetIds.length === 0) {
-      setThumbnailState({status: 'ready', urls: {}});
-      return {};
-    }
-    if (!preserveCurrentUrls) setThumbnailState({status: 'loading'});
-    try {
-      const media = await withToken((token) => api.getMediaAccessUrls(token, campusId, assetIds));
-      if (
-        contentRequest !== requestRef.current ||
-        mediaRequest !== mediaRequestRef.current
-      ) return null;
-      const urls = Object.fromEntries(media.map((item) => [item.assetId, item.thumbnailUrl]));
-      setThumbnailState((current) => ({
-        status: 'ready',
-        urls: preserveCurrentUrls && current.status === 'ready'
-          ? {...current.urls, ...urls}
-          : urls,
-      }));
-      return urls;
-    } catch {
-      if (
-        !preserveCurrentUrls &&
-        contentRequest === requestRef.current &&
-        mediaRequest === mediaRequestRef.current
-      ) setThumbnailState({status: 'error'});
-      return null;
-    }
-  }, [api, campusId, withToken]);
-
   const load = useCallback(async () => {
     const request = ++requestRef.current;
-    mediaRequestRef.current += 1;
     setState({status: 'loading'});
-    setThumbnailState({status: 'idle'});
     try {
       const items = await withToken((token) => api.listAdmin(token, campusId, status));
       if (request === requestRef.current) {
         setState({status: 'success', items});
-        void loadThumbnails(items, request);
       }
     } catch (error) {
       if (request === requestRef.current) {
         setState({status: 'error', error: toApiError(error)});
       }
     }
-  }, [api, campusId, loadThumbnails, status, withToken]);
+  }, [api, campusId, status, withToken]);
 
   useEffect(() => {
     void load();
@@ -196,9 +149,7 @@ export function AdminAnnouncementScreen({
     // Invalidate the previous status scope in the same input event. Waiting for
     // the passive load effect would briefly paint old rows under the new tab.
     requestRef.current += 1;
-    mediaRequestRef.current += 1;
     setState({status: 'loading'});
-    setThumbnailState({status: 'idle'});
     setStatus(nextStatus);
   }, [status]);
 
@@ -284,7 +235,6 @@ export function AdminAnnouncementScreen({
   return (
     <>
       <AdminAnnouncementListScreen
-        campusId={campusId}
         loadState={state}
         onArchive={(item) => requestConfirmation({item, kind: 'archive'})}
         onBack={onBack}
@@ -295,16 +245,6 @@ export function AdminAnnouncementScreen({
         onRetry={load}
         onStatus={selectStatus}
         selectedStatus={status}
-        thumbnailState={thumbnailState}
-        userId={userId}
-        onRetryThumbnails={() => {
-          if (state.status === 'success') void loadThumbnails(state.items);
-        }}
-        onRetryThumbnail={async (assetId) => {
-          if (state.status !== 'success') return false;
-          const urls = await loadThumbnails(state.items, requestRef.current, true);
-          return urls?.[assetId] !== undefined;
-        }}
       />
       <AnnouncementConfirmationSheet
         accessibilityLabel={confirmationTitle}
@@ -326,7 +266,6 @@ export function AdminAnnouncementScreen({
 }
 
 export function AdminAnnouncementListScreen({
-  campusId,
   loadState,
   onArchive,
   onBack,
@@ -337,12 +276,7 @@ export function AdminAnnouncementListScreen({
   onRetry,
   onStatus,
   selectedStatus,
-  thumbnailState,
-  userId,
-  onRetryThumbnails,
-  onRetryThumbnail,
 }: {
-  campusId: number;
   loadState: LoadState;
   onArchive: (item: AnnouncementSummary) => void;
   onBack: () => void;
@@ -353,10 +287,6 @@ export function AdminAnnouncementListScreen({
   onRetry: () => void;
   onStatus: (status: AnnouncementStatus) => void;
   selectedStatus: AnnouncementStatus;
-  thumbnailState: AdminThumbnailState;
-  userId?: number | undefined;
-  onRetryThumbnails: () => void;
-  onRetryThumbnail: (assetId: number) => Promise<boolean>;
 }) {
   const [visibleItemCount, setVisibleItemCount] = useState(progressiveAdminRowPageSize);
   useEffect(() => {
@@ -414,51 +344,17 @@ export function AdminAnnouncementListScreen({
           title="해당 상태의 공지가 없습니다"
         />
       ) : <>
-        {thumbnailState.status === 'error' ? (
-          <View style={styles.inlineMediaState}>
-            <Text accessibilityRole="alert" style={styles.meta}>
-              이미지를 불러오지 못했지만 공지는 관리할 수 있습니다.
-            </Text>
-            <CompactButton
-              accessibilityLabel="관리자 공지 이미지 다시 불러오기"
-              label="이미지 다시 시도"
-              onPress={onRetryThumbnails}
-            />
-          </View>
-        ) : null}
-        {visibleItems.map((item) => {
-          const assetId = item.imageAssetIds[0];
-          const thumbnailUrl = assetId === undefined || thumbnailState.status !== 'ready'
-            ? undefined
-            : thumbnailState.urls[assetId];
-          return (
-        <View key={item.id} style={styles.card}>
-          <View style={styles.cardTop}>
-            <AnnouncementCategoryBadge category={item.category} />
-            <Text style={styles.meta}>{item.pinned ? '상단 고정' : statusLabel(item.status)}</Text>
-          </View>
-          <View style={styles.adminAnnouncementContent}>
-            <View style={styles.adminAnnouncementCopy}>
-              <Text numberOfLines={2} style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.meta}>{formatDate(item.publishedAt ?? item.publishAt)}</Text>
+        {visibleItems.map((item) => (
+        <View accessibilityLabel={`${item.title} 관리 카드`} key={item.id} style={styles.card}>
+          <View style={styles.adminCardMetaRow}>
+            <View style={styles.adminCardBadges}>
+              <AnnouncementCategoryBadge category={item.category} />
+              {item.pinned ? <Text style={styles.pinned}>상단 고정</Text> : null}
+              <Text style={styles.adminStatus}>{statusLabel(item.status)}</Text>
             </View>
-            {assetId !== undefined ? (
-              <AnnouncementRetryableImage
-                assetId={assetId}
-                campusId={campusId}
-                imageAccessibilityLabel={`${item.title} 미리보기 이미지`}
-                imageStyle={styles.adminThumbnailImage}
-                loadingAccessibilityLabel={`${item.title} 미리보기 이미지 불러오는 중`}
-                onRetry={() => onRetryThumbnail(assetId)}
-                pending={thumbnailState.status === 'idle' || thumbnailState.status === 'loading'}
-                retryAccessibilityLabel={`${item.title} 미리보기 이미지 다시 불러오기`}
-                signedUrl={thumbnailUrl}
-                style={styles.adminThumbnail}
-                userId={userId}
-                variant="thumbnail"
-              />
-            ) : null}
+            <Text style={styles.adminDate}>{formatDate(item.publishedAt ?? item.publishAt)}</Text>
           </View>
+          <Text numberOfLines={2} style={styles.cardTitle}>{item.title}</Text>
           <View
             accessibilityLabel={`${item.title} 관리 작업`}
             style={styles.actionRow}>
@@ -486,8 +382,7 @@ export function AdminAnnouncementListScreen({
             ) : null}
           </View>
         </View>
-          );
-        })}
+        ))}
         {remainingItemCount > 0 ? (
           <Button
             accessibilityLabel={`관리자 공지 ${Math.min(progressiveAdminRowPageSize, remainingItemCount)}개 더 보기`}
@@ -2015,10 +1910,10 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'flex-end',
   },
-  adminAnnouncementContent: {alignItems: 'center', flexDirection: 'row', gap: 12},
-  adminAnnouncementCopy: {flex: 1, gap: 6, minWidth: 0},
-  adminThumbnail: {borderRadius: radius.control, height: 64, width: 64},
-  adminThumbnailImage: {height: '100%', width: '100%'},
+  adminCardBadges: {alignItems: 'center', flexDirection: 'row', flexShrink: 1, gap: 8},
+  adminCardMetaRow: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between'},
+  adminDate: {color: colors.textMuted, fontSize: 13, lineHeight: 18},
+  adminStatus: {color: colors.textMuted, fontSize: 12, fontWeight: '700'},
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.card,
@@ -2125,6 +2020,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   page: {gap: spacing.gap, paddingBottom: 120},
+  pinned: {color: colors.primary, fontSize: 12, fontWeight: '700'},
   pressed: {opacity: 0.7},
   previewBody: {...typography.body, color: colors.textSecondary},
   previewRail: {gap: 8, paddingVertical: 2},

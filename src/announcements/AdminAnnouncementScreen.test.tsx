@@ -233,30 +233,18 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     nativeMediaMocks.resolveToken.mockResolvedValue('access-token');
   });
 
-  it('loads one batched thumbnail per admin row without coupling media failure to list content', async () => {
+  it('keeps admin announcement cards text-only and does not request image URLs for the list', async () => {
     const withImage = announcement({id: 111, imageAssetIds: [77, 78], title: '이미지 공지'});
-    const getMediaAccessUrls = vi.fn()
-      .mockRejectedValueOnce(new Error('media unavailable'))
-      .mockResolvedValueOnce([mediaAccess(77)]);
+    const getMediaAccessUrls = vi.fn(async () => [mediaAccess(77)]);
     const api = createApi({getMediaAccessUrls, listAdmin: vi.fn(async () => [withImage])});
     const renderer = await render(
       <AdminAnnouncementScreen api={api} campusId={1} onBack={vi.fn()} userId={42} />,
     );
 
     expect(rendered(renderer)).toContain('이미지 공지');
-    expect(rendered(renderer)).toContain('이미지를 불러오지 못했지만 공지는 관리할 수 있습니다.');
-    expect(getMediaAccessUrls).toHaveBeenCalledWith('access-token', 1, [77]);
-
-    await press(renderer, '관리자 공지 이미지 다시 불러오기');
-
-    expect(getMediaAccessUrls).toHaveBeenCalledTimes(2);
-    expect(renderer.root.findByType('AnnouncementCachedImage' as never).props).toMatchObject({
-      accessibilityLabel: '이미지 공지 미리보기 이미지',
-      assetId: 77,
-      campusId: 1,
-      userId: 42,
-      variant: 'thumbnail',
-    });
+    expect(byLabel(renderer, '이미지 공지 관리 카드')).toBeTruthy();
+    expect(getMediaAccessUrls).not.toHaveBeenCalled();
+    expect(renderer.root.findAllByType('AnnouncementCachedImage' as never)).toHaveLength(0);
   });
 
   it('shows the original published time instead of a later edit publishAt value', async () => {
