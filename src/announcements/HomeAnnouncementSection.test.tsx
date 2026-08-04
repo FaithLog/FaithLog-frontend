@@ -178,6 +178,9 @@ function summary(id: number, overrides: Partial<AnnouncementSummary> = {}): Anno
     status: 'PUBLISHED',
     title: `공지 ${id}`,
     ...overrides,
+    attachmentCount: overrides.attachmentCount ?? 0,
+    documentAssetIds: overrides.documentAssetIds ?? [],
+    hasAttachments: overrides.hasAttachments ?? false,
   };
 }
 

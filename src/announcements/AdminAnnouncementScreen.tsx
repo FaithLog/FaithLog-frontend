@@ -29,7 +29,8 @@ import {Button, Card, Empty, ErrorState, Loading, ScreenHeader, TextField} from 
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {colors, radius, spacing, typography} from '../theme';
 import {announcementApi, type AnnouncementApi} from './announcementApi';
-import {isAnnouncementMockModeEnabled} from './announcementEnvironment';
+import {isAnnouncementMockModeEnabled, isAnnouncementPdfCapabilityEnabled} from './announcementEnvironment';
+import {AnnouncementDocumentEditor, type AnnouncementDocumentItem} from './AnnouncementDocumentAttachments';
 import {AnnouncementCategoryBadge} from './AnnouncementCategoryBadge';
 import {AnnouncementRetryableImage} from './AnnouncementRetryableImage';
 import {moveUploadItem, reconcileUploadItem, type UploadItem} from './announcementMedia';
@@ -425,6 +426,17 @@ export function AnnouncementEditorScreen({
       status: 'ready',
     })),
   );
+  const pdfEnabled = isAnnouncementPdfCapabilityEnabled();
+  const [documents, setDocuments] = useState<AnnouncementDocumentItem[]>(() =>
+    (detail?.documentAssetIds ?? []).map((assetId, index) => ({
+      assetId,
+      byteSize: 1024,
+      fileName: `첨부 문서 ${index + 1}.pdf`,
+      localId: `document-${assetId}`,
+      status: 'ready',
+    })),
+  );
+  const nextMockDocumentId = useRef(20_000 + documents.length);
   const [confirmationVisible, setConfirmationVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
@@ -509,6 +521,10 @@ export function AnnouncementEditorScreen({
       setError('이미지 업로드를 완료하거나 실패한 이미지를 삭제한 뒤 다시 시도해 주세요.');
       return null;
     }
+    if (documents.some((item) => item.status !== 'ready')) {
+      setError('PDF 업로드를 완료하거나 실패한 문서를 삭제한 뒤 다시 시도해 주세요.');
+      return null;
+    }
     if (publishMode === 'SCHEDULED' && publishAt.getTime() <= Date.now()) {
       setError('예약 게시 시각은 현재 시각 이후여야 합니다.');
       return null;
@@ -516,6 +532,7 @@ export function AnnouncementEditorScreen({
     const request: AnnouncementSaveRequest = {
       body: trimmedBody,
       categoryId,
+      documentAssetIds: documents.flatMap((item) => item.status === 'ready' && item.assetId ? [item.assetId] : []),
       imageAssetIds: uploads.flatMap((item) => item.status === 'ready' ? [item.assetId] : []),
       pinned,
       publishAt: publishMode === 'SCHEDULED' ? publishAt.toISOString() : null,
@@ -665,6 +682,25 @@ export function AnnouncementEditorScreen({
         remoteThumbnailUrls={existingMedia.status === 'ready' ? existingMedia.urls : {}}
         userId={userId}
       />
+      {pdfEnabled ? (
+        <AnnouncementDocumentEditor
+          disabled={saving}
+          items={documents}
+          onAdd={() => {
+            const assetId = nextMockDocumentId.current++;
+            setDocuments((current) => [...current, {
+              assetId,
+              byteSize: 128 * 1024,
+              fileName: `공지 첨부 ${current.length + 1}.pdf`,
+              localId: `mock-document-${assetId}`,
+              status: 'ready',
+            }]);
+          }}
+          onMove={(from, to) => setDocuments((current) => moveDocument(current, from, to))}
+          onRemove={(localId) => setDocuments((current) => current.filter((item) => item.localId !== localId))}
+          onRetry={() => undefined}
+        />
+      ) : null}
       <View accessibilityLabel="공지 작성 작업" style={styles.editorActions}>
         <EditorActionButton
           accessibilityLabel={detail ? '공지 수정 취소' : '공지 작성 취소'}
@@ -2039,6 +2075,15 @@ function hasUniqueCategorySortOrders(items: readonly AnnouncementCategory[]) {
     orders.add(item.sortOrder);
   }
   return true;
+}
+
+function moveDocument(items: AnnouncementDocumentItem[], from: number, to: number) {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return items;
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  if (!item) return items;
+  next.splice(to, 0, item);
+  return next;
 }
 
 const styles = StyleSheet.create({

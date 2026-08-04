@@ -150,6 +150,7 @@ vi.mock('../api/client', () => {
 
 vi.mock('./announcementEnvironment', () => ({
   isAnnouncementMockModeEnabled: () => nativeMediaMocks.mockMode,
+  isAnnouncementPdfCapabilityEnabled: () => false,
 }));
 
 vi.mock('./AnnouncementCachedImage', async () => {
@@ -1344,6 +1345,9 @@ function announcement(overrides: Partial<AnnouncementDetail> = {}): Announcement
     status: 'PUBLISHED',
     title: '공지 제목',
     ...overrides,
+    attachmentCount: overrides.attachmentCount ?? 0,
+    documentAssetIds: overrides.documentAssetIds ?? [],
+    hasAttachments: overrides.hasAttachments ?? false,
   };
 }
 

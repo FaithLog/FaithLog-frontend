@@ -5,6 +5,7 @@ import type {
   AnnouncementStatus,
   AnnouncementSummary,
 } from './announcementTypes';
+import {dedupeOrderedDocumentAssetIds} from '../media/pdfAttachmentPolicy';
 import type {
   MediaAccessUrl,
   MediaAssetCompletion,
@@ -55,6 +56,17 @@ export function parseAnnouncementDetail(
   const category = parseCategory(value.category, campusId);
   const imageAssetIds = positiveIdArray(value.imageAssetIds);
   if (new Set(imageAssetIds).size !== imageAssetIds.length) invalid();
+  const documentAssetIds = value.documentAssetIds === undefined
+    ? []
+    : positiveIdArray(value.documentAssetIds);
+  if (dedupeOrderedDocumentAssetIds(documentAssetIds).length !== documentAssetIds.length) invalid();
+  const attachmentCount = value.attachmentCount === undefined
+    ? imageAssetIds.length + documentAssetIds.length
+    : nonNegativeInteger(value.attachmentCount);
+  const hasAttachments = value.hasAttachments === undefined
+    ? attachmentCount > 0
+    : requiredBoolean(value.hasAttachments);
+  if (hasAttachments !== (attachmentCount > 0)) invalid();
   const status = value.status;
   if (typeof status !== 'string' || !statuses.has(status as AnnouncementStatus)) invalid();
   if (
@@ -64,8 +76,11 @@ export function parseAnnouncementDetail(
   ) invalid();
   return {
     body: requiredString(value.content),
+    attachmentCount,
     campusId,
     category,
+    documentAssetIds,
+    hasAttachments,
     id,
     imageAssetIds,
     pinned: requiredBoolean(value.isPinned),

@@ -1,4 +1,4 @@
-export type MediaVariant = 'thumbnail' | 'detail';
+export type MediaVariant = 'thumbnail' | 'detail' | 'document';
 
 export type MediaUploadReservationRequest = {
   contentType: 'image/jpeg' | 'image/png';

@@ -9,6 +9,8 @@ import {colors, radius, spacing, typography} from '../theme';
 import {announcementApi, type AnnouncementApi} from './announcementApi';
 import {AnnouncementCachedImage} from './AnnouncementCachedImage';
 import {AnnouncementCategoryBadge} from './AnnouncementCategoryBadge';
+import {AnnouncementDocumentList} from './AnnouncementDocumentAttachments';
+import {isAnnouncementPdfCapabilityEnabled} from './announcementEnvironment';
 import type {AnnouncementDetail, AnnouncementSummary, MediaAccessUrl} from './announcementTypes';
 
 type ViewState =
@@ -312,7 +314,11 @@ export function AnnouncementDetailScreen({
 }) {
   const {height, width} = useWindowDimensions();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [documentNotice, setDocumentNotice] = useState<string | null>(null);
   const thumbnailSize = 84;
+  const documentItems = isAnnouncementPdfCapabilityEnabled()
+    ? detail.documentAssetIds.map((assetId, index) => ({assetId, byteSize: 128 * 1024, fileName: `첨부 문서 ${index + 1}.pdf`, localId: `document-${assetId}`, status: 'ready' as const}))
+    : [];
   return (
     <>
       <FlatList
@@ -376,6 +382,11 @@ export function AnnouncementDetailScreen({
                 ) : null}
               </View>
             ) : null}
+          <AnnouncementDocumentList
+            items={documentItems}
+            onOpen={(item) => setDocumentNotice(`${item.fileName} 열기는 Mock 화면에서만 확인할 수 있습니다.`)}
+          />
+          {documentNotice ? <Text accessibilityRole="alert" style={styles.date}>{documentNotice}</Text> : null}
           </View>
         }
         renderItem={null}

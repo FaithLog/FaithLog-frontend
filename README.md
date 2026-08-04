@@ -35,11 +35,14 @@ EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
 EXPO_PUBLIC_APP_ENV=local
 EXPO_PUBLIC_MOCK_MODE=false
 EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true
+EXPO_PUBLIC_ANNOUNCEMENT_PDF_ENABLED=false
 ```
 
 EAS preview/production은 앱의 런타임 allowlist, `eas.json`, GitHub Actions workflow에 함께 명시된 승인 API origin만 사용합니다. 현재 승인 origin은 MVP Cloud Run URL인 `https://faithlog-549871256004.asia-northeast3.run.app`입니다. Origin을 변경할 때는 세 위치를 같은 PR에서 함께 수정하고 검증해야 합니다. Expo token과 Firebase native config 값은 repository, PR 본문, QA 보고에 남기지 않습니다.
 
 `EXPO_PUBLIC_MOCK_MODE=true`로 설정하면 API client 내부 mock adapter가 live backend 대신 도메인 fixture를 반환합니다. 화면 코드와 feature service는 live/mock 분기를 직접 알지 않아야 합니다. 기본 MVP QA는 live backend mode(`false`)를 기준으로 하고, mock QA는 fixture adapter 사용 여부와 scenario를 함께 기록합니다.
+
+공지 PDF 준비 화면은 backend #242 REST Docs 확정 전까지 local/development mock에서만 `EXPO_PUBLIC_ANNOUNCEMENT_PDF_ENABLED=true`로 확인할 수 있습니다. preview/production에서는 이 값을 설정해도 fail-closed로 숨겨지며, 기존 공지 production payload에는 provisional `documentAssetIds`를 보내지 않습니다.
 
 일반 공지와 native 이미지 picker/upload는 `EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true`에서 활성화됩니다. 이 플래그와 `EXPO_PUBLIC_MOCK_MODE=false`를 함께 사용해야 backend의 reserve → signed PUT → complete 흐름을 사용할 수 있습니다. preview/production도 `eas.json`에서 명시적으로 활성화하며, 값이 없거나 `true`가 아니면 기능을 숨기는 fail-closed 경계를 유지합니다.
 
