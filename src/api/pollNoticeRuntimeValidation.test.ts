@@ -4,9 +4,18 @@ import {parsePollDetail, parsePollSummaryList} from './runtimeValidation';
 
 describe('poll notice runtime validation', () => {
   it('maps list hasNotice without accepting notice body in summary', () => {
-    const summary = pollSummary({hasNotice: true});
-    expect(parsePollSummaryList([summary])[0]).toMatchObject({hasNotice: true});
+    const summary = pollSummary({hasNotice: true, hasImages: true, thumbnailAssetId: 31});
+    expect(parsePollSummaryList([summary])[0]).toMatchObject({
+      hasNotice: true,
+      hasImages: true,
+      thumbnailAssetId: 31,
+    });
     expect(() => parsePollSummaryList([{...summary, notice: 'summary leak'}])).toThrow();
+  });
+
+  it('accepts the confirmed 5,000 character notice limit', () => {
+    expect(parsePollDetail(pollDetail({notice: '가'.repeat(5000)})).notice).toHaveLength(5000);
+    expect(() => parsePollDetail(pollDetail({notice: '가'.repeat(5001)}))).toThrow();
   });
 
   it('maps detail notice and ordered image asset ids', () => {

@@ -10,15 +10,15 @@ type PollNoticeCapabilityInput = Readonly<{
   productionFileCacheReady?: boolean;
 }>;
 
-// Keep provisional production surfaces closed until the corresponding backend
-// contract and file-cache dependency have both been confirmed in this client.
-const PRODUCTION_CONTRACT_CONFIRMED = false;
-const PRODUCTION_FILE_CACHE_READY = false;
+// Backend #238 REST Docs and the shared #244 native picker/upload/cache boundary
+// are both present in the integrated app.
+const PRODUCTION_CONTRACT_CONFIRMED = true;
+const PRODUCTION_FILE_CACHE_READY = true;
 const MOCK_ALLOWED_APP_ENVIRONMENTS = new Set(['local', 'development']);
 
 export function resolvePollNoticeCapabilities({
   mockMode,
-  productionContractConfirmed = false,
+  productionContractConfirmed = PRODUCTION_CONTRACT_CONFIRMED,
   productionFileCacheReady = false,
 }: PollNoticeCapabilityInput): PollNoticeCapabilities {
   const canUseNoticeContract = mockMode || productionContractConfirmed;

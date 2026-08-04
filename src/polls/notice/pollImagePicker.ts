@@ -1,4 +1,4 @@
-import {FaithLogApiError} from '../../api/apiError';
+import {pickAndPrepareAnnouncementImages} from '../../announcements/announcementNativeMedia';
 
 export type NormalizedPollImage = {
   localId: string;
@@ -34,14 +34,30 @@ export function createMockPollImagePicker(): PollImagePicker {
   };
 }
 
-export function createProductionPollImagePicker(): PollImagePicker {
+export function createProductionPollImagePicker(
+  pickAndPrepare = pickAndPrepareAnnouncementImages,
+): PollImagePicker {
   return {
     async pickAndNormalize() {
-      throw new FaithLogApiError({
-        kind: 'error',
-        code: 'NATIVE_MEDIA_DEPENDENCY_PENDING',
-        message: '이미지 선택 기능 준비가 필요합니다.',
-      });
+      const result = await pickAndPrepare();
+      return result.prepared.map((image) => ({
+        localId: `poll-native-${image.sourceIndex}-${nextImageIdentity()}`,
+        uri: image.uri,
+        contentType: image.contentType,
+        byteSize: image.byteSize,
+        width: image.width,
+        height: image.height,
+        sha256: image.sha256,
+        exifRemoved: true,
+        orientationCorrected: true,
+      }));
     },
   };
+}
+
+let imageIdentity = 0;
+
+function nextImageIdentity() {
+  imageIdentity += 1;
+  return imageIdentity;
 }

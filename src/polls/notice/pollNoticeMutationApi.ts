@@ -2,10 +2,10 @@ import {
   apiRequest,
   buildAdminCampusPath,
   buildCampusPath,
+  fetchPollDetail,
   toPositiveIntegerPathSegment,
 } from '../../api/client';
 import {FaithLogApiError} from '../../api/apiError';
-import {parsePollDetail} from '../../api/runtimeValidation';
 import type {PollDetail} from '../../api/types';
 import {getPollNoticeCapabilities} from './pollNoticeCapabilities';
 import {
@@ -45,6 +45,7 @@ type PollNoticeMutationApiDependencies = {
   capabilities?: PollNoticeCapabilities;
   getCapabilities?: () => PollNoticeCapabilities;
   request?: PollNoticeMutationRequest;
+  fetchDetail?: typeof fetchPollDetail;
 };
 
 export function createPollNoticeMutationApi(
@@ -53,6 +54,7 @@ export function createPollNoticeMutationApi(
   const request: PollNoticeMutationRequest = dependencies.request ??
     (<T>(path: string, options: PollNoticeMutationRequestOptions<T>) =>
       apiRequest<T>(path, options));
+  const loadDetail = dependencies.fetchDetail ?? fetchPollDetail;
 
   return {
     async update(accessToken, input) {
@@ -89,35 +91,70 @@ export function createPollNoticeMutationApi(
         });
       }
 
-      return request<PollDetail>(path, {
+      await request(path, {
         accessToken,
         body: {title, ...body},
         exposeServerErrorMessage: true,
         method: 'PATCH',
-        responseParser: (value) => parsePublishedPollNoticeResponse(
+        responseParser: (value) => parsePublishedPollNoticeMutationResponse(
           value,
           campusId,
           pollId,
+          title,
+          body.notice,
+          body.imageAssetIds,
         ),
       });
+      const detail = await loadDetail(accessToken, campusId, pollId);
+      if (
+        detail.campusId !== campusId || detail.id !== pollId ||
+        detail.title !== title || (detail.notice ?? null) !== body.notice ||
+        !sameIds(detail.imageAssetIds ?? [], body.imageAssetIds)
+      ) {
+        return invalidMutationResponse();
+      }
+      return detail;
     },
   };
 }
 
-function parsePublishedPollNoticeResponse(
+function parsePublishedPollNoticeMutationResponse(
   value: unknown,
   expectedCampusId: number,
   expectedPollId: number,
+  expectedTitle: string,
+  expectedNotice: string | null,
+  expectedImageAssetIds: number[],
 ) {
-  const detail = parsePollDetail(value);
-  if (detail.campusId !== expectedCampusId || detail.id !== expectedPollId) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      code: 'INVALID_SERVER_RESPONSE',
-      message: '수정한 투표 정보를 확인하지 못했습니다.',
-    });
-  }
-  return detail;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalidMutationResponse();
+  const record = value as Record<string, unknown>;
+  const id = record.id;
+  const campusId = record.campusId;
+  const title = record.title;
+  const notice = record.notice;
+  const imageAssetIds = record.imageAssetIds;
+  if (
+    id !== expectedPollId || campusId !== expectedCampusId || title !== expectedTitle ||
+    (notice !== null && typeof notice !== 'string') || (notice ?? null) !== expectedNotice ||
+    !Array.isArray(imageAssetIds) ||
+    imageAssetIds.some((assetId) =>
+      typeof assetId !== 'number' || !Number.isSafeInteger(assetId) || assetId <= 0) ||
+    new Set(imageAssetIds).size !== imageAssetIds.length ||
+    !sameIds(imageAssetIds as number[], expectedImageAssetIds)
+  ) return invalidMutationResponse();
+  return {campusId, id};
+}
+
+function sameIds(left: number[], right: number[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function invalidMutationResponse(): never {
+  throw new FaithLogApiError({
+    kind: 'error',
+    code: 'INVALID_SERVER_RESPONSE',
+    message: '수정한 투표 정보를 확인하지 못했습니다.',
+  });
 }
 
 export function updatePublishedPollNotice(

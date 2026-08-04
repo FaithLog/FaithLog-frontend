@@ -23,10 +23,10 @@ import {getCurrentMealRequestError, MealErrorState, MealLoading, toMealApiError}
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {useMealRequestTracker} from './useMealRequestTracker';
-import {isMockModeEnabled} from '../api/client';
-import {createMockReadyMediaAssetForCampus} from '../api/mockAdapter';
 import type {MediaUploadItem} from '../media/mediaUploadPolicy';
 import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
+import {usePollNoticeMediaUploads} from '../polls/notice/usePollNoticeMediaUploads';
 
 type MealPollCreateScreenProps = {
   api?: MealApi;
@@ -63,9 +63,15 @@ export function MealPollCreateScreen({
   const [allowUserOptionAdd, setAllowUserOptionAdd] = useState(true);
   const [notice, setNotice] = useState('');
   const [noticeImages, setNoticeImages] = useState<MediaUploadItem[]>([]);
-  const noticeFeatureEnabled = isMockModeEnabled();
+  const noticeCapabilities = getPollNoticeCapabilities();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  const noticeMediaUploads = usePollNoticeMediaUploads({
+    campusId,
+    enabled: noticeCapabilities.canAccessMedia && !saving,
+    items: noticeImages,
+    onChange: setNoticeImages,
+  });
 
   if (!scopeIsCommitted) return <MealLoading label="밥 투표 화면을 전환하는 중" />;
 
@@ -157,27 +163,13 @@ export function MealPollCreateScreen({
         />
       </DutyFormSection>
 
-      {noticeFeatureEnabled ? (
+      {noticeCapabilities.canEditPublishedNotice ? (
         <DutyFormSection>
           <PollNoticeEditorSection
             disabled={saving}
+            mediaEnabled={noticeCapabilities.canAccessMedia}
             notice={notice}
-            onAddImages={() => {
-              setNoticeImages((current) => {
-                const assetId = createMockReadyMediaAssetForCampus(
-                  campusId,
-                  current.flatMap((item) => item.assetId ? [item.assetId] : []),
-                );
-                return [...current, {
-                localId: `mock-meal-image-${assetId}`,
-                previewUri: `mock://poll-notice/meal/${assetId}`,
-                status: 'ready',
-                progress: 1,
-                assetId,
-                sha256: assetId.toString(16).padStart(64, '0'),
-              }];
-              });
-            }}
+            onAddImages={() => void noticeMediaUploads.add()}
             onChangeNotice={setNotice}
             onMove={(localId, direction) => setNoticeImages((current) => {
               const from = current.findIndex((item) => item.localId === localId);
@@ -189,8 +181,8 @@ export function MealPollCreateScreen({
               next.splice(to, 0, moving);
               return next;
             })}
-            onRemove={(localId) => setNoticeImages((current) => current.filter((item) => item.localId !== localId))}
-            onRetry={() => undefined}
+            onRemove={noticeMediaUploads.remove}
+            onRetry={(localId) => void noticeMediaUploads.retry(localId)}
             uploadItems={noticeImages}
           />
         </DutyFormSection>

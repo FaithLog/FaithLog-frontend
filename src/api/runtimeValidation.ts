@@ -829,6 +829,10 @@ function parsePollSummaryValue(value: unknown, allowDetailFields = false): PollS
     responded,
     manageableByMe: requireBoolean(record.manageableByMe),
     ...(record.hasNotice === undefined ? {} : {hasNotice: requireBoolean(record.hasNotice)}),
+    ...(record.hasImages === undefined ? {} : {hasImages: requireBoolean(record.hasImages)}),
+    ...(record.thumbnailAssetId === undefined
+      ? {}
+      : {thumbnailAssetId: requireNullablePositiveId(record.thumbnailAssetId)}),
   };
 }
 
@@ -922,7 +926,7 @@ function parsePollDetailValue(value: unknown): PollDetail {
 
 function parsePollNoticeValue(value: unknown) {
   if (value === undefined || value === null) return null;
-  const notice = requireString(value, 2_000).trim();
+  const notice = requireString(value, 5_000).trim();
   return notice === '' ? null : notice;
 }
 

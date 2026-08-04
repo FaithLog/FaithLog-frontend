@@ -226,7 +226,7 @@ describe('admin poll API', () => {
     });
   });
 
-  it('does not send provisional notice fields to production before REST Docs confirmation', async () => {
+  it('sends confirmed notice fields to production', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, envelope(pollResponse)));
 
     await createAdminPoll('access-token', 1, {
@@ -237,8 +237,7 @@ describe('admin poll API', () => {
 
     const [, init] = vi.mocked(fetch).mock.calls[0]!;
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    expect(body).not.toHaveProperty('notice');
-    expect(body).not.toHaveProperty('imageAssetIds');
+    expect(body).toMatchObject({notice: '운영 공지', imageAssetIds: [10, 11]});
   });
 
   it('supports the full provisional notice flow in development mock mode', async () => {

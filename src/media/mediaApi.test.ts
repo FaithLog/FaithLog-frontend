@@ -83,14 +83,15 @@ describe('approved media API contract', () => {
       body: {assetIds: number[]};
       responseParser: (value: unknown) => unknown;
     }) =>
-      Promise.resolve(options.responseParser({
-        assets: options.body.assetIds.map((assetId) => ({
+      Promise.resolve(options.responseParser(
+        options.body.assetIds.map((assetId) => ({
           assetId,
+          sha256: assetId.toString(16).padStart(64, '0'),
           thumbnailUrl: `https://signed.invalid/${assetId}/thumb`,
           detailUrl: `https://signed.invalid/${assetId}/detail`,
           expiresAt: '2026-08-03T03:10:00Z',
         })),
-      })),
+      )),
     );
     const api = createMediaApi({request});
     const ids = Array.from({length: 205}, (_value, index) => index + 1);
@@ -107,14 +108,13 @@ describe('approved media API contract', () => {
     const api = createMediaApi({
       request: vi.fn().mockImplementation((_path: string, options: {
         responseParser: (value: unknown) => unknown;
-      }) => Promise.resolve(options.responseParser({
-          assets: [{
+      }) => Promise.resolve(options.responseParser([{
             assetId: 2,
+            sha256: 'b'.repeat(64),
             thumbnailUrl: 'https://signed.invalid/2/thumb',
             detailUrl: 'https://signed.invalid/2/detail',
             expiresAt: '2026-08-03T03:10:00Z',
-          }],
-        }))),
+          }]))),
     });
 
     await expect(api.getAccessUrls('token', 7, [1])).rejects.toMatchObject({

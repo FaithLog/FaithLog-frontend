@@ -1,4 +1,4 @@
-import {apiRequest, FaithLogApiError, isMockModeEnabled} from '../api/client';
+import {apiRequest, FaithLogApiError} from '../api/client';
 import {DEFAULT_PAGE_SIZE} from '../api/pagination';
 import {
   parseClosedMealPollDetailForContext,
@@ -124,7 +124,6 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
   const request: MealRequestDispatcher = dependencies.request ?? (<T>(path: string, options: MealRequestOptions<T>) =>
     apiRequest<T>(path, options));
   const dispatch = request;
-  const isMockMode = dependencies.isMockMode ?? isMockModeEnabled;
 
   return {
     getMyDuty(accessToken, campusId, currentUserId) {
@@ -233,7 +232,7 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
         requestOptions(accessToken, (value) => parseCreatedMealPollDetailForContext(value, {
           campusId: expectedCampusId,
         }), 'POST', {
-          body: sanitizePollCreateRequest(body, isMockMode()),
+          body: sanitizePollCreateRequest(body),
         }),
       );
     },
@@ -347,7 +346,7 @@ function sanitizePaymentAccountRequest(
   };
 }
 
-function sanitizePollCreateRequest(body: MealPollCreateRequest, includeProvisionalNotice: boolean): MealPollCreateRequest {
+function sanitizePollCreateRequest(body: MealPollCreateRequest): MealPollCreateRequest {
   if (
     !body ||
     typeof body !== 'object' ||
@@ -376,10 +375,10 @@ function sanitizePollCreateRequest(body: MealPollCreateRequest, includeProvision
     options,
     allowUserOptionAdd: body.allowUserOptionAdd,
   };
-  if (includeProvisionalNotice && body.notice !== undefined) {
+  if (body.notice !== undefined) {
     request.notice = typeof body.notice === 'string' ? body.notice.trim() || null : null;
   }
-  if (includeProvisionalNotice && body.imageAssetIds !== undefined) {
+  if (body.imageAssetIds !== undefined) {
     request.imageAssetIds = Array.isArray(body.imageAssetIds)
       ? [...new Set(body.imageAssetIds.map((assetId) => positiveId(assetId, 'assetId')))]
       : [];

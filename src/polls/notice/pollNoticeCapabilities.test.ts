@@ -3,11 +3,23 @@ import {describe, expect, it} from 'vitest';
 import {resolvePollNoticeCapabilities} from './pollNoticeCapabilities';
 
 describe('poll notice capability gate', () => {
-  it('keeps every provisional surface fail-closed in production', () => {
+  it('enables the confirmed production notice contract while keeping media behind its native cache gate', () => {
     expect(resolvePollNoticeCapabilities({mockMode: false})).toEqual({
       canAccessMedia: false,
-      canEditPublishedNotice: false,
-      canReadNotice: false,
+      canEditPublishedNotice: true,
+      canReadNotice: true,
+    });
+  });
+
+  it('enables production media only when the confirmed native cache is present', () => {
+    expect(resolvePollNoticeCapabilities({
+      mockMode: false,
+      productionContractConfirmed: true,
+      productionFileCacheReady: true,
+    })).toEqual({
+      canAccessMedia: true,
+      canEditPublishedNotice: true,
+      canReadNotice: true,
     });
   });
 

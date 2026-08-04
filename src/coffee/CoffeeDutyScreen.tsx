@@ -24,7 +24,6 @@ import {
   fetchCoffeeMenus,
   fetchMyDutyAssignment,
   fetchPaymentAccounts,
-  isMockModeEnabled,
 } from '../api/client';
 import {
   getAuthSessionGeneration,
@@ -38,7 +37,6 @@ import type {
   PollResults,
   PollSummary,
 } from '../api/types';
-import {createMockReadyMediaAssetForCampus} from '../api/mockAdapter';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {trackPollCloseComplete, trackPollCreateComplete} from '../analytics/appAnalytics';
@@ -53,6 +51,8 @@ import {colors, spacing} from '../theme';
 import type {MediaUploadItem} from '../media/mediaUploadPolicy';
 import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
 import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
+import {usePollNoticeMediaUploads} from '../polls/notice/usePollNoticeMediaUploads';
 import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
 import {
   dutyChargeReminderApi,
@@ -217,6 +217,7 @@ export function CoffeeDutyScreen({
     () => new Set(),
   );
   const campusId = state.selectedCampus.campusId;
+  const pollNoticeCapabilities = getPollNoticeCapabilities();
   const authGeneration = getAuthSessionGeneration();
   const reminderScope = `campus:${campusId}/user:${state.user.id}/generation:${authGeneration}/coffee-reminder`;
   const reminderGate = useRef(createDutyChargeReminderGate(reminderScope)).current;
@@ -625,7 +626,8 @@ export function CoffeeDutyScreen({
               onRefresh={() => void load()}
               onSelectAccount={setSelectedAccountId}
               notice={pollNotice}
-              noticeFeatureEnabled={isMockModeEnabled()}
+              mediaFeatureEnabled={pollNoticeCapabilities.canAccessMedia}
+              noticeFeatureEnabled={pollNoticeCapabilities.canEditPublishedNotice}
               noticeImages={pollNoticeImages}
               onChangeNotice={setPollNotice}
               onChangeNoticeImages={setPollNoticeImages}
@@ -958,6 +960,7 @@ function CoffeePollCreator({
   onOpenAccounts,
   onRefresh,
   onSelectAccount,
+  mediaFeatureEnabled,
   notice,
   noticeFeatureEnabled,
   noticeImages,
@@ -978,6 +981,7 @@ function CoffeePollCreator({
   onOpenAccounts: () => void;
   onRefresh: () => void;
   onSelectAccount: (accountId: number) => void;
+  mediaFeatureEnabled: boolean;
   notice: string;
   noticeFeatureEnabled: boolean;
   noticeImages: MediaUploadItem[];
@@ -995,6 +999,12 @@ function CoffeePollCreator({
   const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
   const selectedMenus = state.menus.filter((menu) => selectedMenuIds.includes(menu.id));
   const missingOwnedCoffeeAccount = state.accounts.length === 0;
+  const noticeMediaUploads = usePollNoticeMediaUploads({
+    campusId,
+    enabled: mediaFeatureEnabled && !busy,
+    items: noticeImages,
+    onChange: onChangeNoticeImages,
+  });
 
   return (
     <DutyPollCreateShell>
@@ -1023,21 +1033,9 @@ function CoffeePollCreator({
         <DutyFormSection>
           <PollNoticeEditorSection
             disabled={busy}
+            mediaEnabled={mediaFeatureEnabled}
             notice={notice}
-            onAddImages={() => {
-              const assetId = createMockReadyMediaAssetForCampus(
-                campusId,
-                noticeImages.flatMap((item) => item.assetId ? [item.assetId] : []),
-              );
-              onChangeNoticeImages([...noticeImages, {
-                localId: `mock-coffee-image-${assetId}`,
-                previewUri: `mock://poll-notice/coffee/${assetId}`,
-                status: 'ready',
-                progress: 1,
-                assetId,
-                sha256: assetId.toString(16).padStart(64, '0'),
-              }]);
-            }}
+            onAddImages={() => void noticeMediaUploads.add()}
             onChangeNotice={onChangeNotice}
             onMove={(localId, direction) => {
               const from = noticeImages.findIndex((item) => item.localId === localId);
@@ -1049,8 +1047,8 @@ function CoffeePollCreator({
               next.splice(to, 0, moving);
               onChangeNoticeImages(next);
             }}
-            onRemove={(localId) => onChangeNoticeImages(noticeImages.filter((item) => item.localId !== localId))}
-            onRetry={() => undefined}
+            onRemove={noticeMediaUploads.remove}
+            onRetry={(localId) => void noticeMediaUploads.retry(localId)}
             uploadItems={noticeImages}
           />
         </DutyFormSection>
@@ -2439,3 +2437,5 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+  mediaFeatureEnabled,
+  mediaFeatureEnabled: boolean;

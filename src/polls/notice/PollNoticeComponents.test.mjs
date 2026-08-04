@@ -64,17 +64,20 @@ describe('poll notice components', () => {
         notice: 'production에서 숨길 공지',
       }));
       media = create(React.createElement(PollNoticeMediaPanel, {
+        campusId: 1,
         enabled: false,
         onRetry: vi.fn(),
         state: {
           status: 'success',
           assets: [{
             assetId: 10,
+            sha256: 'a'.repeat(64),
             thumbnailUrl: 'https://signed.invalid/10/thumb',
             detailUrl: 'https://signed.invalid/10/detail',
             expiresAt: '2026-08-03T03:10:00Z',
           }],
         },
+        userId: 7,
       }));
     });
     expect(badge.toJSON()).toBeNull();
@@ -125,11 +128,14 @@ describe('poll notice components', () => {
       renderer = create(React.createElement(PollNoticeGallery, {
         assets: [{
           assetId: 10,
+          sha256: 'a'.repeat(64),
           thumbnailUrl: 'https://signed.invalid/10/thumb',
           detailUrl: 'https://signed.invalid/10/detail',
           expiresAt: '2026-08-03T03:10:00Z',
         }],
+        campusId: 1,
         onRetry,
+        userId: undefined,
       }));
     });
     expect(renderer.root.findByType('FlatList').props.horizontal).toBe(true);
@@ -160,9 +166,10 @@ describe('poll notice components', () => {
     });
   });
 
-  it('treats a rotated URL for the same asset as a fresh image identity', async () => {
+  it('keeps a stable failed image identity when its signed URL rotates', async () => {
     const asset = {
       assetId: 10,
+      sha256: 'a'.repeat(64),
       thumbnailUrl: 'https://signed.invalid/10/thumb-a',
       detailUrl: 'https://signed.invalid/10/detail-a',
       expiresAt: '2026-08-03T03:10:00Z',
@@ -171,7 +178,9 @@ describe('poll notice components', () => {
     await act(async () => {
       renderer = create(React.createElement(PollNoticeGallery, {
         assets: [asset],
+        campusId: 1,
         onRetry: vi.fn(),
+        userId: undefined,
       }));
     });
     await act(async () => {
@@ -186,12 +195,13 @@ describe('poll notice components', () => {
           thumbnailUrl: 'https://signed.invalid/10/thumb-b',
           detailUrl: 'https://signed.invalid/10/detail-b',
         }],
+        campusId: 1,
         onRetry: vi.fn(),
+        userId: undefined,
       }));
     });
-    expect(renderer.root.findByType('Image').props.source).toEqual({
-      uri: 'https://signed.invalid/10/detail-b',
-    });
+    expect(rendered(renderer)).toContain('이미지를 불러오지 못했습니다.');
+    expect(renderer.root.findAllByType('Image')).toHaveLength(0);
   });
 
   it('single-flights retries across two failed gallery assets', async () => {
@@ -205,11 +215,14 @@ describe('poll notice components', () => {
       renderer = create(React.createElement(PollNoticeGallery, {
         assets: [10, 11].map((assetId) => ({
           assetId,
+          sha256: String(assetId).padStart(64, '0'),
           thumbnailUrl: `https://signed.invalid/${assetId}/thumb`,
           detailUrl: `https://signed.invalid/${assetId}/detail`,
           expiresAt: '2026-08-03T03:10:00Z',
         })),
+        campusId: 1,
         onRetry,
+        userId: undefined,
       }));
     });
     await act(async () => {

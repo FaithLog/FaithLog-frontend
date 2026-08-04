@@ -31,6 +31,7 @@ export type MediaAssetCompletion = ReadyMediaAsset | ProcessingMediaAsset;
 
 export type MediaAccessUrl = {
   assetId: number;
+  sha256: string;
   thumbnailUrl: string;
   detailUrl: string;
   expiresAt: string;

@@ -31,7 +31,7 @@ import {
 describe('published poll notice mutation boundary', () => {
   beforeEach(() => {
     resetMockAdapterStateForTests();
-    process.env.EXPO_PUBLIC_API_BASE_URL = 'https://api.faithlog.test';
+    process.env.EXPO_PUBLIC_API_BASE_URL = 'https://faithlog-549871256004.asia-northeast3.run.app';
     process.env.EXPO_PUBLIC_APP_ENV = 'production';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
     vi.stubGlobal('fetch', vi.fn());
@@ -45,18 +45,41 @@ describe('published poll notice mutation boundary', () => {
     delete process.env.EXPO_PUBLIC_MOCK_MODE;
   });
 
-  it('fails closed before dispatch when the production update contract is pending', async () => {
+  it('dispatches the confirmed production update contract', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      code: 'SUCCESS',
+      message: 'ok',
+      data: pollMutationResponse({title: '제목 유지', notice: '운영 공지', imageAssetIds: []}),
+      timestamp: '2026-08-04T00:00:00Z',
+    }), {status: 200, headers: {'Content-Type': 'application/json'}}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        code: 'SUCCESS',
+        message: 'ok',
+        data: pollDetail({title: '제목 유지', notice: '운영 공지', imageAssetIds: []}),
+        timestamp: '2026-08-04T00:00:00Z',
+      }), {status: 200, headers: {'Content-Type': 'application/json'}}));
+
     await expect(updatePublishedPollNotice('token', {
       campusId: 1,
       pollId: 701,
       pollType: 'CUSTOM',
       title: '제목 유지',
-      notice: '운영에서 보내면 안 되는 공지',
-      imageAssetIds: [2, 1],
-    })).rejects.toMatchObject({
-      detail: {code: 'POLL_NOTICE_CONTRACT_PENDING'},
-    });
-    expect(fetch).not.toHaveBeenCalled();
+      notice: '운영 공지',
+      imageAssetIds: [],
+    })).resolves.toMatchObject({id: 701, notice: '운영 공지'});
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://faithlog-549871256004.asia-northeast3.run.app/api/v1/admin/campuses/1/polls/701/notice',
+      expect.objectContaining({method: 'PATCH'}),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://faithlog-549871256004.asia-northeast3.run.app/api/v1/campuses/1/polls/701',
+      expect.objectContaining({method: 'GET'}),
+    );
   });
 
   it('keeps general and meal paths behind one injectable interface', async () => {
@@ -74,6 +97,12 @@ describe('published poll notice mutation boundary', () => {
         canEditPublishedNotice: true,
         canReadNotice: true,
       },
+      fetchDetail: vi.fn().mockImplementation((_token, _campusId, pollId) =>
+        Promise.resolve(pollDetail({
+          id: pollId,
+          pollType: pollId === 901 ? 'MEAL' : 'CUSTOM',
+          ...(request.mock.calls.at(-1)?.[1].body as object),
+        }))),
       request,
     });
 
@@ -104,6 +133,7 @@ describe('published poll notice mutation boundary', () => {
         canEditPublishedNotice: true,
         canReadNotice: true,
       },
+      fetchDetail: vi.fn(),
       request,
     });
 
@@ -338,4 +368,10 @@ function pollDetail(patch: Record<string, unknown> = {}) {
     myResponse: null,
     ...patch,
   };
+}
+
+function pollMutationResponse(patch: Record<string, unknown> = {}) {
+  const {manageableByMe: _manageableByMe, myResponse: _myResponse, responded: _responded, ...response} =
+    pollDetail(patch);
+  return response;
 }

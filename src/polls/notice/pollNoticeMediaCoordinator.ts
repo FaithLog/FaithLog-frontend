@@ -52,6 +52,7 @@ export function createPollNoticeMediaCoordinator({
           input.campusId,
           input.assetIds,
         );
+        if (!Array.isArray(assets)) throw new Error('invalid media access response');
         return {requestId, scopeKey, state: {status: 'success', assets}};
       } catch (error) {
         const apiError = toMediaApiError(error);

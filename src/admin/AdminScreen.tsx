@@ -49,7 +49,6 @@ import {
   fetchPenaltyRules,
   fetchPollDetail,
   getAdminChargeContractCapabilities,
-  isMockModeEnabled,
   revokeCoffeeDuty,
   sendAdminNotification,
   updateAdminPenaltyRule,
@@ -126,7 +125,6 @@ import type {
   PollSummary,
   PrayerWeekSummary,
 } from '../api/types';
-import {createMockReadyMediaAssetForCampus} from '../api/mockAdapter';
 import type {AuthGateState} from '../auth/authGate';
 import {
   expireMissingAuthSession,
@@ -207,6 +205,7 @@ import type {MediaUploadItem} from '../media/mediaUploadPolicy';
 import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
 import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
 import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
+import {usePollNoticeMediaUploads} from '../polls/notice/usePollNoticeMediaUploads';
 import {
   PublishedPollNoticeEditor,
   type PublishedPollNoticeUpdateDraft,
@@ -3867,7 +3866,6 @@ function AdminPollManagement({
     createEmptyAdminPollForm(),
   );
   const [noticeEditPoll, setNoticeEditPoll] = useState<PollDetail | null>(null);
-  const pollNoticeMockEnabled = isMockModeEnabled();
   const pollNoticeCapabilities = getPollNoticeCapabilities();
   const noticeEditCoordinator = useRef(
     createPublishedPollNoticeEditCoordinator(campusId),
@@ -4527,7 +4525,8 @@ function AdminPollManagement({
               currentUserId={currentUserId}
               form={pollForm}
               knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
-              noticeFeatureEnabled={pollNoticeMockEnabled}
+              mediaFeatureEnabled={pollNoticeCapabilities.canAccessMedia}
+              noticeFeatureEnabled={pollNoticeCapabilities.canEditPublishedNotice}
               onCancel={() => {
                 setPollForm(createEmptyAdminPollForm());
                 setCreateStep('type');
@@ -5977,6 +5976,7 @@ function AdminPollCreatePanel({
   form,
   currentUserId,
   knownOwnedCoffeeAccountIds,
+  mediaFeatureEnabled,
   noticeFeatureEnabled,
   onCancel,
   onChangeForm,
@@ -5997,6 +5997,7 @@ function AdminPollCreatePanel({
   form: AdminPollCreateForm;
   currentUserId: number;
   knownOwnedCoffeeAccountIds: Set<number>;
+  mediaFeatureEnabled: boolean;
   noticeFeatureEnabled: boolean;
   onCancel: () => void;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
@@ -6062,22 +6063,12 @@ function AdminPollCreatePanel({
       ),
     });
   };
-  const addMockNoticeImage = () => {
-    if (!noticeFeatureEnabled || busy) return;
-    const assetId = createMockReadyMediaAssetForCampus(
-      campusId,
-      form.noticeImages.flatMap((item) => item.assetId ? [item.assetId] : []),
-    );
-    const item: MediaUploadItem = {
-      localId: `mock-poll-image-${assetId}`,
-      previewUri: `mock://poll-notice/${assetId}`,
-      status: 'ready',
-      progress: 1,
-      assetId,
-      sha256: assetId.toString(16).padStart(64, '0'),
-    };
-    onChangeForm({noticeImages: [...form.noticeImages, item]});
-  };
+  const noticeMediaUploads = usePollNoticeMediaUploads({
+    campusId,
+    enabled: mediaFeatureEnabled && !busy,
+    items: form.noticeImages,
+    onChange: (noticeImages) => onChangeForm({noticeImages}),
+  });
   const moveNoticeImage = (localId: string, direction: 'up' | 'down') => {
     const currentIndex = form.noticeImages.findIndex((item) => item.localId === localId);
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
@@ -6192,14 +6183,13 @@ function AdminPollCreatePanel({
         <Card>
           <PollNoticeEditorSection
             disabled={busy}
+            mediaEnabled={mediaFeatureEnabled}
             notice={form.notice}
-            onAddImages={addMockNoticeImage}
+            onAddImages={() => void noticeMediaUploads.add()}
             onChangeNotice={(notice) => onChangeForm({notice})}
             onMove={moveNoticeImage}
-            onRemove={(localId) => onChangeForm({
-              noticeImages: form.noticeImages.filter((item) => item.localId !== localId),
-            })}
-            onRetry={() => undefined}
+            onRemove={noticeMediaUploads.remove}
+            onRetry={(localId) => void noticeMediaUploads.retry(localId)}
             uploadItems={form.noticeImages}
           />
         </Card>

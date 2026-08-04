@@ -134,7 +134,7 @@ type DetailState =
     }
   | {status: 'error'; error: ApiError};
 
-type DetailTab = 'response' | 'comments' | 'results';
+type DetailTab = 'response' | 'comments' | 'results' | 'notice';
 type PollListTab = 'active' | 'closed';
 type ActionState =
   | {kind: 'response' | 'comment' | 'edit' | 'delete' | 'optionAdd'; id?: number}
@@ -259,7 +259,8 @@ export function PollScreen({
           assetIds: detail.imageAssetIds ?? [],
           authSessionGeneration: generation,
           campusId,
-          enabled: pollNoticeCapabilities.canAccessMedia,
+          enabled: isPollNoticeAvailable(detail, pollNoticeCapabilities.canReadNotice) &&
+            pollNoticeCapabilities.canAccessMedia,
           pollId: detail.id,
         }),
       ]);
@@ -284,7 +285,11 @@ export function PollScreen({
         noticeMedia,
       });
       setSelectedOptionIds(detail.myResponse?.optionIds ?? []);
-      setDetailTab(tab);
+      setDetailTab(
+        tab === 'notice' && !isPollNoticeAvailable(detail, pollNoticeCapabilities.canReadNotice)
+          ? 'response'
+          : tab,
+      );
     } catch (error) {
       const apiError = toApiError(error, '투표 상세를 불러오지 못했습니다.');
       if (!shouldHandleDetailError(apiError, pollId, epoch, generation)) return;
@@ -312,7 +317,10 @@ export function PollScreen({
         assetIds: detailState.detail.imageAssetIds ?? [],
         authSessionGeneration: generation,
         campusId,
-        enabled: pollNoticeCapabilities.canAccessMedia,
+        enabled: isPollNoticeAvailable(
+          detailState.detail,
+          pollNoticeCapabilities.canReadNotice,
+        ) && pollNoticeCapabilities.canAccessMedia,
         pollId,
       });
       if (
@@ -358,8 +366,11 @@ export function PollScreen({
     setActionState(null);
     setActionError(null);
     setSelectedPollId(notificationPollId);
-    setDetailTab('response');
-    void loadDetail(notificationPollId, 'response', {epoch, generation});
+    // A notification only targets the poll detail today. Prefer its notice when
+    // one exists; loadDetail safely falls back to the response tab for older
+    // payloads or polls without a notice.
+    setDetailTab('notice');
+    void loadDetail(notificationPollId, 'notice', {epoch, generation});
   }, [
     campusId,
     notificationCampusId,
@@ -368,7 +379,9 @@ export function PollScreen({
   ]);
 
   const openDetail = (poll: PollSummary) => {
-    const initialTab = poll.responded || !isPollActionable(poll) ? 'results' : 'response';
+    const initialTab = pollNoticeCapabilities.canReadNotice && poll.hasNotice === true
+      ? 'notice'
+      : poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     detailEpoch.current += 1;
     optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
     currentPollId.current = poll.id;
@@ -727,15 +740,18 @@ export function PollScreen({
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
-                  mediaEnabled={pollNoticeCapabilities.canAccessMedia}
-                  noticeMedia={detailState.noticeMedia}
-                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
                   onBack={closeDetail}
-                  onRetryNoticeMedia={retryNoticeMedia}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
                 />
-                <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+                <PollTabs
+                  activeTab={detailTab}
+                  onSelect={setDetailTab}
+                  showNotice={isPollNoticeAvailable(
+                    detailState.detail,
+                    pollNoticeCapabilities.canReadNotice,
+                  )}
+                />
               </>
             )}
             isOpen={isPollActionable(detailState.detail)}
@@ -770,15 +786,18 @@ export function PollScreen({
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
-                  mediaEnabled={pollNoticeCapabilities.canAccessMedia}
-                  noticeMedia={detailState.noticeMedia}
-                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
                   onBack={closeDetail}
-                  onRetryNoticeMedia={retryNoticeMedia}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
                 />
-                <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+                <PollTabs
+                  activeTab={detailTab}
+                  onSelect={setDetailTab}
+                  showNotice={isPollNoticeAvailable(
+                    detailState.detail,
+                    pollNoticeCapabilities.canReadNotice,
+                  )}
+                />
               </>
             )}
             onRetry={() => loadDetail(detailState.detail.id, 'results')}
@@ -798,15 +817,18 @@ export function PollScreen({
           campusLabel={state.selectedCampus.campusName}
           contextLabel={`${state.user.name}님`}
           detail={detailState.detail}
-          mediaEnabled={pollNoticeCapabilities.canAccessMedia}
-          noticeMedia={detailState.noticeMedia}
-          noticeEnabled={pollNoticeCapabilities.canReadNotice}
           onBack={closeDetail}
-          onRetryNoticeMedia={retryNoticeMedia}
           onOpenAdminMode={onOpenAdminMode}
           onOpenNotifications={onOpenNotifications}
         />
-        <PollTabs activeTab={detailTab} onSelect={setDetailTab} />
+        <PollTabs
+          activeTab={detailTab}
+          onSelect={setDetailTab}
+          showNotice={isPollNoticeAvailable(
+            detailState.detail,
+            pollNoticeCapabilities.canReadNotice,
+          )}
+        />
         {actionError ? <ActionErrorCard error={actionError} /> : null}
         {detailTab === 'response' ? (
           <ResponsePanel
@@ -819,6 +841,16 @@ export function PollScreen({
             onToggleOption={toggleOption}
             results={detailState.results}
             selectedOptionIds={selectedOptionIds}
+          />
+        ) : null}
+        {detailTab === 'notice' ? (
+          <PollNoticeTabPanel
+            campusId={campusId}
+            detail={detailState.detail}
+            mediaEnabled={pollNoticeCapabilities.canAccessMedia}
+            noticeMedia={detailState.noticeMedia}
+            onRetryNoticeMedia={retryNoticeMedia}
+            userId={state.user.id}
           />
         ) : null}
         <UserOptionAddSheet
@@ -1060,11 +1092,7 @@ function PollDetailHeader({
   campusLabel,
   contextLabel,
   detail,
-  mediaEnabled,
-  noticeMedia,
-  noticeEnabled,
   onBack,
-  onRetryNoticeMedia,
   onOpenAdminMode,
   onOpenNotifications,
 }: {
@@ -1072,11 +1100,7 @@ function PollDetailHeader({
   campusLabel: string;
   contextLabel: string;
   detail: PollDetail;
-  mediaEnabled: boolean;
-  noticeMedia: PollNoticeMediaState;
-  noticeEnabled: boolean;
   onBack: () => void;
-  onRetryNoticeMedia: () => Promise<boolean>;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
 }) {
@@ -1110,8 +1134,6 @@ function PollDetailHeader({
           </Text>
         </View>
       </View>
-      <PollNoticeBlock enabled={noticeEnabled} notice={detail.notice} />
-      <PollNoticeMediaPanel enabled={mediaEnabled} onRetry={onRetryNoticeMedia} state={noticeMedia} />
       {detail.status === 'SCHEDULED' ? (
         <InlineNotice message="아직 시작 전인 투표라 응답과 댓글 작성이 제한됩니다." tone="warning" />
       ) : null}
@@ -1125,11 +1147,14 @@ function PollDetailHeader({
 function PollTabs({
   activeTab,
   onSelect,
+  showNotice,
 }: {
   activeTab: DetailTab;
   onSelect: (tab: DetailTab) => void;
+  showNotice: boolean;
 }) {
   const tabs: Array<{id: DetailTab; label: string}> = [
+    ...(showNotice ? [{id: 'notice' as const, label: '공지'}] : []),
     {id: 'response', label: '응답'},
     {id: 'comments', label: '댓글'},
     {id: 'results', label: '결과'},
@@ -1154,6 +1179,35 @@ function PollTabs({
           </Text>
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+function PollNoticeTabPanel({
+  campusId,
+  detail,
+  mediaEnabled,
+  noticeMedia,
+  onRetryNoticeMedia,
+  userId,
+}: {
+  campusId: number;
+  detail: PollDetail;
+  mediaEnabled: boolean;
+  noticeMedia: PollNoticeMediaState;
+  onRetryNoticeMedia: () => Promise<boolean>;
+  userId: number;
+}) {
+  return (
+    <View accessibilityLabel="투표 공지 내용" style={styles.noticeTabPanel}>
+      <PollNoticeBlock enabled notice={detail.notice} />
+      <PollNoticeMediaPanel
+        campusId={campusId}
+        enabled={mediaEnabled}
+        onRetry={onRetryNoticeMedia}
+        state={noticeMedia}
+        userId={userId}
+      />
     </View>
   );
 }
@@ -2193,6 +2247,13 @@ function getCoffeeCatalogErrorTitle(error: ApiError) {
   }
 }
 
+export function isPollNoticeAvailable(
+  detail: Pick<PollDetail, 'notice'>,
+  capabilityEnabled: boolean,
+) {
+  return capabilityEnabled && typeof detail.notice === 'string' && detail.notice.trim().length > 0;
+}
+
 function findCoffeeMenuForOption(
   catalog: CoffeeCatalogState,
   composeMenuCode: string | null,
@@ -2388,6 +2449,9 @@ const pollColors = {
 };
 
 const styles = StyleSheet.create({
+  noticeTabPanel: {
+    gap: spacing.section,
+  },
   actionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

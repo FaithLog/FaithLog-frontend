@@ -556,6 +556,8 @@ export type PollSummary = {
   responded: boolean;
   manageableByMe: boolean;
   hasNotice?: boolean;
+  hasImages?: boolean;
+  thumbnailAssetId?: number | null;
 };
 
 export type PollOption = {

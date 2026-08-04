@@ -1,12 +1,15 @@
-import {useLayoutEffect, useRef, useState} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import type {PollDetail} from '../../api/types';
-import {createMockReadyMediaAssetForCampus} from '../../api/mockAdapter';
+import {resolveCurrentAccessToken} from '../../auth/accessTokenResolver';
+import {mediaApi} from '../../media/mediaApi';
 import type {MediaUploadItem} from '../../media/mediaUploadPolicy';
 import {colors, radius, spacing, typography} from '../../theme';
 import {PollNoticeEditorSection} from './PollNoticeComponents';
 import {buildPollNoticeMutationFields} from './pollNoticeContract';
+import {getPollNoticeCapabilities} from './pollNoticeCapabilities';
+import {usePollNoticeMediaUploads} from './usePollNoticeMediaUploads';
 
 export type PublishedPollNoticeUpdateDraft = {
   title: string;
@@ -29,6 +32,7 @@ export function PublishedPollNoticeEditor({
   const [notice, setNotice] = useState(poll.notice ?? '');
   const [images, setImages] = useState<MediaUploadItem[]>(() => toSavedImages(poll));
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
+  const capabilities = getPollNoticeCapabilities();
   const lifecycle = useRef({mounted: true, saveRequestId: 0});
   const saveFlight = useRef<Promise<void> | null>(null);
 
@@ -39,6 +43,37 @@ export function PublishedPollNoticeEditor({
       lifecycle.current.saveRequestId += 1;
     };
   }, []);
+
+  const noticeMediaUploads = usePollNoticeMediaUploads({
+    campusId: poll.campusId,
+    enabled: capabilities.canAccessMedia && saveState !== 'saving',
+    items: images,
+    onChange: setImages,
+  });
+
+  useEffect(() => {
+    if (!capabilities.canAccessMedia || !poll.imageAssetIds?.length) return;
+    let active = true;
+    void resolveCurrentAccessToken(() => undefined)
+      .then((accessToken) => accessToken
+        ? mediaApi.getAccessUrls(accessToken, poll.campusId, poll.imageAssetIds ?? [])
+        : [])
+      .then((assets) => {
+        if (!active || assets.length === 0) return;
+        const assetsById = new Map(assets.map((asset) => [asset.assetId, asset]));
+        setImages((current) => current.map((item) => {
+          if (!item.assetId) return item;
+          const asset = assetsById.get(item.assetId);
+          return asset
+            ? {...item, previewUri: asset.thumbnailUrl, sha256: asset.sha256}
+            : item;
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [capabilities.canAccessMedia, poll.campusId, poll.imageAssetIds]);
 
   const save = () => {
     if (saveFlight.current) return saveFlight.current;
@@ -97,27 +132,14 @@ export function PublishedPollNoticeEditor({
       <View style={styles.card}>
         <PollNoticeEditorSection
           disabled={busy}
+          mediaEnabled={capabilities.canAccessMedia}
           notice={notice}
-          onAddImages={() => {
-            const assetId = createMockReadyMediaAssetForCampus(
-              poll.campusId,
-              images.flatMap((item) => item.assetId ? [item.assetId] : []),
-            );
-            setImages((current) => [...current, {
-              localId: `mock-edit-${assetId}`,
-              previewUri: `mock://poll-notice/edit/${assetId}`,
-              status: 'ready',
-              progress: 1,
-              assetId,
-              sha256: assetId.toString(16).padStart(64, '0'),
-            }]);
-          }}
+          onAddImages={() => void noticeMediaUploads.add()}
           onChangeNotice={setNotice}
           onMove={(localId, direction) => setImages((current) =>
             moveImage(current, localId, direction))}
-          onRemove={(localId) => setImages((current) =>
-            current.filter((item) => item.localId !== localId))}
-          onRetry={() => undefined}
+          onRemove={noticeMediaUploads.remove}
+          onRetry={(localId) => void noticeMediaUploads.retry(localId)}
           uploadItems={images}
         />
       </View>

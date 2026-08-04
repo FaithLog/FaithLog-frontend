@@ -11,6 +11,7 @@ import {
 
 import type {MediaAccessUrl} from '../../media/mediaTypes';
 import type {MediaUploadItem} from '../../media/mediaUploadPolicy';
+import {AnnouncementCachedImage} from '../../announcements/AnnouncementCachedImage';
 import {colors, radius, spacing, typography} from '../../theme';
 import {
   getPollNoticeValidationMessage,
@@ -53,6 +54,7 @@ export const PollNoticeBlock = memo(function PollNoticeBlock({
 
 export function PollNoticeEditorSection({
   disabled,
+  mediaEnabled = true,
   notice,
   onAddImages,
   onChangeNotice,
@@ -62,6 +64,7 @@ export function PollNoticeEditorSection({
   uploadItems,
 }: {
   disabled: boolean;
+  mediaEnabled?: boolean;
   notice: string;
   onAddImages: () => void;
   onChangeNotice: (value: string) => void;
@@ -94,7 +97,7 @@ export function PollNoticeEditorSection({
       />
       {validationMessage ? <Text style={styles.errorText}>{validationMessage}</Text> : null}
       <PollNoticeBlock enabled notice={notice} />
-      <View style={styles.imageHeader}>
+      {mediaEnabled ? <View style={styles.imageHeader}>
         <View style={styles.grow}>
           <Text style={styles.editorTitle}>이미지</Text>
           <Text style={styles.editorDescription}>여러 장을 추가하고 표시 순서를 바꿀 수 있어요.</Text>
@@ -108,8 +111,8 @@ export function PollNoticeEditorSection({
           style={({pressed}) => [styles.addButton, pressed ? styles.pressed : null]}>
           <Text style={styles.addButtonText}>이미지 추가</Text>
         </Pressable>
-      </View>
-      <FlatList
+      </View> : null}
+      {mediaEnabled ? <FlatList
         data={uploadItems}
         horizontal
         initialNumToRender={3}
@@ -128,7 +131,7 @@ export function PollNoticeEditorSection({
         )}
         showsHorizontalScrollIndicator={false}
         windowSize={5}
-      />
+      /> : null}
     </View>
   );
 }
@@ -188,10 +191,14 @@ function SmallAction({accessibilityLabel, disabled, label, onPress}: {accessibil
 
 export function PollNoticeGallery({
   assets,
+  campusId,
   onRetry,
+  userId,
 }: {
   assets: MediaAccessUrl[];
+  campusId: number;
   onRetry: (assetId: number) => Promise<boolean> | boolean;
+  userId: number;
 }) {
   const data = useMemo(() => assets, [assets]);
   const [failedAssetIdentities, setFailedAssetIdentities] = useState<Set<string>>(
@@ -254,16 +261,20 @@ export function PollNoticeGallery({
                 </Pressable>
               </View>
             ) : (
-              <Image
+              <AnnouncementCachedImage
                 accessibilityLabel={`투표 공지 이미지 ${index + 1}`}
+                assetId={item.assetId}
+                campusId={campusId}
                 onError={() =>
                   setFailedAssetIdentities((current) =>
                     new Set(current).add(failureIdentity),
                   )
                 }
                 resizeMode="cover"
-                source={{uri: item.detailUrl}}
+                signedUrl={item.detailUrl}
                 style={styles.galleryImage}
+                userId={userId}
+                variant="detail"
               />
             )}
           </View>
@@ -276,16 +287,20 @@ export function PollNoticeGallery({
 }
 
 export function PollNoticeMediaPanel({
+  campusId,
   enabled,
   onRetry,
   state,
+  userId,
 }: {
+  campusId: number;
   enabled: boolean;
   onRetry: () => Promise<boolean> | boolean;
   state:
     | {status: 'empty'}
     | {status: 'success'; assets: MediaAccessUrl[]}
     | {status: 'error'};
+  userId: number;
 }) {
   if (!enabled) return null;
   if (state.status === 'empty') return null;
@@ -299,11 +314,18 @@ export function PollNoticeMediaPanel({
       </View>
     );
   }
-  return <PollNoticeGallery assets={state.assets} onRetry={() => onRetry()} />;
+  return (
+    <PollNoticeGallery
+      assets={state.assets}
+      campusId={campusId}
+      onRetry={() => onRetry()}
+      userId={userId}
+    />
+  );
 }
 
 function getMediaFailureIdentity(asset: MediaAccessUrl) {
-  return `${asset.assetId}:${asset.detailUrl}`;
+  return `${asset.assetId}:${asset.sha256}:detail`;
 }
 
 function getUploadStatusLabel(item: MediaUploadItem) {

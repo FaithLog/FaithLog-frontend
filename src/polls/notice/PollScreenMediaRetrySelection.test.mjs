@@ -137,6 +137,7 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     mocks.resolveCurrentAccessToken.mockResolvedValue('A1');
     mocks.fetchPolls.mockResolvedValue([]);
     mocks.fetchPollComments.mockResolvedValue([]);
+    mocks.getAccessUrls.mockReset();
     mocks.getAccessUrls
       .mockRejectedValueOnce(new Error('initial media failure'))
       .mockResolvedValueOnce([mediaAccessUrl()]);
@@ -162,11 +163,25 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
         await settle();
       });
 
-      expect(rendered(renderer)).toContain('이미지를 불러오지 못했습니다.');
+      expect(findAllByLabel(renderer, '공지 탭으로 이동')).toHaveLength(1);
+      expect(findAllByLabel(renderer, '투표 공지 내용')).toHaveLength(1);
+      expect(tabLabels(renderer)).toEqual([
+        '공지 탭으로 이동',
+        '응답 탭으로 이동',
+        '댓글 탭으로 이동',
+        '결과 탭으로 이동',
+      ]);
       expect(mocks.fetchPollDetail).toHaveBeenCalledTimes(1);
       expect(mocks.fetchPollComments).toHaveBeenCalledTimes(1);
       expect(mocks.fetchPollResults).toHaveBeenCalledTimes(1);
       expect(mocks.getAccessUrls).toHaveBeenCalledTimes(1);
+
+      expect(rendered(renderer)).toContain('이미지를 불러오지 못했습니다.');
+      expect(findAllByLabel(renderer, `투표 공지 ${detail.notice}`)).toHaveLength(1);
+
+      await act(async () => {
+        findByLabel(renderer, '응답 탭으로 이동').props.onPress();
+      });
 
       await act(async () => {
         for (const option of selectedOptions) {
@@ -181,8 +196,16 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       expect(mocks.savePollResponse).not.toHaveBeenCalled();
 
       await act(async () => {
+        findByLabel(renderer, '공지 탭으로 이동').props.onPress();
+      });
+      await act(async () => {
         await findByLabel(renderer, '투표 공지 이미지 다시 불러오기').props.onPress();
         await settle();
+      });
+      expect(findAllByLabel(renderer, '투표 공지 이미지')).toHaveLength(1);
+      expect(rendered(renderer)).not.toContain('이미지를 불러오지 못했습니다.');
+      await act(async () => {
+        findByLabel(renderer, '응답 탭으로 이동').props.onPress();
       });
 
       for (const option of selectedOptions) {
@@ -194,16 +217,14 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       expect(mocks.fetchPollResults).toHaveBeenCalledTimes(1);
       expect(mocks.getAccessUrls).toHaveBeenCalledTimes(2);
       expect(mocks.getAccessUrls).toHaveBeenLastCalledWith('A1', 1, [900]);
-      expect(renderer.root.findByType('Image').props.source).toEqual({
-        uri: 'https://signed.invalid/900/detail',
-      });
     },
   );
 
-  it('hides production list, detail, and media surfaces while preserving ordinary poll controls', async () => {
+  it('shows the confirmed production notice tab with the shared native cache boundary', async () => {
     vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'production');
     vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'false');
     mocks.getAccessUrls.mockReset();
+    mocks.getAccessUrls.mockResolvedValue([mediaAccessUrl()]);
     const detail = {
       ...pollDetail('SINGLE'),
       allowUserOptionAdd: true,
@@ -226,7 +247,7 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       await settle();
     });
 
-    expect(findAllByLabel(renderer, '공지 있음')).toHaveLength(0);
+    expect(findAllByLabel(renderer, '공지 있음')).toHaveLength(1);
     act(() => {
       findByLabel(renderer, `${detail.title} 상세 보기`).props.onPress();
     });
@@ -234,9 +255,15 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       await settle();
     });
 
-    expect(findAllByLabel(renderer, `투표 공지 ${detail.notice}`)).toHaveLength(0);
-    expect(findAllByLabel(renderer, '투표 공지 이미지')).toHaveLength(0);
-    expect(mocks.getAccessUrls).not.toHaveBeenCalled();
+    expect(findAllByLabel(renderer, '공지 탭으로 이동')).toHaveLength(1);
+    expect(tabLabels(renderer)).toEqual([
+      '공지 탭으로 이동',
+      '응답 탭으로 이동',
+      '댓글 탭으로 이동',
+      '결과 탭으로 이동',
+    ]);
+    expect(findAllByLabel(renderer, `투표 공지 ${detail.notice}`)).toHaveLength(1);
+    expect(mocks.getAccessUrls).toHaveBeenCalledWith('A1', 1, [900]);
     await act(async () => {
       findByLabel(renderer, '응답 탭으로 이동').props.onPress();
     });
@@ -246,22 +273,51 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     expect(mocks.fetchPollDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('consumes a production notification target without issuing detail or media requests', async () => {
+  it('consumes a production notification target and loads confirmed detail without media', async () => {
     vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'production');
     vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'false');
     mocks.getAccessUrls.mockReset();
+    mocks.getAccessUrls.mockResolvedValue([mediaAccessUrl()]);
     const props = screenProps(45);
 
+    let renderer;
     await act(async () => {
-      create(React.createElement(PollScreen, props));
+      renderer = create(React.createElement(PollScreen, props));
       await settle();
     });
 
     expect(props.onNotificationPollHandled).toHaveBeenCalledTimes(1);
-    expect(mocks.fetchPollDetail).not.toHaveBeenCalled();
-    expect(mocks.fetchPollComments).not.toHaveBeenCalled();
-    expect(mocks.fetchPollResults).not.toHaveBeenCalled();
-    expect(mocks.getAccessUrls).not.toHaveBeenCalled();
+    expect(mocks.fetchPollDetail).toHaveBeenCalledOnce();
+    expect(mocks.fetchPollComments).toHaveBeenCalledOnce();
+    expect(mocks.fetchPollResults).toHaveBeenCalledOnce();
+    expect(mocks.getAccessUrls).toHaveBeenCalledWith('A1', 1, [900]);
+    expect(findAllByLabel(renderer, '투표 공지 내용')).toHaveLength(1);
+  });
+
+  it.each([
+    {notice: null},
+    {notice: undefined},
+  ])('keeps the exact three-tab layout when notice is $notice', async ({notice}) => {
+    const detail = {...pollDetail('SINGLE'), notice, imageAssetIds: []};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id)));
+      await settle();
+    });
+
+    expect(findAllByLabel(renderer, '응답 탭으로 이동')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '댓글 탭으로 이동')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '결과 탭으로 이동')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '공지 탭으로 이동')).toHaveLength(0);
+    expect(findAllByLabel(renderer, '투표 공지 내용')).toHaveLength(0);
+    expect(tabLabels(renderer)).toEqual([
+      '응답 탭으로 이동',
+      '댓글 탭으로 이동',
+      '결과 탭으로 이동',
+    ]);
   });
 
   it('consumes but never loads a notification poll target from another campus', async () => {
@@ -364,6 +420,7 @@ function pollResults(detail) {
 function mediaAccessUrl() {
   return {
     assetId: 900,
+    sha256: '9'.repeat(64),
     thumbnailUrl: 'https://signed.invalid/900/thumb',
     detailUrl: 'https://signed.invalid/900/detail',
     expiresAt: '2099-08-03T03:10:00.000Z',
@@ -382,6 +439,12 @@ function findByLabel(renderer, label) {
     throw new Error(`Expected one ${label} label; found ${matches.length}. Available: ${availableLabels.join(', ')}. Hosts: ${hostSummary.join(', ')}`);
   }
   return matches[0];
+}
+
+function tabLabels(renderer) {
+  return renderer.root
+    .findAll((node) => typeof node.type === 'string' && node.props.accessibilityRole === 'tab')
+    .map((node) => node.props.accessibilityLabel);
 }
 
 function findAllByLabel(renderer, label) {

@@ -153,21 +153,26 @@ function parseMediaAssetCompletion(
 }
 
 function parseMediaAccessUrls(value: unknown, requestedIds: number[]) {
-  const record = requireRecord(value);
-  if (!Array.isArray(record.assets) || record.assets.length !== requestedIds.length) {
+  if (!Array.isArray(value) || value.length !== requestedIds.length) {
     return invalidResponse();
   }
-  return record.assets.map((asset, index): MediaAccessUrl => {
+  return value.map((asset, index): MediaAccessUrl => {
     const item = requireRecord(asset);
     const assetId = requirePositiveId(item.assetId);
     if (assetId !== requestedIds[index]) return invalidResponse();
     return {
       assetId,
+      sha256: requireSha256(item.sha256),
       thumbnailUrl: requireHttpsUrl(item.thumbnailUrl),
       detailUrl: requireHttpsUrl(item.detailUrl),
       expiresAt: requireDateTime(item.expiresAt),
     };
   });
+}
+
+function requireSha256(value: unknown) {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) return invalidResponse();
+  return value;
 }
 
 function buildAdminMediaPath(campusId: number, ...segments: string[]) {
