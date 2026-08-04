@@ -47,6 +47,7 @@ import {
   fetchDutyAssignments,
   fetchPaymentAccounts,
   fetchPenaltyRules,
+  fetchPollDetail,
   getAdminChargeContractCapabilities,
   revokeCoffeeDuty,
   sendAdminNotification,
@@ -120,6 +121,7 @@ import type {
   PollComment,
   PollOption,
   PollResults,
+  PollDetail,
   PollSummary,
   PrayerWeekSummary,
 } from '../api/types';
@@ -199,6 +201,23 @@ import {
 } from './ChargeStatusConfirmSheet';
 import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
 import {colors, radius, spacing} from '../theme';
+import type {MediaUploadItem} from '../media/mediaUploadPolicy';
+import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
+import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
+import {usePollNoticeMediaUploads} from '../polls/notice/usePollNoticeMediaUploads';
+import {
+  PublishedPollNoticeEditor,
+  type PublishedPollNoticeUpdateDraft,
+} from '../polls/notice/PublishedPollNoticeEditor';
+import {updatePublishedPollNotice} from '../polls/notice/pollNoticeMutationApi';
+import {
+  beginPublishedPollNoticeEdit,
+  commitPublishedPollNoticeEditCampus,
+  createPublishedPollNoticeEditCoordinator,
+  invalidatePublishedPollNoticeEdit,
+  isPublishedPollNoticeEditCurrent,
+} from '../polls/notice/publishedPollNoticeEditCoordinator';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {formatCompactWon, formatWon} from '../utils/money';
 import {
@@ -226,6 +245,8 @@ import {
   type AdminMemberFilter,
 } from './adminMemberDutyFilter';
 import {coordinateAdminMealDutyRefresh} from './adminMealDutyRefresh';
+import {AdminAnnouncementCapabilityRoute} from '../announcements/AnnouncementCapabilitySurfaces';
+import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -254,6 +275,7 @@ type AdminTab =
   | 'home'
   | 'devotion'
   | 'polls'
+  | 'announcements'
   | 'notificationLogs'
   | 'prayer'
   | 'members'
@@ -646,6 +668,7 @@ export function AdminScreen({
 }: AdminScreenProps) {
   const androidShellInsets = useAndroidShellLayoutInsets();
   const campusId = state.selectedCampus.campusId;
+  const announcementCapabilityEnabled = isAnnouncementCapabilityEnabled();
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
   const [memberSection, setMemberSection] = useState<AdminMemberSection>('list');
@@ -2952,6 +2975,10 @@ export function AdminScreen({
   };
 
   const selectAdminTab = (nextTab: AdminTab) => {
+    if (nextTab === 'announcements' && !announcementCapabilityEnabled) {
+      return;
+    }
+
     const changeTab = () => {
       if (tab === 'settlement' && nextTab !== 'settlement') {
         invalidateAdminChargeRead(chargeReadCoordinatorRef.current);
@@ -2984,6 +3011,41 @@ export function AdminScreen({
     setTab('devotion');
   };
 
+  if (tab === 'announcements') {
+    return (
+      <View style={styles.adminModeFrame}>
+        <ScrollView
+          accessibilityLabel="관리자 공지 스크롤 영역"
+          contentContainerStyle={[
+            styles.adminModeContent,
+            Platform.OS === 'android'
+              ? {paddingBottom: androidShellInsets.shellContentBottomPadding}
+              : null,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.adminModeScroll}>
+          <AdminShellHeader
+            activeTab={tab}
+            campusLabel={getCampusLabel(state)}
+            onOpenUserMode={onBackToUserMode}
+          />
+          <AdminAnnouncementCapabilityRoute
+            campusId={campusId}
+            key={`admin-announcements-campus-${campusId}`}
+            onBack={() => setTab('home')}
+            userId={state.user.id}
+          />
+        </ScrollView>
+        <AdminBottomNav
+          activeTab={tab}
+          bottomInset={androidShellInsets.bottomNavInset}
+          onSelectTab={selectAdminTab}
+        />
+      </View>
+    );
+  }
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -3011,6 +3073,9 @@ export function AdminScreen({
             onOpenUserMode={onBackToUserMode}
           />
           <AdminHome
+            {...(announcementCapabilityEnabled
+              ? {onOpenAnnouncements: () => setTab('announcements')}
+              : {})}
             prayerState={prayerState}
             summary={loadState.summary}
             onOpenMembers={() => setTab('members')}
@@ -3105,6 +3170,9 @@ export function AdminScreen({
         />
       ) : tab === 'home' ? (
         <AdminHome
+          {...(announcementCapabilityEnabled
+            ? {onOpenAnnouncements: () => setTab('announcements')}
+            : {})}
           prayerState={prayerState}
           summary={loadState.summary}
           onOpenMembers={() => setTab('members')}
@@ -3501,12 +3569,14 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 }
 
 function AdminHome({
+  onOpenAnnouncements,
   onOpenPrayer,
   onOpenRoles,
   prayerState,
   summary,
 }: {
   coffeeDuty?: DutyAssignment | null;
+  onOpenAnnouncements?: () => void;
   onOpenMembers?: () => void;
   onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
@@ -3531,6 +3601,15 @@ function AdminHome({
       </Card>
       <Card>
         <Eyebrow>바로가기</Eyebrow>
+        {onOpenAnnouncements ? (
+          <ListRow
+            label="공지 관리"
+            supportingText="공지 작성, 예약 게시와 카테고리 관리"
+            value="보기"
+            onPress={onOpenAnnouncements}
+            accessibilityLabel="관리자 공지 관리 화면으로 이동"
+          />
+        ) : null}
         {onOpenRoles ? (
           <ListRow
             label="역할 관리"
@@ -3561,7 +3640,14 @@ function getPenaltyUnpaidAmount(summary: AdminDashboardSummary) {
   );
 }
 
-type AdminPollSection = 'manage' | 'create' | 'results' | 'missing' | 'templates' | 'status';
+type AdminPollSection =
+  | 'manage'
+  | 'create'
+  | 'noticeEdit'
+  | 'results'
+  | 'missing'
+  | 'templates'
+  | 'status';
 type AdminPollPrimarySection = 'ongoing' | 'closed' | 'create' | 'templates';
 type AdminPollCreateStep = 'type' | 'detail';
 type AdminPollTemplateStep = 'info' | 'schedule' | 'options' | 'confirm';
@@ -3604,6 +3690,7 @@ type AdminPollActionState =
   | {status: 'savingTemplate'}
   | {status: 'deletingTemplate'; templateId: number}
   | {status: 'creatingPoll'}
+  | {status: 'loadingNoticeEdit'; pollId: number}
   | {status: 'closingPoll'; pollId: number}
   | {status: 'sendingMissingNotice'};
 type AdminPollLoadOptions = {
@@ -3639,6 +3726,8 @@ type AdminPollCreateForm = {
   startsAt: string;
   templateId: string;
   title: string;
+  notice: string;
+  noticeImages: MediaUploadItem[];
 };
 
 const pollPrimarySections: Array<{id: AdminPollPrimarySection; label: string}> = [
@@ -3732,6 +3821,8 @@ function createEmptyAdminPollForm(): AdminPollCreateForm {
     startsAt: startsAt.toISOString(),
     templateId: '',
     title: '새 투표',
+    notice: '',
+    noticeImages: [],
   };
 }
 
@@ -3750,7 +3841,7 @@ function AdminPollManagement({
   onSessionStateChange: (state: AuthGateState) => void;
   setNotice: (notice: Notice) => void;
 }) {
-  const [section, setSection] = useState<AdminPollSection>('manage');
+  const [section, setSectionState] = useState<AdminPollSection>('manage');
   useAnalyticsScreen(section === 'create' ? 'poll_create' : 'admin_dashboard');
   const [listState, setListState] = useState<AdminPollListState>({status: 'loading'});
   const [coffeeCatalogState, setCoffeeCatalogState] = useState<AdminCoffeeCatalogState>({
@@ -3774,6 +3865,29 @@ function AdminPollManagement({
   const [pollForm, setPollForm] = useState<AdminPollCreateForm>(() =>
     createEmptyAdminPollForm(),
   );
+  const [noticeEditPoll, setNoticeEditPoll] = useState<PollDetail | null>(null);
+  const pollNoticeCapabilities = getPollNoticeCapabilities();
+  const noticeEditCoordinator = useRef(
+    createPublishedPollNoticeEditCoordinator(campusId),
+  ).current;
+  const setSection = (nextSection: AdminPollSection) => {
+    if (nextSection !== 'noticeEdit') {
+      invalidatePublishedPollNoticeEdit(noticeEditCoordinator);
+      setActionState((current) =>
+        current.status === 'loadingNoticeEdit' ? {status: 'idle'} : current,
+      );
+    }
+    setSectionState(nextSection);
+  };
+
+  useLayoutEffect(() => {
+    if (!commitPublishedPollNoticeEditCampus(noticeEditCoordinator, campusId)) return;
+    setNoticeEditPoll(null);
+    setActionState((current) =>
+      current.status === 'loadingNoticeEdit' ? {status: 'idle'} : current,
+    );
+    setSectionState((current) => current === 'noticeEdit' ? 'manage' : current);
+  }, [campusId, noticeEditCoordinator]);
 
   const loadPolls = async (options: AdminPollLoadOptions = {}) => {
     setListState({status: 'loading'});
@@ -3995,6 +4109,98 @@ function AdminPollManagement({
       void handleAuthError(apiError, onSessionStateChange);
     } finally {
       setActionState({status: 'idle'});
+    }
+  };
+
+  const startPublishedNoticeEdit = async (poll: PollSummary) => {
+    if (
+      busy ||
+      !pollNoticeCapabilities.canEditPublishedNotice ||
+      !canManageAdminPoll(poll)
+    ) return;
+
+    const editIdentity = beginPublishedPollNoticeEdit(noticeEditCoordinator, {
+      campusId,
+      pollId: poll.id,
+      sessionGeneration: getAuthSessionGeneration(),
+    });
+    const isCurrent = () => isPublishedPollNoticeEditCurrent(
+      noticeEditCoordinator,
+      editIdentity,
+      getAuthSessionGeneration(),
+    );
+
+    setActionState({status: 'loadingNoticeEdit', pollId: poll.id});
+    setActionError(null);
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+      if (!accessToken) return;
+      if (!isCurrent()) return;
+      const detail = await fetchPollDetail(
+        accessToken,
+        editIdentity.campusId,
+        editIdentity.pollId,
+      );
+      if (!isCurrent()) return;
+      if (
+        detail.id !== editIdentity.pollId ||
+        detail.campusId !== editIdentity.campusId
+      ) {
+        throw new FaithLogApiError({
+          kind: 'error',
+          code: 'INVALID_SERVER_RESPONSE',
+          message: '요청한 투표 공지 정보를 확인하지 못했습니다.',
+        });
+      }
+      if (!canManageAdminPoll(detail)) {
+        throw new FaithLogApiError({
+          kind: 'permissionDenied',
+          message: '이 투표의 공지를 수정할 권한이 없습니다.',
+        });
+      }
+      setNoticeEditPoll(detail);
+      setSelectedPollId(detail.id);
+      setSection('noticeEdit');
+    } catch (error) {
+      if (!isCurrent()) return;
+      const apiError = toApiError(error, '투표 공지를 불러오지 못했습니다.');
+      setActionError(apiError);
+      void handleAuthError(apiError, onSessionStateChange);
+    } finally {
+      if (isCurrent()) setActionState({status: 'idle'});
+    }
+  };
+
+  const savePublishedNotice = async (
+    draft: PublishedPollNoticeUpdateDraft,
+  ): Promise<PollDetail> => {
+    if (
+      !noticeEditPoll ||
+      noticeEditPoll.campusId !== campusId ||
+      !pollNoticeCapabilities.canEditPublishedNotice
+    ) {
+      throw new FaithLogApiError({
+        kind: 'error',
+        code: 'POLL_NOTICE_CONTRACT_PENDING',
+        message: '투표 공지 수정 계약을 확인하지 못했습니다.',
+      });
+    }
+    try {
+      const accessToken = await resolveAccessToken(onSessionStateChange);
+      if (!accessToken) {
+        throw new FaithLogApiError({kind: 'sessionExpired', message: '세션이 만료되었습니다.'});
+      }
+      const updated = await updatePublishedPollNotice(accessToken, {
+        campusId,
+        pollId: noticeEditPoll.id,
+        pollType: noticeEditPoll.pollType,
+        ...draft,
+      });
+      return updated;
+    } catch (error) {
+      const apiError = toApiError(error, '투표 공지를 저장하지 못했습니다.');
+      void handleAuthError(apiError, onSessionStateChange);
+      throw error;
     }
   };
 
@@ -4226,6 +4432,7 @@ function AdminPollManagement({
           : 'ongoing';
   const selectPrimarySection = (nextSection: AdminPollPrimarySection) => {
     setActionError(null);
+    setNoticeEditPoll(null);
 
     if (nextSection === 'create') {
       startCreatePoll();
@@ -4262,6 +4469,8 @@ function AdminPollManagement({
               onChangeFilter={setPollTypeFilter}
               onRefresh={loadPolls}
               onClosePoll={setPollCloseTarget}
+              noticeEditEnabled={pollNoticeCapabilities.canEditPublishedNotice}
+              onEditNotice={(poll) => void startPublishedNoticeEdit(poll)}
               onViewResults={(poll) => {
                 selectPoll(poll);
                 setSection('results');
@@ -4309,12 +4518,15 @@ function AdminPollManagement({
               actionError={actionError}
               accounts={accounts}
               busy={busy}
+              campusId={campusId}
               coffeeCatalogState={coffeeCatalogState}
               createStep={createStep}
               coffeeWarning={coffeeWarning}
               currentUserId={currentUserId}
               form={pollForm}
               knownOwnedCoffeeAccountIds={knownOwnedCoffeeAccountIds}
+              mediaFeatureEnabled={pollNoticeCapabilities.canAccessMedia}
+              noticeFeatureEnabled={pollNoticeCapabilities.canEditPublishedNotice}
               onCancel={() => {
                 setPollForm(createEmptyAdminPollForm());
                 setCreateStep('type');
@@ -4327,6 +4539,28 @@ function AdminPollManagement({
               onRetryCoffeeCatalog={loadCoffeeCatalog}
               onReset={() => setPollForm(createEmptyAdminPollForm())}
               templates={displayTemplates}
+            />
+          ) : null}
+          {section === 'noticeEdit' && noticeEditPoll ? (
+            <PublishedPollNoticeEditor
+              key={`${noticeEditPoll.campusId}:${noticeEditPoll.id}`}
+              onCancel={() => {
+                setNoticeEditPoll(null);
+                setSection('manage');
+              }}
+              onSave={savePublishedNotice}
+              onSaved={(updated) => {
+                setNoticeEditPoll(null);
+                setSelectedPollId(updated.id);
+                setSection('manage');
+                void loadPolls();
+                setNotice({
+                  tone: 'success',
+                  title: '투표 공지 수정',
+                  message: '게시된 투표 공지를 수정했습니다.',
+                });
+              }}
+              poll={noticeEditPoll}
             />
           ) : null}
           {section === 'results' ? (
@@ -4392,8 +4626,10 @@ function AdminPollTopActions({
 function AdminPollList({
   filter,
   hasPollsInStatusTab,
+  noticeEditEnabled,
   onChangeFilter,
   onClosePoll,
+  onEditNotice,
   onRefresh,
   onViewResults,
   polls,
@@ -4402,8 +4638,10 @@ function AdminPollList({
 }: {
   filter: AdminPollTypeFilter;
   hasPollsInStatusTab: boolean;
+  noticeEditEnabled: boolean;
   onChangeFilter: (filter: AdminPollTypeFilter) => void;
   onClosePoll: (poll: PollSummary) => void;
+  onEditNotice: (poll: PollSummary) => void;
   onRefresh: () => void;
   onViewResults: (poll: PollSummary) => void;
   polls: PollSummary[];
@@ -4446,6 +4684,9 @@ function AdminPollList({
             key={poll.id}
             onPress={() => onViewResults(poll)}
             onClosePress={() => onClosePoll(poll)}
+            {...(noticeEditEnabled && canManageAdminPoll(poll)
+              ? {onEditNoticePress: () => onEditNotice(poll)}
+              : {})}
             poll={poll}
             selected={poll.id === selectedPollId}
           />
@@ -4465,12 +4706,14 @@ function AdminPollList({
 function AdminPollListItem({
   accessibilityLabel,
   onClosePress,
+  onEditNoticePress,
   onPress,
   poll,
   selected,
 }: {
   accessibilityLabel: string;
   onClosePress: () => void;
+  onEditNoticePress?: () => void;
   onPress: () => void;
   poll: PollSummary;
   selected: boolean;
@@ -4500,6 +4743,18 @@ function AdminPollListItem({
           {getAdminPollListMeta(poll)}
         </Text>
       </View>
+      {onEditNoticePress ? (
+        <Pressable
+          accessibilityLabel={`${poll.title} 게시된 투표 공지 수정`}
+          accessibilityRole="button"
+          onPress={(event) => {
+            event.stopPropagation();
+            onEditNoticePress();
+          }}
+          style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
+          <Text style={styles.pollSoftPillText}>공지 수정</Text>
+        </Pressable>
+      ) : null}
       {canClose ? (
         <Pressable
           accessibilityLabel={`${poll.title} 투표 종료`}
@@ -5714,12 +5969,15 @@ function AdminPollCreatePanel({
   actionError,
   accounts,
   busy,
+  campusId,
   coffeeCatalogState,
   coffeeWarning,
   createStep,
   form,
   currentUserId,
   knownOwnedCoffeeAccountIds,
+  mediaFeatureEnabled,
+  noticeFeatureEnabled,
   onCancel,
   onChangeForm,
   onChangeStep,
@@ -5732,12 +5990,15 @@ function AdminPollCreatePanel({
   actionError: ApiError | null;
   accounts: PaymentAccount[];
   busy: boolean;
+  campusId: number;
   coffeeCatalogState: AdminCoffeeCatalogState;
   coffeeWarning: string | null;
   createStep: AdminPollCreateStep;
   form: AdminPollCreateForm;
   currentUserId: number;
   knownOwnedCoffeeAccountIds: Set<number>;
+  mediaFeatureEnabled: boolean;
+  noticeFeatureEnabled: boolean;
   onCancel: () => void;
   onChangeForm: (patch: Partial<AdminPollCreateForm>) => void;
   onChangeStep: (step: AdminPollCreateStep) => void;
@@ -5801,6 +6062,22 @@ function AdminPollCreatePanel({
         coffeeMenuIds.filter((selectedMenuId) => selectedMenuId !== menuId),
       ),
     });
+  };
+  const noticeMediaUploads = usePollNoticeMediaUploads({
+    campusId,
+    enabled: mediaFeatureEnabled && !busy,
+    items: form.noticeImages,
+    onChange: (noticeImages) => onChangeForm({noticeImages}),
+  });
+  const moveNoticeImage = (localId: string, direction: 'up' | 'down') => {
+    const currentIndex = form.noticeImages.findIndex((item) => item.localId === localId);
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= form.noticeImages.length) return;
+    const next = [...form.noticeImages];
+    const [moving] = next.splice(currentIndex, 1);
+    if (!moving) return;
+    next.splice(targetIndex, 0, moving);
+    onChangeForm({noticeImages: next});
   };
 
   useEffect(() => {
@@ -5902,6 +6179,21 @@ function AdminPollCreatePanel({
           value={form.title}
         />
       </Card>
+      {noticeFeatureEnabled ? (
+        <Card>
+          <PollNoticeEditorSection
+            disabled={busy}
+            mediaEnabled={mediaFeatureEnabled}
+            notice={form.notice}
+            onAddImages={() => void noticeMediaUploads.add()}
+            onChangeNotice={(notice) => onChangeForm({notice})}
+            onMove={moveNoticeImage}
+            onRemove={noticeMediaUploads.remove}
+            onRetry={(localId) => void noticeMediaUploads.retry(localId)}
+            uploadItems={form.noticeImages}
+          />
+        </Card>
+      ) : null}
       <Card>
         <Eyebrow>마감 일시</Eyebrow>
         <Pressable
@@ -11748,6 +12040,8 @@ function getAdminShellTitle(tab: AdminTab) {
       return '경건';
     case 'polls':
       return '투표';
+    case 'announcements':
+      return '공지 관리';
     case 'notificationLogs':
       return '알림';
     case 'prayer':
@@ -11771,6 +12065,8 @@ function getAdminTabIcon(tab: AdminTab): IconexIconName {
       return 'check';
     case 'polls':
       return 'document';
+    case 'announcements':
+      return 'bell';
     case 'notificationLogs':
       return 'bell';
     case 'prayer':
@@ -12027,6 +12323,11 @@ function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreat
   const templateId = parseNullablePositiveInt(form.templateId);
   const directCreateStartsAt =
     templateId === null ? new Date().toISOString() : form.startsAt;
+  const noticeFields = buildPollNoticeMutationFields({
+    notice: form.notice,
+    imageAssetIds: form.noticeImages.flatMap((item) =>
+      item.status === 'ready' && item.assetId ? [item.assetId] : []),
+  });
 
   return {
     templateId,
@@ -12041,6 +12342,7 @@ function toAdminPollCreateFormRequest(form: AdminPollCreateForm): AdminPollCreat
     startsAt: directCreateStartsAt,
     endsAt: form.endsAt,
     options: templateId === null ? parseAdminPollOptionsText(form.optionsText) : [],
+    ...noticeFields,
   };
 }
 
@@ -12083,6 +12385,15 @@ function toPollCreateForm(poll: AdminPoll): AdminPollCreateForm {
     startsAt: poll.startsAt,
     templateId: poll.templateId ? String(poll.templateId) : '',
     title: poll.title,
+    notice: poll.notice ?? '',
+    noticeImages: (poll.imageAssetIds ?? []).map((assetId, index) => ({
+      localId: `saved-${assetId}`,
+      previewUri: `mock://poll-notice/${assetId}`,
+      status: 'ready' as const,
+      progress: 1,
+      assetId,
+      sha256: String(index + 1).padStart(64, '0'),
+    })),
   };
 }
 
@@ -12102,6 +12413,7 @@ function toPollSummary(poll: AdminPoll): PollSummary {
     // A successful create/close command proves this requester can manage the returned poll.
     // Public list/detail responses still use the server-provided manageableByMe capability.
     manageableByMe: true,
+    hasNotice: Boolean(poll.notice) || (poll.imageAssetIds?.length ?? 0) > 0,
   };
 }
 

@@ -2,7 +2,7 @@ import React from 'react';
 import {act, create} from 'react-test-renderer';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
-const auth = vi.hoisted(() => ({generation: 1, token: 'A1'}));
+const auth = vi.hoisted(() => ({generation: 1, mockMode: false, token: 'A1'}));
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -10,6 +10,17 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, children);
   return {
     ActivityIndicator: host('ActivityIndicator'),
+    FlatList: ({data, renderItem, ...props}) => ReactModule.createElement(
+      'FlatList',
+      props,
+      data.map((item, index) => ReactModule.createElement(
+        ReactModule.Fragment,
+        {key: item.localId ?? index},
+        renderItem({item, index}),
+      )),
+    ),
+    Image: host('Image'),
+    PanResponder: {create: (handlers) => ({panHandlers: handlers})},
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: ({children, visible, ...props}) => visible
       ? ReactModule.createElement('Modal', props, children)
@@ -19,6 +30,7 @@ vi.mock('react-native', async () => {
     ScrollView: host('ScrollView'),
     StyleSheet: {create: (styles) => styles},
     Text: host('Text'),
+    TextInput: host('TextInput'),
     View: host('View'),
   };
 });
@@ -66,7 +78,7 @@ vi.mock('../api/client', () => {
   return {
     apiRequest: vi.fn(),
     FaithLogApiError: TestFaithLogApiError,
-    isMockModeEnabled: vi.fn(() => false),
+    isMockModeEnabled: vi.fn(() => auth.mockMode),
   };
 });
 
@@ -80,6 +92,7 @@ import {MealPollListScreen} from './MealPollListScreen';
 import {MealSettlementScreen} from './MealSettlementScreen';
 import {MealErrorState, toMealApiError} from './mealScreenShared';
 import {InvalidServerResponseError} from './mealRuntimeValidation';
+import {resetMockAdapterStateForTests} from '../api/mockAdapter';
 import {
   DutyConfirmSheet,
   DutyEntityCard,
@@ -93,7 +106,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 describe('MEAL component behavior', () => {
   beforeEach(() => {
     auth.generation = 1;
+    auth.mockMode = false;
     auth.token = 'A1';
+    resetMockAdapterStateForTests();
   });
 
   afterEach(() => {
@@ -281,6 +296,32 @@ describe('MEAL component behavior', () => {
       await settle();
     });
     expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the central mock READY registry for a meal notice image', async () => {
+    auth.mockMode = true;
+    const api = createApi({createPoll: vi.fn().mockResolvedValue(mealDetail({status: 'OPEN'}))});
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(MealPollCreateScreen, {
+        api,
+        campusId: 1,
+        onCancel: vi.fn(),
+        onCreated: vi.fn(),
+        onSessionExpired: vi.fn(),
+      }));
+    });
+    await change(renderer, '밥 투표 제목', '이미지 밥 투표');
+    await change(renderer, '밥 투표 선택지 1', '제육볶음');
+    await change(renderer, '밥 투표 선택지 2', '김치찌개');
+    await press(renderer, '투표 공지 이미지 추가');
+    await press(renderer, '밥 투표 생성 실행');
+
+    expect(api.createPoll).toHaveBeenCalledWith(
+      'A1',
+      1,
+      expect.objectContaining({imageAssetIds: [95_001]}),
+    );
   });
 
   it('matches the custom poll creation hierarchy and option editing language', async () => {

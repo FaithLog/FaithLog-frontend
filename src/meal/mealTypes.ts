@@ -49,6 +49,7 @@ export type MealPollSummary = {
   startsAt: string;
   endsAt: string;
   status: MealPollStatus;
+  hasNotice?: boolean;
   settlementStatus: MealSettlementStatus;
 };
 
@@ -108,6 +109,8 @@ export type MealPollDetail = {
   endsAt: string;
   status: MealPollStatus;
   options: MealPollOptionDetail[];
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type MealPollCreateRequest = {
@@ -116,6 +119,8 @@ export type MealPollCreateRequest = {
   endsAt: string;
   options: Array<{content: string; sortOrder: number}>;
   allowUserOptionAdd: boolean;
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type MealPollCreateDraft = {
@@ -124,6 +129,8 @@ export type MealPollCreateDraft = {
   endsAt: string;
   options: string[];
   allowUserOptionAdd: boolean;
+  notice?: string;
+  imageAssetIds?: number[];
 };
 
 export type MealPollMutationOption = {
@@ -145,6 +152,8 @@ export type MealPollMutationResponse = {
   endsAt: string;
   status: MealPollStatus;
   options: MealPollMutationOption[];
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type MealChargeGroupRequest = {

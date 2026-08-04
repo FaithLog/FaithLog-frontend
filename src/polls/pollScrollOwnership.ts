@@ -1,10 +1,11 @@
-export type PollDetailTab = 'response' | 'comments' | 'results';
+export type PollDetailTab = 'response' | 'comments' | 'results' | 'notice';
 export type PollDetailScrollOwner = 'scrollView' | 'flatList' | 'sectionList';
 export type PollEarlyState = 'detailError' | 'detailLoading' | 'listError' | 'listLoading';
 
 export function getPollDetailScrollOwner(tab: PollDetailTab): PollDetailScrollOwner {
   switch (tab) {
     case 'response':
+    case 'notice':
       return 'scrollView';
     case 'comments':
       return 'flatList';

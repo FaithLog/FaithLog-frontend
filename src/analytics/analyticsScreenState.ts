@@ -33,10 +33,12 @@ export function getPublicAnalyticsScreen(
 }
 
 export function getAuthenticatedAnalyticsScreen({
+  announcementView = null,
   entryTarget,
   profileView,
   route,
 }: {
+  announcementView?: 'detail' | 'list' | null;
   entryTarget: EntryTarget;
   profileView: ProfileView;
   route: ShellRoute;
@@ -51,6 +53,10 @@ export function getAuthenticatedAnalyticsScreen({
     case 'payments': return 'billing';
     case 'polls': return null;
     case 'prayers': return 'prayer';
+    case 'announcements':
+      if (announcementView === 'detail') return 'announcement_detail';
+      if (announcementView === 'list') return 'announcement_list';
+      return null;
     case 'profile':
       if (profileView === 'notifications') return 'notifications';
       if (profileView === 'coffee' || profileView === 'meal') return null;

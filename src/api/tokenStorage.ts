@@ -392,8 +392,8 @@ export async function getStoredSelectedCampusId(): Promise<number | null> {
   return campusId && Number.isInteger(campusId) && campusId > 0 ? campusId : null;
 }
 
-export async function saveSelectedCampusId(campusId: number) {
-  if (!Number.isInteger(campusId) || campusId <= 0) {
+export async function saveSelectedCampusId(campusId: number | null) {
+  if (campusId === null || !Number.isInteger(campusId) || campusId <= 0) {
     await deleteStorageItem(LAST_SELECTED_CAMPUS_ID_KEY);
     return;
   }

@@ -23,6 +23,10 @@ import {getCurrentMealRequestError, MealErrorState, MealLoading, toMealApiError}
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {useMealRequestTracker} from './useMealRequestTracker';
+import type {MediaUploadItem} from '../media/mediaUploadPolicy';
+import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
+import {usePollNoticeMediaUploads} from '../polls/notice/usePollNoticeMediaUploads';
 
 type MealPollCreateScreenProps = {
   api?: MealApi;
@@ -57,8 +61,17 @@ export function MealPollCreateScreen({
     {id: 2, value: ''},
   ]);
   const [allowUserOptionAdd, setAllowUserOptionAdd] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [noticeImages, setNoticeImages] = useState<MediaUploadItem[]>([]);
+  const noticeCapabilities = getPollNoticeCapabilities();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  const noticeMediaUploads = usePollNoticeMediaUploads({
+    campusId,
+    enabled: noticeCapabilities.canAccessMedia && !saving,
+    items: noticeImages,
+    onChange: setNoticeImages,
+  });
 
   if (!scopeIsCommitted) return <MealLoading label="밥 투표 화면을 전환하는 중" />;
 
@@ -78,6 +91,9 @@ export function MealPollCreateScreen({
         endsAt: deadline.toISOString(),
         options: options.map((option) => option.value),
         allowUserOptionAdd,
+        notice,
+        imageAssetIds: noticeImages.flatMap((item) =>
+          item.status === 'ready' && item.assetId ? [item.assetId] : []),
       });
       const access = await resolveMealRequestAccess(tracker, 'create', onSessionExpired);
       identity = access.status === 'ready' ? access.request.identity : access.identity;
@@ -146,6 +162,31 @@ export function MealPollCreateScreen({
           value={title}
         />
       </DutyFormSection>
+
+      {noticeCapabilities.canEditPublishedNotice ? (
+        <DutyFormSection>
+          <PollNoticeEditorSection
+            disabled={saving}
+            mediaEnabled={noticeCapabilities.canAccessMedia}
+            notice={notice}
+            onAddImages={() => void noticeMediaUploads.add()}
+            onChangeNotice={setNotice}
+            onMove={(localId, direction) => setNoticeImages((current) => {
+              const from = current.findIndex((item) => item.localId === localId);
+              const to = direction === 'up' ? from - 1 : from + 1;
+              if (from < 0 || to < 0 || to >= current.length) return current;
+              const next = [...current];
+              const [moving] = next.splice(from, 1);
+              if (!moving) return current;
+              next.splice(to, 0, moving);
+              return next;
+            })}
+            onRemove={noticeMediaUploads.remove}
+            onRetry={(localId) => void noticeMediaUploads.retry(localId)}
+            uploadItems={noticeImages}
+          />
+        </DutyFormSection>
+      ) : null}
 
       <DutyDateTimeField
         accessibilityLabel="밥 투표 마감 일시 선택"

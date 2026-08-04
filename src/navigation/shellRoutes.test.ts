@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it} from 'vitest';
 
 import type {CampusMembershipSummary, CurrentUser} from '../api/types';
 
@@ -6,8 +6,18 @@ import {
   getAdminModeRoutes,
   getAvailableRoutes,
   getRouteLabel,
+  getUserBottomNavActiveRoute,
+  isUserBottomNavVisibleRoute,
   USER_BOTTOM_NAV_ROUTES,
 } from './shellRoutes';
+
+const originalAppEnvironment = process.env.EXPO_PUBLIC_APP_ENV;
+const originalMockMode = process.env.EXPO_PUBLIC_MOCK_MODE;
+
+afterEach(() => {
+  restoreEnvironment('EXPO_PUBLIC_APP_ENV', originalAppEnvironment);
+  restoreEnvironment('EXPO_PUBLIC_MOCK_MODE', originalMockMode);
+});
 
 describe('USER_BOTTOM_NAV_ROUTES', () => {
   it('keeps the Figma user shell bottom nav to five fixed tabs', () => {
@@ -32,6 +42,11 @@ describe('USER_BOTTOM_NAV_ROUTES', () => {
       '납부',
       '내정보',
     ]);
+  });
+
+  it('keeps the user bottom navigation visible on announcements with Home active', () => {
+    expect(isUserBottomNavVisibleRoute('announcements')).toBe(true);
+    expect(getUserBottomNavActiveRoute('announcements')).toBe('userHome');
   });
 });
 
@@ -64,6 +79,26 @@ describe('admin mode routes', () => {
   });
 });
 
+describe('announcement capability route', () => {
+  it('includes announcements in live available routes after REST Docs approval', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+
+    expect(getAvailableRoutes(createUser('USER'), createCampus('MEMBER'))).toContain(
+      'announcements',
+    );
+  });
+
+  it('keeps announcements available in an allowed mock run', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+
+    expect(getAvailableRoutes(createUser('USER'), createCampus('MEMBER'))).toContain(
+      'announcements',
+    );
+  });
+});
+
 function createUser(role: CurrentUser['role']): CurrentUser {
   return {
     campusMemberships: [],
@@ -85,4 +120,13 @@ function createCampus(campusRole: CampusMembershipSummary['campusRole']): Campus
     region: '서울',
     status: 'ACTIVE',
   };
+}
+
+function restoreEnvironment(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
 }

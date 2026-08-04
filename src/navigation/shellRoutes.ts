@@ -1,4 +1,5 @@
 import type {CampusMembershipSummary, CurrentUser} from '../api/types';
+import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 
 export type ShellRoute =
   | 'userHome'
@@ -6,6 +7,7 @@ export type ShellRoute =
   | 'payments'
   | 'polls'
   | 'prayers'
+  | 'announcements'
   | 'profile'
   | 'campusAdmin'
   | 'serviceAdmin';
@@ -18,6 +20,18 @@ export const USER_BOTTOM_NAV_ROUTES = [
   'payments',
   'profile',
 ] as const satisfies readonly ShellRoute[];
+export type UserBottomNavRoute = (typeof USER_BOTTOM_NAV_ROUTES)[number];
+
+export function isUserBottomNavVisibleRoute(route: ShellRoute) {
+  return USER_BOTTOM_NAV_ROUTES.some((availableRoute) => availableRoute === route) ||
+    route === 'prayers' ||
+    route === 'announcements';
+}
+
+export function getUserBottomNavActiveRoute(route: ShellRoute): UserBottomNavRoute {
+  if (route === 'prayers' || route === 'announcements') return 'userHome';
+  return USER_BOTTOM_NAV_ROUTES.find((availableRoute) => availableRoute === route) ?? 'userHome';
+}
 
 export type AdminModeRoute = Extract<ShellRoute, 'campusAdmin' | 'serviceAdmin'>;
 
@@ -50,7 +64,19 @@ export function getAvailableRoutes(
   user: CurrentUser,
   campus: CampusMembershipSummary,
 ): ShellRoute[] {
-  const routes: ShellRoute[] = ['userHome', 'devotion', 'payments', 'polls', 'prayers', 'profile'];
+  const routes: ShellRoute[] = [
+    'userHome',
+    'devotion',
+    'payments',
+    'polls',
+    'prayers',
+    'profile',
+  ];
+
+  if (isAnnouncementCapabilityEnabled()) {
+    routes.push('announcements');
+  }
+
   return [...routes, ...getAdminModeRoutes(user, campus)];
 }
 
@@ -66,6 +92,8 @@ export function getRouteLabel(route: ShellRoute) {
       return '투표';
     case 'prayers':
       return '기도';
+    case 'announcements':
+      return '공지';
     case 'profile':
       return '내정보';
     case 'campusAdmin':

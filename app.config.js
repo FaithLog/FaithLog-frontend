@@ -14,6 +14,14 @@ const buildPropertiesPlugin = [
     },
   },
 ];
+const announcementImagePickerPlugin = [
+  'expo-image-picker',
+  {
+    cameraPermission: false,
+    microphonePermission: false,
+    photosPermission: '공지에 첨부할 사진을 선택하려면 사진 보관함 접근이 필요합니다.',
+  },
+];
 const firebasePlugins = [
   '@react-native-firebase/app',
   [
@@ -92,6 +100,7 @@ module.exports = ({config}) => {
       './plugins/withAndroidNavigationMode',
       './plugins/withFirebaseAnalyticsScreenReporting',
       buildPropertiesPlugin,
+      announcementImagePickerPlugin,
       'expo-sharing',
       ...firebasePlugins,
       './plugins/withAndroidReleaseRecommendations',

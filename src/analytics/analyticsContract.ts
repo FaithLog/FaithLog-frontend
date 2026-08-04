@@ -12,6 +12,8 @@ export const ANALYTICS_SCREEN_NAMES = [
   'notifications',
   'settings',
   'admin_dashboard',
+  'announcement_list',
+  'announcement_detail',
 ] as const;
 
 export const ANALYTICS_EVENT_NAMES = [
