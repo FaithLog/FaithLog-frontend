@@ -77,8 +77,9 @@ export function usePollNoticeMediaUploads({
         assetId: ready.assetId,
         sha256: ready.sha256,
       });
-      imagesRef.current.delete(image.localId);
-      await discardNormalizedImages([image]);
+      // Keep the prepared local file alive while the editor is mounted so the
+      // selected image remains visible after its upload completes. It is
+      // discarded by remove() or the hook cleanup when the editor closes.
     } catch {
       if (!controller.signal.aborted) {
         update(image.localId, {
