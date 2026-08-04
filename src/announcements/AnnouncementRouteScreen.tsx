@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
-import {FlatList, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
+import {FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
 
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
@@ -424,7 +424,7 @@ function AnnouncementImageViewer({
       presentationStyle="overFullScreen"
       transparent
       visible={initialIndex !== null}>
-      <View
+      <SafeAreaView
         accessibilityLabel="공지 첨부 이미지 확대 화면"
         accessibilityViewIsModal
         style={styles.expandedBackdrop}>
@@ -476,7 +476,7 @@ function AnnouncementImageViewer({
             showsHorizontalScrollIndicator={false}
           />
         ) : null}
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -719,7 +719,7 @@ const styles = StyleSheet.create({
   expandedClose: {alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 56},
   expandedCloseText: {color: colors.surface, fontSize: 15, fontWeight: '700'},
   expandedCount: {color: colors.surface, fontSize: 14, fontWeight: '700'},
-  expandedHeader: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 76, paddingHorizontal: 20, paddingTop: 12},
+  expandedHeader: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 76, paddingHorizontal: 20, paddingTop: 20},
   expandedImage: {height: '100%', width: '100%'},
   expandedMissing: {color: colors.surface, fontSize: 14},
   expandedPage: {alignItems: 'center', justifyContent: 'center', paddingBottom: 24, paddingHorizontal: 12},

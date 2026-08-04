@@ -2,6 +2,7 @@ import {memo, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   Image,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -153,24 +154,105 @@ const UploadItemRow = memo(function UploadItemRow({
   onRetry: (localId: string) => void;
   total: number;
 }) {
+  const draggingRef = useRef(false);
+  const responderClaimedRef = useRef(false);
+  const dragOffsetRef = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState(0);
+  const move = (direction: -1 | 1) => {
+    const target = index + direction;
+    if (disabled || target < 0 || target >= total) return;
+    onMove(item.localId, direction < 0 ? 'up' : 'down');
+  };
+  const finishDrag = (horizontalOffset?: number) => {
+    const offset = horizontalOffset ?? dragOffsetRef.current;
+    if (draggingRef.current && offset !== 0) move(offset < 0 ? -1 : 1);
+    draggingRef.current = false;
+    responderClaimedRef.current = false;
+    dragOffsetRef.current = 0;
+    setDragOffset(0);
+    setDragging(false);
+  };
+  const responder = PanResponder.create({
+    onMoveShouldSetPanResponder: () => draggingRef.current,
+    onMoveShouldSetPanResponderCapture: () => draggingRef.current,
+    onPanResponderGrant: () => {
+      responderClaimedRef.current = true;
+    },
+    onPanResponderMove: (_event, gestureState) => {
+      if (!draggingRef.current) return;
+      dragOffsetRef.current = gestureState.dx;
+      setDragOffset(gestureState.dx);
+    },
+    onPanResponderRelease: (_event, gestureState) => {
+      finishDrag(gestureState.dx);
+    },
+    onPanResponderTerminate: () => finishDrag(),
+    onPanResponderTerminationRequest: () => false,
+  });
+
   return (
     <View style={styles.uploadRow}>
-      <Image source={{uri: item.previewUri}} style={styles.thumbnail} />
-      <View style={styles.grow}>
-        <Text style={styles.uploadStatus}>{getUploadStatusLabel(item)}</Text>
+      <Pressable
+        {...responder.panHandlers}
+        accessibilityActions={[
+          {name: 'decrement', label: '왼쪽으로 이동'},
+          {name: 'increment', label: '오른쪽으로 이동'},
+        ]}
+        accessibilityHint="이미지를 좌우로 끌거나 화면 읽기 도구의 조절 동작으로 순서를 변경합니다."
+        accessibilityLabel={`투표 공지 이미지 ${index + 1} 순서 이동`}
+        accessibilityRole="adjustable"
+        accessibilityState={{disabled}}
+        delayLongPress={280}
+        onLongPress={() => {
+          if (disabled) return;
+          draggingRef.current = true;
+          setDragging(true);
+        }}
+        onPressOut={() => {
+          if (draggingRef.current && !responderClaimedRef.current) finishDrag();
+        }}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'decrement') move(-1);
+          if (event.nativeEvent.actionName === 'increment') move(1);
+        }}
+        style={[
+          styles.thumbnailShell,
+          disabled ? styles.thumbnailLocked : null,
+          dragging ? styles.thumbnailDragging : null,
+          dragging ? {transform: [{translateX: dragOffset}, {scale: 1.06}]} : null,
+        ]}>
+        <Image source={{uri: item.previewUri}} style={styles.thumbnail} />
+        <View pointerEvents="none" style={styles.dragIndicator}>
+          <Text style={styles.dragIndicatorText}>↔</Text>
+        </View>
         {item.status === 'uploading' ? (
-          <Text style={styles.uploadMeta}>{Math.round(item.progress * 100)}%</Text>
+          <View pointerEvents="none" style={styles.uploadProgressOverlay}>
+            <Text style={styles.uploadProgressText}>{Math.round(item.progress * 100)}%</Text>
+          </View>
         ) : null}
-        {item.status === 'failed' ? <Text style={styles.errorText}>{item.errorMessage}</Text> : null}
-      </View>
-      <View style={styles.itemActions}>
         {item.status === 'failed' ? (
-          <SmallAction accessibilityLabel="선택한 이미지 업로드 재시도" disabled={disabled} label="재시도" onPress={() => onRetry(item.localId)} />
+          <View pointerEvents="none" style={styles.uploadFailedBadge}>
+            <Text style={styles.uploadFailedBadgeText}>!</Text>
+          </View>
         ) : null}
-        <SmallAction accessibilityLabel={`이미지 ${index + 1} 앞으로 이동`} disabled={disabled || index === 0} label="↑" onPress={() => onMove(item.localId, 'up')} />
-        <SmallAction accessibilityLabel={`이미지 ${index + 1} 뒤로 이동`} disabled={disabled || index === total - 1} label="↓" onPress={() => onMove(item.localId, 'down')} />
-        <SmallAction accessibilityLabel={`이미지 ${index + 1} 제거`} disabled={disabled} label="삭제" onPress={() => onRemove(item.localId)} />
-      </View>
+      </Pressable>
+      <Pressable
+        accessibilityLabel={`투표 공지 이미지 ${index + 1} 삭제`}
+        accessibilityRole="button"
+        accessibilityState={{disabled}}
+        disabled={disabled}
+        hitSlop={8}
+        onPress={() => onRemove(item.localId)}
+        style={({pressed}) => [styles.previewRemoveButton, pressed ? styles.pressed : null]}>
+        <Text style={styles.previewRemoveText}>×</Text>
+      </Pressable>
+      {item.status === 'failed' ? (
+        <View style={styles.retryRow}>
+          <Text numberOfLines={2} style={styles.errorText}>{item.errorMessage}</Text>
+          <SmallAction accessibilityLabel="선택한 이미지 업로드 재시도" disabled={disabled} label="재시도" onPress={() => onRetry(item.localId)} />
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -328,15 +410,6 @@ function getMediaFailureIdentity(asset: MediaAccessUrl) {
   return `${asset.assetId}:${asset.sha256}:detail`;
 }
 
-function getUploadStatusLabel(item: MediaUploadItem) {
-  switch (item.status) {
-    case 'pending': return '업로드 대기';
-    case 'uploading': return '업로드 중';
-    case 'failed': return '업로드 실패';
-    case 'ready': return '업로드 완료';
-  }
-}
-
 const styles = StyleSheet.create({
   addButton: {alignItems: 'center', backgroundColor: '#E8F3FF', borderRadius: radius.control, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12},
   addButtonText: {color: colors.primary, fontSize: 13, fontWeight: '800'},
@@ -354,7 +427,8 @@ const styles = StyleSheet.create({
   grow: {flex: 1, gap: 3, minWidth: 0},
   imageHeader: {alignItems: 'flex-start', flexDirection: 'row', gap: spacing.gap},
   inputError: {borderColor: colors.danger},
-  itemActions: {alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end'},
+  dragIndicator: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.58)', borderRadius: radius.pill, bottom: 5, height: 20, justifyContent: 'center', left: 22, position: 'absolute', width: 28},
+  dragIndicatorText: {color: '#FFFFFF', fontSize: 12, fontWeight: '800'},
   mediaError: {alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.item, flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between', padding: 14},
   noticeBlock: {backgroundColor: '#F0F9FA', borderColor: colors.faith, borderRadius: radius.item, borderWidth: 1, gap: 6, padding: 16},
   noticeEyebrow: {color: colors.faith, fontSize: 13, fontWeight: '800'},
@@ -363,8 +437,16 @@ const styles = StyleSheet.create({
   pressed: {opacity: 0.72},
   smallAction: {alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.control, borderWidth: 1, justifyContent: 'center', minHeight: 44, minWidth: 44, paddingHorizontal: 8},
   smallActionText: {color: colors.textSecondary, fontSize: 12, fontWeight: '700'},
+  previewRemoveButton: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.82)', borderRadius: 12, height: 24, justifyContent: 'center', position: 'absolute', right: -4, top: -4, width: 24, zIndex: 2},
+  previewRemoveText: {color: '#FFFFFF', fontSize: 18, fontWeight: '700', lineHeight: 20},
+  retryRow: {gap: 4, marginTop: 6, width: 84},
   thumbnail: {backgroundColor: colors.borderSoft, borderRadius: 12, height: 64, width: 64},
-  uploadMeta: {color: colors.textMuted, fontSize: 12},
-  uploadRow: {alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.item, borderWidth: 1, flexDirection: 'row', gap: 10, marginRight: spacing.gap, minHeight: 76, padding: 8, width: 292},
-  uploadStatus: {color: colors.textPrimary, fontSize: 13, fontWeight: '700'},
+  thumbnailLocked: {opacity: 0.6},
+  thumbnailDragging: {elevation: 8, opacity: 0.96, shadowColor: '#000000', shadowOffset: {height: 6, width: 0}, shadowOpacity: 0.28, shadowRadius: 10, zIndex: 4},
+  thumbnailShell: {borderRadius: 12, height: 64, width: 64},
+  uploadFailedBadge: {alignItems: 'center', backgroundColor: colors.danger, borderRadius: 10, height: 20, justifyContent: 'center', left: 5, position: 'absolute', top: 5, width: 20},
+  uploadFailedBadgeText: {color: '#FFFFFF', fontSize: 13, fontWeight: '900'},
+  uploadProgressOverlay: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.62)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0},
+  uploadProgressText: {color: '#FFFFFF', fontSize: 13, fontWeight: '800'},
+  uploadRow: {marginRight: spacing.gap, paddingHorizontal: 4, paddingTop: 4, position: 'relative', width: 84},
 });

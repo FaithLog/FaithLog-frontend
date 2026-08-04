@@ -38,6 +38,7 @@ vi.mock('react-native', async () => {
     Modal: ({children, visible, ...props}: React.PropsWithChildren<{visible: boolean}>) =>
       visible ? ReactModule.createElement('Modal', props, children) : null,
     Pressable: host('Pressable'),
+    SafeAreaView: host('SafeAreaView'),
     StyleSheet: {create: (styles: unknown) => styles},
     Text: host('Text'),
     View: host('View'),

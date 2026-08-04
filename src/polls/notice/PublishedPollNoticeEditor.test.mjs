@@ -14,6 +14,7 @@ vi.mock('react-native', async () => {
       )),
     ),
     Image: host('Image'),
+    PanResponder: {create: (handlers) => ({panHandlers: handlers})},
     Pressable: host('Pressable'),
     StyleSheet: {create: (styles) => styles},
     Text: host('Text'),

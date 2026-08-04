@@ -294,6 +294,25 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     expect(findAllByLabel(renderer, '투표 공지 내용')).toHaveLength(1);
   });
 
+  it('shows and loads an image-only notice even when the notice text is blank', async () => {
+    mocks.getAccessUrls.mockReset();
+    mocks.getAccessUrls.mockResolvedValue([mediaAccessUrl()]);
+    const detail = {...pollDetail('SINGLE'), notice: null, hasNotice: true};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id)));
+      await settle();
+    });
+
+    expect(findAllByLabel(renderer, '공지 탭으로 이동')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '투표 공지 내용')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '투표 공지 이미지')).toHaveLength(1);
+    expect(mocks.getAccessUrls).toHaveBeenCalledWith('A1', 1, [900]);
+  });
+
   it.each([
     {notice: null},
     {notice: undefined},

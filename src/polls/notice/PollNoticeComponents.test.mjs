@@ -11,6 +11,7 @@ vi.mock('react-native', async () => {
         ReactModule.createElement(ReactModule.Fragment, {key: item.assetId ?? item.localId}, renderItem({item, index}))),
     ),
     Image: host('Image'),
+    PanResponder: {create: (handlers) => ({panHandlers: handlers})},
     Pressable: host('Pressable'),
     StyleSheet: {create: (styles) => styles},
     Text: host('Text'),
@@ -87,6 +88,8 @@ describe('poll notice components', () => {
 
   it('keeps notice draft and successful assets while retrying only the failed image', async () => {
     const onChangeNotice = vi.fn();
+    const onMove = vi.fn();
+    const onRemove = vi.fn();
     const onRetry = vi.fn();
     const items = [
       {localId: 'ready', previewUri: 'memory://ready', status: 'ready', progress: 1, assetId: 10, sha256: 'a'.repeat(64)},
@@ -99,16 +102,40 @@ describe('poll notice components', () => {
         notice: '보존할 공지',
         onAddImages: vi.fn(),
         onChangeNotice,
-        onMove: vi.fn(),
-        onRemove: vi.fn(),
+        onMove,
+        onRemove,
         onRetry,
         uploadItems: items,
       }));
     });
 
     expect(rendered(renderer)).toContain('보존할 공지');
-    expect(rendered(renderer)).toContain('업로드 완료');
     expect(rendered(renderer)).toContain('업로드 실패');
+    expect(rendered(renderer)).toContain('×');
+    let firstImage = renderer.root.findByProps({
+      accessibilityLabel: '투표 공지 이미지 1 순서 이동',
+    });
+    expect(firstImage.props.accessibilityRole).toBe('adjustable');
+    expect(firstImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(false);
+    await act(async () => {
+      firstImage.props.onLongPress();
+    });
+    firstImage = renderer.root.findByProps({
+      accessibilityLabel: '투표 공지 이미지 1 순서 이동',
+    });
+    expect(firstImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(true);
+    await act(async () => {
+      firstImage.props.onPanResponderGrant();
+      firstImage.props.onPanResponderMove({}, {dx: 92, dy: 0});
+      firstImage.props.onPanResponderRelease({}, {dx: 92, dy: 0});
+    });
+    expect(onMove).toHaveBeenCalledWith('ready', 'down');
+    await act(async () => {
+      renderer.root.findByProps({
+        accessibilityLabel: '투표 공지 이미지 1 삭제',
+      }).props.onPress();
+    });
+    expect(onRemove).toHaveBeenCalledWith('ready');
     await act(async () => {
       renderer.root.findByProps({accessibilityLabel: '선택한 이미지 업로드 재시도'}).props.onPress();
     });

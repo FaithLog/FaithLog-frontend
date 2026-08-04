@@ -487,7 +487,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(byLabel(renderer, '이미지 2 삭제')).toBeTruthy();
   });
 
-  it('exposes horizontal drag handles that reorder announcement images', async () => {
+  it('uses the image surface itself to drag and reorder announcement images', async () => {
     const detail = announcement({imageAssetIds: [77, 88], title: '순서 변경 공지'});
     const renderer = await render(
       <AnnouncementEditorScreen
@@ -502,10 +502,18 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
 
     let previewList = byLabel(renderer, '공지 이미지 미리보기 목록');
     expect(previewList.props.horizontal).toBe(true);
+    let draggableImage = byLabel(renderer, '이미지 1 순서 이동');
+    expect(draggableImage.props.accessibilityRole).toBe('adjustable');
+    expect(draggableImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(false);
     await act(async () => {
-      byLabel(renderer, '이미지 1 순서 이동 핸들').props.onAccessibilityAction({
-        nativeEvent: {actionName: 'increment'},
-      });
+      draggableImage.props.onLongPress();
+    });
+    draggableImage = byLabel(renderer, '이미지 1 순서 이동');
+    expect(draggableImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(true);
+    await act(async () => {
+      draggableImage.props.onPanResponderGrant();
+      draggableImage.props.onPanResponderMove({}, {dx: 92, dy: 0});
+      draggableImage.props.onPanResponderRelease({}, {dx: 92, dy: 0});
       await settle();
     });
 
@@ -704,7 +712,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     await press(renderer, '공지 이미지 선택');
     expect(nativeMediaMocks.pickAndPrepare).toHaveBeenCalledTimes(1);
     expect(nativeMediaMocks.upload).toHaveBeenCalledTimes(2);
-    expect(rendered(renderer)).toContain('업로드 완료');
+    expect(byLabel(renderer, '이미지 1 삭제')).toBeTruthy();
     expect(rendered(renderer)).toContain('재시도 필요');
 
     await press(renderer, '이미지 2 업로드 다시 시도');
@@ -769,7 +777,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(nativeMediaMocks.upload).toHaveBeenCalledTimes(1);
     expect(nativeMediaMocks.retry).toHaveBeenCalledTimes(1);
     expect(nativeMediaMocks.retry).toHaveBeenCalledWith(expect.objectContaining({context}));
-    expect(rendered(renderer)).toContain('업로드 완료');
+    expect(byLabel(renderer, '이미지 1 삭제')).toBeTruthy();
   });
 
   it('retains the same reservation context when token resolution fails before retry PUT', async () => {
@@ -887,12 +895,9 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(renderer.root.findAll((node) =>
       String(node.type) === 'Pressable' &&
       typeof node.props.accessibilityLabel === 'string' &&
-      /^이미지 \d+ 삭제$/.test(node.props.accessibilityLabel))).toHaveLength(20);
-    await press(renderer, '이미지 작업 20개 더 보기');
+      /^이미지 \d+ 삭제$/.test(node.props.accessibilityLabel))).toHaveLength(4);
     expect(renderer.root.findAll((node) =>
-      String(node.type) === 'Pressable' &&
-      typeof node.props.accessibilityLabel === 'string' &&
-      /^이미지 \d+ 삭제$/.test(node.props.accessibilityLabel))).toHaveLength(40);
+      node.props.accessibilityLabel === '이미지 작업 20개 더 보기')).toHaveLength(0);
   });
 
   it('retries PROCESSING with completion only and does not reserve or upload the binary again', async () => {
@@ -924,7 +929,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(nativeMediaMocks.upload).toHaveBeenCalledTimes(1);
     expect(nativeMediaMocks.complete).toHaveBeenCalledTimes(1);
     expect(nativeMediaMocks.complete).toHaveBeenCalledWith(expect.objectContaining({identity}));
-    expect(rendered(renderer)).toContain('업로드 완료');
+    expect(byLabel(renderer, '이미지 1 삭제')).toBeTruthy();
   });
 
   it('blocks duplicate upload retry after an authoritative completion conflict', async () => {

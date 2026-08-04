@@ -2248,10 +2248,13 @@ function getCoffeeCatalogErrorTitle(error: ApiError) {
 }
 
 export function isPollNoticeAvailable(
-  detail: Pick<PollDetail, 'notice'>,
+  detail: Pick<PollDetail, 'imageAssetIds' | 'notice'>,
   capabilityEnabled: boolean,
 ) {
-  return capabilityEnabled && typeof detail.notice === 'string' && detail.notice.trim().length > 0;
+  if (!capabilityEnabled) return false;
+  const hasNoticeText = typeof detail.notice === 'string' && detail.notice.trim().length > 0;
+  const hasNoticeImages = Array.isArray(detail.imageAssetIds) && detail.imageAssetIds.length > 0;
+  return hasNoticeText || hasNoticeImages;
 }
 
 function findCoffeeMenuForOption(

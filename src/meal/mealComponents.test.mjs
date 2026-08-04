@@ -20,6 +20,7 @@ vi.mock('react-native', async () => {
       )),
     ),
     Image: host('Image'),
+    PanResponder: {create: (handlers) => ({panHandlers: handlers})},
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: ({children, visible, ...props}) => visible
       ? ReactModule.createElement('Modal', props, children)
