@@ -504,22 +504,27 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(previewList.props.horizontal).toBe(true);
     let draggableImage = byLabel(renderer, '이미지 1 순서 이동');
     expect(draggableImage.props.accessibilityRole).toBe('adjustable');
-    expect(draggableImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(false);
     await act(async () => {
-      draggableImage.props.onLongPress();
+      draggableImage.props.onTouchMove({nativeEvent: {pageX: 192}});
+    });
+    expect(byLabel(renderer, '공지 이미지 미리보기 목록').props.data.map(
+      (item: {assetId: number}) => item.assetId,
+    )).toEqual([77, 88]);
+    await act(async () => {
+      draggableImage.props.onLongPress({nativeEvent: {pageX: 100}});
     });
     draggableImage = byLabel(renderer, '이미지 1 순서 이동');
-    expect(draggableImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(true);
+    expect(byLabel(renderer, '공지 이미지 미리보기 목록').props.scrollEnabled).toBe(false);
     await act(async () => {
-      draggableImage.props.onPanResponderGrant();
-      draggableImage.props.onPanResponderMove({}, {dx: 92, dy: 0});
-      draggableImage.props.onPanResponderRelease({}, {dx: 92, dy: 0});
+      draggableImage.props.onTouchMove({nativeEvent: {pageX: 192}});
+      draggableImage.props.onTouchEnd();
       await settle();
     });
 
     previewList = byLabel(renderer, '공지 이미지 미리보기 목록');
     expect(previewList.props.data.map((item: {assetId: number}) => item.assetId))
       .toEqual([88, 77]);
+    expect(previewList.props.scrollEnabled).toBe(true);
   });
 
   it('keeps a missing existing attachment preview as an independently retryable editor slot', async () => {
@@ -713,11 +718,11 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(nativeMediaMocks.pickAndPrepare).toHaveBeenCalledTimes(1);
     expect(nativeMediaMocks.upload).toHaveBeenCalledTimes(2);
     expect(byLabel(renderer, '이미지 1 삭제')).toBeTruthy();
-    expect(rendered(renderer)).toContain('재시도 필요');
+    expect(rendered(renderer)).toContain('업로드하지 못했습니다');
 
     await press(renderer, '이미지 2 업로드 다시 시도');
     expect(nativeMediaMocks.upload).toHaveBeenCalledTimes(3);
-    expect(rendered(renderer)).not.toContain('재시도 필요');
+    expect(rendered(renderer)).not.toContain('업로드하지 못했습니다');
 
     await changeText(renderer, '제목', '네이티브 이미지 공지');
     await changeText(renderer, '공지 본문', '네이티브 이미지 본문');

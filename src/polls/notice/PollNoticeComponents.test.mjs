@@ -116,20 +116,23 @@ describe('poll notice components', () => {
       accessibilityLabel: '투표 공지 이미지 1 순서 이동',
     });
     expect(firstImage.props.accessibilityRole).toBe('adjustable');
-    expect(firstImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(false);
     await act(async () => {
-      firstImage.props.onLongPress();
+      firstImage.props.onTouchMove({nativeEvent: {pageX: 192}});
+    });
+    expect(onMove).not.toHaveBeenCalled();
+    await act(async () => {
+      firstImage.props.onLongPress({nativeEvent: {pageX: 100}});
     });
     firstImage = renderer.root.findByProps({
       accessibilityLabel: '투표 공지 이미지 1 순서 이동',
     });
-    expect(firstImage.props.onMoveShouldSetPanResponder({}, {dx: 20, dy: 1})).toBe(true);
+    expect(renderer.root.findByType('FlatList').props.scrollEnabled).toBe(false);
     await act(async () => {
-      firstImage.props.onPanResponderGrant();
-      firstImage.props.onPanResponderMove({}, {dx: 92, dy: 0});
-      firstImage.props.onPanResponderRelease({}, {dx: 92, dy: 0});
+      firstImage.props.onTouchMove({nativeEvent: {pageX: 192}});
+      firstImage.props.onTouchEnd();
     });
     expect(onMove).toHaveBeenCalledWith('ready', 'down');
+    expect(renderer.root.findByType('FlatList').props.scrollEnabled).toBe(true);
     await act(async () => {
       renderer.root.findByProps({
         accessibilityLabel: '투표 공지 이미지 1 삭제',

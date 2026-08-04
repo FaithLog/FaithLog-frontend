@@ -36,6 +36,7 @@ describe('approved media API contract', () => {
       '/api/v1/admin/campuses/7/media-assets/upload-reservations',
       expect.objectContaining({
         accessToken: 'token',
+        expectedStatuses: [201],
         method: 'POST',
         body: {contentType: 'image/jpeg', byteSize: 1234, sha256: 'a'.repeat(64)},
       }),

@@ -38,6 +38,7 @@ export function createMediaApi({request}: {request: MediaRequest}): MediaApi {
       return request(buildAdminMediaPath(campusId, 'upload-reservations'), {
         accessToken,
         body: normalizedBody,
+        expectedStatuses: [201],
         method: 'POST',
         responseParser: parseMediaUploadReservation,
       });

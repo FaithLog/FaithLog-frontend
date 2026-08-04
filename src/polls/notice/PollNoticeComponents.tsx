@@ -1,8 +1,7 @@
-import {memo, useMemo, useRef, useState} from 'react';
+import {memo, useCallback, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   Image,
-  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -12,6 +11,7 @@ import {
 
 import type {MediaAccessUrl} from '../../media/mediaTypes';
 import type {MediaUploadItem} from '../../media/mediaUploadPolicy';
+import {useHorizontalDragAutoScroll} from '../../media/useHorizontalDragAutoScroll';
 import {AnnouncementCachedImage} from '../../announcements/AnnouncementCachedImage';
 import {colors, radius, spacing, typography} from '../../theme';
 import {
@@ -75,6 +75,13 @@ export function PollNoticeEditorSection({
   uploadItems: MediaUploadItem[];
 }) {
   const validationMessage = getPollNoticeValidationMessage(notice);
+  const [draggingLocalId, setDraggingLocalId] = useState<string | null>(null);
+  const autoScroll = useHorizontalDragAutoScroll({
+    itemExtent: 84,
+    onReorderAtEdge: useCallback((localId: string, direction: -1 | 1) => {
+      onMove(localId, direction < 0 ? 'up' : 'down');
+    }, [onMove]),
+  });
   return (
     <View style={styles.editorShell}>
       <View style={styles.editorHeading}>
@@ -98,41 +105,66 @@ export function PollNoticeEditorSection({
       />
       {validationMessage ? <Text style={styles.errorText}>{validationMessage}</Text> : null}
       <PollNoticeBlock enabled notice={notice} />
-      {mediaEnabled ? <View style={styles.imageHeader}>
-        <View style={styles.grow}>
-          <Text style={styles.editorTitle}>이미지</Text>
-          <Text style={styles.editorDescription}>여러 장을 추가하고 표시 순서를 바꿀 수 있어요.</Text>
-        </View>
-        <Pressable
-          accessibilityLabel="투표 공지 이미지 추가"
-          accessibilityRole="button"
-          accessibilityState={{disabled}}
-          disabled={disabled}
-          onPress={onAddImages}
-          style={({pressed}) => [styles.addButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.addButtonText}>이미지 추가</Text>
-        </Pressable>
-      </View> : null}
-      {mediaEnabled ? <FlatList
-        data={uploadItems}
-        horizontal
-        initialNumToRender={3}
-        keyExtractor={(item) => item.localId}
-        maxToRenderPerBatch={4}
-        renderItem={({item, index}) => (
-          <UploadItemRow
-            disabled={disabled}
-            index={index}
-            item={item}
-            onMove={onMove}
-            onRemove={onRemove}
-            onRetry={onRetry}
-            total={uploadItems.length}
+      {mediaEnabled ? (
+        <View style={styles.mediaCard}>
+          <View style={styles.imageHeader}>
+            <Text style={styles.editorTitle}>이미지</Text>
+            <Pressable
+              accessibilityLabel="투표 공지 이미지 추가"
+              accessibilityRole="button"
+              accessibilityState={{disabled}}
+              disabled={disabled}
+              onPress={onAddImages}
+              style={({pressed}) => [styles.photoButton, pressed ? styles.pressed : null]}>
+              <Text style={styles.photoButtonText}>사진 선택</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.editorDescription}>
+            사진은 한 번에 최대 50장을 JPEG로 정리한 뒤 개별 업로드하며, 실패한 이미지만 다시 시도할 수 있습니다.
+          </Text>
+          <View ref={autoScroll.viewportRef} onLayout={autoScroll.onViewportLayout}>
+          <FlatList
+            contentContainerStyle={styles.previewRail}
+            data={uploadItems}
+            horizontal
+            initialNumToRender={4}
+            keyExtractor={(item) => item.localId}
+            maxToRenderPerBatch={4}
+            onContentSizeChange={autoScroll.onContentSizeChange}
+            onScroll={autoScroll.onScroll}
+            ref={autoScroll.bindList}
+            removeClippedSubviews={draggingLocalId === null}
+            renderItem={({item, index}) => (
+              <UploadItemRow
+                disabled={disabled}
+                index={index}
+                item={item}
+                onDragEnd={(offset) => {
+                  const autoScrolled = autoScroll.endDrag();
+                  setDraggingLocalId(null);
+                  if (!autoScrolled && offset !== 0) {
+                    onMove(item.localId, offset < 0 ? 'up' : 'down');
+                  }
+                }}
+                onDragMove={autoScroll.updateDragPosition}
+                onDragStart={() => {
+                  setDraggingLocalId(item.localId);
+                  autoScroll.startDrag(item.localId);
+                }}
+                onMove={onMove}
+                onRemove={onRemove}
+                onRetry={onRetry}
+                total={uploadItems.length}
+              />
+            )}
+            scrollEnabled={draggingLocalId === null}
+            scrollEventThrottle={16}
+            showsHorizontalScrollIndicator={false}
+            windowSize={3}
           />
-        )}
-        showsHorizontalScrollIndicator={false}
-        windowSize={5}
-      /> : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -141,6 +173,9 @@ const UploadItemRow = memo(function UploadItemRow({
   disabled,
   index,
   item,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
   onMove,
   onRemove,
   onRetry,
@@ -149,13 +184,16 @@ const UploadItemRow = memo(function UploadItemRow({
   disabled: boolean;
   index: number;
   item: MediaUploadItem;
+  onDragEnd: (offset: number) => void;
+  onDragMove: (pageX: number) => void;
+  onDragStart: () => void;
   onMove: (localId: string, direction: 'up' | 'down') => void;
   onRemove: (localId: string) => void;
   onRetry: (localId: string) => void;
   total: number;
 }) {
   const draggingRef = useRef(false);
-  const responderClaimedRef = useRef(false);
+  const dragStartXRef = useRef(0);
   const dragOffsetRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -166,35 +204,15 @@ const UploadItemRow = memo(function UploadItemRow({
   };
   const finishDrag = (horizontalOffset?: number) => {
     const offset = horizontalOffset ?? dragOffsetRef.current;
-    if (draggingRef.current && offset !== 0) move(offset < 0 ? -1 : 1);
+    if (draggingRef.current) onDragEnd(offset);
     draggingRef.current = false;
-    responderClaimedRef.current = false;
     dragOffsetRef.current = 0;
     setDragOffset(0);
     setDragging(false);
   };
-  const responder = PanResponder.create({
-    onMoveShouldSetPanResponder: () => draggingRef.current,
-    onMoveShouldSetPanResponderCapture: () => draggingRef.current,
-    onPanResponderGrant: () => {
-      responderClaimedRef.current = true;
-    },
-    onPanResponderMove: (_event, gestureState) => {
-      if (!draggingRef.current) return;
-      dragOffsetRef.current = gestureState.dx;
-      setDragOffset(gestureState.dx);
-    },
-    onPanResponderRelease: (_event, gestureState) => {
-      finishDrag(gestureState.dx);
-    },
-    onPanResponderTerminate: () => finishDrag(),
-    onPanResponderTerminationRequest: () => false,
-  });
-
   return (
     <View style={styles.uploadRow}>
       <Pressable
-        {...responder.panHandlers}
         accessibilityActions={[
           {name: 'decrement', label: '왼쪽으로 이동'},
           {name: 'increment', label: '오른쪽으로 이동'},
@@ -204,13 +222,21 @@ const UploadItemRow = memo(function UploadItemRow({
         accessibilityRole="adjustable"
         accessibilityState={{disabled}}
         delayLongPress={280}
-        onLongPress={() => {
+        onLongPress={(event) => {
           if (disabled) return;
+          dragStartXRef.current = event.nativeEvent.pageX;
           draggingRef.current = true;
+          onDragStart();
           setDragging(true);
         }}
-        onPressOut={() => {
-          if (draggingRef.current && !responderClaimedRef.current) finishDrag();
+        onTouchCancel={() => finishDrag()}
+        onTouchEnd={() => finishDrag()}
+        onTouchMove={(event) => {
+          if (!draggingRef.current) return;
+          const offset = event.nativeEvent.pageX - dragStartXRef.current;
+          dragOffsetRef.current = offset;
+          setDragOffset(offset);
+          onDragMove(event.nativeEvent.pageX);
         }}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'decrement') move(-1);
@@ -425,28 +451,32 @@ const styles = StyleSheet.create({
   galleryFallback: {alignItems: 'center', gap: spacing.gap, justifyContent: 'center', padding: spacing.gap},
   galleryItem: {paddingRight: spacing.gap},
   grow: {flex: 1, gap: 3, minWidth: 0},
-  imageHeader: {alignItems: 'flex-start', flexDirection: 'row', gap: spacing.gap},
+  imageHeader: {alignItems: 'center', flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between'},
   inputError: {borderColor: colors.danger},
   dragIndicator: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.58)', borderRadius: radius.pill, bottom: 5, height: 20, justifyContent: 'center', left: 22, position: 'absolute', width: 28},
   dragIndicatorText: {color: '#FFFFFF', fontSize: 12, fontWeight: '800'},
   mediaError: {alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.item, flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between', padding: 14},
+  mediaCard: {backgroundColor: colors.surface, borderColor: colors.borderSoft, borderRadius: radius.card, borderWidth: 1, gap: spacing.gap, padding: spacing.card},
   noticeBlock: {backgroundColor: '#F0F9FA', borderColor: colors.faith, borderRadius: radius.item, borderWidth: 1, gap: 6, padding: 16},
   noticeEyebrow: {color: colors.faith, fontSize: 13, fontWeight: '800'},
   noticeInput: {backgroundColor: colors.surface, borderColor: colors.borderSoft, borderRadius: radius.item, borderWidth: 1, color: colors.textPrimary, fontSize: 15, minHeight: 116, padding: 14},
   noticeText: {...typography.body, color: colors.textPrimary},
   pressed: {opacity: 0.72},
+  previewRail: {gap: 8, paddingVertical: 2},
+  photoButton: {alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.pill, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14},
+  photoButtonText: {color: '#FFFFFF', fontSize: 13, fontWeight: '800'},
   smallAction: {alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.control, borderWidth: 1, justifyContent: 'center', minHeight: 44, minWidth: 44, paddingHorizontal: 8},
   smallActionText: {color: colors.textSecondary, fontSize: 12, fontWeight: '700'},
-  previewRemoveButton: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.82)', borderRadius: 12, height: 24, justifyContent: 'center', position: 'absolute', right: -4, top: -4, width: 24, zIndex: 2},
+  previewRemoveButton: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.82)', borderRadius: 12, height: 24, justifyContent: 'center', position: 'absolute', right: 0, top: -4, width: 24, zIndex: 2},
   previewRemoveText: {color: '#FFFFFF', fontSize: 18, fontWeight: '700', lineHeight: 20},
   retryRow: {gap: 4, marginTop: 6, width: 84},
-  thumbnail: {backgroundColor: colors.borderSoft, borderRadius: 12, height: 64, width: 64},
+  thumbnail: {backgroundColor: colors.borderSoft, borderRadius: radius.control, height: 76, width: 76},
   thumbnailLocked: {opacity: 0.6},
   thumbnailDragging: {elevation: 8, opacity: 0.96, shadowColor: '#000000', shadowOffset: {height: 6, width: 0}, shadowOpacity: 0.28, shadowRadius: 10, zIndex: 4},
-  thumbnailShell: {borderRadius: 12, height: 64, width: 64},
+  thumbnailShell: {borderRadius: radius.control, height: 76, width: 76},
   uploadFailedBadge: {alignItems: 'center', backgroundColor: colors.danger, borderRadius: 10, height: 20, justifyContent: 'center', left: 5, position: 'absolute', top: 5, width: 20},
   uploadFailedBadgeText: {color: '#FFFFFF', fontSize: 13, fontWeight: '900'},
   uploadProgressOverlay: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.62)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0},
   uploadProgressText: {color: '#FFFFFF', fontSize: 13, fontWeight: '800'},
-  uploadRow: {marginRight: spacing.gap, paddingHorizontal: 4, paddingTop: 4, position: 'relative', width: 84},
+  uploadRow: {paddingTop: 4, position: 'relative', width: 84},
 });

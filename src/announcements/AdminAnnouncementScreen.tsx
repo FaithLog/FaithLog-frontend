@@ -13,7 +13,6 @@ import {
   FlatList,
   Image,
   Modal,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -50,6 +49,7 @@ import {
   uploadAnnouncementImage,
   type MediaBinaryUploadRetryContext,
 } from './announcementUploadFlow';
+import {useHorizontalDragAutoScroll} from '../media/useHorizontalDragAutoScroll';
 import type {
   AnnouncementCategory,
   AnnouncementDetail,
@@ -567,7 +567,6 @@ export function AnnouncementEditorScreen({
   };
 
   const confirmation = getEditorConfirmation(detail, publishMode, publishAt);
-  const selectedCategory = categories.find((category) => category.id === categoryId);
 
   if (detail?.status === 'ARCHIVED') {
     return (
@@ -666,12 +665,6 @@ export function AnnouncementEditorScreen({
         remoteThumbnailUrls={existingMedia.status === 'ready' ? existingMedia.urls : {}}
         userId={userId}
       />
-      <Card>
-        <Text style={styles.label}>미리보기</Text>
-        {selectedCategory ? <AnnouncementCategoryBadge category={selectedCategory} /> : null}
-        <Text style={styles.cardTitle}>{title.trim() || '공지 제목'}</Text>
-        <Text style={styles.previewBody}>{body.trim() || '공지 본문이 여기에 표시됩니다.'}</Text>
-      </Card>
       <Button
         accessibilityLabel={confirmation.openAccessibilityLabel}
         disabled={saving || mediaBusy}
@@ -1125,6 +1118,7 @@ function AnnouncementImagePickerSection({
   const lifecycleGenerationRef = useRef(0);
   const nativeUploaderRef = useRef(createNativeAnnouncementBinaryUploader());
   const [adding, setAdding] = useState(false);
+  const [draggingLocalId, setDraggingLocalId] = useState<string | null>(null);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const previewItems: UploadPreviewItem[] = [];
   items.forEach((item, index) => {
@@ -1147,6 +1141,20 @@ function AnnouncementImagePickerSection({
         signedUrl: remoteThumbnailUrls[item.assetId],
       });
     }
+  });
+  const autoScroll = useHorizontalDragAutoScroll({
+    itemExtent: 92,
+    onReorderAtEdge: useCallback((localId: string, direction: -1 | 1) => {
+      onChange((current) => {
+        const fromIndex = current.findIndex((candidate) => candidate.localId === localId);
+        if (fromIndex < 0) return current;
+        return moveUploadItem(
+          current,
+          fromIndex,
+          Math.max(0, Math.min(current.length - 1, fromIndex + direction)),
+        );
+      });
+    }, [onChange]),
   });
 
   useLayoutEffect(() => {
@@ -1492,6 +1500,7 @@ function AnnouncementImagePickerSection({
         </View>
       ) : null}
       {previewItems.length > 0 ? (
+        <View ref={autoScroll.viewportRef} onLayout={autoScroll.onViewportLayout}>
         <FlatList
           accessibilityLabel="공지 이미지 미리보기 목록"
           contentContainerStyle={styles.previewRail}
@@ -1501,7 +1510,12 @@ function AnnouncementImagePickerSection({
           initialNumToRender={4}
           keyExtractor={(preview) => preview.localId}
           maxToRenderPerBatch={4}
-          removeClippedSubviews
+          onContentSizeChange={autoScroll.onContentSizeChange}
+          onScroll={autoScroll.onScroll}
+          ref={autoScroll.bindList}
+          removeClippedSubviews={draggingLocalId === null}
+          scrollEnabled={draggingLocalId === null}
+          scrollEventThrottle={16}
           renderItem={({item: preview}) => (
             <DraggableAnnouncementPreview
               disabled={items[preview.index]?.status === 'uploading'}
@@ -1509,6 +1523,26 @@ function AnnouncementImagePickerSection({
               key={preview.localId}
               onMove={(fromIndex, toIndex) => onChange((current) =>
                 moveUploadItem(current, fromIndex, toIndex))}
+              onDragEnd={(offset) => {
+                const autoScrolled = autoScroll.endDrag();
+                setDraggingLocalId(null);
+                if (autoScrolled) return;
+                const delta = Math.round(offset / 92);
+                onChange((current) => {
+                  const fromIndex = current.findIndex((candidate) => candidate.localId === preview.localId);
+                  if (fromIndex < 0) return current;
+                  return moveUploadItem(
+                    current,
+                    fromIndex,
+                    Math.max(0, Math.min(current.length - 1, fromIndex + delta)),
+                  );
+                });
+              }}
+              onDragMove={autoScroll.updateDragPosition}
+              onDragStart={() => {
+                setDraggingLocalId(preview.localId);
+                autoScroll.startDrag(preview.localId);
+              }}
               onRemove={() => remove(preview.localId)}
               progress={getUploadProgress(items[preview.index])}
               status={items[preview.index]?.status ?? 'ready'}
@@ -1550,20 +1584,18 @@ function AnnouncementImagePickerSection({
           showsHorizontalScrollIndicator={false}
           windowSize={3}
         />
+        </View>
       ) : null}
-      {items.map((item, index) => ({index, item})).filter(({item}) => item.status !== 'ready').map(({item, index}) => {
+      {items
+        .map((item, index) => ({index, item}))
+        .filter((entry): entry is {index: number; item: Extract<UploadItem, {status: 'failed'}>} =>
+          entry.item.status === 'failed')
+        .map(({item, index}) => {
         const prepared = preparedFilesRef.current.get(item.localId);
         return (
         <View key={item.localId} style={styles.uploadRow}>
-          <Text style={styles.meta}>
-            이미지 {index + 1} · {item.status === 'ready'
-              ? '업로드 완료'
-              : item.status === 'uploading'
-                ? `${Math.round(item.progress * 100)}%`
-                : '재시도 필요'}
-          </Text>
-          {item.status === 'failed' ? <Text style={styles.error}>{item.message}</Text> : null}
-          {item.status === 'failed' && !nonRetryableLocalIdsRef.current.has(item.localId) ? (
+          <Text style={styles.error}>이미지 {index + 1} · {item.message}</Text>
+          {!nonRetryableLocalIdsRef.current.has(item.localId) ? (
             <View
               accessibilityLabel={`이미지 ${index + 1} 작업`}
               style={styles.actionRow}>
@@ -1586,6 +1618,9 @@ function DraggableAnnouncementPreview({
   children,
   disabled,
   index,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
   onMove,
   onRemove,
   progress,
@@ -1595,15 +1630,17 @@ function DraggableAnnouncementPreview({
   children: ReactNode;
   disabled: boolean;
   index: number;
+  onDragEnd: (offset: number) => void;
+  onDragMove: (pageX: number) => void;
+  onDragStart: () => void;
   onMove: (fromIndex: number, toIndex: number) => void;
   onRemove: () => void;
   progress?: number | undefined;
   status: UploadItem['status'];
   total: number;
 }) {
-  const itemExtent = 92;
   const draggingRef = useRef(false);
-  const responderClaimedRef = useRef(false);
+  const dragStartXRef = useRef(0);
   const dragOffsetRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -1614,39 +1651,16 @@ function DraggableAnnouncementPreview({
   }, [disabled, index, onMove, total]);
   const finishDrag = useCallback((horizontalOffset?: number) => {
     const offset = horizontalOffset ?? dragOffsetRef.current;
-    if (draggingRef.current && offset !== 0) {
-      const delta = Math.round(offset / itemExtent);
-      const target = Math.max(0, Math.min(total - 1, index + delta));
-      if (target !== index) onMove(index, target);
-    }
+    if (draggingRef.current) onDragEnd(offset);
     draggingRef.current = false;
-    responderClaimedRef.current = false;
     dragOffsetRef.current = 0;
     setDragOffset(0);
     setDragging(false);
-  }, [index, onMove, total]);
-  const responder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: () => draggingRef.current,
-    onMoveShouldSetPanResponderCapture: () => draggingRef.current,
-    onPanResponderGrant: () => {
-      responderClaimedRef.current = true;
-    },
-    onPanResponderMove: (_event, gesture) => {
-      if (!draggingRef.current) return;
-      dragOffsetRef.current = gesture.dx;
-      setDragOffset(gesture.dx);
-    },
-    onPanResponderRelease: (_event, gesture) => {
-      finishDrag(gesture.dx);
-    },
-    onPanResponderTerminate: () => finishDrag(),
-    onPanResponderTerminationRequest: () => false,
-  }), [finishDrag]);
+  }, [onDragEnd]);
 
   return (
     <View style={styles.draggablePreview}>
       <Pressable
-        {...responder.panHandlers}
         accessibilityActions={[
           {name: 'decrement', label: '왼쪽으로 이동'},
           {name: 'increment', label: '오른쪽으로 이동'},
@@ -1656,13 +1670,21 @@ function DraggableAnnouncementPreview({
         accessibilityRole="adjustable"
         accessibilityState={{disabled}}
         delayLongPress={280}
-        onLongPress={() => {
+        onLongPress={(event) => {
           if (disabled) return;
+          dragStartXRef.current = event.nativeEvent.pageX;
           draggingRef.current = true;
+          onDragStart();
           setDragging(true);
         }}
-        onPressOut={() => {
-          if (draggingRef.current && !responderClaimedRef.current) finishDrag();
+        onTouchCancel={() => finishDrag()}
+        onTouchEnd={() => finishDrag()}
+        onTouchMove={(event) => {
+          if (!draggingRef.current) return;
+          const offset = event.nativeEvent.pageX - dragStartXRef.current;
+          dragOffsetRef.current = offset;
+          setDragOffset(offset);
+          onDragMove(event.nativeEvent.pageX);
         }}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'decrement') move(-1);
