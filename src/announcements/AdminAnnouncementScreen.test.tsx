@@ -411,6 +411,10 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
       <AnnouncementEditorScreen api={api} campusId={1} detail={null} onBack={onBack} />,
     );
 
+    expect(byLabel(renderer, '공지 작성 취소')).toBeTruthy();
+    expect(byLabel(renderer, '공지 게시 확인 열기')
+      .findAll((node) => String(node.type) === 'Text')[0]?.children).toContain('작성');
+
     await changeText(renderer, '제목', '새 공지');
     await changeText(renderer, '공지 본문', '실패해도 남아야 하는 본문');
     await pressTwiceWithoutRender(renderer, '샘플 이미지 추가');
@@ -446,6 +450,10 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     const renderer = await render(
       <AnnouncementEditorScreen api={api} campusId={1} detail={detail} onBack={onBack} />,
     );
+
+    expect(byLabel(renderer, '공지 수정 취소')).toBeTruthy();
+    expect(byLabel(renderer, '공지 수정 확인 열기')
+      .findAll((node) => String(node.type) === 'Text')[0]?.children).toContain('수정');
 
     await changeText(renderer, '제목', '수정 후 제목');
     await press(renderer, '공지 수정 확인 열기');
@@ -893,7 +901,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
       horizontal: true,
       initialNumToRender: 4,
       maxToRenderPerBatch: 4,
-      removeClippedSubviews: true,
+      removeClippedSubviews: false,
       windowSize: 3,
     });
     expect(previewList.props.data).toHaveLength(40);

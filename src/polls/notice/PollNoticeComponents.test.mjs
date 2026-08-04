@@ -144,7 +144,10 @@ describe('poll notice components', () => {
     });
     expect(onRetry).toHaveBeenCalledWith('failed');
     expect(onChangeNotice).not.toHaveBeenCalled();
-    expect(renderer.root.findByType('FlatList').props.horizontal).toBe(true);
+    expect(renderer.root.findByType('FlatList').props).toMatchObject({
+      horizontal: true,
+      removeClippedSubviews: false,
+    });
   });
 
   it('uses a horizontal lazy list for detail images and no original URL', async () => {

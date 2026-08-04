@@ -665,12 +665,21 @@ export function AnnouncementEditorScreen({
         remoteThumbnailUrls={existingMedia.status === 'ready' ? existingMedia.urls : {}}
         userId={userId}
       />
-      <Button
-        accessibilityLabel={confirmation.openAccessibilityLabel}
-        disabled={saving || mediaBusy}
-        onPress={openConfirmation}>
-        {confirmation.openLabel}
-      </Button>
+      <View accessibilityLabel="공지 작성 작업" style={styles.editorActions}>
+        <EditorActionButton
+          accessibilityLabel={detail ? '공지 수정 취소' : '공지 작성 취소'}
+          disabled={saving}
+          label="취소"
+          onPress={onBack}
+        />
+        <EditorActionButton
+          accessibilityLabel={confirmation.openAccessibilityLabel}
+          disabled={saving || mediaBusy}
+          label={detail ? '수정' : '작성'}
+          onPress={openConfirmation}
+          primary
+        />
+      </View>
       <DutyDateTimePickerModal
         minimumDate={new Date()}
         onApply={(value) => {
@@ -1513,7 +1522,7 @@ function AnnouncementImagePickerSection({
           onContentSizeChange={autoScroll.onContentSizeChange}
           onScroll={autoScroll.onScroll}
           ref={autoScroll.bindList}
-          removeClippedSubviews={draggingLocalId === null}
+          removeClippedSubviews={false}
           scrollEnabled={draggingLocalId === null}
           scrollEventThrottle={16}
           renderItem={({item: preview}) => (

@@ -133,7 +133,7 @@ export function PollNoticeEditorSection({
             onContentSizeChange={autoScroll.onContentSizeChange}
             onScroll={autoScroll.onScroll}
             ref={autoScroll.bindList}
-            removeClippedSubviews={draggingLocalId === null}
+            removeClippedSubviews={false}
             renderItem={({item, index}) => (
               <UploadItemRow
                 disabled={disabled}
