@@ -12,8 +12,9 @@ describe('campus navigation intent wiring', () => {
       /const handlePayload = async \(payload: unknown\) => \{([\s\S]*?)\n    \};\n\n    if \(!initialNotificationOpenHandledRef/,
     )?.[1] ?? '';
 
-    expect(handler.indexOf('parsePushNotificationOpenPayload(payload)')).toBeGreaterThan(-1);
-    expect(handler.indexOf('parsePushNotificationOpenPayload(payload)'))
+    const parseCall = 'parsePushNotificationOpenPayload(payload, pushCapabilities)';
+    expect(handler.indexOf(parseCall)).toBeGreaterThan(-1);
+    expect(handler.indexOf(parseCall))
       .toBeLessThan(handler.indexOf('++notificationOpenSequenceRef.current'));
     expect(handler.indexOf('++notificationOpenSequenceRef.current'))
       .toBeLessThan(handler.indexOf('campusNavigationIntentRef.current.begin()'));
