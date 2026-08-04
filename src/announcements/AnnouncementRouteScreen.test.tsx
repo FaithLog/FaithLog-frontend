@@ -35,6 +35,8 @@ vi.mock('react-native', async () => {
   return {
     FlatList,
     Image: host('Image'),
+    Modal: ({children, visible, ...props}: React.PropsWithChildren<{visible: boolean}>) =>
+      visible ? ReactModule.createElement('Modal', props, children) : null,
     Pressable: host('Pressable'),
     StyleSheet: {create: (styles: unknown) => styles},
     Text: host('Text'),
@@ -236,7 +238,7 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
     expect(renderedText(renderer)).toContain('같은 공지 재진입');
   });
 
-  it('keeps detail content through batch media failure and supports paged image retry states', async () => {
+  it('keeps detail content through media failure and supports thumbnail retry plus expanded viewing', async () => {
     const getMediaAccessUrls = vi.fn()
       .mockRejectedValueOnce(new Error('signed URL unavailable'))
       .mockResolvedValue([media(201), media(202)]);
@@ -269,16 +271,21 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
 
     expect(getMediaAccessUrls).toHaveBeenNthCalledWith(1, 'access-token', 1, [201, 202]);
     expect(getMediaAccessUrls).toHaveBeenNthCalledWith(2, 'access-token', 1, [201, 202]);
-    const pager = renderer.root.find((node) =>
+    const thumbnailList = renderer.root.find((node) =>
       String(node.type) === 'FlatList' && node.props.horizontal === true);
-    expect(pager.props.pagingEnabled).toBe(true);
-    expect(pager.props.data.map((item: MediaAccessUrl) => item.assetId)).toEqual([201, 202]);
+    expect(thumbnailList.props.pagingEnabled).not.toBe(true);
+    expect(thumbnailList.props.data.map((item: MediaAccessUrl) => item.assetId)).toEqual([201, 202]);
 
     const firstImage = byLabel(renderer, '공지 첨부 이미지 1');
     expect(firstImage.props.accessible).toBe(true);
     expect(firstImage.props.accessibilityRole).toBe('image');
     expect(firstImage.props.resizeMode).toBe('contain');
-    expect(flattenStyle(firstImage.props.style)).toMatchObject({aspectRatio: 1, width: '100%'});
+    expect(flattenStyle(firstImage.props.style)).toMatchObject({height: '100%', width: '100%'});
+    const thumbnailStyle = byLabel(renderer, '공지 첨부 이미지 1 확대 보기').props.style;
+    expect(flattenStyle(typeof thumbnailStyle === 'function'
+      ? thumbnailStyle({pressed: false})
+      : thumbnailStyle))
+      .toMatchObject({height: 84, width: 84});
     expect(byLabel(renderer, '공지 첨부 이미지 1 불러오는 중')).toBeTruthy();
     const staleFirstImageError = firstImage.props.onError;
 
@@ -302,6 +309,13 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
     expect(findAllByLabel(renderer, '공지 첨부 이미지 1 불러오는 중')).toHaveLength(0);
     expect(findAllByLabel(renderer, '공지 첨부 이미지 1 다시 불러오기')).toHaveLength(0);
 
+    await press(renderer, '공지 첨부 이미지 1 확대 보기');
+    expect(byLabel(renderer, '공지 첨부 이미지 확대 화면')).toBeTruthy();
+    const expandedImage = byLabel(renderer, '확대된 공지 첨부 이미지 1');
+    expect(expandedImage.props.resizeMode).toBe('contain');
+    await press(renderer, '공지 첨부 이미지 확대 화면 닫기');
+    expect(findAllByLabel(renderer, '공지 첨부 이미지 확대 화면')).toHaveLength(0);
+
     await press(renderer, '공지 화면에서 뒤로 이동');
     expect(listPublished).toHaveBeenCalledTimes(1);
     expect(onDetailVisibilityChange.mock.calls.map(([visible]) => visible)).toEqual([
@@ -311,7 +325,7 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
     ]);
   });
 
-  it('reserves paged 4:3 skeleton slots while detail media URLs are pending', async () => {
+  it('reserves compact horizontal thumbnail slots while detail media URLs are pending', async () => {
     const mediaRequest = deferred<MediaAccessUrl[]>();
     const api = createApi({
       getDetail: vi.fn(async () => detail(90, {
@@ -331,11 +345,11 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
     );
 
     expect(renderedText(renderer)).toContain('주소를 기다리는 동안에도 보이는 본문');
-    const pager = renderer.root.find((node) =>
+    const thumbnailList = renderer.root.find((node) =>
       String(node.type) === 'FlatList' && node.props.horizontal === true);
-    expect(pager.props.data.map((item: {assetId: number}) => item.assetId)).toEqual([301, 302]);
+    expect(thumbnailList.props.data.map((item: {assetId: number}) => item.assetId)).toEqual([301, 302]);
     const firstSkeleton = byLabel(renderer, '공지 첨부 이미지 1 주소 불러오는 중');
-    expect(flattenStyle(firstSkeleton.props.style)).toMatchObject({aspectRatio: 1});
+    expect(flattenStyle(firstSkeleton.props.style)).toMatchObject({height: 84, width: 84});
     expect(findAllByLabel(renderer, '공지 첨부 이미지 1 다시 불러오기')).toHaveLength(0);
 
     await act(async () => {

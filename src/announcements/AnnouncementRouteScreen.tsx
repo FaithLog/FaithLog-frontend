@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
-import {FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
+import {FlatList, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
 
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
@@ -310,14 +310,16 @@ export function AnnouncementDetailScreen({
   slots: DetailMediaSlot[];
   userId?: number | undefined;
 }) {
-  const {width} = useWindowDimensions();
-  const imageWidth = Math.max(240, width - spacing.screenX * 2 - 24);
+  const {height, width} = useWindowDimensions();
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const thumbnailSize = 84;
   return (
-    <FlatList
-      contentContainerStyle={styles.listContent}
-      data={[]}
-      ListHeaderComponent={
-        <View style={styles.detail}>
+    <>
+      <FlatList
+        contentContainerStyle={styles.listContent}
+        data={[]}
+        ListHeaderComponent={
+          <View style={styles.detail}>
           <ScreenHeader
             action={<CompactBackButton onPress={onBack} />}
             eyebrow="캠퍼스 소식"
@@ -347,75 +349,178 @@ export function AnnouncementDetailScreen({
                 retryAccessibilityLabel="공지 첨부 이미지 주소 다시 불러오기"
                 status={mediaStatus}
               />
-              {slots.length > 0 ? (
-                <FlatList
-                  accessibilityLabel="공지 첨부 이미지 목록"
-                  data={slots}
-                  decelerationRate="fast"
-                  horizontal
-                  keyExtractor={(item) => String(item.assetId)}
-                  pagingEnabled
-                  renderItem={({index, item}) => item.image ? (
-                    <RetryableDetailImage campusId={campusId} image={item.image} imageWidth={imageWidth} index={index} onMediaRetry={onMediaRetry} userId={userId} />
-                  ) : item.loading ? (
-                    <LoadingDetailImage imageWidth={imageWidth} index={index} />
-                  ) : (
-                    <MissingDetailImage imageWidth={imageWidth} index={index} onRetry={onMediaRetry} />
-                  )}
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={imageWidth}
-                />
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-      }
-      renderItem={null}
-      showsVerticalScrollIndicator={false}
-    />
+                {slots.length > 0 ? (
+                  <FlatList
+                    accessibilityLabel="공지 첨부 이미지 목록"
+                    contentContainerStyle={styles.thumbnailListContent}
+                    data={slots}
+                    horizontal
+                    keyExtractor={(item) => String(item.assetId)}
+                    renderItem={({index, item}) => item.image ? (
+                      <RetryableDetailImage
+                        campusId={campusId}
+                        image={item.image}
+                        imageSize={thumbnailSize}
+                        index={index}
+                        onMediaRetry={onMediaRetry}
+                        onOpen={() => setExpandedIndex(index)}
+                        userId={userId}
+                      />
+                    ) : item.loading ? (
+                      <LoadingDetailImage imageSize={thumbnailSize} index={index} />
+                    ) : (
+                      <MissingDetailImage imageSize={thumbnailSize} index={index} onRetry={onMediaRetry} />
+                    )}
+                    showsHorizontalScrollIndicator={false}
+                  />
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        }
+        renderItem={null}
+        showsVerticalScrollIndicator={false}
+      />
+      <AnnouncementImageViewer
+        campusId={campusId}
+        height={height}
+        initialIndex={expandedIndex}
+        onClose={() => setExpandedIndex(null)}
+        slots={slots}
+        userId={userId}
+        width={width}
+      />
+    </>
   );
 }
 
-function LoadingDetailImage({imageWidth, index}: {imageWidth: number; index: number}) {
+function AnnouncementImageViewer({
+  campusId,
+  height,
+  initialIndex,
+  onClose,
+  slots,
+  userId,
+  width,
+}: {
+  campusId: number;
+  height: number;
+  initialIndex: number | null;
+  onClose: () => void;
+  slots: DetailMediaSlot[];
+  userId?: number | undefined;
+  width: number;
+}) {
+  const [visibleIndex, setVisibleIndex] = useState(0);
+
+  useEffect(() => {
+    if (initialIndex !== null) setVisibleIndex(initialIndex);
+  }, [initialIndex]);
+
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+      transparent
+      visible={initialIndex !== null}>
+      <View
+        accessibilityLabel="공지 첨부 이미지 확대 화면"
+        accessibilityViewIsModal
+        style={styles.expandedBackdrop}>
+        <View style={styles.expandedHeader}>
+          <Text accessibilityLiveRegion="polite" style={styles.expandedCount}>
+            {visibleIndex + 1} / {slots.length}
+          </Text>
+          <Pressable
+            accessibilityLabel="공지 첨부 이미지 확대 화면 닫기"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onClose}
+            style={({pressed}) => [styles.expandedClose, pressed && styles.expandedPressed]}>
+            <Text style={styles.expandedCloseText}>닫기</Text>
+          </Pressable>
+        </View>
+        {initialIndex !== null ? (
+          <FlatList
+            data={slots}
+            getItemLayout={(_data, index) => ({index, length: width, offset: width * index})}
+            horizontal
+            initialScrollIndex={initialIndex}
+            key={`announcement-expanded-${initialIndex}`}
+            keyExtractor={(item) => String(item.assetId)}
+            onMomentumScrollEnd={(event) => {
+              setVisibleIndex(Math.round(event.nativeEvent.contentOffset.x / width));
+            }}
+            pagingEnabled
+            renderItem={({index, item}) => (
+              <View style={[styles.expandedPage, {height: Math.max(240, height - 100), width}]}>
+                {item.image ? (
+                  <AnnouncementCachedImage
+                    accessible
+                    accessibilityLabel={`확대된 공지 첨부 이미지 ${index + 1}`}
+                    accessibilityRole="image"
+                    assetId={item.image.assetId}
+                    campusId={campusId}
+                    resizeMode="contain"
+                    signedUrl={item.image.detailUrl}
+                    style={styles.expandedImage}
+                    userId={userId}
+                    variant="detail"
+                  />
+                ) : (
+                  <Text accessibilityRole="alert" style={styles.expandedMissing}>이미지를 표시하지 못했습니다.</Text>
+                )}
+              </View>
+            )}
+            showsHorizontalScrollIndicator={false}
+          />
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
+function LoadingDetailImage({imageSize, index}: {imageSize: number; index: number}) {
   return (
     <View
       accessibilityLabel={`공지 첨부 이미지 ${index + 1} 주소 불러오는 중`}
       accessibilityLiveRegion="polite"
-      style={[styles.imageFrame, styles.loadingImage, {width: imageWidth}]}
+      style={[styles.imageFrame, styles.loadingImage, {height: imageSize, width: imageSize}]}
     >
-      <Text style={styles.mediaStatus}>이미지 준비 중</Text>
+      <Text style={styles.thumbnailStatus}>준비 중</Text>
     </View>
   );
 }
 
 function MissingDetailImage({
-  imageWidth,
+  imageSize,
   index,
   onRetry,
 }: {
-  imageWidth: number;
+  imageSize: number;
   index: number;
   onRetry: () => void;
 }) {
   const displayIndex = index + 1;
   return (
     <View
-      style={[styles.imageFrame, styles.missingImage, {width: imageWidth}]}
+      style={[styles.imageFrame, styles.missingImage, {height: imageSize, width: imageSize}]}
     >
       <Text
         accessibilityLabel={`공지 첨부 이미지 ${displayIndex}를 표시할 수 없음`}
         accessibilityRole="alert"
-        style={styles.mediaStatus}
+        style={styles.thumbnailStatus}
       >
-        이미지를 표시하지 못했습니다.
+        불러오기 실패
       </Text>
       <Pressable
         accessibilityLabel={`공지 첨부 이미지 ${displayIndex} 다시 불러오기`}
         accessibilityRole="button"
         onPress={onRetry}
-        style={({pressed}) => [styles.inlineRetry, pressed && styles.pressed]}
+        style={({pressed}) => [styles.thumbnailRetry, pressed && styles.pressed]}
       >
-        <Text style={styles.inlineRetryText}>다시 시도</Text>
+        <Text style={styles.thumbnailRetryText}>재시도</Text>
       </Pressable>
     </View>
   );
@@ -456,28 +561,30 @@ function MediaLoadNotice({
 function RetryableDetailImage({
   campusId,
   image,
-  imageWidth,
+  imageSize,
   index,
   onMediaRetry,
+  onOpen,
   userId,
 }: {
   campusId: number;
   image: MediaAccessUrl;
-  imageWidth: number;
+  imageSize: number;
   index: number;
   onMediaRetry: () => void;
+  onOpen: () => void;
   userId?: number | undefined;
 }) {
   const [status, setStatus] = useState<'error' | 'loaded' | 'loading'>('loading');
   const [retryKey, setRetryKey] = useState(0);
   const displayIndex = index + 1;
-  const imageIdentity = `${image.assetId}:${image.detailUrl}:${retryKey}`;
+  const imageIdentity = `${image.assetId}:${image.thumbnailUrl}:${retryKey}`;
   const latestImageIdentity = useRef(imageIdentity);
   latestImageIdentity.current = imageIdentity;
 
   useEffect(() => {
     setStatus('loading');
-  }, [image.assetId, image.detailUrl]);
+  }, [image.assetId, image.thumbnailUrl]);
 
   const retry = () => {
     setStatus('loading');
@@ -486,7 +593,17 @@ function RetryableDetailImage({
   };
 
   return (
-    <View style={[styles.imageFrame, {width: imageWidth}]}>
+    <Pressable
+      accessibilityLabel={`공지 첨부 이미지 ${displayIndex} 확대 보기`}
+      accessibilityRole="button"
+      accessibilityState={{disabled: status !== 'loaded'}}
+      disabled={status !== 'loaded'}
+      onPress={onOpen}
+      style={({pressed}) => [
+        styles.imageFrame,
+        {height: imageSize, width: imageSize},
+        pressed && styles.pressed,
+      ]}>
       <AnnouncementCachedImage
         accessible
         accessibilityLabel={`공지 첨부 이미지 ${displayIndex}`}
@@ -501,10 +618,10 @@ function RetryableDetailImage({
         }}
         resolutionKey={retryKey}
         resizeMode="contain"
-        signedUrl={image.detailUrl}
+        signedUrl={image.thumbnailUrl}
         style={styles.image}
         userId={userId}
-        variant="detail"
+        variant="thumbnail"
       />
       {status === 'loading' ? (
         <View
@@ -517,18 +634,18 @@ function RetryableDetailImage({
       ) : null}
       {status === 'error' ? (
         <View accessibilityRole="alert" style={styles.imageFallback}>
-          <Text style={styles.mediaStatus}>이미지를 표시하지 못했습니다.</Text>
+          <Text style={styles.thumbnailStatus}>불러오기 실패</Text>
           <Pressable
             accessibilityLabel={`공지 첨부 이미지 ${displayIndex} 다시 불러오기`}
             accessibilityRole="button"
             onPress={retry}
-            style={({pressed}) => [styles.inlineRetry, pressed && styles.pressed]}
+            style={({pressed}) => [styles.thumbnailRetry, pressed && styles.pressed]}
           >
-            <Text style={styles.inlineRetryText}>다시 시도</Text>
+            <Text style={styles.thumbnailRetryText}>재시도</Text>
           </Pressable>
         </View>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -598,7 +715,16 @@ const styles = StyleSheet.create({
   },
   detailMetaRow: {alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between'},
   detailTitle: {...typography.screenTitle, color: colors.textPrimary},
-  image: {aspectRatio: 1, width: '100%'},
+  expandedBackdrop: {backgroundColor: 'rgba(8, 13, 24, 0.96)', flex: 1},
+  expandedClose: {alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 56},
+  expandedCloseText: {color: colors.surface, fontSize: 15, fontWeight: '700'},
+  expandedCount: {color: colors.surface, fontSize: 14, fontWeight: '700'},
+  expandedHeader: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 76, paddingHorizontal: 20, paddingTop: 12},
+  expandedImage: {height: '100%', width: '100%'},
+  expandedMissing: {color: colors.surface, fontSize: 14},
+  expandedPage: {alignItems: 'center', justifyContent: 'center', paddingBottom: 24, paddingHorizontal: 12},
+  expandedPressed: {opacity: 0.65},
+  image: {height: '100%', width: '100%'},
   imageCount: {color: colors.primary, fontSize: 13, fontWeight: '700'},
   imageFallback: {
     alignItems: 'center',
@@ -613,7 +739,6 @@ const styles = StyleSheet.create({
   },
   imageFrame: {
     alignSelf: 'center',
-    aspectRatio: 1,
     backgroundColor: colors.background,
     borderColor: colors.borderSoft,
     borderRadius: radius.item,
@@ -647,6 +772,10 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
   },
+  thumbnailListContent: {gap: 10, paddingRight: 4},
+  thumbnailRetry: {alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.pill, justifyContent: 'center', minHeight: 28, paddingHorizontal: 8},
+  thumbnailRetryText: {color: colors.primary, fontSize: 11, fontWeight: '700'},
+  thumbnailStatus: {color: colors.textMuted, fontSize: 11, lineHeight: 14, textAlign: 'center'},
   mediaError: {
     alignItems: 'flex-start',
     backgroundColor: colors.surface,
