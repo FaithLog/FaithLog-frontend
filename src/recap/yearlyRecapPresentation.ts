@@ -55,7 +55,7 @@ export function buildYearlyRecapChapters(recap: YearlyRecap): YearlyRecapChapter
         metric('최장 연속 실천', recap.devotion.longestStreakDays, '일'),
         {
           label: '가장 많이 기록한 달',
-          value: recap.devotion.mostActiveMonth === 0
+          value: recap.devotion.mostActiveMonth === null
             ? '기록 없음'
             : `${recap.devotion.mostActiveMonth}월`,
         },
@@ -168,7 +168,7 @@ function buildIntroMetrics(recap: YearlyRecap) {
 }
 
 function hasDevotionActivity(recap: YearlyRecap) {
-  return Object.values(recap.devotion).some((value) => value > 0);
+  return Object.values(recap.devotion).some((value) => value !== null && value > 0);
 }
 
 function allPenaltyValuesZero(penalty: NonNullable<YearlyRecap['penaltySummary']>) {

@@ -2,14 +2,17 @@ import {FaithLogApiError} from '../api/apiError';
 import {apiRequest, isMockModeEnabled} from '../api/client';
 import type {AuthSessionGeneration} from '../api/tokenStorage';
 import {getMockYearlyRecap} from './yearlyRecapMock';
-import {parseYearlyRecapData} from './yearlyRecapRuntimeValidation';
+import {
+  parseFinalYearlyRecapData,
+  parseYearlyRecapData,
+} from './yearlyRecapRuntimeValidation';
 import type {YearlyRecap, YearlyRecapApi} from './yearlyRecapTypes';
 
 export const YEARLY_RECAP_CONTRACT_STATUS = 'final' as const;
 export const YEARLY_RECAP_PRODUCTION_CAPABILITIES = {
-  commentActivity: false,
-  endpoint: false,
-  penaltySummary: false,
+  commentActivity: true,
+  endpoint: true,
+  penaltySummary: true,
 } as const;
 
 type YearlyRecapSectionCapabilities = {
@@ -44,7 +47,7 @@ export function createYearlyRecapApi(dependencies: Dependencies = {}): YearlyRec
       if (!mockMode && !YEARLY_RECAP_PRODUCTION_CAPABILITIES.endpoint) {
         throw productionGateClosed();
       }
-      if (!dependencies.request) {
+      if (mockMode && !dependencies.request) {
         const scenario = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
         if (scenario === 'recap-error') throw mockNetworkError();
         if (scenario === 'recap-forbidden') throw mockPermissionError();
@@ -64,7 +67,7 @@ export function createYearlyRecapApi(dependencies: Dependencies = {}): YearlyRec
       if (!mockMode && !YEARLY_RECAP_PRODUCTION_CAPABILITIES.endpoint) {
         throw productionGateClosed();
       }
-      if (!dependencies.request) {
+      if (mockMode && !dependencies.request) {
         if (process.env.EXPO_PUBLIC_MOCK_SCENARIO === 'recap-presented-error') {
           throw mockNetworkError();
         }
@@ -120,7 +123,7 @@ export function applyYearlyRecapSectionCapabilities(
 
 function parseProductionYearlyRecapData(value: unknown) {
   return applyYearlyRecapSectionCapabilities(
-    parseYearlyRecapData(value),
+    parseFinalYearlyRecapData(value),
     YEARLY_RECAP_PRODUCTION_CAPABILITIES,
   );
 }

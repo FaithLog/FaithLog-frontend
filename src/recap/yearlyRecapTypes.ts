@@ -9,7 +9,7 @@ export type YearlyRecapDevotion = {
   allCompletedDayCount: number;
   bibleReadingCount: number;
   longestStreakDays: number;
-  mostActiveMonth: number;
+  mostActiveMonth: number | null;
   prayerCount: number;
   quietTimeCount: number;
   submittedWeekCount: number;

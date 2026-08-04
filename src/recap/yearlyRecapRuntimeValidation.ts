@@ -4,6 +4,7 @@ import type {
   YearlyRecapCampus,
   YearlyRecapCommentActivity,
   YearlyRecapDevotion,
+  YearlyRecapDto,
   YearlyRecapPenaltySummary,
   YearlyRecapPrayerActivity,
 } from './yearlyRecapTypes';
@@ -63,6 +64,16 @@ export function parseYearlyRecapData(value: unknown): YearlyRecap {
   }
 }
 
+export function parseFinalYearlyRecapData(value: unknown): YearlyRecapDto {
+  const recap = parseYearlyRecapData(value);
+  if (!recap.commentActivity || !recap.penaltySummary) throw invalidResponse();
+  return {
+    ...recap,
+    commentActivity: recap.commentActivity,
+    penaltySummary: recap.penaltySummary,
+  };
+}
+
 function parseCampus(value: unknown): YearlyRecapCampus {
   const campus = record(value);
   return {
@@ -75,8 +86,10 @@ function parseCampus(value: unknown): YearlyRecapCampus {
 
 function parseDevotion(value: unknown): YearlyRecapDevotion {
   const devotion = record(value);
-  const mostActiveMonth = nonNegativeSafeInteger(devotion.mostActiveMonth);
-  if (mostActiveMonth > 12) throw new Error();
+  const mostActiveMonth = devotion.mostActiveMonth === null
+    ? null
+    : positiveSafeInteger(devotion.mostActiveMonth);
+  if (mostActiveMonth !== null && mostActiveMonth > 12) throw new Error();
   return {
     quietTimeCount: nonNegativeSafeInteger(devotion.quietTimeCount),
     bibleReadingCount: nonNegativeSafeInteger(devotion.bibleReadingCount),

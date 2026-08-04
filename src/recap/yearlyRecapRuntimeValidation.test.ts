@@ -73,6 +73,18 @@ describe('parseYearlyRecapEnvelope', () => {
     expect(recap.penaltySummary).toEqual(validEnvelope.data.penaltySummary);
   });
 
+  it('accepts null for the documented no-activity mostActiveMonth', () => {
+    const recap = parseYearlyRecapEnvelope({
+      ...validEnvelope,
+      data: {
+        ...validEnvelope.data,
+        devotion: {...validEnvelope.data.devotion, mostActiveMonth: null},
+      },
+    });
+
+    expect(recap.devotion.mostActiveMonth).toBeNull();
+  });
+
   it('fails only the new sections closed when their capability fields are absent', () => {
     const {commentActivity: _comment, penaltySummary: _penalty, ...baseData} = validEnvelope.data;
     const recap = parseYearlyRecapEnvelope({...validEnvelope, data: baseData});
@@ -188,6 +200,7 @@ describe('parseYearlyRecapEnvelope', () => {
       validEnvelope.data.campusJourney.campuses[0],
       validEnvelope.data.campusJourney.campuses[0],
     ]}}],
+    ['zero month', {devotion: {...validEnvelope.data.devotion, mostActiveMonth: 0}}],
     ['invalid month', {devotion: {...validEnvelope.data.devotion, mostActiveMonth: 13}}],
     ['negative devotion count', {devotion: {...validEnvelope.data.devotion, quietTimeCount: -1}}],
     ['invalid date', {campusJourney: {campuses: [{

@@ -20,7 +20,7 @@ const recap = {
     allCompletedDayCount: 0,
     submittedWeekCount: 0,
     longestStreakDays: 0,
-    mostActiveMonth: 0,
+    mostActiveMonth: null,
   },
   prayerActivity: {submittedWeekCount: 0, participatedSeasonCount: 0},
   commentActivity: {writtenCount: 0},
