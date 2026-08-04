@@ -181,7 +181,10 @@ import {
   AnnouncementCategoryScreen,
   AnnouncementEditorScreen,
 } from './AdminAnnouncementScreen';
-import {DutyDateTimePickerModal} from '../duty/DutyDateTimePicker';
+import {
+  DutyDateTimePickerModal,
+  formatDutyDateTimeLabel,
+} from '../duty/DutyDateTimePicker';
 import type {AnnouncementApi} from './announcementApi';
 import type {
   AnnouncementCategory,
@@ -602,7 +605,9 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
 
     await press(renderer, '공지 예약 수정 확인 열기');
 
-    expect(rendered(renderer)).toContain('2030.01.02 10:35');
+    expect(rendered(renderer)).toContain(
+      formatDutyDateTimeLabel(new Date(scheduledAnnouncement.publishAt!)),
+    );
     expect(byLabel(renderer, '공지 예약 수정 확인 실행')).toBeTruthy();
   });
 
