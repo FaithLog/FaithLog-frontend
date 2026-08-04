@@ -73,11 +73,11 @@ describe('admin mode routes', () => {
 });
 
 describe('announcement capability route', () => {
-  it('excludes announcements from live available routes while approval is pending', () => {
+  it('includes announcements in live available routes after REST Docs approval', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'production';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
 
-    expect(getAvailableRoutes(createUser('USER'), createCampus('MEMBER'))).not.toContain(
+    expect(getAvailableRoutes(createUser('USER'), createCampus('MEMBER'))).toContain(
       'announcements',
     );
   });

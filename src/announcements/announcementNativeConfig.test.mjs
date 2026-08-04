@@ -20,10 +20,10 @@ describe('announcement native media configuration', () => {
     expect(appConfig).toContain('photosPermission');
   });
 
-  it('documents native announcement QA only for local/development and keeps shipped profiles off', () => {
+  it('enables the confirmed announcement contract in every native build profile', () => {
     expect(environmentExample).toContain('EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true');
     expect(easConfig.build.development.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED).toBe('true');
-    expect(easConfig.build.preview.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED).toBe('false');
-    expect(easConfig.build.production.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED).toBe('false');
+    expect(easConfig.build.preview.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED).toBe('true');
+    expect(easConfig.build.production.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED).toBe('true');
   });
 });

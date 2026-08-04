@@ -67,5 +67,6 @@ export type MediaAccessUrl = {
   assetId: number;
   detailUrl: string;
   expiresAt: string;
+  sha256: string;
   thumbnailUrl: string;
 };

@@ -247,7 +247,7 @@ describe('push notification route payload validation', () => {
     ).toEqual({status: 'invalid', reason: 'invalidParam'});
   });
 
-  it('disables announcement event and route navigation outside the capability gate', () => {
+  it('enables announcement deep links in production after the REST contract is confirmed', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'production';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
 
@@ -258,13 +258,33 @@ describe('push notification route payload validation', () => {
         announcementId: '100',
         categoryId: '12',
       }),
-    ).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
+    ).toEqual({
+      status: 'valid',
+      route: 'announcements',
+      params: {announcementId: 100, campusId: 1, categoryId: 12},
+    });
     expect(
       parsePushNotificationOpenPayload({
         route: 'announcements',
         params: {announcementId: '100', campusId: '1', categoryId: '12'},
       }),
-    ).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
+    ).toEqual({
+      status: 'valid',
+      route: 'announcements',
+      params: {announcementId: 100, campusId: 1, categoryId: 12},
+    });
+  });
+
+  it('keeps announcement deep links disabled in a local build without an explicit capability', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'local';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+
+    expect(parsePushNotificationOpenPayload({
+      eventType: 'ANNOUNCEMENT_PUBLISHED',
+      campusId: '1',
+      announcementId: '100',
+      categoryId: '12',
+    })).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
   });
 
   it('rejects arbitrary deep links, paths, and unknown routes', () => {

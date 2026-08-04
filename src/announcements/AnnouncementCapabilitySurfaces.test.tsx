@@ -44,7 +44,7 @@ describe('actual announcement capability surfaces', () => {
   });
 
   it.each(['production', 'preview'])(
-    'does not mount any real entry surface in %s even when public flags are set',
+    'mounts the confirmed live entry surfaces in %s',
     async (appEnvironment) => {
       process.env.EXPO_PUBLIC_APP_ENV = appEnvironment;
       process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
@@ -66,9 +66,9 @@ describe('actual announcement capability surfaces', () => {
       });
 
       expect(renderer.toJSON()).toBeNull();
-      expect(renderedChildren.home).not.toHaveBeenCalled();
-      expect(renderedChildren.member).not.toHaveBeenCalled();
-      expect(renderedChildren.admin).not.toHaveBeenCalled();
+      expect(renderedChildren.home).toHaveBeenCalledTimes(1);
+      expect(renderedChildren.member).toHaveBeenCalledTimes(1);
+      expect(renderedChildren.admin).toHaveBeenCalledTimes(1);
     },
   );
 

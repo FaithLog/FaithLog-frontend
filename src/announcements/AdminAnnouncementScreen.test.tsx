@@ -294,31 +294,18 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     const api = createApi({
       listAdmin: vi.fn(async (_token, _campusId, status: AnnouncementStatus) =>
         status === 'SCHEDULED' ? [scheduledAnnouncement] : [publishedAnnouncement]),
-      updateAnnouncement: vi.fn(() => publishGate.promise),
+      publishAnnouncement: vi.fn(() => publishGate.promise),
     });
     const renderer = await render(<AdminAnnouncementScreen api={api} campusId={1} onBack={vi.fn()} />);
 
     await press(renderer, '게시 예정 공지 보기');
     await press(renderer, '예약 공지 게시 확인 열기');
-    expect(api.updateAnnouncement).not.toHaveBeenCalled();
+    expect(api.publishAnnouncement).not.toHaveBeenCalled();
     expect(byLabel(renderer, '예약 공지 게시 확인')).toBeTruthy();
 
     await pressTwiceWithoutRender(renderer, '예약 공지 게시 확인 실행');
-    expect(api.updateAnnouncement).toHaveBeenCalledTimes(1);
-    expect(api.updateAnnouncement).toHaveBeenCalledWith(
-      'access-token',
-      1,
-      102,
-      expect.objectContaining({
-        body: scheduledAnnouncement.body,
-        categoryId: worshipCategory.id,
-        imageAssetIds: scheduledAnnouncement.imageAssetIds,
-        pinned: scheduledAnnouncement.pinned,
-        publishAt: null,
-        publishMode: 'NOW',
-        title: scheduledAnnouncement.title,
-      }),
-    );
+    expect(api.publishAnnouncement).toHaveBeenCalledTimes(1);
+    expect(api.publishAnnouncement).toHaveBeenCalledWith('access-token', 1, 102);
 
     await act(async () => {
       publishGate.resolve({...scheduledAnnouncement, status: 'PUBLISHED'});
@@ -355,7 +342,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
   });
 
   it('archives only after confirmation and suppresses a synchronous double tap', async () => {
-    const archiveGate = deferred<AnnouncementDetail>();
+    const archiveGate = deferred<void>();
     const api = createApi({
       archiveAnnouncement: vi.fn(() => archiveGate.promise),
       listAdmin: vi.fn(async () => [publishedAnnouncement]),
@@ -369,7 +356,7 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(api.archiveAnnouncement).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      archiveGate.resolve({...publishedAnnouncement, status: 'ARCHIVED'});
+      archiveGate.resolve();
       await settle();
     });
   });
@@ -555,7 +542,13 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
       'access-token',
       1,
       scheduledAnnouncement.id,
-      expect.objectContaining({publishAt: null, publishMode: 'NOW'}),
+      expect.objectContaining({
+        publishAt: scheduledAnnouncement.publishAt,
+        publishMode: 'SCHEDULED',
+      }),
+    );
+    expect(api.publishAnnouncement).toHaveBeenCalledWith(
+      'access-token', 1, scheduledAnnouncement.id,
     );
   });
 
@@ -1285,24 +1278,22 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
     expect(byLabel(renderer, '카테고리 추가')).toBeTruthy();
   });
 
-  it('suppresses a synchronous double tap while toggling a category', async () => {
-    const toggleGate = deferred<AnnouncementCategory>();
+  it('suppresses a synchronous double tap while deactivating a category', async () => {
+    const toggleGate = deferred<void>();
     const api = createApi({
-      listCategories: vi.fn(async () => [inactiveCategory]),
-      updateCategory: vi.fn(() => toggleGate.promise),
+      listCategories: vi.fn(async () => [worshipCategory]),
+      deactivateCategory: vi.fn(() => toggleGate.promise),
     });
     const renderer = await render(
       <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
     );
 
-    await pressTwiceWithoutRender(renderer, '지난 소식 카테고리 활성화');
-    expect(api.updateCategory).toHaveBeenCalledTimes(1);
-    expect(api.updateCategory).toHaveBeenCalledWith(
-      'access-token', 1, 3, expect.objectContaining({isActive: true, name: '지난 소식'}),
-    );
+    await pressTwiceWithoutRender(renderer, '예배 카테고리 비활성화');
+    expect(api.deactivateCategory).toHaveBeenCalledTimes(1);
+    expect(api.deactivateCategory).toHaveBeenCalledWith('access-token', 1, 1);
 
     await act(async () => {
-      toggleGate.resolve({...inactiveCategory, isActive: true});
+      toggleGate.resolve();
       await settle();
     });
   });
@@ -1331,8 +1322,7 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
 
 function createApi(overrides: Partial<AnnouncementApi> = {}): AnnouncementApi {
   const base: AnnouncementApi = {
-    archiveAnnouncement: vi.fn(async (_token, _campusId, id) =>
-      ({...publishedAnnouncement, id, status: 'ARCHIVED' as const})),
+    archiveAnnouncement: vi.fn(async () => undefined),
     completeMediaUpload: vi.fn(),
     createAnnouncement: vi.fn(async (_token, _campusId, body) => ({
       ...publishedAnnouncement,
@@ -1344,12 +1334,19 @@ function createApi(overrides: Partial<AnnouncementApi> = {}): AnnouncementApi {
       status: body.publishMode === 'NOW' ? 'PUBLISHED' : 'SCHEDULED',
     })),
     createCategory: vi.fn(async (_token, _campusId, body) => ({...body, id: 4})),
+    deactivateCategory: vi.fn(async () => undefined),
     getDetail: vi.fn(),
     getMediaAccessUrls: vi.fn(async () => []),
     listAdmin: vi.fn(async () => [publishedAnnouncement]),
     listCategories: vi.fn(async (_token, _campusId, includeInactive) =>
       includeInactive ? [worshipCategory, communityCategory, inactiveCategory] : [worshipCategory, communityCategory]),
     listPublished: vi.fn(),
+    publishAnnouncement: vi.fn(async (_token, _campusId, id) => ({
+      ...scheduledAnnouncement,
+      id,
+      publishedAt: '2030-01-01T00:00:00.000Z',
+      status: 'PUBLISHED' as const,
+    })),
     reserveMediaUpload: vi.fn(),
     updateAnnouncement: vi.fn(async (_token, _campusId, _id, body) => ({
       ...publishedAnnouncement,
@@ -1368,6 +1365,7 @@ function mediaAccess(assetId: number) {
     assetId,
     detailUrl: `https://cdn.example/${assetId}/detail.jpg`,
     expiresAt: '2030-01-01T00:00:00.000Z',
+    sha256: 'a'.repeat(64),
     thumbnailUrl: `https://cdn.example/${assetId}/thumbnail.jpg`,
   };
 }

@@ -236,12 +236,7 @@ export function AdminAnnouncementScreen({
     setActionError(null);
     try {
       const item = confirmationTarget.item;
-      await withToken((token) => api.updateAnnouncement(
-        token,
-        campusId,
-        item.id,
-        announcementRequestFromSummary(item, 'NOW'),
-      ));
+      await withToken((token) => api.publishAnnouncement(token, campusId, item.id));
       setConfirmationTarget(null);
       await load();
     } catch {
@@ -650,7 +645,16 @@ export function AnnouncementEditorScreen({
       const token = await resolveCurrentAccessToken(() => undefined);
       if (!token) throw new Error('session');
       if (detail) {
-        await api.updateAnnouncement(token, campusId, detail.id, request);
+        if (detail.status === 'SCHEDULED' && request.publishMode === 'NOW') {
+          await api.updateAnnouncement(token, campusId, detail.id, {
+            ...request,
+            publishAt: detail.publishAt,
+            publishMode: 'SCHEDULED',
+          });
+          await api.publishAnnouncement(token, campusId, detail.id);
+        } else {
+          await api.updateAnnouncement(token, campusId, detail.id, request);
+        }
       } else {
         await api.createAnnouncement(token, campusId, request);
       }
@@ -974,13 +978,11 @@ export function AnnouncementCategoryScreen({
     try {
       const token = await resolveCurrentAccessToken(() => undefined);
       if (!token) throw new Error('session');
-      const updated = await api.updateCategory(
-        token,
-        campusId,
-        item.id,
-        categoryRequest(item, {isActive: !item.isActive}),
-      );
-      if (mountedRef.current) setItems((current) => replaceCategory(current, updated));
+      if (!item.isActive) return;
+      await api.deactivateCategory(token, campusId, item.id);
+      if (mountedRef.current) {
+        setItems((current) => replaceCategory(current, {...item, isActive: false}));
+      }
     } catch {
       if (mountedRef.current) setError('카테고리 상태를 변경하지 못했습니다.');
     } finally {
@@ -1141,12 +1143,14 @@ export function AnnouncementCategoryScreen({
               label="수정"
               onPress={() => beginEdit(item)}
             />
-            <CompactButton
-              accessibilityLabel={`${item.name} 카테고리 ${item.isActive ? '비활성화' : '활성화'}`}
-              disabled={categoryMutationBusy}
-              label={item.isActive ? '비활성화' : '활성화'}
-              onPress={() => void toggle(item)}
-            />
+            {item.isActive ? (
+              <CompactButton
+                accessibilityLabel={`${item.name} 카테고리 비활성화`}
+                disabled={categoryMutationBusy}
+                label="비활성화"
+                onPress={() => void toggle(item)}
+              />
+            ) : null}
           </View>
         </View>
           ))}
@@ -1840,21 +1844,6 @@ function getEditorConfirmation(
     openAccessibilityLabel: '공지 게시 확인 열기',
     openLabel: '게시 내용 확인',
     title: '공지 게시 확인',
-  };
-}
-
-function announcementRequestFromSummary(
-  item: AnnouncementSummary,
-  publishMode: 'NOW' | 'SCHEDULED',
-): AnnouncementSaveRequest {
-  return {
-    body: item.body,
-    categoryId: item.category.id,
-    imageAssetIds: [...item.imageAssetIds],
-    pinned: item.pinned,
-    publishAt: publishMode === 'SCHEDULED' ? item.publishAt : null,
-    publishMode,
-    title: item.title,
   };
 }
 

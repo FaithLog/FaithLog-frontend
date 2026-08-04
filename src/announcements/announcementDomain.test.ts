@@ -30,25 +30,21 @@ describe('announcement domain contract', () => {
     expect(() => parseAnnouncementDetail(fixture({imageAssetIds: [1, 1]}))).toThrow();
   });
 
-  it('models PROCESSING separately and accepts completion only for the expected upload lineage', () => {
+  it('accepts final READY completion for the expected asset and campus', () => {
     const expected = mediaIdentity();
 
-    expect(parseMediaAssetCompletion({...expected, status: 'PROCESSING'}, expected)).toEqual({
-      ...expected,
-      status: 'PROCESSING',
-    });
-    expect(parseMediaAssetCompletion({...expected, status: 'READY'}, expected)).toEqual({
+    expect(parseMediaAssetCompletion(mediaCompletion(), expected, 1)).toEqual({
       ...expected,
       status: 'READY',
     });
 
     for (const mismatched of [
-      {...expected, assetId: 10, status: 'READY'},
-      {...expected, byteSize: expected.byteSize + 1, status: 'READY'},
-      {...expected, contentType: 'image/png', status: 'READY'},
-      {...expected, sha256: 'b'.repeat(64), status: 'READY'},
+      mediaCompletion({assetId: 10}),
+      mediaCompletion({campusId: 2}),
+      mediaCompletion({status: 'PROCESSING'}),
+      mediaCompletion({sha256: 'not-a-digest'}),
     ]) {
-      expect(() => parseMediaAssetCompletion(mismatched, expected)).toThrowError(
+      expect(() => parseMediaAssetCompletion(mismatched, expected, 1)).toThrowError(
         expect.objectContaining({detail: expect.objectContaining({code: 'INVALID_SERVER_RESPONSE'})}),
       );
     }
@@ -58,21 +54,25 @@ describe('announcement domain contract', () => {
     'rejects an unsafe completion byte size: %s',
     (byteSize) => {
       const expected = mediaIdentity();
-      expect(() => parseMediaAssetCompletion({...expected, byteSize, status: 'READY'}, expected)).toThrow();
+      expect(() => parseMediaAssetCompletion(mediaCompletion({byteSize}), expected, 1)).toThrow();
     },
   );
 
-  it('accepts an ordered subset of media access URLs while rejecting unknown or reordered assets', () => {
-    expect(parseMediaAccessUrls({
-      assets: [mediaAccess(21), mediaAccess(23)],
-    }, [21, 22, 23])).toEqual([mediaAccess(21), mediaAccess(23)]);
+  it('accepts exact ordered media access URLs while rejecting missing, unknown, or reordered assets', () => {
+    expect(parseMediaAccessUrls([
+      mediaAccess(21), mediaAccess(22), mediaAccess(23),
+    ], [21, 22, 23])).toEqual([mediaAccess(21), mediaAccess(22), mediaAccess(23)]);
 
-    expect(() => parseMediaAccessUrls({
-      assets: [mediaAccess(23), mediaAccess(21)],
-    }, [21, 22, 23])).toThrow();
-    expect(() => parseMediaAccessUrls({
-      assets: [mediaAccess(21), mediaAccess(24)],
-    }, [21, 22, 23])).toThrow();
+    expect(() => parseMediaAccessUrls([
+      mediaAccess(21), mediaAccess(23),
+    ], [21, 22, 23])).toThrow();
+
+    expect(() => parseMediaAccessUrls([
+      mediaAccess(23), mediaAccess(21),
+    ], [21, 22, 23])).toThrow();
+    expect(() => parseMediaAccessUrls([
+      mediaAccess(21), mediaAccess(24),
+    ], [21, 22, 23])).toThrow();
   });
 });
 
@@ -90,7 +90,21 @@ function mediaAccess(assetId: number) {
     assetId,
     detailUrl: `https://media.example/${assetId}/detail.jpg`,
     expiresAt: '2026-08-03T10:00:00Z',
+    sha256: 'b'.repeat(64),
     thumbnailUrl: `https://media.example/${assetId}/thumbnail.jpg`,
+  };
+}
+
+function mediaCompletion(overrides: Record<string, unknown> = {}) {
+  return {
+    assetId: 9,
+    campusId: 1,
+    status: 'READY',
+    sha256: 'b'.repeat(64),
+    width: 1600,
+    height: 1200,
+    byteSize: 12345,
+    ...overrides,
   };
 }
 
@@ -98,11 +112,11 @@ function fixture(overrides: Record<string, unknown> = {}) {
   return {
     id: 11,
     campusId: 1,
-    category: {id: 2, name: '예배', color: '#3182F6', isActive: true, sortOrder: 1},
+    category: {id: 2, campusId: 1, name: '예배', color: '#3182F6', isActive: true, displayOrder: 1},
     title: '주일 예배 안내',
-    body: '예배 시간을 확인해 주세요.',
+    content: '예배 시간을 확인해 주세요.',
     status: 'PUBLISHED',
-    pinned: true,
+    isPinned: true,
     publishAt: '2026-08-03T09:00:00Z',
     publishedAt: '2026-08-03T09:00:00Z',
     imageAssetIds: [21, 22],

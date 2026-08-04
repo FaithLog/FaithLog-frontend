@@ -15,7 +15,7 @@ describe('AnnouncementCapabilityGate rendered exposure', () => {
     restoreEnvironment('EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED', originalAnnouncementCapability);
   });
 
-  it.each(['production', 'preview'])('renders neither member nor admin surface in %s', async (appEnv) => {
+  it.each(['production', 'preview'])('renders the confirmed live surface in %s', async (appEnv) => {
     process.env.EXPO_PUBLIC_APP_ENV = appEnv;
     process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
     process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED = 'true';
@@ -30,7 +30,8 @@ describe('AnnouncementCapabilityGate rendered exposure', () => {
       );
     });
 
-    expect(renderer.toJSON()).toBeNull();
+    expect(renderer.root.findAllByType('MemberAnnouncementEntry' as never)).toHaveLength(1);
+    expect(renderer.root.findAllByType('AdminAnnouncementEntry' as never)).toHaveLength(1);
   });
 
   it('renders both surfaces only for an explicitly requested local mock build', async () => {

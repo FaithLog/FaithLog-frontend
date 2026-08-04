@@ -479,11 +479,13 @@ function createApi(overrides: Partial<AnnouncementApi>): AnnouncementApi {
     completeMediaUpload: vi.fn(),
     createAnnouncement: vi.fn(),
     createCategory: vi.fn(),
+    deactivateCategory: vi.fn(),
     getDetail: vi.fn(),
     getMediaAccessUrls: vi.fn(async () => []),
     listAdmin: vi.fn(),
     listCategories: vi.fn(),
     listPublished: vi.fn(async () => []),
+    publishAnnouncement: vi.fn(),
     reserveMediaUpload: vi.fn(),
     updateAnnouncement: vi.fn(),
     updateCategory: vi.fn(),
@@ -516,6 +518,7 @@ function media(assetId: number): MediaAccessUrl {
     assetId,
     detailUrl: `detail-${assetId}`,
     expiresAt: '2026-08-03T10:00:00Z',
+    sha256: 'a'.repeat(64),
     thumbnailUrl: `thumb-${assetId}`,
   };
 }

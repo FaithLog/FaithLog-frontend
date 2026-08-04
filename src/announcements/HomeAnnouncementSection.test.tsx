@@ -70,8 +70,8 @@ describe('HomeAnnouncementSection', () => {
 
   it('requests only the first thumbnail per visible notice and renders returned thumbnails', async () => {
     const getMediaAccessUrls = vi.fn().mockResolvedValue([
-      {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', thumbnailUrl: 'thumb-101'},
-      {assetId: 102, detailUrl: 'detail-102', expiresAt: '2026-08-03T10:00:00Z', thumbnailUrl: 'thumb-102'},
+      {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', sha256: 'a'.repeat(64), thumbnailUrl: 'thumb-101'},
+      {assetId: 102, detailUrl: 'detail-102', expiresAt: '2026-08-03T10:00:00Z', sha256: 'b'.repeat(64), thumbnailUrl: 'thumb-102'},
     ]);
     const api = createApi({
       getMediaAccessUrls,
@@ -129,7 +129,7 @@ describe('HomeAnnouncementSection', () => {
 
   it('deduplicates a shared first thumbnail asset before the strict batch request', async () => {
     const getMediaAccessUrls = vi.fn().mockResolvedValue([
-      {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', thumbnailUrl: 'thumb-101'},
+      {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', sha256: 'a'.repeat(64), thumbnailUrl: 'thumb-101'},
     ]);
     const api = createApi({
       getMediaAccessUrls,
@@ -158,7 +158,7 @@ describe('HomeAnnouncementSection', () => {
     const getMediaAccessUrls = vi.fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', thumbnailUrl: 'thumb-101'},
+        {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', sha256: 'a'.repeat(64), thumbnailUrl: 'thumb-101'},
       ]);
     const api = createApi({
       getMediaAccessUrls,
@@ -207,12 +207,14 @@ describe('HomeAnnouncementSection', () => {
       assetId: number;
       detailUrl: string;
       expiresAt: string;
+      sha256: string;
       thumbnailUrl: string;
     }>>();
     const newerRetry = deferred<Array<{
       assetId: number;
       detailUrl: string;
       expiresAt: string;
+      sha256: string;
       thumbnailUrl: string;
     }>>();
     const getMediaAccessUrls = vi.fn()
@@ -249,8 +251,8 @@ describe('HomeAnnouncementSection', () => {
     });
     await act(async () => {
       newerRetry.resolve([
-        {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', thumbnailUrl: 'thumb-101'},
-        {assetId: 102, detailUrl: 'detail-102', expiresAt: '2026-08-03T10:00:00Z', thumbnailUrl: 'thumb-102'},
+        {assetId: 101, detailUrl: 'detail-101', expiresAt: '2026-08-03T10:00:00Z', sha256: 'a'.repeat(64), thumbnailUrl: 'thumb-101'},
+        {assetId: 102, detailUrl: 'detail-102', expiresAt: '2026-08-03T10:00:00Z', sha256: 'b'.repeat(64), thumbnailUrl: 'thumb-102'},
       ]);
       await flushPromises();
     });
@@ -278,6 +280,7 @@ describe('HomeAnnouncementSection', () => {
       assetId: number;
       detailUrl: string;
       expiresAt: string;
+      sha256: string;
       thumbnailUrl: string;
     }>>();
     const api = createApi({
@@ -343,11 +346,13 @@ function createApi(overrides: Partial<AnnouncementApi>): AnnouncementApi {
     completeMediaUpload: vi.fn(),
     createAnnouncement: vi.fn(),
     createCategory: vi.fn(),
+    deactivateCategory: vi.fn(),
     getDetail: vi.fn(),
     getMediaAccessUrls: vi.fn().mockResolvedValue([]),
     listAdmin: vi.fn(),
     listCategories: vi.fn(),
     listPublished: vi.fn().mockResolvedValue([]),
+    publishAnnouncement: vi.fn(),
     reserveMediaUpload: vi.fn(),
     updateAnnouncement: vi.fn(),
     updateCategory: vi.fn(),

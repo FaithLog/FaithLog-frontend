@@ -9,8 +9,6 @@ import type {
   MediaAccessUrl,
   MediaAssetCompletion,
   MediaAssetIdentity,
-  MediaAssetReady,
-  MediaUploadContentType,
   MediaUploadReservation,
 } from './announcementTypes';
 
@@ -19,23 +17,58 @@ const colorPattern = /^#[0-9A-F]{6}$/i;
 
 export function parseAnnouncementList(value: unknown): AnnouncementSummary[] {
   if (!Array.isArray(value)) invalid();
-  return value.map(parseAnnouncementDetail);
+  return value.map((item) => parseAnnouncementDetail(item));
 }
 
-export function parseAnnouncementDetail(value: unknown): AnnouncementDetail {
+export function parseAnnouncementPage(
+  value: unknown,
+  expected: {campusId: number; page: number; size: number; status: AnnouncementStatus},
+) {
+  if (!isRecord(value) || !Array.isArray(value.content)) invalid();
+  const page = nonNegativeInteger(value.page);
+  const size = positiveId(value.size);
+  const totalElements = nonNegativeInteger(value.totalElements);
+  const totalPages = nonNegativeInteger(value.totalPages);
+  const remainingElements = Math.max(0, totalElements - page * size);
+  const expectedContentLength = Math.min(size, remainingElements);
+  if (
+    page !== expected.page ||
+    size !== expected.size ||
+    totalPages !== (totalElements === 0 ? 0 : Math.ceil(totalElements / size)) ||
+    (totalPages === 0 ? page !== 0 || value.content.length !== 0 : page >= totalPages) ||
+    value.content.length !== expectedContentLength
+  ) invalid();
+  const content = value.content.map((item) => parseAnnouncementDetail(item, {
+    campusId: expected.campusId,
+    status: expected.status,
+  }));
+  return {content, page, size, totalElements, totalPages};
+}
+
+export function parseAnnouncementDetail(
+  value: unknown,
+  expected: {campusId?: number; id?: number; status?: AnnouncementStatus} = {},
+): AnnouncementDetail {
   if (!isRecord(value)) invalid();
-  const category = parseCategory(value.category);
+  const campusId = positiveId(value.campusId);
+  const id = positiveId(value.id);
+  const category = parseCategory(value.category, campusId);
   const imageAssetIds = positiveIdArray(value.imageAssetIds);
   if (new Set(imageAssetIds).size !== imageAssetIds.length) invalid();
   const status = value.status;
   if (typeof status !== 'string' || !statuses.has(status as AnnouncementStatus)) invalid();
+  if (
+    expected.campusId !== undefined && campusId !== expected.campusId ||
+    expected.id !== undefined && id !== expected.id ||
+    expected.status !== undefined && status !== expected.status
+  ) invalid();
   return {
-    body: requiredString(value.body),
-    campusId: positiveId(value.campusId),
+    body: requiredString(value.content),
+    campusId,
     category,
-    id: positiveId(value.id),
+    id,
     imageAssetIds,
-    pinned: requiredBoolean(value.pinned),
+    pinned: requiredBoolean(value.isPinned),
     publishAt: nullableIso(value.publishAt),
     publishedAt: nullableIso(value.publishedAt),
     status: status as AnnouncementStatus,
@@ -43,9 +76,12 @@ export function parseAnnouncementDetail(value: unknown): AnnouncementDetail {
   };
 }
 
-export function parseAnnouncementCategories(value: unknown): AnnouncementCategory[] {
+export function parseAnnouncementCategories(
+  value: unknown,
+  expectedCampusId?: number,
+): AnnouncementCategory[] {
   if (!Array.isArray(value)) invalid();
-  return value.map(parseCategory);
+  return value.map((item) => parseCategory(item, expectedCampusId));
 }
 
 export function getAnnouncementCategoryName(value: Pick<AnnouncementSummary, 'category'>) {
@@ -76,40 +112,46 @@ export function parseMediaUploadReservation(value: unknown): MediaUploadReservat
   };
 }
 
-export function parseMediaAssetReady(value: unknown): MediaAssetReady {
-  const completion = parseMediaAssetCompletionValue(value);
-  if (completion.status !== 'READY') invalid();
-  return completion;
-}
-
 export function parseMediaAssetCompletion(
   value: unknown,
   expected: MediaAssetIdentity,
+  expectedCampusId?: number,
 ): MediaAssetCompletion {
-  const completion = parseMediaAssetCompletionValue(value);
+  if (!isRecord(value) || value.status !== 'READY') invalid();
+  const assetId = positiveId(value.assetId);
+  const campusId = positiveId(value.campusId);
+  const byteSize = positiveId(value.byteSize);
+  const width = positiveId(value.width);
+  const height = positiveId(value.height);
+  const sha256 = requiredString(value.sha256);
   if (
-    completion.assetId !== expected.assetId ||
-    completion.byteSize !== expected.byteSize ||
-    completion.contentType !== expected.contentType ||
-    completion.sha256.toLowerCase() !== expected.sha256.toLowerCase()
+    assetId !== expected.assetId ||
+    expectedCampusId !== undefined && campusId !== expectedCampusId ||
+    !/^[a-f0-9]{64}$/.test(sha256) ||
+    width > 4096 ||
+    height > 4096 ||
+    byteSize > 2 * 5 * 1024 * 1024
   ) {
     invalid();
   }
-  return completion;
+  return {...expected, status: 'READY'};
 }
 
 export function parseMediaAccessUrls(value: unknown, expectedIds: number[]): MediaAccessUrl[] {
-  if (!isRecord(value) || !Array.isArray(value.assets)) invalid();
+  if (!Array.isArray(value)) invalid();
   const expectedIndexById = new Map<number, number>();
   expectedIds.forEach((assetId, index) => {
     const parsedAssetId = positiveId(assetId);
     if (expectedIndexById.has(parsedAssetId)) invalid();
     expectedIndexById.set(parsedAssetId, index);
   });
-  const assets = value.assets.map((item) => {
+  const assets = value.map((item) => {
     if (!isRecord(item)) invalid();
-    return {assetId: positiveId(item.assetId), detailUrl: requiredHttps(item.detailUrl), expiresAt: requiredIso(item.expiresAt), thumbnailUrl: requiredHttps(item.thumbnailUrl)};
+    const sha256 = requiredString(item.sha256);
+    if (!/^[a-f0-9]{64}$/.test(sha256)) invalid();
+    return {assetId: positiveId(item.assetId), detailUrl: requiredHttps(item.detailUrl), expiresAt: requiredIso(item.expiresAt), sha256, thumbnailUrl: requiredHttps(item.thumbnailUrl)};
   });
+  if (assets.length !== expectedIds.length) invalid();
   let previousExpectedIndex = -1;
   for (const asset of assets) {
     const expectedIndex = expectedIndexById.get(asset.assetId);
@@ -119,11 +161,13 @@ export function parseMediaAccessUrls(value: unknown, expectedIds: number[]): Med
   return assets;
 }
 
-function parseCategory(value: unknown): AnnouncementCategory {
+function parseCategory(value: unknown, expectedCampusId?: number): AnnouncementCategory {
   if (!isRecord(value)) invalid();
+  const campusId = positiveId(value.campusId);
+  if (expectedCampusId !== undefined && campusId !== expectedCampusId) invalid();
   const color = requiredString(value.color);
   if (!colorPattern.test(color)) invalid();
-  const sortOrder = value.sortOrder;
+  const sortOrder = value.displayOrder;
   if (typeof sortOrder !== 'number' || !Number.isSafeInteger(sortOrder) || sortOrder < 0) invalid();
   return {
     color: color.toUpperCase(),
@@ -134,27 +178,6 @@ function parseCategory(value: unknown): AnnouncementCategory {
   };
 }
 
-function parseMediaAssetCompletionValue(value: unknown): MediaAssetCompletion {
-  if (!isRecord(value) || (value.status !== 'PROCESSING' && value.status !== 'READY')) invalid();
-  const contentType = mediaUploadContentType(value.contentType);
-  const byteSize = value.byteSize;
-  if (typeof byteSize !== 'number' || !Number.isSafeInteger(byteSize) || byteSize <= 0) invalid();
-  const sha256 = requiredString(value.sha256);
-  if (!/^[a-f0-9]{64}$/i.test(sha256)) invalid();
-  return {
-    assetId: positiveId(value.assetId),
-    byteSize,
-    contentType,
-    sha256,
-    status: value.status,
-  };
-}
-
-function mediaUploadContentType(value: unknown): MediaUploadContentType {
-  if (value !== 'image/jpeg' && value !== 'image/png') invalid();
-  return value;
-}
-
 function positiveIdArray(value: unknown) {
   if (!Array.isArray(value)) invalid();
   return value.map(positiveId);
@@ -162,6 +185,11 @@ function positiveIdArray(value: unknown) {
 
 function positiveId(value: unknown) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) invalid();
+  return value;
+}
+
+function nonNegativeInteger(value: unknown) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) invalid();
   return value;
 }
 
