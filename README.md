@@ -41,7 +41,7 @@ EAS preview/production은 앱의 런타임 allowlist, `eas.json`, GitHub Actions
 
 `EXPO_PUBLIC_MOCK_MODE=true`로 설정하면 API client 내부 mock adapter가 live backend 대신 도메인 fixture를 반환합니다. 화면 코드와 feature service는 live/mock 분기를 직접 알지 않아야 합니다. 기본 MVP QA는 live backend mode(`false`)를 기준으로 하고, mock QA는 fixture adapter 사용 여부와 scenario를 함께 기록합니다.
 
-일반 공지와 native 이미지 picker/upload 통합 QA는 local/development에서만 `EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true`로 명시적으로 엽니다. 이 플래그와 `EXPO_PUBLIC_MOCK_MODE=false`를 함께 사용해야 실제 개발 backend의 reserve → signed PUT → complete 흐름을 검증할 수 있습니다. preview/production은 플래그 값과 관계없이 코드에서 fail-closed이며 `eas.json`에도 `false`를 고정합니다.
+일반 공지와 native 이미지 picker/upload는 `EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED=true`에서 활성화됩니다. 이 플래그와 `EXPO_PUBLIC_MOCK_MODE=false`를 함께 사용해야 backend의 reserve → signed PUT → complete 흐름을 사용할 수 있습니다. preview/production도 `eas.json`에서 명시적으로 활성화하며, 값이 없거나 `true`가 아니면 기능을 숨기는 fail-closed 경계를 유지합니다.
 
 API base URL이 비어 있거나 `http://` 또는 `https://` URL이 아니면 앱 시작 시 빈 화면 대신 복구 가능한 설정 오류 화면을 보여줍니다. 이 오류 화면은 token, request payload, endpoint 값을 로그나 화면에 노출하지 않습니다.
 
@@ -69,8 +69,8 @@ Mock QA는 `EXPO_PUBLIC_MOCK_MODE=true`로 실행합니다. 기본 fixture는 `s
 | Profile | `EXPO_PUBLIC_APP_ENV` | `EXPO_PUBLIC_API_BASE_URL` | `EXPO_PUBLIC_MOCK_MODE` | `EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED` |
 | --- | --- | --- | --- | --- |
 | `development` | `development` | `http://localhost:8080` | `false` | `true` |
-| `preview` | `preview` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` | `false` |
-| `production` | `production` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` | `false` |
+| `preview` | `preview` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` | `true` |
+| `production` | `production` | `https://faithlog-549871256004.asia-northeast3.run.app` | `false` | `true` |
 
 Preview/production API origin은 public runtime config이므로 승인값을 코드와 함께 검토합니다. Firebase native config, service files, token, private key는 repository에 커밋하지 않고 EAS/CI secret injection으로 제공하며, PR 본문과 QA 보고에는 placeholder 또는 “주입됨/미확인” 상태만 기록합니다.
 
