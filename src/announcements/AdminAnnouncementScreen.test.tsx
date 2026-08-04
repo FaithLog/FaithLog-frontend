@@ -1112,7 +1112,7 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
       <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
     );
 
-    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '카테고리 추가'))
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '새 카테고리 추가 열기'))
       .toHaveLength(0);
     expect(api.createCategory).not.toHaveBeenCalled();
 
@@ -1121,7 +1121,7 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
       await settle();
     });
 
-    expect(byLabel(renderer, '카테고리 추가')).toBeTruthy();
+    expect(byLabel(renderer, '새 카테고리 추가 열기')).toBeTruthy();
   });
 
   it('fails closed after a category load error and exposes an explicit rendered retry', async () => {
@@ -1134,16 +1134,52 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
       <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
     );
 
-    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '카테고리 추가'))
+    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '새 카테고리 추가 열기'))
       .toHaveLength(0);
     await press(renderer, '카테고리 다시 불러오기');
 
     expect(api.listCategories).toHaveBeenCalledTimes(2);
-    expect(byLabel(renderer, '카테고리 추가')).toBeTruthy();
+    expect(byLabel(renderer, '새 카테고리 추가 열기')).toBeTruthy();
     expect(rendered(renderer)).toContain('예배');
   });
 
-  it('edits inactive category name and color while preserving inactive history and suppressing double save', async () => {
+  it('shows only active categories in a horizontal selectable list and exposes actions after selection', async () => {
+    const api = createApi({
+      listCategories: vi.fn(async () => [worshipCategory, communityCategory, inactiveCategory]),
+    });
+    const renderer = await render(
+      <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
+    );
+
+    const categoryList = byLabel(renderer, '카테고리 목록');
+    expect(flattenStyle(categoryList.props.style)).toMatchObject({
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+    });
+    expect(byLabel(renderer, '예배 카테고리 선택')).toBeTruthy();
+    expect(byLabel(renderer, '공동체 카테고리 선택')).toBeTruthy();
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '지난 소식 카테고리 선택')).toHaveLength(0);
+    expect(renderer.root.findAll((node) =>
+      String(node.props.accessibilityLabel ?? '').includes('위로 이동'))).toHaveLength(0);
+    expect(renderer.root.findAll((node) =>
+      String(node.props.accessibilityLabel ?? '').includes('아래로 이동'))).toHaveLength(0);
+    expect(renderer.root.findAll((node) =>
+      String(node.props.accessibilityLabel ?? '').includes('비활성화'))).toHaveLength(0);
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '예배 카테고리 수정')).toHaveLength(0);
+
+    await press(renderer, '예배 카테고리 선택');
+
+    expect(byLabel(renderer, '예배 카테고리 선택').props.accessibilityState).toEqual({
+      checked: true,
+      disabled: false,
+    });
+    expect(byLabel(renderer, '예배 카테고리 수정')).toBeTruthy();
+    expect(byLabel(renderer, '예배 카테고리 삭제')).toBeTruthy();
+  });
+
+  it('edits a selected active category name and color while suppressing double save', async () => {
     const editGate = deferred<AnnouncementCategory>();
     const api = createApi({
       listCategories: vi.fn(async () => [worshipCategory, communityCategory, inactiveCategory]),
@@ -1153,149 +1189,28 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
       <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
     );
 
-    expect(rendered(renderer)).toContain('지난 소식');
-    expect(rendered(renderer)).toContain('비활성');
-    await press(renderer, '지난 소식 카테고리 수정');
-    expect(byLabel(renderer, '카테고리 이름').props.value).toBe('지난 소식');
-    await changeText(renderer, '카테고리 이름', '지난 기록');
+    await press(renderer, '예배 카테고리 선택');
+    await press(renderer, '예배 카테고리 수정');
+    expect(byLabel(renderer, '카테고리 이름').props.value).toBe('예배');
+    await changeText(renderer, '카테고리 이름', '주일 예배');
     await press(renderer, '카테고리 색상 #F59E0B');
     await pressTwiceWithoutRender(renderer, '카테고리 변경 저장');
 
     expect(api.updateCategory).toHaveBeenCalledTimes(1);
-    expect(api.updateCategory).toHaveBeenCalledWith('access-token', 1, 3, {
+    expect(api.updateCategory).toHaveBeenCalledWith('access-token', 1, 1, {
       color: '#F59E0B',
-      isActive: false,
-      name: '지난 기록',
-      sortOrder: 3,
+      isActive: true,
+      name: '주일 예배',
+      sortOrder: 1,
     });
 
     await act(async () => {
-      editGate.resolve({...inactiveCategory, color: '#F59E0B', name: '지난 기록'});
+      editGate.resolve({...worshipCategory, color: '#F59E0B', name: '주일 예배'});
       await settle();
     });
   });
 
-  it('reorders categories with accessible controls and suppresses a synchronous double tap', async () => {
-    const reorderGate = deferred<AnnouncementCategory>();
-    const api = createApi({
-      listCategories: vi.fn(async () => [worshipCategory, communityCategory, inactiveCategory]),
-      updateCategory: vi.fn(() => reorderGate.promise),
-    });
-    const renderer = await render(
-      <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
-    );
-
-    const firstUp = byLabel(renderer, '예배 카테고리 위로 이동');
-    expect(firstUp.props.disabled).toBe(true);
-    expect(flattenStyle(firstUp.props.style({pressed: false})).minHeight).toBeGreaterThanOrEqual(44);
-    await pressTwiceWithoutRender(renderer, '공동체 카테고리 위로 이동');
-
-    expect(api.updateCategory).toHaveBeenCalledTimes(2);
-    expect(api.updateCategory).toHaveBeenCalledWith(
-      'access-token', 1, 2, expect.objectContaining({name: '공동체', sortOrder: 1}),
-    );
-    expect(api.updateCategory).toHaveBeenCalledWith(
-      'access-token', 1, 1, expect.objectContaining({name: '예배', sortOrder: 2}),
-    );
-
-    await act(async () => {
-      reorderGate.resolve(communityCategory);
-      await settle();
-    });
-  });
-
-  it('reloads authoritative category order when one half of a reorder fails', async () => {
-    const api = createApi({
-      listCategories: vi.fn()
-        .mockResolvedValueOnce([worshipCategory, communityCategory])
-        .mockResolvedValueOnce([
-          {...worshipCategory, sortOrder: 2},
-          {...communityCategory, sortOrder: 1},
-        ]),
-      updateCategory: vi.fn()
-        .mockResolvedValueOnce({...communityCategory, sortOrder: 1})
-        .mockRejectedValueOnce(new Error('second patch failed'))
-        .mockResolvedValueOnce(communityCategory)
-        .mockResolvedValueOnce(worshipCategory),
-    });
-    const renderer = await render(
-      <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
-    );
-
-    await press(renderer, '공동체 카테고리 위로 이동');
-
-    expect(api.listCategories).toHaveBeenCalledTimes(2);
-    expect(api.updateCategory).toHaveBeenNthCalledWith(
-      3,
-      'access-token',
-      1,
-      communityCategory.id,
-      expect.objectContaining({sortOrder: communityCategory.sortOrder}),
-    );
-    expect(api.updateCategory).toHaveBeenNthCalledWith(
-      4,
-      'access-token',
-      1,
-      worshipCategory.id,
-      expect.objectContaining({sortOrder: worshipCategory.sortOrder}),
-    );
-    expect(rendered(renderer)).toContain('서버의 최신 순서를 다시 불러왔습니다.');
-  });
-
-  it('keeps category mutations blocked when authoritative reorder recovery cannot reload', async () => {
-    const api = createApi({
-      listCategories: vi.fn()
-        .mockResolvedValueOnce([worshipCategory, communityCategory])
-        .mockRejectedValueOnce(new Error('reload offline'))
-        .mockResolvedValueOnce([worshipCategory, communityCategory]),
-      updateCategory: vi.fn()
-        .mockResolvedValueOnce({...communityCategory, sortOrder: 1})
-        .mockRejectedValueOnce(new Error('second patch failed'))
-        .mockResolvedValueOnce(communityCategory)
-        .mockResolvedValueOnce(worshipCategory),
-    });
-    const renderer = await render(
-      <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
-    );
-
-    await press(renderer, '공동체 카테고리 위로 이동');
-
-    expect(rendered(renderer)).not.toContain('서버의 최신 순서를 다시 불러왔습니다.');
-    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '카테고리 추가'))
-      .toHaveLength(0);
-    await press(renderer, '카테고리 다시 불러오기');
-    expect(byLabel(renderer, '카테고리 추가')).toBeTruthy();
-  });
-
-  it('fails closed when reorder recovery returns duplicate authoritative sort orders', async () => {
-    const api = createApi({
-      listCategories: vi.fn()
-        .mockResolvedValueOnce([worshipCategory, communityCategory])
-        .mockResolvedValueOnce([
-          {...worshipCategory, sortOrder: 1},
-          {...communityCategory, sortOrder: 1},
-        ])
-        .mockResolvedValueOnce([worshipCategory, communityCategory]),
-      updateCategory: vi.fn()
-        .mockResolvedValueOnce({...communityCategory, sortOrder: 1})
-        .mockRejectedValueOnce(new Error('second patch failed'))
-        .mockRejectedValueOnce(new Error('first compensation failed'))
-        .mockResolvedValueOnce(worshipCategory),
-    });
-    const renderer = await render(
-      <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
-    );
-
-    await press(renderer, '공동체 카테고리 위로 이동');
-
-    expect(rendered(renderer)).not.toContain('서버의 최신 순서를 다시 불러왔습니다.');
-    expect(renderer.root.findAll((node) => node.props.accessibilityLabel === '카테고리 추가'))
-      .toHaveLength(0);
-    await press(renderer, '카테고리 다시 불러오기');
-    expect(byLabel(renderer, '카테고리 추가')).toBeTruthy();
-  });
-
-  it('suppresses a synchronous double tap while deactivating a category', async () => {
+  it('suppresses a synchronous double tap while deleting a selected category', async () => {
     const toggleGate = deferred<void>();
     const api = createApi({
       listCategories: vi.fn(async () => [worshipCategory]),
@@ -1305,7 +1220,10 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
       <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
     );
 
-    await pressTwiceWithoutRender(renderer, '예배 카테고리 비활성화');
+    await press(renderer, '예배 카테고리 선택');
+    await press(renderer, '예배 카테고리 삭제');
+    expect(rendered(renderer)).toContain('예배 카테고리를 삭제할까요?');
+    await pressTwiceWithoutRender(renderer, '카테고리 삭제 확인 실행');
     expect(api.deactivateCategory).toHaveBeenCalledTimes(1);
     expect(api.deactivateCategory).toHaveBeenCalledWith('access-token', 1, 1);
 
@@ -1313,6 +1231,8 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
       toggleGate.resolve();
       await settle();
     });
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '예배 카테고리 선택')).toHaveLength(0);
   });
 
   it('exposes category and color choices as radio groups with 44-point targets', async () => {
@@ -1320,9 +1240,10 @@ describe('AnnouncementCategoryScreen rendered interactions', () => {
     const categoryRenderer = await render(
       <AnnouncementCategoryScreen api={api} campusId={1} onBack={vi.fn()} />,
     );
+    await press(categoryRenderer, '새 카테고리 추가 열기');
     expect(categoryRenderer.root.findAll((node) =>
       String(node.type) === 'View' && node.props.accessibilityRole === 'radiogroup'))
-      .toHaveLength(1);
+      .toHaveLength(2);
     const swatch = byLabel(categoryRenderer, '카테고리 색상 #3182F6');
     expect(flattenStyle(swatch.props.style).minHeight).toBeGreaterThanOrEqual(44);
 

@@ -52,7 +52,6 @@ import {
 } from './announcementUploadFlow';
 import type {
   AnnouncementCategory,
-  AnnouncementCategorySaveRequest,
   AnnouncementDetail,
   AnnouncementSaveRequest,
   AnnouncementStatus,
@@ -717,13 +716,15 @@ export function AnnouncementCategoryScreen({
   onBack: () => void;
 }) {
   const [items, setItems] = useState<AnnouncementCategory[]>([]);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AnnouncementCategory | null>(null);
   const [name, setName] = useState('');
   const [color, setColor] = useState('#3182F6');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [reordering, setReordering] = useState(false);
-  const [togglingIds, setTogglingIds] = useState<Set<number>>(() => new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<'error' | 'loading' | 'ready'>('loading');
   const [loadedCampusId, setLoadedCampusId] = useState<number | null>(null);
@@ -732,10 +733,9 @@ export function AnnouncementCategoryScreen({
   const categoryMutationFlightRef = useRef(false);
   const createFlightRef = useRef(false);
   const editFlightRef = useRef(false);
-  const reorderFlightRef = useRef(false);
-  const toggleFlightRef = useRef<Set<number>>(new Set());
+  const deleteFlightRef = useRef<Set<number>>(new Set());
   const orderedItems = useMemo(() => [...items].sort(compareCategories), [items]);
-  const categoryMutationBusy = creating || editing || reordering || togglingIds.size > 0;
+  const categoryMutationBusy = creating || editing || deletingIds.size > 0;
   const categoryDataReady = loadStatus === 'ready' && loadedCampusId === campusId;
 
   const load = useCallback(async () => {
@@ -748,9 +748,10 @@ export function AnnouncementCategoryScreen({
       const token = await resolveCurrentAccessToken(() => undefined);
       if (!token) throw new Error('session');
       const next = await api.listCategories(token, campusId, true);
-      if (!hasUniqueCategorySortOrders(next)) throw new Error('invalid category order');
+      const activeItems = next.filter((item) => item.isActive);
+      if (!hasUniqueCategorySortOrders(activeItems)) throw new Error('invalid category order');
       if (!mountedRef.current || request !== loadRequestRef.current) return false;
-      setItems(next);
+      setItems(activeItems);
       setLoadedCampusId(campusId);
       setLoadStatus('ready');
       return true;
@@ -772,6 +773,7 @@ export function AnnouncementCategoryScreen({
   }, [load]);
 
   const resetEditor = () => {
+    setEditorOpen(false);
     setEditingId(null);
     setName('');
     setColor('#3182F6');
@@ -819,9 +821,20 @@ export function AnnouncementCategoryScreen({
   const beginEdit = (item: AnnouncementCategory) => {
     if (!categoryDataReady || categoryMutationFlightRef.current || editFlightRef.current) return;
     setError(null);
+    setEditorOpen(true);
     setEditingId(item.id);
     setName(item.name);
     setColor(item.color);
+  };
+
+  const beginCreate = () => {
+    if (!categoryDataReady || categoryMutationFlightRef.current) return;
+    setError(null);
+    setSelectedCategoryId(null);
+    setEditingId(null);
+    setName('');
+    setColor('#3182F6');
+    setEditorOpen(true);
   };
 
   const saveEdit = async () => {
@@ -862,15 +875,15 @@ export function AnnouncementCategoryScreen({
     }
   };
 
-  const toggle = async (item: AnnouncementCategory) => {
+  const remove = async (item: AnnouncementCategory) => {
     if (
       !categoryDataReady ||
       categoryMutationFlightRef.current ||
-      toggleFlightRef.current.has(item.id)
+      deleteFlightRef.current.has(item.id)
     ) return;
     categoryMutationFlightRef.current = true;
-    toggleFlightRef.current.add(item.id);
-    setTogglingIds((current) => new Set(current).add(item.id));
+    deleteFlightRef.current.add(item.id);
+    setDeletingIds((current) => new Set(current).add(item.id));
     setError(null);
     try {
       const token = await resolveCurrentAccessToken(() => undefined);
@@ -878,15 +891,17 @@ export function AnnouncementCategoryScreen({
       if (!item.isActive) return;
       await api.deactivateCategory(token, campusId, item.id);
       if (mountedRef.current) {
-        setItems((current) => replaceCategory(current, {...item, isActive: false}));
+        setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+        setSelectedCategoryId((current) => current === item.id ? null : current);
+        setDeleteTarget(null);
       }
     } catch {
-      if (mountedRef.current) setError('카테고리 상태를 변경하지 못했습니다.');
+      if (mountedRef.current) setError('카테고리를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       categoryMutationFlightRef.current = false;
-      toggleFlightRef.current.delete(item.id);
+      deleteFlightRef.current.delete(item.id);
       if (mountedRef.current) {
-        setTogglingIds((current) => {
+        setDeletingIds((current) => {
           const next = new Set(current);
           next.delete(item.id);
           return next;
@@ -895,62 +910,12 @@ export function AnnouncementCategoryScreen({
     }
   };
 
-  const reorder = async (index: number, direction: -1 | 1) => {
-    if (!categoryDataReady || categoryMutationFlightRef.current || reorderFlightRef.current) return;
-    const targetIndex = index + direction;
-    const item = orderedItems[index];
-    const target = orderedItems[targetIndex];
-    if (!item || !target) return;
-    categoryMutationFlightRef.current = true;
-    reorderFlightRef.current = true;
-    setReordering(true);
-    setError(null);
-    const movedItem = {...item, sortOrder: target.sortOrder};
-    const movedTarget = {...target, sortOrder: item.sortOrder};
-    try {
-      const token = await resolveCurrentAccessToken(() => undefined);
-      if (!token) throw new Error('session');
-      const results = await Promise.allSettled([
-        api.updateCategory(token, campusId, item.id, categoryRequest(movedItem)),
-        api.updateCategory(token, campusId, target.id, categoryRequest(movedTarget)),
-      ]);
-      if (results.some((result) => result.status === 'rejected')) {
-        // A rejected response does not prove that the server skipped the mutation
-        // (for example, the response can be lost after the PATCH commits). Restore
-        // both originals before reloading so every unknown outcome converges.
-        await Promise.allSettled([
-          api.updateCategory(token, campusId, item.id, categoryRequest(item)),
-          api.updateCategory(token, campusId, target.id, categoryRequest(target)),
-        ]);
-        const reloaded = await load();
-        if (mountedRef.current && reloaded) {
-          setError('카테고리 순서를 완전히 변경하지 못해 서버의 최신 순서를 다시 불러왔습니다.');
-        }
-        return;
-      }
-      if (mountedRef.current) {
-        setItems((current) => replaceCategory(replaceCategory(current, movedItem), movedTarget));
-      }
-    } catch {
-      if (mountedRef.current) {
-        const reloaded = await load();
-        if (mountedRef.current && reloaded) {
-          setError('카테고리 순서를 완전히 변경하지 못해 서버의 최신 순서를 다시 불러왔습니다.');
-        }
-      }
-    } finally {
-      categoryMutationFlightRef.current = false;
-      reorderFlightRef.current = false;
-      if (mountedRef.current) setReordering(false);
-    }
-  };
-
   return (
     <View style={styles.page}>
       <ScreenHeader
         action={<CompactButton label="뒤로" onPress={onBack} />}
         eyebrow="공지 관리"
-        subtitle="사용 중인 카테고리는 삭제 대신 비활성화합니다."
+        subtitle="공지에 사용할 카테고리를 추가하고 관리합니다."
         title="카테고리 관리"
       />
       {!categoryDataReady ? (
@@ -969,88 +934,153 @@ export function AnnouncementCategoryScreen({
         <>
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Card>
-        <Text style={styles.label}>{editingId === null ? '새 카테고리' : '카테고리 수정'}</Text>
-        <TextField label="카테고리 이름" onChangeText={setName} value={name} />
-        <Text style={styles.label}>색상</Text>
-        <View accessibilityLabel="카테고리 색상 선택" accessibilityRole="radiogroup" style={styles.wrap}>
-          {categorySwatches.map((swatch) => (
-            <Pressable
-              accessibilityLabel={`카테고리 색상 ${swatch}`}
-              accessibilityRole="radio"
-              accessibilityState={{checked: color === swatch}}
-              key={swatch}
-              onPress={() => setColor(swatch)}
-              style={[
-                styles.swatch,
-                {backgroundColor: swatch},
-                color === swatch && styles.swatchSelected,
-              ]}
-            />
-          ))}
-        </View>
-        {editingId === null ? (
-          <Button
-            accessibilityLabel="카테고리 추가"
-            disabled={categoryMutationBusy || !name.trim()}
-            onPress={() => void create()}>
-            {creating ? '추가 중' : '추가'}
-          </Button>
-        ) : (
-          <View accessibilityLabel="카테고리 수정 작업" style={styles.editorActions}>
-            <Button
-              accessibilityLabel="카테고리 변경 저장"
-              disabled={categoryMutationBusy || !name.trim()}
-              onPress={() => void saveEdit()}>
-              {editing ? '저장 중' : '변경 저장'}
-            </Button>
-            <CompactButton
-              accessibilityLabel="카테고리 수정 취소"
-              disabled={categoryMutationBusy}
-              label="취소"
-              onPress={cancelEdit}
-            />
-          </View>
-        )}
-          </Card>
-          {orderedItems.map((item, index) => (
-        <View
-          accessibilityLabel={`${item.name} 카테고리 관리`}
-          key={item.id}
-          style={styles.categoryRow}>
-          <View style={styles.categoryContent}>
-            <AnnouncementCategoryBadge category={item} />
-            <Text style={styles.meta}>{item.isActive ? '활성' : '비활성'}</Text>
-          </View>
-          <View style={styles.categoryActions}>
-            <CompactButton
-              accessibilityLabel={`${item.name} 카테고리 위로 이동`}
-              disabled={categoryMutationBusy || index === 0}
-              label="위"
-              onPress={() => void reorder(index, -1)}
-            />
-            <CompactButton
-              accessibilityLabel={`${item.name} 카테고리 아래로 이동`}
-              disabled={categoryMutationBusy || index === orderedItems.length - 1}
-              label="아래"
-              onPress={() => void reorder(index, 1)}
-            />
-            <CompactButton
-              accessibilityLabel={`${item.name} 카테고리 수정`}
-              disabled={categoryMutationBusy}
-              label="수정"
-              onPress={() => beginEdit(item)}
-            />
-            {item.isActive ? (
+            <View style={styles.categorySectionHeader}>
+              <View style={styles.categorySectionCopy}>
+                <Text style={styles.cardTitle}>카테고리</Text>
+                <Text style={styles.meta}>선택하면 수정하거나 삭제할 수 있어요.</Text>
+              </View>
               <CompactButton
-                accessibilityLabel={`${item.name} 카테고리 비활성화`}
-                disabled={categoryMutationBusy}
-                label="비활성화"
-                onPress={() => void toggle(item)}
+                accessibilityLabel="새 카테고리 추가 열기"
+                disabled={categoryMutationBusy || editorOpen}
+                label="+ 추가"
+                onPress={beginCreate}
               />
-            ) : null}
-          </View>
-        </View>
-          ))}
+            </View>
+            {orderedItems.length === 0 ? (
+              <Text style={styles.meta}>등록된 카테고리가 없습니다.</Text>
+            ) : (
+              <View
+                accessibilityLabel="카테고리 목록"
+                accessibilityRole="radiogroup"
+                style={styles.categoryList}>
+                {orderedItems.map((item) => {
+                  const selected = selectedCategoryId === item.id;
+                  return (
+                    <Pressable
+                      accessibilityLabel={`${item.name} 카테고리 선택`}
+                      accessibilityRole="radio"
+                      accessibilityState={{checked: selected, disabled: editorOpen || categoryMutationBusy}}
+                      disabled={editorOpen || categoryMutationBusy}
+                      key={item.id}
+                      onPress={() => {
+                        setError(null);
+                        setSelectedCategoryId(item.id);
+                      }}
+                      style={({pressed}) => [
+                        styles.categoryRow,
+                        selected && styles.categoryRowSelected,
+                        pressed && styles.pressed,
+                      ]}>
+                      <AnnouncementCategoryBadge category={item} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            {selectedCategoryId !== null ? (() => {
+              const selected = orderedItems.find((item) => item.id === selectedCategoryId);
+              if (!selected) return null;
+              return (
+                <View accessibilityLabel={`${selected.name} 카테고리 선택 작업`} style={styles.selectedCategoryActions}>
+                  <Text numberOfLines={1} style={styles.selectedCategoryName}>
+                    <Text style={styles.selectedCategoryCaption}>선택됨  </Text>{selected.name}
+                  </Text>
+                  <View style={styles.categoryActions}>
+                    <CompactButton
+                      accessibilityLabel={`${selected.name} 카테고리 수정`}
+                      disabled={categoryMutationBusy || editorOpen}
+                      label="수정"
+                      onPress={() => beginEdit(selected)}
+                    />
+                    <CompactButton
+                      accessibilityLabel={`${selected.name} 카테고리 삭제`}
+                      disabled={categoryMutationBusy || editorOpen}
+                      label="삭제"
+                      onPress={() => {
+                        setError(null);
+                        setDeleteTarget(selected);
+                      }}
+                    />
+                  </View>
+                </View>
+              );
+            })() : null}
+          </Card>
+          {editorOpen ? (
+            <Card>
+              <Text style={styles.cardTitle}>{editingId === null ? '새 카테고리' : '카테고리 수정'}</Text>
+              <TextField label="카테고리 이름" onChangeText={setName} value={name} />
+              <Text style={styles.label}>색상</Text>
+              <View accessibilityLabel="카테고리 색상 선택" accessibilityRole="radiogroup" style={styles.wrap}>
+                {categorySwatches.map((swatch) => (
+                  <Pressable
+                    accessibilityLabel={`카테고리 색상 ${swatch}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{checked: color === swatch}}
+                    key={swatch}
+                    onPress={() => setColor(swatch)}
+                    style={[
+                      styles.swatch,
+                      {backgroundColor: swatch},
+                      color === swatch && styles.swatchSelected,
+                    ]}
+                  />
+                ))}
+              </View>
+              {editingId === null ? (
+                <View accessibilityLabel="카테고리 추가 작업" style={styles.editorActions}>
+                  <EditorActionButton
+                    accessibilityLabel="카테고리 추가"
+                    disabled={categoryMutationBusy || !name.trim()}
+                    label={creating ? '추가 중' : '추가'}
+                    onPress={() => void create()}
+                    primary
+                  />
+                  <EditorActionButton
+                    accessibilityLabel="카테고리 추가 취소"
+                    disabled={categoryMutationBusy}
+                    label="취소"
+                    onPress={cancelEdit}
+                  />
+                </View>
+              ) : (
+                <View accessibilityLabel="카테고리 수정 작업" style={styles.editorActions}>
+                  <EditorActionButton
+                    accessibilityLabel="카테고리 변경 저장"
+                    disabled={categoryMutationBusy || !name.trim()}
+                    label={editing ? '저장 중' : '변경 저장'}
+                    onPress={() => void saveEdit()}
+                    primary
+                  />
+                  <EditorActionButton
+                    accessibilityLabel="카테고리 수정 취소"
+                    disabled={categoryMutationBusy}
+                    label="취소"
+                    onPress={cancelEdit}
+                  />
+                </View>
+              )}
+            </Card>
+          ) : null}
+          <AnnouncementConfirmationSheet
+            accessibilityLabel="카테고리 삭제 확인"
+            busy={deleteTarget !== null && deletingIds.has(deleteTarget.id)}
+            cancelAccessibilityLabel="카테고리 삭제 취소"
+            confirmAccessibilityLabel="카테고리 삭제 확인 실행"
+            confirmLabel="삭제"
+            error={deleteTarget ? error : null}
+            message="새 공지에서는 이 카테고리를 더 이상 사용할 수 없습니다. 기존 공지의 카테고리 표시는 유지됩니다."
+            onCancel={() => {
+              if (categoryMutationBusy) return;
+              setDeleteTarget(null);
+              setError(null);
+            }}
+            onConfirm={() => {
+              if (deleteTarget) void remove(deleteTarget);
+            }}
+            title={deleteTarget ? `${deleteTarget.name} 카테고리를 삭제할까요?` : ''}
+            visible={deleteTarget !== null}
+          />
         </>
       )}
     </View>
@@ -1754,6 +1784,39 @@ function CompactButton({
   );
 }
 
+function EditorActionButton({
+  accessibilityLabel,
+  disabled = false,
+  label,
+  onPress,
+  primary = false,
+}: {
+  accessibilityLabel: string;
+  disabled?: boolean;
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.editorActionButton,
+        primary ? styles.editorActionPrimary : styles.editorActionSecondary,
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}>
+      <Text style={primary ? styles.editorActionPrimaryText : styles.editorActionSecondaryText}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function getEditorConfirmation(
   detail: AnnouncementDetail | null,
   publishMode: 'NOW' | 'SCHEDULED',
@@ -1806,18 +1869,6 @@ function getEditorConfirmation(
     openAccessibilityLabel: '공지 게시 확인 열기',
     openLabel: '게시 내용 확인',
     title: '공지 게시 확인',
-  };
-}
-
-function categoryRequest(
-  item: AnnouncementCategory,
-  overrides: Partial<AnnouncementCategorySaveRequest> = {},
-): AnnouncementCategorySaveRequest {
-  return {
-    color: overrides.color ?? item.color,
-    isActive: overrides.isActive ?? item.isActive,
-    name: overrides.name ?? item.name,
-    sortOrder: overrides.sortOrder ?? item.sortOrder,
   };
 }
 
@@ -1929,16 +1980,23 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'flex-end',
   },
-  categoryContent: {flex: 1, gap: 6, minWidth: 120},
+  categoryList: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
   categoryRow: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: radius.item,
+    borderColor: 'transparent',
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    justifyContent: 'center',
+    minHeight: 44,
+    padding: 2,
+  },
+  categoryRowSelected: {backgroundColor: colors.primarySoft, borderColor: colors.primary},
+  categorySectionCopy: {flex: 1, gap: 3},
+  categorySectionHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
     justifyContent: 'space-between',
-    padding: 14,
   },
   choice: {
     borderColor: colors.borderSoft,
@@ -1996,7 +2054,19 @@ const styles = StyleSheet.create({
   },
   confirmationTitle: {color: colors.textPrimary, fontSize: 22, fontWeight: '800', lineHeight: 30},
   disabled: {opacity: 0.48},
-  editorActions: {gap: spacing.gap},
+  editorActionButton: {
+    alignItems: 'center',
+    borderRadius: radius.control,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  editorActionPrimary: {backgroundColor: colors.primary},
+  editorActionPrimaryText: {color: colors.surface, fontSize: 14, fontWeight: '800'},
+  editorActionSecondary: {backgroundColor: colors.borderSoft},
+  editorActionSecondaryText: {color: colors.textSecondary, fontSize: 14, fontWeight: '800'},
+  editorActions: {flexDirection: 'row', gap: spacing.gap},
   error: {color: colors.danger, fontSize: 14, lineHeight: 20},
   label: {...typography.label, color: colors.textPrimary},
   inlineMediaState: {
@@ -2036,6 +2106,19 @@ const styles = StyleSheet.create({
   },
   scheduleButtonText: {color: colors.textPrimary, fontSize: 15, fontWeight: '700'},
   scheduleField: {gap: 8},
+  selectedCategoryActions: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.item,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    padding: 12,
+  },
+  selectedCategoryCaption: {color: colors.textMuted, fontSize: 12, fontWeight: '600'},
+  selectedCategoryName: {color: colors.textPrimary, flex: 1, fontSize: 15, fontWeight: '700'},
   swatch: {borderRadius: 22, height: 44, minHeight: 44, minWidth: 44, width: 44},
   swatchSelected: {borderColor: colors.textPrimary, borderWidth: 3},
   switchRow: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between'},
