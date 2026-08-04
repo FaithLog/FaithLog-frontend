@@ -150,7 +150,7 @@ describe('media upload coordinator', () => {
     expect(complete).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects READY when completion metadata does not match the uploaded image', async () => {
+  it('accepts the transformed READY digest returned by the backend image variants', async () => {
     await expect(runMediaUpload({
       accessToken: 'access',
       campusId: 1,
@@ -168,7 +168,11 @@ describe('media upload coordinator', () => {
         getAccessUrls: vi.fn(),
       },
       transport: {upload: vi.fn(async () => undefined)},
-    })).rejects.toMatchObject({detail: {code: 'INVALID_SERVER_RESPONSE'}});
+    })).resolves.toMatchObject({
+      assetId: 91,
+      status: 'READY',
+      sha256: 'b'.repeat(64),
+    });
   });
 
   it('accepts equivalent READY sha256 metadata regardless of hex casing', async () => {

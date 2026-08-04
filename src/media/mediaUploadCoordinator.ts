@@ -113,7 +113,7 @@ export async function resumeMediaUploadCompletion({
   signal?: AbortSignal;
   uploaded: UploadedMediaReservation;
 }): Promise<ReadyMediaAsset> {
-  const ready = await completeMediaAsset({
+  return completeMediaAsset({
     accessToken,
     api,
     assetId: uploaded.assetId,
@@ -121,14 +121,6 @@ export async function resumeMediaUploadCompletion({
     ...(completeRetry === undefined ? {} : {completeRetry}),
     ...(signal === undefined ? {} : {signal}),
   });
-  if (ready.sha256.toLowerCase() !== uploaded.sha256.toLowerCase()) {
-    throw new FaithLogApiError({
-      kind: 'error',
-      code: 'INVALID_SERVER_RESPONSE',
-      message: '업로드한 이미지 정보를 확인하지 못했습니다.',
-    });
-  }
-  return ready;
 }
 
 async function completeMediaAsset({

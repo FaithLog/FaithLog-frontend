@@ -108,7 +108,7 @@ export function PollNoticeEditorSection({
       {mediaEnabled ? (
         <View style={styles.mediaCard}>
           <View style={styles.imageHeader}>
-            <Text style={styles.editorTitle}>이미지</Text>
+            <Text style={styles.imageTitle}>이미지</Text>
             <Pressable
               accessibilityLabel="투표 공지 이미지 추가"
               accessibilityRole="button"
@@ -452,18 +452,19 @@ const styles = StyleSheet.create({
   galleryItem: {paddingRight: spacing.gap},
   grow: {flex: 1, gap: 3, minWidth: 0},
   imageHeader: {alignItems: 'center', flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between'},
+  imageTitle: {...typography.label, color: colors.textPrimary},
   inputError: {borderColor: colors.danger},
   dragIndicator: {alignItems: 'center', backgroundColor: 'rgba(17,24,39,0.58)', borderRadius: radius.pill, bottom: 5, height: 20, justifyContent: 'center', left: 22, position: 'absolute', width: 28},
   dragIndicatorText: {color: '#FFFFFF', fontSize: 12, fontWeight: '800'},
   mediaError: {alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.item, flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between', padding: 14},
-  mediaCard: {backgroundColor: colors.surface, borderColor: colors.borderSoft, borderRadius: radius.card, borderWidth: 1, gap: spacing.gap, padding: spacing.card},
+  mediaCard: {gap: spacing.gap, paddingTop: spacing.gap},
   noticeBlock: {backgroundColor: '#F0F9FA', borderColor: colors.faith, borderRadius: radius.item, borderWidth: 1, gap: 6, padding: 16},
   noticeEyebrow: {color: colors.faith, fontSize: 13, fontWeight: '800'},
   noticeInput: {backgroundColor: colors.surface, borderColor: colors.borderSoft, borderRadius: radius.item, borderWidth: 1, color: colors.textPrimary, fontSize: 15, minHeight: 116, padding: 14},
   noticeText: {...typography.body, color: colors.textPrimary},
   pressed: {opacity: 0.72},
   previewRail: {gap: 8, paddingVertical: 2},
-  photoButton: {alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.pill, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14},
+  photoButton: {alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.pill, justifyContent: 'center', minHeight: 44, minWidth: 44, paddingHorizontal: 12},
   photoButtonText: {color: '#FFFFFF', fontSize: 13, fontWeight: '800'},
   smallAction: {alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.control, borderWidth: 1, justifyContent: 'center', minHeight: 44, minWidth: 44, paddingHorizontal: 8},
   smallActionText: {color: colors.textSecondary, fontSize: 12, fontWeight: '700'},
