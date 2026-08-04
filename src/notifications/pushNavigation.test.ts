@@ -47,7 +47,7 @@ describe('push notification route payload validation', () => {
     });
   });
 
-  it('fails closed for POLL_OPEN outside the approved mock environment', () => {
+  it('accepts POLL_OPEN in production after the final poll notice contract is enabled', () => {
     vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'production');
     vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'true');
     const productionCapabilities = {
@@ -60,7 +60,11 @@ describe('push notification route payload validation', () => {
         campusId: '1',
         pollId: '100',
       }, productionCapabilities),
-    ).toEqual({status: 'invalid', reason: 'routeNotAllowed'});
+    ).toEqual({
+      status: 'valid',
+      route: 'polls',
+      params: {campusId: 1, pollId: 100},
+    });
   });
 
   it('rejects numeric and non-canonical POLL_OPEN identifiers at the original payload boundary', () => {

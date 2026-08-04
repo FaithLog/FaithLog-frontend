@@ -22,6 +22,29 @@ vi.mock('react-native', async () => {
   };
 });
 
+vi.mock('expo-secure-store', () => ({
+  deleteItemAsync: vi.fn(async () => undefined),
+  getItemAsync: vi.fn(async () => null),
+  setItemAsync: vi.fn(async () => undefined),
+}));
+
+vi.mock('../../announcements/announcementNativeMedia', () => ({
+  createNativeAnnouncementBinaryUploader: vi.fn(() => vi.fn()),
+  discardPreparedAnnouncementImages: vi.fn(async () => undefined),
+}));
+
+vi.mock('../../auth/accessTokenResolver', () => ({
+  resolveCurrentAccessToken: vi.fn(async () => 'test-access-token'),
+}));
+
+vi.mock('../../api/client', () => ({
+  isMockModeEnabled: vi.fn(() => true),
+}));
+
+vi.mock('../../media/mediaApi', () => ({
+  mediaApi: {},
+}));
+
 import {PublishedPollNoticeEditor} from './PublishedPollNoticeEditor';
 import {resetMockAdapterStateForTests} from '../../api/mockAdapter';
 

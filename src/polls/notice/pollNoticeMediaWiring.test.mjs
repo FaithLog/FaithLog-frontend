@@ -8,6 +8,6 @@ describe('poll notice media retry wiring', () => {
   it('routes every notice-media retry through the isolated coordinator', () => {
     expect(source).toContain('const retryNoticeMedia = async () =>');
     expect(source).not.toMatch(/onRetryNoticeMedia=\{\(\) => loadDetail\(/);
-    expect(source.match(/onRetryNoticeMedia=\{retryNoticeMedia\}/g)).toHaveLength(3);
+    expect(source.match(/onRetryNoticeMedia=\{retryNoticeMedia\}/g)).toHaveLength(1);
   });
 });

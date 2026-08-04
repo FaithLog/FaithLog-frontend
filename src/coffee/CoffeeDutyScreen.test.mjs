@@ -93,6 +93,7 @@ vi.mock('../api/client', () => {
     }
   }
   return {
+    apiRequest: vi.fn(),
     createCoffeeDutyPaymentAccount: mocks.createCoffeeDutyPaymentAccount,
     deactivateCoffeeDutyPaymentAccount: mocks.deactivateCoffeeDutyPaymentAccount,
     FaithLogApiError: TestFaithLogApiError,

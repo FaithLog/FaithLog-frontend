@@ -2450,7 +2450,7 @@ const pollColors = {
 
 const styles = StyleSheet.create({
   noticeTabPanel: {
-    gap: spacing.section,
+    gap: spacing.gap,
   },
   actionRow: {
     flexDirection: 'row',
