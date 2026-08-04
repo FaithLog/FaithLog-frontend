@@ -123,6 +123,8 @@ import {
   getAdminModeRoutes,
   getAvailableRoutes,
   getRouteLabel,
+  getUserBottomNavActiveRoute,
+  isUserBottomNavVisibleRoute,
   type ShellRoute,
   USER_BOTTOM_NAV_ROUTES,
 } from '../navigation/shellRoutes';
@@ -1867,9 +1869,8 @@ function AuthenticatedShell({
   const shouldShowUserBottomNav =
     entryTarget === null &&
     !keyboardVisible &&
-    (USER_BOTTOM_NAV_ROUTES.some((availableRoute) => availableRoute === route) ||
-      route === 'prayers');
-  const userBottomNavActiveId = route === 'prayers' ? 'userHome' : route;
+    isUserBottomNavVisibleRoute(route);
+  const userBottomNavActiveId = getUserBottomNavActiveRoute(route);
   const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
   useAnalyticsScreen(getAuthenticatedAnalyticsScreen({
     announcementView,
@@ -3012,14 +3013,6 @@ function UserHomeDashboard({
         />
       ) : null}
 
-      <HomeAnnouncementCapabilitySection
-        campusId={campusId}
-        key={`home-announcements-campus-${campusId}`}
-        onOpenAll={onOpenAnnouncements}
-        onOpenAnnouncement={onOpenAnnouncement}
-        userId={state.user.id}
-      />
-
       <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
       <View style={styles.homeMetricRow}>
         <HomeMetricTile
@@ -3080,6 +3073,13 @@ function UserHomeDashboard({
           onPress={onOpenDevotion}
         />
       </View>
+      <HomeAnnouncementCapabilitySection
+        campusId={campusId}
+        key={`home-announcements-campus-${campusId}`}
+        onOpenAll={onOpenAnnouncements}
+        onOpenAnnouncement={onOpenAnnouncement}
+        userId={state.user.id}
+      />
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
       <HomePrayerEntryCard
         entryMode="groups"

@@ -89,6 +89,7 @@ vi.mock('react-native', async () => {
     Image: host('Image'),
     Modal: ({children, visible, ...props}: React.PropsWithChildren<{visible: boolean}>) =>
       visible ? ReactModule.createElement('Modal', props, children) : null,
+    PanResponder: {create: (handlers: Record<string, unknown>) => ({panHandlers: handlers})},
     Pressable: host('Pressable'),
     ScrollView: host('ScrollView'),
     StyleSheet: {create: (styles: unknown) => styles},
@@ -491,10 +492,38 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     const previewList = byLabel(renderer, '공지 이미지 미리보기 목록');
     const previews = previewList.props.data.map((item: unknown, index: number) =>
       previewList.props.renderItem({index, item}));
-    expect(previews.map((preview: React.ReactElement<{assetId: number}>) => preview.props.assetId))
+    expect(previews.map((preview: React.ReactElement<{children: React.ReactElement<{assetId: number}>}>) =>
+      preview.props.children.props.assetId))
       .toEqual([77, 88]);
     expect(byLabel(renderer, '이미지 1 삭제')).toBeTruthy();
     expect(byLabel(renderer, '이미지 2 삭제')).toBeTruthy();
+  });
+
+  it('exposes horizontal drag handles that reorder announcement images', async () => {
+    const detail = announcement({imageAssetIds: [77, 88], title: '순서 변경 공지'});
+    const renderer = await render(
+      <AnnouncementEditorScreen
+        api={createApi({
+          getMediaAccessUrls: vi.fn(async () => [mediaAccess(77), mediaAccess(88)]),
+        })}
+        campusId={1}
+        detail={detail}
+        onBack={vi.fn()}
+      />,
+    );
+
+    let previewList = byLabel(renderer, '공지 이미지 미리보기 목록');
+    expect(previewList.props.horizontal).toBe(true);
+    await act(async () => {
+      byLabel(renderer, '이미지 1 순서 이동 핸들').props.onAccessibilityAction({
+        nativeEvent: {actionName: 'increment'},
+      });
+      await settle();
+    });
+
+    previewList = byLabel(renderer, '공지 이미지 미리보기 목록');
+    expect(previewList.props.data.map((item: {assetId: number}) => item.assetId))
+      .toEqual([88, 77]);
   });
 
   it('keeps a missing existing attachment preview as an independently retryable editor slot', async () => {

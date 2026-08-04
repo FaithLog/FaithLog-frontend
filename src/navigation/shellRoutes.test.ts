@@ -6,6 +6,8 @@ import {
   getAdminModeRoutes,
   getAvailableRoutes,
   getRouteLabel,
+  getUserBottomNavActiveRoute,
+  isUserBottomNavVisibleRoute,
   USER_BOTTOM_NAV_ROUTES,
 } from './shellRoutes';
 
@@ -40,6 +42,11 @@ describe('USER_BOTTOM_NAV_ROUTES', () => {
       '납부',
       '내정보',
     ]);
+  });
+
+  it('keeps the user bottom navigation visible on announcements with Home active', () => {
+    expect(isUserBottomNavVisibleRoute('announcements')).toBe(true);
+    expect(getUserBottomNavActiveRoute('announcements')).toBe('userHome');
   });
 });
 

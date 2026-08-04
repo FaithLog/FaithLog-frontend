@@ -5,7 +5,6 @@ import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {colors, radius, spacing} from '../theme';
 import {announcementApi, type AnnouncementApi} from './announcementApi';
 import {AnnouncementCategoryBadge} from './AnnouncementCategoryBadge';
-import {AnnouncementRetryableImage} from './AnnouncementRetryableImage';
 import type {AnnouncementSummary} from './announcementTypes';
 
 type ContentState =
@@ -13,17 +12,11 @@ type ContentState =
   | {status: 'ready'; items: AnnouncementSummary[]}
   | {status: 'error'};
 
-type ThumbnailState =
-  | {status: 'idle' | 'loading'}
-  | {status: 'ready'; urls: Record<number, string>}
-  | {status: 'error'};
-
 export function HomeAnnouncementSection({
   api = announcementApi,
   campusId,
   onOpenAll,
   onOpenAnnouncement,
-  userId,
 }: {
   api?: AnnouncementApi;
   campusId: number;
@@ -32,54 +25,11 @@ export function HomeAnnouncementSection({
   userId?: number | undefined;
 }) {
   const [content, setContent] = useState<ContentState>({status: 'loading'});
-  const [thumbnails, setThumbnails] = useState<ThumbnailState>({status: 'idle'});
   const contentSequence = useRef(0);
-  const mediaSequence = useRef(0);
-
-  const loadThumbnails = useCallback(async (
-    items: AnnouncementSummary[],
-    contentRequest: number,
-    exposeBatchFailure = true,
-  ): Promise<Record<number, string> | null> => {
-    const assetIds = Array.from(new Set(
-      items.flatMap((item) => item.imageAssetIds.slice(0, 1)),
-    ));
-    if (assetIds.length === 0) {
-      setThumbnails({status: 'ready', urls: {}});
-      return {};
-    }
-    const mediaRequest = ++mediaSequence.current;
-    if (exposeBatchFailure) setThumbnails({status: 'loading'});
-    try {
-      const token = await resolveCurrentAccessToken(() => undefined);
-      if (!token) throw new Error('missing access token');
-      const media = await api.getMediaAccessUrls(token, campusId, assetIds);
-      if (contentRequest !== contentSequence.current || mediaRequest !== mediaSequence.current) {
-        return null;
-      }
-      const urls = Object.fromEntries(media.map((item) => [item.assetId, item.thumbnailUrl]));
-      setThumbnails((current) => ({
-        status: 'ready',
-        urls: !exposeBatchFailure && current.status === 'ready'
-          ? {...current.urls, ...urls}
-          : urls,
-      }));
-      return urls;
-    } catch {
-      if (
-        exposeBatchFailure &&
-        contentRequest === contentSequence.current &&
-        mediaRequest === mediaSequence.current
-      ) setThumbnails({status: 'error'});
-      return null;
-    }
-  }, [api, campusId]);
 
   const load = useCallback(async () => {
     const sequence = ++contentSequence.current;
-    mediaSequence.current += 1;
     setContent({status: 'loading'});
-    setThumbnails({status: 'idle'});
     try {
       const token = await resolveCurrentAccessToken(() => undefined);
       if (!token) throw new Error('missing access token');
@@ -87,22 +37,18 @@ export function HomeAnnouncementSection({
       if (sequence !== contentSequence.current) return;
       const visible = selectHomeAnnouncements(items);
       setContent({status: 'ready', items: visible});
-      void loadThumbnails(visible, sequence);
     } catch {
       if (sequence !== contentSequence.current) return;
       setContent({status: 'error'});
     }
-  }, [api, campusId, loadThumbnails]);
+  }, [api, campusId]);
 
   useEffect(() => {
     void load();
     return () => {
       contentSequence.current += 1;
-      mediaSequence.current += 1;
     };
   }, [load]);
-
-  const thumbnailUrls = thumbnails.status === 'ready' ? thumbnails.urls : {};
 
   return (
     <View accessibilityLabel="홈 공지" style={styles.section}>
@@ -140,30 +86,11 @@ export function HomeAnnouncementSection({
         <View style={styles.cards}>
           {content.items.map((item) => (
             <HomeAnnouncementCard
-              campusId={campusId}
               item={item}
               key={item.id}
               onPress={onOpenAnnouncement}
-              thumbnailUrl={item.imageAssetIds[0] === undefined
-                ? undefined
-                : thumbnailUrls[item.imageAssetIds[0]]}
-              onRetryThumbnail={async (assetId) => {
-                const urls = await loadThumbnails(
-                  content.items,
-                  contentSequence.current,
-                  false,
-                );
-                return urls?.[assetId] !== undefined;
-              }}
-              thumbnailPending={thumbnails.status === 'idle' || thumbnails.status === 'loading'}
-              userId={userId}
             />
           ))}
-          {thumbnails.status === 'error' ? (
-            <Text accessibilityRole="alert" style={styles.mediaWarning}>
-              이미지를 불러오지 못했지만 공지는 확인할 수 있습니다.
-            </Text>
-          ) : null}
         </View>
       )}
     </View>
@@ -174,8 +101,25 @@ function selectHomeAnnouncements(items: AnnouncementSummary[]) {
   const newestFirst = (left: AnnouncementSummary, right: AnnouncementSummary) =>
     announcementPublishedTime(right) - announcementPublishedTime(left) || right.id - left.id;
   const pinned = items.filter((item) => item.pinned).sort(newestFirst)[0];
-  const latest = items.filter((item) => !item.pinned).sort(newestFirst).slice(0, 2);
-  return pinned ? [pinned, ...latest] : latest;
+  const now = new Date();
+  const weekStart = startOfLocalWeek(now).getTime();
+  const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+  const latest = items
+    .filter((item) => {
+      if (item.pinned) return false;
+      const publishedAt = announcementPublishedTime(item);
+      return publishedAt >= weekStart && publishedAt < weekEnd;
+    })
+    .sort(newestFirst)[0];
+  return [pinned, latest].filter((item): item is AnnouncementSummary => item !== undefined);
+}
+
+function startOfLocalWeek(value: Date) {
+  const start = new Date(value);
+  const dayFromMonday = (start.getDay() + 6) % 7;
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - dayFromMonday);
+  return start;
 }
 
 function announcementPublishedTime(item: AnnouncementSummary) {
@@ -184,21 +128,11 @@ function announcementPublishedTime(item: AnnouncementSummary) {
 }
 
 const HomeAnnouncementCard = memo(function HomeAnnouncementCard({
-  campusId,
   item,
   onPress,
-  onRetryThumbnail,
-  thumbnailPending,
-  thumbnailUrl,
-  userId,
 }: {
-  campusId: number;
   item: AnnouncementSummary;
   onPress: (id: number) => void;
-  onRetryThumbnail: (assetId: number) => Promise<boolean>;
-  thumbnailPending: boolean;
-  thumbnailUrl: string | undefined;
-  userId?: number | undefined;
 }) {
   const publishedAt = useMemo(
     () => formatAnnouncementDate(item.publishedAt ?? item.publishAt),
@@ -213,29 +147,15 @@ const HomeAnnouncementCard = memo(function HomeAnnouncementCard({
         style={({pressed}) => [styles.cardOpen, pressed ? styles.pressed : null]}>
         <View style={styles.cardCopy}>
           <View style={styles.cardMeta}>
-            <AnnouncementCategoryBadge category={item.category} />
-            {item.pinned ? <Text style={styles.pinned}>상단 고정</Text> : null}
+            <View style={styles.cardBadges}>
+              <AnnouncementCategoryBadge category={item.category} />
+              {item.pinned ? <Text style={styles.pinned}>상단 고정</Text> : null}
+            </View>
+            <Text style={styles.date}>{publishedAt}</Text>
           </View>
           <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
-          <Text style={styles.date}>{publishedAt}</Text>
         </View>
       </Pressable>
-      {item.imageAssetIds[0] !== undefined ? (
-        <AnnouncementRetryableImage
-          assetId={item.imageAssetIds[0]}
-          campusId={campusId}
-          imageAccessibilityLabel={`${item.title} 미리보기 이미지`}
-          imageStyle={styles.thumbnail}
-          loadingAccessibilityLabel={`${item.title} 미리보기 이미지 불러오는 중`}
-          onRetry={() => onRetryThumbnail(item.imageAssetIds[0]!)}
-          pending={thumbnailPending}
-          retryAccessibilityLabel={`${item.title} 미리보기 이미지 다시 불러오기`}
-          signedUrl={thumbnailUrl}
-          style={styles.thumbnailFrame}
-          userId={userId}
-          variant="thumbnail"
-        />
-      ) : null}
     </View>
   );
 });
@@ -251,15 +171,15 @@ const styles = StyleSheet.create({
   allButtonText: {color: colors.primary, fontSize: 12, fontWeight: '700', lineHeight: 16},
   allButtonTouch: {alignItems: 'center', justifyContent: 'center', minHeight: 44},
   allButtonVisual: {alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.pill, height: 30, justifyContent: 'center', paddingHorizontal: 10},
-  card: {alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.item, flexDirection: 'row', gap: 12, minHeight: 92, padding: 14},
-  cardCopy: {flex: 1, gap: 7, minWidth: 0},
-  cardOpen: {flex: 1, justifyContent: 'center', minHeight: 64, minWidth: 0},
-  cardMeta: {alignItems: 'center', flexDirection: 'row', gap: 8},
+  card: {backgroundColor: colors.surface, borderColor: colors.borderSoft, borderRadius: radius.item, borderWidth: 1, minHeight: 74, paddingHorizontal: 13, paddingVertical: 11},
+  cardBadges: {alignItems: 'center', flexDirection: 'row', gap: 7},
+  cardCopy: {flex: 1, gap: 6, minWidth: 0},
+  cardOpen: {flex: 1, justifyContent: 'center', minHeight: 50, minWidth: 0},
+  cardMeta: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between'},
   cards: {gap: 8},
   date: {color: colors.textMuted, fontSize: 12, lineHeight: 16},
   header: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between'},
   inlineState: {alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.item, flexDirection: 'row', gap: 12, justifyContent: 'space-between', minHeight: 56, paddingHorizontal: 14},
-  mediaWarning: {color: colors.textMuted, fontSize: 12, lineHeight: 18, paddingHorizontal: 4},
   pinned: {color: colors.primary, fontSize: 11, fontWeight: '700'},
   pressed: {opacity: 0.72},
   retryButton: {alignItems: 'center', borderRadius: radius.pill, justifyContent: 'center', minHeight: 44, paddingHorizontal: 10},
@@ -267,7 +187,5 @@ const styles = StyleSheet.create({
   section: {gap: spacing.gap},
   sectionTitle: {color: colors.textPrimary, fontSize: 19, fontWeight: '700', lineHeight: 28},
   statusText: {color: colors.textMuted, flex: 1, fontSize: 13, lineHeight: 20},
-  thumbnail: {borderRadius: radius.control, height: 64, width: 64},
-  thumbnailFrame: {backgroundColor: colors.borderSoft, borderRadius: radius.control, height: 64, overflow: 'hidden', width: 64},
   title: {color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 21},
 });

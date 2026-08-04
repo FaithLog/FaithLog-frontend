@@ -18,14 +18,12 @@ type ViewState =
   | {status: 'error'; error: ApiError; target: ViewTarget};
 
 type ViewTarget = {kind: 'list'} | {announcementId: number; kind: 'detail'};
-type MediaTarget = 'detail' | 'list';
 type DetailMediaSlot = {assetId: number; image: MediaAccessUrl | null; loading?: boolean};
 type MediaState =
   | {status: 'idle'}
-  | {status: 'loading'; target: MediaTarget}
-  | {status: 'listReady'; thumbnails: Record<number, string>}
+  | {status: 'loading'; target: 'detail'}
   | {status: 'detailReady'; slots: DetailMediaSlot[]}
-  | {status: 'error'; target: MediaTarget};
+  | {status: 'error'; target: 'detail'};
 
 export function AnnouncementRouteScreen({
   campusId,
@@ -70,47 +68,6 @@ export function AnnouncementRouteScreen({
     return operation(token);
   }, []);
 
-  const loadListMedia = useCallback(async (
-    items: AnnouncementSummary[],
-    preserveCurrentUrls = false,
-  ): Promise<Record<number, string> | null> => {
-    const sequence = ++mediaRequestSequence.current;
-    const assetIds = Array.from(new Set(
-      items.flatMap((item) => item.imageAssetIds.slice(0, 1)),
-    ));
-
-    if (assetIds.length === 0) {
-      setMediaState({status: 'listReady', thumbnails: {}});
-      return {};
-    }
-
-    if (!preserveCurrentUrls) setMediaState({status: 'loading', target: 'list'});
-    try {
-      const accessUrls = await withToken((token) =>
-        api.getMediaAccessUrls(token, campusId, assetIds));
-      const thumbnails = Object.fromEntries(
-        accessUrls.map((asset) => [asset.assetId, asset.thumbnailUrl]),
-      );
-      if (sequence === mediaRequestSequence.current) {
-        setMediaState((current) => ({
-          status: 'listReady',
-          thumbnails: preserveCurrentUrls && current.status === 'listReady'
-            ? {...current.thumbnails, ...thumbnails}
-            : thumbnails,
-        }));
-        return thumbnails;
-      }
-      return null;
-    } catch {
-      if (sequence === mediaRequestSequence.current) {
-        setMediaState((current) => preserveCurrentUrls && current.status === 'listReady'
-          ? current
-          : {status: 'error', target: 'list'});
-      }
-      return null;
-    }
-  }, [api, campusId, withToken]);
-
   const loadDetailMedia = useCallback(async (
     detail: AnnouncementDetail,
     preserveCurrentUrls = false,
@@ -154,13 +111,12 @@ export function AnnouncementRouteScreen({
       const items = await withToken((token) => api.listPublished(token, campusId));
       if (sequence !== contentRequestSequence.current) return;
       setState({status: 'list', items});
-      void loadListMedia(items);
     } catch (error) {
       if (sequence === contentRequestSequence.current) {
         setState({status: 'error', error: toApiError(error), target: {kind: 'list'}});
       }
     }
-  }, [api, campusId, loadListMedia, withToken]);
+  }, [api, campusId, withToken]);
 
   const openDetail = useCallback(async (announcementId: number) => {
     const sequence = ++contentRequestSequence.current;
@@ -245,37 +201,19 @@ export function AnnouncementRouteScreen({
           : 'ready';
     return <AnnouncementDetailScreen campusId={campusId} detail={state.detail} mediaStatus={detailMediaStatus} onBack={loadList} onMediaRetry={() => loadDetailMedia(state.detail, true)} slots={slots} userId={userId} />;
   }
-  const thumbnails = mediaState.status === 'listReady' ? mediaState.thumbnails : {};
-  const listMediaStatus = mediaState.status === 'loading' && mediaState.target === 'list'
-    ? 'loading'
-    : mediaState.status === 'error' && mediaState.target === 'list'
-      ? 'error'
-      : 'ready';
-  return <AnnouncementListScreen campusId={campusId} items={state.items} mediaStatus={listMediaStatus} onBack={onBack} onMediaRetry={() => loadListMedia(state.items, true)} onOpen={openDetail} onRefresh={loadList} onThumbnailRetry={async (assetId) => (await loadListMedia(state.items, true))?.[assetId] !== undefined} thumbnails={thumbnails} userId={userId} />;
+  return <AnnouncementListScreen items={state.items} onBack={onBack} onOpen={openDetail} onRefresh={loadList} />;
 }
 
 export function AnnouncementListScreen({
-  campusId,
   items,
-  mediaStatus,
   onBack,
-  onMediaRetry,
   onOpen,
   onRefresh,
-  onThumbnailRetry,
-  thumbnails,
-  userId,
 }: {
-  campusId: number;
   items: AnnouncementSummary[];
-  mediaStatus: 'error' | 'loading' | 'ready';
   onBack: () => void;
-  onMediaRetry: () => void;
   onOpen: (id: number) => void;
   onRefresh: () => void;
-  onThumbnailRetry: (assetId: number) => Promise<boolean>;
-  thumbnails: Record<number, string>;
-  userId?: number | undefined;
 }) {
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const categories = Array.from(
@@ -324,24 +262,17 @@ export function AnnouncementListScreen({
               </Pressable>
             ))}
           </View>
-          <MediaLoadNotice
-            errorMessage="미리보기 이미지를 불러오지 못했습니다."
-            loadingMessage="미리보기 이미지를 불러오고 있습니다."
-            onRetry={onMediaRetry}
-            retryAccessibilityLabel="공지 미리보기 이미지 주소 다시 불러오기"
-            status={mediaStatus}
-          />
         </View>
       }
       onRefresh={onRefresh}
       refreshing={false}
-      renderItem={({item}) => <AnnouncementRow campusId={campusId} item={item} mediaPending={mediaStatus === 'loading'} onPress={onOpen} onThumbnailRetry={onThumbnailRetry} thumbnailUrl={item.imageAssetIds[0] ? thumbnails[item.imageAssetIds[0]] : undefined} userId={userId} />}
+      renderItem={({item}) => <AnnouncementRow item={item} onPress={onOpen} />}
       showsVerticalScrollIndicator={false}
     />
   );
 }
 
-const AnnouncementRow = memo(function AnnouncementRow({campusId, item, mediaPending, onPress, onThumbnailRetry, thumbnailUrl, userId}: {campusId: number; item: AnnouncementSummary; mediaPending: boolean; onPress: (id: number) => void; onThumbnailRetry: (assetId: number) => Promise<boolean>; thumbnailUrl: string | undefined; userId?: number | undefined}) {
+const AnnouncementRow = memo(function AnnouncementRow({item, onPress}: {item: AnnouncementSummary; onPress: (id: number) => void}) {
   return (
     <View style={styles.card}>
       <Pressable
@@ -349,11 +280,15 @@ const AnnouncementRow = memo(function AnnouncementRow({campusId, item, mediaPend
         accessibilityRole="button"
         onPress={() => onPress(item.id)}
         style={({pressed}) => [styles.cardOpen, pressed && styles.pressed]}>
-        <View style={styles.rowTop}><AnnouncementCategoryBadge category={item.category} />{item.pinned ? <Text style={styles.pinned}>상단 고정</Text> : null}</View>
+        <View style={styles.rowTop}>
+          <View style={styles.rowBadges}>
+            <AnnouncementCategoryBadge category={item.category} />
+            {item.pinned ? <Text style={styles.pinned}>상단 고정</Text> : null}
+          </View>
+          <Text style={styles.date}>{formatDate(item.publishedAt ?? item.publishAt)}</Text>
+        </View>
         <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
-        <Text style={styles.date}>{formatDate(item.publishedAt ?? item.publishAt)}</Text>
       </Pressable>
-      {item.imageAssetIds[0] ? <RetryableThumbnail assetId={item.imageAssetIds[0]} campusId={campusId} mediaPending={mediaPending} onMediaRetry={() => onThumbnailRetry(item.imageAssetIds[0]!)} onOpen={() => onPress(item.id)} title={item.title} url={thumbnailUrl} userId={userId} /> : null}
     </View>
   );
 });
@@ -376,44 +311,62 @@ export function AnnouncementDetailScreen({
   userId?: number | undefined;
 }) {
   const {width} = useWindowDimensions();
-  const imageWidth = Math.max(240, width - spacing.screenX * 2);
+  const imageWidth = Math.max(240, width - spacing.screenX * 2 - 24);
   return (
     <FlatList
       contentContainerStyle={styles.listContent}
       data={[]}
       ListHeaderComponent={
         <View style={styles.detail}>
-          <ScreenHeader action={<CompactBackButton onPress={onBack} />} title="공지 상세" />
-          <AnnouncementCategoryBadge category={detail.category} />
-          <Text accessibilityRole="header" style={styles.detailTitle}>{detail.title}</Text>
-          <Text style={styles.date}>{formatDate(detail.publishedAt ?? detail.publishAt)}</Text>
-          <Text style={styles.body}>{detail.body}</Text>
-          {detail.imageAssetIds.length > 0 ? <Text style={styles.imageHeading}>첨부 이미지</Text> : null}
-          <MediaLoadNotice
-            errorMessage="첨부 이미지 주소를 불러오지 못했습니다."
-            loadingMessage="첨부 이미지 주소를 불러오고 있습니다."
-            onRetry={onMediaRetry}
-            retryAccessibilityLabel="공지 첨부 이미지 주소 다시 불러오기"
-            status={mediaStatus}
+          <ScreenHeader
+            action={<CompactBackButton onPress={onBack} />}
+            eyebrow="캠퍼스 소식"
+            subtitle="공동체의 중요한 소식을 확인하세요."
+            title="공지 상세"
           />
-          {slots.length > 0 ? (
-            <FlatList
-              accessibilityLabel="공지 첨부 이미지 목록"
-              data={slots}
-              decelerationRate="fast"
-              horizontal
-              keyExtractor={(item) => String(item.assetId)}
-              pagingEnabled
-              renderItem={({index, item}) => item.image ? (
-                <RetryableDetailImage campusId={campusId} image={item.image} imageWidth={imageWidth} index={index} onMediaRetry={onMediaRetry} userId={userId} />
-              ) : item.loading ? (
-                <LoadingDetailImage imageWidth={imageWidth} index={index} />
-              ) : (
-                <MissingDetailImage imageWidth={imageWidth} index={index} onRetry={onMediaRetry} />
-              )}
-              showsHorizontalScrollIndicator={false}
-              snapToInterval={imageWidth}
-            />
+          <View style={styles.detailHero}>
+            <View style={styles.detailMetaRow}>
+              <AnnouncementCategoryBadge category={detail.category} />
+              <Text style={styles.date}>{formatDate(detail.publishedAt ?? detail.publishAt)}</Text>
+            </View>
+            <Text accessibilityRole="header" style={styles.detailTitle}>{detail.title}</Text>
+          </View>
+          <View style={styles.bodyCard}>
+            <Text style={styles.body}>{detail.body}</Text>
+          </View>
+          {detail.imageAssetIds.length > 0 ? (
+            <View style={styles.mediaSection}>
+              <View style={styles.mediaHeadingRow}>
+                <Text style={styles.imageHeading}>첨부 이미지</Text>
+                {slots.length > 1 ? <Text style={styles.imageCount}>{slots.length}장</Text> : null}
+              </View>
+              <MediaLoadNotice
+                errorMessage="첨부 이미지 주소를 불러오지 못했습니다."
+                loadingMessage="첨부 이미지 주소를 불러오고 있습니다."
+                onRetry={onMediaRetry}
+                retryAccessibilityLabel="공지 첨부 이미지 주소 다시 불러오기"
+                status={mediaStatus}
+              />
+              {slots.length > 0 ? (
+                <FlatList
+                  accessibilityLabel="공지 첨부 이미지 목록"
+                  data={slots}
+                  decelerationRate="fast"
+                  horizontal
+                  keyExtractor={(item) => String(item.assetId)}
+                  pagingEnabled
+                  renderItem={({index, item}) => item.image ? (
+                    <RetryableDetailImage campusId={campusId} image={item.image} imageWidth={imageWidth} index={index} onMediaRetry={onMediaRetry} userId={userId} />
+                  ) : item.loading ? (
+                    <LoadingDetailImage imageWidth={imageWidth} index={index} />
+                  ) : (
+                    <MissingDetailImage imageWidth={imageWidth} index={index} onRetry={onMediaRetry} />
+                  )}
+                  showsHorizontalScrollIndicator={false}
+                  snapToInterval={imageWidth}
+                />
+              ) : null}
+            </View>
           ) : null}
         </View>
       }
@@ -500,102 +453,6 @@ function MediaLoadNotice({
   );
 }
 
-function RetryableThumbnail({assetId, campusId, mediaPending, onMediaRetry, onOpen, title, url, userId}: {assetId: number; campusId: number; mediaPending: boolean; onMediaRetry: () => Promise<boolean>; onOpen: () => void; title: string; url: string | undefined; userId?: number | undefined}) {
-  const [status, setStatus] = useState<'error' | 'loaded' | 'loading'>(
-    mediaPending || url ? 'loading' : 'error',
-  );
-  const [retryKey, setRetryKey] = useState(0);
-  const retryAttempt = useRef(0);
-  const latestMediaPending = useRef(mediaPending);
-  const latestUrl = useRef(url);
-  latestMediaPending.current = mediaPending;
-  latestUrl.current = url;
-  const imageIdentity = `${url ?? 'missing'}:${retryKey}`;
-  const latestImageIdentity = useRef(imageIdentity);
-  latestImageIdentity.current = imageIdentity;
-
-  useEffect(() => {
-    retryAttempt.current += 1;
-    setStatus(mediaPending || url ? 'loading' : 'error');
-  }, [mediaPending, url]);
-
-  const retry = async () => {
-    const attempt = ++retryAttempt.current;
-    setStatus('loading');
-    setRetryKey((current) => current + 1);
-    try {
-      const refreshed = await onMediaRetry();
-      if (
-        attempt === retryAttempt.current &&
-        !refreshed &&
-        !latestMediaPending.current &&
-        !latestUrl.current
-      ) setStatus('error');
-    } catch {
-      if (
-        attempt === retryAttempt.current &&
-        !latestMediaPending.current &&
-        !latestUrl.current
-      ) setStatus('error');
-    }
-  };
-
-  return (
-    <View style={styles.thumbnailFrame}>
-      {url ? <AnnouncementCachedImage
-        accessible={false}
-        accessibilityLabel="공지 미리보기 이미지"
-        assetId={assetId}
-        campusId={campusId}
-        onError={() => {
-          if (latestImageIdentity.current === imageIdentity) setStatus('error');
-        }}
-        onLoad={() => {
-          if (latestImageIdentity.current === imageIdentity) setStatus('loaded');
-        }}
-        resolutionKey={retryKey}
-        resizeMode="cover"
-        signedUrl={url}
-        style={styles.thumbnail}
-        userId={userId}
-        variant="thumbnail"
-      /> : null}
-      {status === 'loading' ? (
-        <View accessibilityLabel={`${title} 미리보기 이미지 불러오는 중`} style={styles.imageFallback}>
-          <Text style={styles.mediaStatus}>이미지 불러오는 중</Text>
-        </View>
-      ) : null}
-      {status === 'error' ? (
-        <View accessibilityRole="alert" style={styles.imageFallback}>
-          <Text style={styles.mediaStatus}>이미지를 표시하지 못했습니다.</Text>
-          <Pressable
-            accessibilityLabel={`${title} 미리보기 이미지 다시 불러오기`}
-            accessibilityRole="button"
-            onPress={(event?: {stopPropagation?: () => void}) => {
-              event?.stopPropagation?.();
-              void retry();
-            }}
-            style={({pressed}) => [styles.inlineRetry, pressed && styles.pressed]}
-          >
-            <Text style={styles.inlineRetryText}>다시 시도</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      {status === 'loaded' ? (
-        <Pressable
-          accessibilityElementsHidden
-          accessibilityLabel={`${title} 미리보기 이미지로 상세 보기`}
-          accessibilityRole="button"
-          accessible={false}
-          importantForAccessibility="no"
-          onPress={onOpen}
-          style={styles.imageOpenOverlay}
-        />
-      ) : null}
-    </View>
-  );
-}
-
 function RetryableDetailImage({
   campusId,
   image,
@@ -643,7 +500,7 @@ function RetryableDetailImage({
           if (latestImageIdentity.current === imageIdentity) setStatus('loaded');
         }}
         resolutionKey={retryKey}
-        resizeMode="cover"
+        resizeMode="contain"
         signedUrl={image.detailUrl}
         style={styles.image}
         userId={userId}
@@ -702,11 +559,13 @@ const styles = StyleSheet.create({
   body: {...typography.body, color: colors.textSecondary, lineHeight: 24},
   card: {
     backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
     borderRadius: radius.card,
+    borderWidth: 1,
     gap: 10,
     padding: spacing.card,
   },
-  cardOpen: {gap: 10},
+  cardOpen: {gap: 7},
   categoryFilter: {alignItems: 'center', borderColor: colors.borderSoft, borderRadius: radius.pill, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 44, paddingHorizontal: 12},
   categoryFilterActive: {backgroundColor: colors.primarySoft, borderColor: colors.primarySoft},
   categoryFilterDot: {borderRadius: 4, height: 8, width: 8},
@@ -723,9 +582,24 @@ const styles = StyleSheet.create({
   },
   compactButtonText: {color: colors.primary, fontSize: 13, fontWeight: '700'},
   date: {color: colors.textMuted, fontSize: 13, lineHeight: 18},
-  detail: {gap: 14},
+  bodyCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    padding: spacing.card,
+  },
+  detail: {gap: 12},
+  detailHero: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.card,
+    gap: 9,
+    padding: 16,
+  },
+  detailMetaRow: {alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between'},
   detailTitle: {...typography.screenTitle, color: colors.textPrimary},
-  image: {aspectRatio: 4 / 3, width: '100%'},
+  image: {aspectRatio: 1, width: '100%'},
+  imageCount: {color: colors.primary, fontSize: 13, fontWeight: '700'},
   imageFallback: {
     alignItems: 'center',
     backgroundColor: colors.surface,
@@ -739,13 +613,14 @@ const styles = StyleSheet.create({
   },
   imageFrame: {
     alignSelf: 'center',
-    aspectRatio: 4 / 3,
-    backgroundColor: colors.borderSoft,
+    aspectRatio: 1,
+    backgroundColor: colors.background,
+    borderColor: colors.borderSoft,
     borderRadius: radius.item,
+    borderWidth: 1,
     overflow: 'hidden',
   },
-  imageHeading: {...typography.cardTitle, color: colors.textPrimary, marginTop: 8},
-  imageOpenOverlay: {bottom: 0, left: 0, position: 'absolute', right: 0, top: 0},
+  imageHeading: {...typography.cardTitle, color: colors.textPrimary},
   inlineRetry: {
     alignItems: 'center',
     backgroundColor: colors.primarySoft,
@@ -759,10 +634,19 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     gap: spacing.gap,
     paddingBottom: 120,
-    paddingHorizontal: spacing.screenX,
+    paddingHorizontal: 0,
     paddingTop: 20,
   },
   listHeader: {gap: 14},
+  mediaHeadingRow: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between'},
+  mediaSection: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
   mediaError: {
     alignItems: 'flex-start',
     backgroundColor: colors.surface,
@@ -775,15 +659,8 @@ const styles = StyleSheet.create({
   missingImage: {alignItems: 'center', gap: 8, justifyContent: 'center'},
   pinned: {color: colors.primary, fontSize: 12, fontWeight: '700'},
   pressed: {opacity: 0.72},
-  rowTop: {alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between'},
-  stateHost: {flex: 1, gap: 16, justifyContent: 'center', padding: spacing.screenX},
-  thumbnail: {height: 92, width: '100%'},
-  thumbnailFrame: {
-    backgroundColor: colors.borderSoft,
-    borderRadius: radius.control,
-    height: 92,
-    overflow: 'hidden',
-    width: '100%',
-  },
+  rowBadges: {alignItems: 'center', flexDirection: 'row', gap: 8},
+  rowTop: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between'},
+  stateHost: {flex: 1, gap: 16, justifyContent: 'center', paddingVertical: spacing.screenX},
   title: {...typography.cardTitle, color: colors.textPrimary},
 });

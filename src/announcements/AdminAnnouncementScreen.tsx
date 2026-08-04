@@ -1,5 +1,6 @@
 import {
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
   useCallback,
   useEffect,
@@ -12,6 +13,7 @@ import {
   FlatList,
   Image,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -1571,31 +1573,41 @@ function AnnouncementImagePickerSection({
           keyExtractor={(preview) => preview.localId}
           maxToRenderPerBatch={4}
           removeClippedSubviews
-          renderItem={({item: preview}) => preview.kind === 'local' ? (
-            <Image
-              accessibilityLabel={`이미지 ${preview.index + 1} 미리보기`}
-              resizeMode="cover"
-              source={{uri: preview.uri}}
-              style={styles.uploadPreview}
-            />
-          ) : (
-            <AnnouncementRetryableImage
-              assetId={preview.assetId}
-              campusId={campusId}
-              imageAccessibilityLabel={`이미지 ${preview.index + 1} 미리보기`}
-              imageStyle={styles.uploadPreviewImage}
-              loadingAccessibilityLabel={`이미지 ${preview.index + 1} 미리보기 불러오는 중`}
-              onRetry={async () => {
-                const urls = await onRetryRemoteMedia();
-                return urls?.[preview.assetId] !== undefined;
-              }}
-              pending={remoteMediaPending}
-              retryAccessibilityLabel={`이미지 ${preview.index + 1} 미리보기 다시 불러오기`}
-              signedUrl={preview.signedUrl}
-              style={styles.uploadPreview}
-              userId={userId}
-              variant="thumbnail"
-            />
+          renderItem={({item: preview}) => (
+            <DraggableAnnouncementPreview
+              disabled={items[preview.index]?.status === 'uploading'}
+              index={preview.index}
+              key={preview.localId}
+              onMove={(fromIndex, toIndex) => onChange((current) =>
+                moveUploadItem(current, fromIndex, toIndex))}
+              total={items.length}>
+              {preview.kind === 'local' ? (
+                <Image
+                  accessibilityLabel={`이미지 ${preview.index + 1} 미리보기`}
+                  resizeMode="cover"
+                  source={{uri: preview.uri}}
+                  style={styles.uploadPreviewImage}
+                />
+              ) : (
+                <AnnouncementRetryableImage
+                  assetId={preview.assetId}
+                  campusId={campusId}
+                  imageAccessibilityLabel={`이미지 ${preview.index + 1} 미리보기`}
+                  imageStyle={styles.uploadPreviewImage}
+                  loadingAccessibilityLabel={`이미지 ${preview.index + 1} 미리보기 불러오는 중`}
+                  onRetry={async () => {
+                    const urls = await onRetryRemoteMedia();
+                    return urls?.[preview.assetId] !== undefined;
+                  }}
+                  pending={remoteMediaPending}
+                  retryAccessibilityLabel={`이미지 ${preview.index + 1} 미리보기 다시 불러오기`}
+                  signedUrl={preview.signedUrl}
+                  style={styles.uploadPreviewImage}
+                  userId={userId}
+                  variant="thumbnail"
+                />
+              )}
+            </DraggableAnnouncementPreview>
           )}
           showsHorizontalScrollIndicator={false}
           windowSize={3}
@@ -1653,6 +1665,61 @@ function AnnouncementImagePickerSection({
         </Button>
       ) : null}
     </Card>
+  );
+}
+
+function DraggableAnnouncementPreview({
+  children,
+  disabled,
+  index,
+  onMove,
+  total,
+}: {
+  children: ReactNode;
+  disabled: boolean;
+  index: number;
+  onMove: (fromIndex: number, toIndex: number) => void;
+  total: number;
+}) {
+  const itemExtent = 92;
+  const move = useCallback((direction: -1 | 1) => {
+    if (disabled) return;
+    const target = Math.max(0, Math.min(total - 1, index + direction));
+    if (target !== index) onMove(index, target);
+  }, [disabled, index, onMove, total]);
+  const responder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, gesture) =>
+      !disabled && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onPanResponderRelease: (_event, gesture) => {
+      if (disabled) return;
+      const delta = Math.round(gesture.dx / itemExtent);
+      const target = Math.max(0, Math.min(total - 1, index + delta));
+      if (target !== index) onMove(index, target);
+    },
+    onPanResponderTerminationRequest: () => false,
+  }), [disabled, index, onMove, total]);
+
+  return (
+    <View style={styles.draggablePreview}>
+      <View style={styles.uploadPreview}>{children}</View>
+      <View
+        {...responder.panHandlers}
+        accessibilityActions={[
+          {name: 'decrement', label: '왼쪽으로 이동'},
+          {name: 'increment', label: '오른쪽으로 이동'},
+        ]}
+        accessibilityHint="좌우로 끌거나 화면 읽기 도구의 조절 동작으로 순서를 변경합니다."
+        accessibilityLabel={`이미지 ${index + 1} 순서 이동 핸들`}
+        accessibilityRole="adjustable"
+        accessibilityState={{disabled}}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'decrement') move(-1);
+          if (event.nativeEvent.actionName === 'increment') move(1);
+        }}
+        style={[styles.dragHandle, disabled && styles.disabled]}>
+        <Text style={styles.dragHandleText}>끌어서 순서 변경</Text>
+      </View>
+    </View>
   );
 }
 
@@ -2095,7 +2162,10 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   uploadRow: {backgroundColor: colors.background, borderRadius: radius.item, gap: 8, padding: 12},
-  uploadPreview: {borderRadius: radius.control, height: 76, width: 76},
+  draggablePreview: {alignItems: 'center', gap: 4, width: 84},
+  dragHandle: {alignItems: 'center', justifyContent: 'center', minHeight: 44, width: 84},
+  dragHandleText: {color: colors.textMuted, fontSize: 10, fontWeight: '600'},
+  uploadPreview: {borderRadius: radius.control, height: 76, overflow: 'hidden', width: 76},
   uploadPreviewImage: {height: '100%', width: '100%'},
   wrap: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
 });

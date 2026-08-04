@@ -116,11 +116,8 @@ import type {AnnouncementDetail, AnnouncementSummary, MediaAccessUrl} from './an
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('AnnouncementRouteScreen rendered failure isolation', () => {
-  it('keeps the announcement list and category radiogroup rendered when thumbnail URL loading fails', async () => {
-    const getMediaAccessUrls = vi.fn()
-      .mockRejectedValueOnce(new Error('signed URL unavailable'))
-      .mockResolvedValueOnce([media(101)])
-      .mockRejectedValueOnce(new Error('rotated signed URL unavailable'));
+  it('keeps the announcement list text-only and does not request image URLs', async () => {
+    const getMediaAccessUrls = vi.fn(async () => [media(101)]);
     const api = createApi({
       getMediaAccessUrls,
       listPublished: vi.fn(async () => [summary(1, {imageAssetIds: [101], title: '주일 공지'})]),
@@ -128,102 +125,11 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
     const renderer = await render(<AnnouncementRouteScreen api={api} campusId={1} onBack={vi.fn()} />);
 
     expect(renderedText(renderer)).toContain('주일 공지');
-    expect(renderedText(renderer)).toContain('미리보기 이미지를 불러오지 못했습니다.');
+    expect(renderer.root.findAllByType('Image' as never)).toHaveLength(0);
+    expect(getMediaAccessUrls).not.toHaveBeenCalled();
     expect(renderer.root.findAll((node) =>
       String(node.type) === 'View' && node.props.accessibilityRole === 'radiogroup')).toHaveLength(1);
 
-    await press(renderer, '공지 미리보기 이미지 주소 다시 불러오기');
-
-    expect(getMediaAccessUrls).toHaveBeenCalledTimes(2);
-    const thumbnail = byLabel(renderer, '공지 미리보기 이미지');
-    expect(thumbnail.props.source).toEqual({uri: 'thumb-101'});
-    expect(thumbnail.props.accessible).toBe(false);
-    expect(renderedText(renderer)).toContain('주일 공지');
-
-    await act(async () => {
-      thumbnail.props.onError();
-      await settle();
-    });
-    expect(byLabel(renderer, '주일 공지 미리보기 이미지 다시 불러오기')).toBeTruthy();
-    await press(renderer, '주일 공지 미리보기 이미지 다시 불러오기');
-    expect(getMediaAccessUrls).toHaveBeenCalledTimes(3);
-    expect(renderedText(renderer)).not.toContain('미리보기 이미지를 불러오지 못했습니다.');
-    expect(byLabel(renderer, '주일 공지 미리보기 이미지 불러오는 중')).toBeTruthy();
-    await act(async () => {
-      byLabel(renderer, '공지 미리보기 이미지').props.onLoad();
-      await settle();
-    });
-    const imageOverlay = byLabel(renderer, '주일 공지 미리보기 이미지로 상세 보기');
-    expect(imageOverlay.props.accessible).toBe(false);
-    expect(imageOverlay.props.importantForAccessibility).toBe('no');
-    expect(findAllByLabel(renderer, '주일 공지 미리보기 이미지 불러오는 중')).toHaveLength(0);
-  });
-
-  it('renders and retries a member-list thumbnail slot omitted from a successful subset batch', async () => {
-    const getMediaAccessUrls = vi.fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([media(101)]);
-    const api = createApi({
-      getMediaAccessUrls,
-      listPublished: vi.fn(async () => [
-        summary(1, {imageAssetIds: [101], title: '부분 미디어 공지'}),
-      ]),
-    });
-    const renderer = await render(
-      <AnnouncementRouteScreen api={api} campusId={1} onBack={vi.fn()} />,
-    );
-
-    expect(renderedText(renderer)).toContain('부분 미디어 공지');
-    expect(byLabel(renderer, '부분 미디어 공지 미리보기 이미지 다시 불러오기')).toBeTruthy();
-    await press(renderer, '부분 미디어 공지 미리보기 이미지 다시 불러오기');
-
-    expect(getMediaAccessUrls).toHaveBeenCalledTimes(2);
-    expect(byLabel(renderer, '공지 미리보기 이미지').props.source)
-      .toEqual({uri: 'thumb-101'});
-  });
-
-  it('ignores an older member-row retry after a newer retry resolves both thumbnails', async () => {
-    const olderRetry = deferred<MediaAccessUrl[]>();
-    const newerRetry = deferred<MediaAccessUrl[]>();
-    const getMediaAccessUrls = vi.fn()
-      .mockResolvedValueOnce([])
-      .mockImplementationOnce(() => olderRetry.promise)
-      .mockImplementationOnce(() => newerRetry.promise);
-    const api = createApi({
-      getMediaAccessUrls,
-      listPublished: vi.fn(async () => [
-        summary(1, {imageAssetIds: [101], title: '느린 목록 공지'}),
-        summary(2, {imageAssetIds: [102], title: '빠른 목록 공지'}),
-      ]),
-    });
-    const renderer = await render(
-      <AnnouncementRouteScreen api={api} campusId={1} onBack={vi.fn()} />,
-    );
-
-    act(() => {
-      byLabel(renderer, '느린 목록 공지 미리보기 이미지 다시 불러오기').props.onPress();
-      byLabel(renderer, '빠른 목록 공지 미리보기 이미지 다시 불러오기').props.onPress();
-    });
-    await act(async () => {
-      newerRetry.resolve([media(101), media(102)]);
-      await settle();
-    });
-    await act(async () => {
-      renderer.root.findAllByType('Image' as never)
-        .find((node) => node.props.source.uri === 'thumb-101')
-        ?.props.onLoad();
-      await settle();
-    });
-    await act(async () => {
-      olderRetry.resolve([]);
-      await settle();
-    });
-
-    expect(getMediaAccessUrls).toHaveBeenCalledTimes(3);
-    expect(findAllByLabel(renderer, '느린 목록 공지 미리보기 이미지 다시 불러오기'))
-      .toHaveLength(0);
-    expect(renderer.root.findAllByType('Image' as never).map((node) => node.props.source.uri))
-      .toEqual(expect.arrayContaining(['thumb-101', 'thumb-102']));
   });
 
   it('retries a failed initial deep link with the same detail id instead of loading the list', async () => {
@@ -371,7 +277,8 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
     const firstImage = byLabel(renderer, '공지 첨부 이미지 1');
     expect(firstImage.props.accessible).toBe(true);
     expect(firstImage.props.accessibilityRole).toBe('image');
-    expect(flattenStyle(firstImage.props.style)).toMatchObject({aspectRatio: 4 / 3, width: '100%'});
+    expect(firstImage.props.resizeMode).toBe('contain');
+    expect(flattenStyle(firstImage.props.style)).toMatchObject({aspectRatio: 1, width: '100%'});
     expect(byLabel(renderer, '공지 첨부 이미지 1 불러오는 중')).toBeTruthy();
     const staleFirstImageError = firstImage.props.onError;
 
@@ -428,7 +335,7 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
       String(node.type) === 'FlatList' && node.props.horizontal === true);
     expect(pager.props.data.map((item: {assetId: number}) => item.assetId)).toEqual([301, 302]);
     const firstSkeleton = byLabel(renderer, '공지 첨부 이미지 1 주소 불러오는 중');
-    expect(flattenStyle(firstSkeleton.props.style)).toMatchObject({aspectRatio: 4 / 3});
+    expect(flattenStyle(firstSkeleton.props.style)).toMatchObject({aspectRatio: 1});
     expect(findAllByLabel(renderer, '공지 첨부 이미지 1 다시 불러오기')).toHaveLength(0);
 
     await act(async () => {
