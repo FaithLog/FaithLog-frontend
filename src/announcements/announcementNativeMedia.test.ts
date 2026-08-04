@@ -170,6 +170,37 @@ describe('announcement native media preparation', () => {
     }));
   });
 
+  it('passes image bytes to expo-crypto as an owned typed array', async () => {
+    const digest = vi.fn().mockResolvedValue(new Uint8Array(32).buffer);
+    vi.doMock('expo-crypto', () => ({
+      CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
+      digest,
+    }));
+    const dependencies = createNativeAnnouncementMediaDependencies({
+      fileSystem: {
+        getByteSize: vi.fn(),
+        readBytes: vi.fn(),
+      },
+      imageManipulator: {
+        prepareJpeg: vi.fn(),
+      },
+      imagePicker: {
+        launchImageLibraryAsync: vi.fn(),
+      },
+    });
+    const source = new Uint8Array([1, 2, 3]);
+
+    try {
+      await expect(dependencies.sha256(source)).resolves.toBe('00'.repeat(32));
+      const submitted = digest.mock.calls[0]?.[1];
+      expect(submitted).toBeInstanceOf(Uint8Array);
+      expect(submitted).not.toBe(source);
+      expect(Array.from(submitted as Uint8Array)).toEqual([1, 2, 3]);
+    } finally {
+      vi.doUnmock('expo-crypto');
+    }
+  });
+
   it('moves prepared JPEGs into the owned cache directory and unregisters them on discard', async () => {
     const moved: Array<{destinationUri: string; sourceUri: string}> = [];
     const deleted: string[] = [];

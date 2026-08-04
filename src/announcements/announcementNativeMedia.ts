@@ -258,11 +258,11 @@ async function loadCrypto() {
   const crypto = await import('expo-crypto');
   return {
     digest: (_algorithm: 'SHA-256', bytes: Uint8Array) => {
-      const buffer = bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-      ) as ArrayBuffer;
-      return crypto.digest(crypto.CryptoDigestAlgorithm.SHA256, buffer);
+      // expo-crypto's native synchronous fallback expects a TypedArray. Passing
+      // its backing ArrayBuffer works on web but fails on iOS when digestAsync
+      // is unavailable. Copy into an owned Uint8Array so the native bridge gets
+      // the exact byte range without exposing a larger pooled buffer.
+      return crypto.digest(crypto.CryptoDigestAlgorithm.SHA256, Uint8Array.from(bytes));
     },
     sha256Algorithm: 'SHA-256' as const,
   };
