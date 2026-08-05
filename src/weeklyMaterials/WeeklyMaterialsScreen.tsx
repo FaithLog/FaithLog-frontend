@@ -19,6 +19,7 @@ import {
   type WeeklyMaterial,
   type WeeklyMaterialType,
   type WeeklyMaterialWeek,
+  weeklyMaterialEmptySubjects,
   weeklyMaterialLabels,
   weeklyMaterialTypes,
 } from './weeklyMaterialTypes';
@@ -44,7 +45,7 @@ export function WeeklyMaterialsScreen({
   campusId: number;
   currentWeekStartDate?: string;
   highlightedType?: WeeklyMaterialType | null;
-  initialWeekStartDate?: string;
+  initialWeekStartDate?: string | undefined;
   onBack: () => void;
   openMaterial: (material: WeeklyMaterial) => Promise<void> | void;
 }) {
@@ -129,7 +130,7 @@ export function WeeklyMaterialsScreen({
       <ScreenHeader
         action={<BackButton onPress={onBack} />}
         eyebrow="캠퍼스 자료"
-        subtitle="주차별 목자지침과 나눔지를 확인하세요."
+        subtitle="주차별 목자지침과 나눔 자료를 확인하세요."
         title="주간 자료"
       />
       <WeeklyMaterialPager
@@ -160,6 +161,8 @@ function WeeklyMaterialWeekPage({
   if (state.status === 'loading') {
     return (
       <View accessibilityLabel="주간 자료 불러오는 중" style={styles.weekList}>
+        <View style={styles.skeletonRow} />
+        <View style={styles.divider} />
         <View style={styles.skeletonRow} />
         <View style={styles.divider} />
         <View style={styles.skeletonRow} />
@@ -219,7 +222,7 @@ function MaterialRow({
 }) {
   const label = weeklyMaterialLabels[type];
   if (!material) {
-    const subject = type === 'SHARING_SHEET' ? '나눔지가' : '목자지침이';
+    const subject = weeklyMaterialEmptySubjects[type];
     return (
       <View accessibilityLabel={`${label} 미등록`} style={styles.materialRow}>
         <PdfIcon muted />
@@ -292,7 +295,7 @@ const styles = StyleSheet.create({
   pdfIconText: {...typography.caption, color: '#D83939', fontWeight: '800'},
   retryButton: {alignItems: 'center', justifyContent: 'center', minHeight: 44, paddingHorizontal: 16},
   retryText: {...typography.body, color: colors.primary, fontWeight: '700'},
-  screen: {gap: spacing.card, paddingBottom: 32, paddingHorizontal: spacing.screenX, paddingTop: 20},
+  screen: {gap: spacing.card, paddingBottom: 32, paddingHorizontal: 8, paddingTop: 20},
   skeletonRow: {backgroundColor: colors.neutralSoft, borderRadius: radius.item, height: 82, margin: spacing.gap},
-  weekList: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, minHeight: 220, overflow: 'hidden'},
+  weekList: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, minHeight: 300, overflow: 'hidden'},
 });

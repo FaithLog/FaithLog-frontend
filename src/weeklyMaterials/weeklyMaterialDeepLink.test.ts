@@ -10,7 +10,19 @@ describe('weekly sharing sheet notification boundary', () => {
       weekStartDate: '2026-08-03',
     })).toEqual({
       campusId: 7,
-      highlight: 'SHARING_SHEET',
+      highlight: 'SUNDAY_SHARING_SHEET',
+      openPdf: false,
+      weekStartDate: '2026-08-03',
+    });
+  });
+
+  it('uses the current active campus when the notification omits campus context', () => {
+    expect(parseWeeklySharingSheetNotification({
+      eventType: 'WEEKLY_SHARING_SHEET_PUBLISHED',
+      weekStartDate: '2026-08-03',
+    })).toEqual({
+      campusId: null,
+      highlight: 'SUNDAY_SHARING_SHEET',
       openPdf: false,
       weekStartDate: '2026-08-03',
     });

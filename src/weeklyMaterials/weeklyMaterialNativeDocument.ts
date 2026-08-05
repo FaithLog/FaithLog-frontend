@@ -1,15 +1,16 @@
 import {createNativeAnnouncementBinaryUploader} from '../announcements/announcementNativeMedia';
 import type {PdfUploadCandidate} from '../media/documentMediaTypes';
+import {
+  createNativePdfDocumentDependencies,
+  type NativePdfDocumentDependencies,
+} from '../media/nativePdfDocumentDependencies';
 import type {PdfDirectUploadTransport} from '../media/pdfUploadCoordinator';
 import {validateWeeklyMaterialPdf} from './weeklyMaterialUpload';
 
 type NativeDocumentSource = {contentType: string; fileName: string; uri: string};
 
-export type WeeklyMaterialNativeDocumentDependencies = {
-  getByteSize: (uri: string) => Promise<number>;
+export type WeeklyMaterialNativeDocumentDependencies = Omit<NativePdfDocumentDependencies, 'pickDocuments'> & {
   pickDocument: () => Promise<NativeDocumentSource | null>;
-  readBytes: (uri: string) => Promise<Uint8Array>;
-  sha256: (bytes: Uint8Array) => Promise<string>;
 };
 
 export async function pickAndPrepareWeeklyMaterialPdf(
@@ -49,33 +50,13 @@ export function createWeeklyMaterialPdfUploadTransport(): PdfDirectUploadTranspo
 }
 
 function createNativeDependencies(): WeeklyMaterialNativeDocumentDependencies {
+  const dependencies = createNativePdfDocumentDependencies({multiple: false});
   return {
     async pickDocument() {
-      const picker = await import('expo-document-picker');
-      const result = await picker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-        type: 'application/pdf',
-      });
-      if (result.canceled || !result.assets[0]) return null;
-      const asset = result.assets[0];
-      return {contentType: asset.mimeType ?? '', fileName: asset.name, uri: asset.uri};
+      return (await dependencies.pickDocuments())[0] ?? null;
     },
-    async getByteSize(uri) {
-      const {File} = await import('expo-file-system');
-      return new File(uri).size;
-    },
-    async readBytes(uri) {
-      const {File} = await import('expo-file-system');
-      return new File(uri).bytes();
-    },
-    async sha256(bytes) {
-      const crypto = await import('expo-crypto');
-      const digest = await crypto.digest(
-        crypto.CryptoDigestAlgorithm.SHA256,
-        Uint8Array.from(bytes),
-      );
-      return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
-    },
+    getByteSize: dependencies.getByteSize,
+    readBytes: dependencies.readBytes,
+    sha256: dependencies.sha256,
   };
 }

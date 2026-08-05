@@ -127,7 +127,7 @@ describe('announcement API boundary', () => {
     await api.deactivateCategory('token', 1, 2);
 
     expect(calls).toEqual([
-      expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements', options: expect.objectContaining({method: 'POST', body: {categoryId: 2, title: '공지', content: '본문', isPinned: true, publishAt: null, imageAssetIds: [31, 32]}})}),
+      expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements', options: expect.objectContaining({method: 'POST', body: {categoryId: 2, title: '공지', content: '본문', isPinned: true, publishAt: null, imageAssetIds: [31, 32], documentAssetIds: [71]}})}),
       expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements/11', options: expect.objectContaining({method: 'PATCH'})}),
       expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements/11/publish', options: expect.objectContaining({method: 'POST'})}),
       expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements/11/archive', options: expect.objectContaining({method: 'POST'})}),

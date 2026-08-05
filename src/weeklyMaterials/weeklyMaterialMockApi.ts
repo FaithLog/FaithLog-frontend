@@ -28,10 +28,10 @@ export const weeklyMaterialMockApi: WeeklyMaterialApi = {
     const current = getOrCreate(campusId, weekStartDate);
     const next = applyWeeklyMaterialUpsert(current, {
       byteSize: materialType === 'SHEPHERD_GUIDE' ? 812_032 : 524_288,
-      fileName: materialType === 'SHEPHERD_GUIDE' ? '이번 주 목자지침.pdf' : '이번 주 나눔지.pdf',
+      fileName: mockFileName(materialType, '이번 주'),
       materialType,
       mediaAssetId,
-      sha256: (materialType === 'SHEPHERD_GUIDE' ? 'a' : 'b').repeat(64),
+      sha256: mockHashCharacter(materialType).repeat(64),
       updatedAt: new Date().toISOString(),
     });
     weeks.set(getWeeklyMaterialCacheKey(campusId, weekStartDate), next);
@@ -47,8 +47,8 @@ export function createMockWeeklyMaterialCandidate(materialType: WeeklyMaterialTy
   return {
     byteSize: 256 * 1024,
     contentType: 'application/pdf' as const,
-    fileName: materialType === 'SHEPHERD_GUIDE' ? '선택한 목자지침.pdf' : '선택한 나눔지.pdf',
-    sha256: (materialType === 'SHEPHERD_GUIDE' ? 'c' : 'd').repeat(64),
+    fileName: mockFileName(materialType, '선택한'),
+    sha256: mockHashCharacter(materialType).repeat(64),
     uri: `file:///mock/${materialType}.pdf`,
   };
 }
@@ -76,4 +76,16 @@ function getOrCreate(campusId: number, weekStartDate: string) {
 
 function clone(value: WeeklyMaterialWeek): WeeklyMaterialWeek {
   return {...value, materials: value.materials.map((material) => ({...material}))};
+}
+
+function mockFileName(materialType: WeeklyMaterialType, prefix: string) {
+  if (materialType === 'SHEPHERD_GUIDE') return `${prefix} 목자지침.pdf`;
+  if (materialType === 'SUNDAY_SHARING_SHEET') return `${prefix} 주일 나눔지.pdf`;
+  return `${prefix} 토목모 나눔지.pdf`;
+}
+
+function mockHashCharacter(materialType: WeeklyMaterialType) {
+  if (materialType === 'SHEPHERD_GUIDE') return 'a';
+  if (materialType === 'SUNDAY_SHARING_SHEET') return 'b';
+  return 'c';
 }

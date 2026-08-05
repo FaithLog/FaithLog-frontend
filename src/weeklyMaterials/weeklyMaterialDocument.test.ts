@@ -3,7 +3,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {openWeeklyMaterialDocument} from './weeklyMaterialDocument';
 
 const material = {
-  materialType: 'SHARING_SHEET' as const,
+  materialType: 'SUNDAY_SHARING_SHEET' as const,
   mediaAssetId: 41,
   fileName: '나눔지.pdf',
   byteSize: 4096,

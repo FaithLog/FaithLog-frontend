@@ -13,9 +13,11 @@ describe('PDF upload coordinator', () => {
       getAccessUrls: vi.fn(),
     };
     const upload = vi.fn(async ({headers}) => { order.push('put'); expect(headers).toEqual({'Content-Type': 'application/pdf', 'x-amz-checksum-sha256': 'opaque'}); expect(headers.Authorization).toBeUndefined(); });
-    await expect(runPdfUpload({accessToken: 'secret', api, campusId: 7, file, transport: {upload}}))
+    const onStatus = vi.fn();
+    await expect(runPdfUpload({accessToken: 'secret', api, campusId: 7, file, onStatus, transport: {upload}}))
       .resolves.toMatchObject({assetId: 31, status: 'READY'});
     expect(order).toEqual(['reserve', 'put', 'complete']);
+    expect(onStatus.mock.calls.map(([status]) => status)).toEqual(['reserving', 'uploading', 'completing', 'ready']);
   });
 
   it('does not call complete after a failed PUT', async () => {

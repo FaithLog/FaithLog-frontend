@@ -54,6 +54,7 @@ const nativeMediaMocks = vi.hoisted(() => {
     complete: vi.fn(),
     discard: vi.fn(),
     mockMode: true,
+    pdfEnabled: false,
     pickAndPrepare: vi.fn(),
     CompletionRejectedError,
     BinaryUploadHttpError,
@@ -150,7 +151,7 @@ vi.mock('../api/client', () => {
 
 vi.mock('./announcementEnvironment', () => ({
   isAnnouncementMockModeEnabled: () => nativeMediaMocks.mockMode,
-  isAnnouncementPdfCapabilityEnabled: () => false,
+  isAnnouncementPdfCapabilityEnabled: () => nativeMediaMocks.pdfEnabled,
 }));
 
 vi.mock('./AnnouncementCachedImage', async () => {
@@ -233,6 +234,7 @@ const scheduledAnnouncement = announcement({
 describe('AdminAnnouncementScreen rendered interactions', () => {
   afterEach(() => {
     nativeMediaMocks.mockMode = true;
+    nativeMediaMocks.pdfEnabled = false;
     vi.clearAllMocks();
     nativeMediaMocks.resolveToken.mockResolvedValue('access-token');
   });
@@ -405,6 +407,17 @@ describe('AdminAnnouncementScreen rendered interactions', () => {
     expect(renderer.root.findAll((node) =>
       node.props.accessibilityLabel === '공지 수정 확인 열기')).toHaveLength(0);
     expect(api.updateAnnouncement).not.toHaveBeenCalled();
+  });
+
+  it('shows the PDF file control in the confirmed live announcement editor', async () => {
+    nativeMediaMocks.mockMode = false;
+    nativeMediaMocks.pdfEnabled = true;
+    const renderer = await render(
+      <AnnouncementEditorScreen api={createApi()} campusId={1} detail={null} onBack={vi.fn()} />,
+    );
+
+    expect(byLabel(renderer, '공지 PDF 추가')).toBeTruthy();
+    expect(rendered(renderer)).toContain('PDF · 파일당 최대 30MB');
   });
 
   it('preserves a create draft and successful mock attachment after a failed confirmed save', async () => {

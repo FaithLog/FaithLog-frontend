@@ -35,7 +35,7 @@ export function createDocumentMediaApi({contractStatus, maxPdfBytes, request}: {
       confirmed();
       const expected = id(assetId);
       return request(`/api/v1/admin/campuses/${id(campusId)}/media-assets/${expected}/complete`, {
-        accessToken: token, expectedStatuses: [200], method: 'POST', responseParser: (value) => parseReady(value, expected),
+          accessToken: token, expectedStatuses: [200], method: 'POST', responseParser: (value) => parseReady(value, expected, id(campusId)),
       });
     },
     async getAccessUrls(token, campusId, assetIds) {
@@ -66,10 +66,11 @@ function parseReservation(value: unknown): DocumentUploadReservation {
   return {assetId: id(record.assetId), uploadUrl: https(record.uploadUrl), requiredHeaders: headers, expiresAt: iso(record.expiresAt)};
 }
 
-function parseReady(value: unknown, expectedId: number): ReadyDocumentAsset {
+function parseReady(value: unknown, expectedId: number, expectedCampusId: number): ReadyDocumentAsset {
   const record = object(value);
   if (record.status !== 'READY' || record.assetKind !== 'PDF' || record.contentType !== 'application/pdf' || record.width !== null || record.height !== null) invalidResponse();
   const assetId = id(record.assetId); if (assetId !== expectedId) invalidResponse();
+  if (id(record.campusId) !== expectedCampusId) invalidResponse();
   return {assetId, assetKind: 'PDF', status: 'READY', contentType: 'application/pdf', fileName: fileName(record.fileName), sha256: hash(record.sha256), byteSize: positive(record.byteSize), width: null, height: null};
 }
 

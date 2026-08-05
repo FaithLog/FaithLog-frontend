@@ -6,10 +6,13 @@ import type {ApiError} from '../api/types';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {ErrorState, Empty, Loading, ScreenHeader} from '../components/ui';
 import {colors, radius, spacing, typography} from '../theme';
+import {documentMediaApi, type DocumentMediaApi} from '../media/documentMediaApi';
+import type {DocumentAccessUrl} from '../media/documentMediaTypes';
 import {announcementApi, type AnnouncementApi} from './announcementApi';
 import {AnnouncementCachedImage} from './AnnouncementCachedImage';
 import {AnnouncementCategoryBadge} from './AnnouncementCategoryBadge';
 import {AnnouncementDocumentList} from './AnnouncementDocumentAttachments';
+import {openAnnouncementPdf} from './announcementDocumentNativeRuntime';
 import {isAnnouncementPdfCapabilityEnabled} from './announcementEnvironment';
 import type {AnnouncementDetail, AnnouncementSummary, MediaAccessUrl} from './announcementTypes';
 
@@ -26,6 +29,11 @@ type MediaState =
   | {status: 'loading'; target: 'detail'}
   | {status: 'detailReady'; slots: DetailMediaSlot[]}
   | {status: 'error'; target: 'detail'};
+type DocumentState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'ready'; items: DocumentAccessUrl[]}
+  | {status: 'error'};
 
 export function AnnouncementRouteScreen({
   campusId,
@@ -36,8 +44,10 @@ export function AnnouncementRouteScreen({
   onDetailVisibilityChange,
   userId,
   api = announcementApi,
+  documentApi = documentMediaApi,
 }: {
   api?: AnnouncementApi;
+  documentApi?: Pick<DocumentMediaApi, 'getAccessUrls'>;
   campusId: number;
   initialAnnouncementId?: number | null;
   initialOpenRequestKey?: number;
@@ -51,8 +61,10 @@ export function AnnouncementRouteScreen({
     : {announcementId: initialAnnouncementId, kind: 'detail'};
   const [state, setState] = useState<ViewState>({status: 'loading', target: initialTarget});
   const [mediaState, setMediaState] = useState<MediaState>({status: 'idle'});
+  const [documentState, setDocumentState] = useState<DocumentState>({status: 'idle'});
   const contentRequestSequence = useRef(0);
   const mediaRequestSequence = useRef(0);
+  const documentRequestSequence = useRef(0);
   const detailVisible = state.status === 'detail';
   const analyticsView = state.status === 'detail'
     ? 'detail'
@@ -69,6 +81,9 @@ export function AnnouncementRouteScreen({
     if (!token) throw new FaithLogApiError({kind: 'sessionExpired', message: '로그인이 만료되었습니다.'});
     return operation(token);
   }, []);
+
+  const openDocument = useCallback((assetId: number) => withToken((accessToken) =>
+    openAnnouncementPdf({accessToken, assetId, campusId})), [campusId, withToken]);
 
   const loadDetailMedia = useCallback(async (
     detail: AnnouncementDetail,
@@ -104,10 +119,28 @@ export function AnnouncementRouteScreen({
     }
   }, [api, campusId, withToken]);
 
+  const loadDetailDocuments = useCallback(async (detail: AnnouncementDetail) => {
+    const sequence = ++documentRequestSequence.current;
+    if (!isAnnouncementPdfCapabilityEnabled() || detail.documentAssetIds.length === 0) {
+      setDocumentState({items: [], status: 'ready'});
+      return;
+    }
+    setDocumentState({status: 'loading'});
+    try {
+      const items = await withToken((token) =>
+        documentApi.getAccessUrls(token, campusId, detail.documentAssetIds));
+      if (sequence === documentRequestSequence.current) setDocumentState({items, status: 'ready'});
+    } catch {
+      if (sequence === documentRequestSequence.current) setDocumentState({status: 'error'});
+    }
+  }, [campusId, documentApi, withToken]);
+
   const loadList = useCallback(async () => {
     const sequence = ++contentRequestSequence.current;
     mediaRequestSequence.current += 1;
+    documentRequestSequence.current += 1;
     setMediaState({status: 'idle'});
+    setDocumentState({status: 'idle'});
     setState({status: 'loading', target: {kind: 'list'}});
     try {
       const items = await withToken((token) => api.listPublished(token, campusId));
@@ -123,13 +156,16 @@ export function AnnouncementRouteScreen({
   const openDetail = useCallback(async (announcementId: number) => {
     const sequence = ++contentRequestSequence.current;
     mediaRequestSequence.current += 1;
+    documentRequestSequence.current += 1;
     setMediaState({status: 'idle'});
+    setDocumentState({status: 'idle'});
     setState({status: 'loading', target: {announcementId, kind: 'detail'}});
     try {
       const detail = await withToken((token) => api.getDetail(token, campusId, announcementId));
       if (sequence !== contentRequestSequence.current) return;
       setState({status: 'detail', detail});
       void loadDetailMedia(detail);
+      void loadDetailDocuments(detail);
     } catch (error) {
       if (sequence === contentRequestSequence.current) {
         setState({
@@ -139,7 +175,7 @@ export function AnnouncementRouteScreen({
         });
       }
     }
-  }, [api, campusId, loadDetailMedia, withToken]);
+  }, [api, campusId, loadDetailDocuments, loadDetailMedia, withToken]);
 
   useEffect(() => {
     if (initialAnnouncementId !== null) void openDetail(initialAnnouncementId);
@@ -147,6 +183,7 @@ export function AnnouncementRouteScreen({
     return () => {
       contentRequestSequence.current += 1;
       mediaRequestSequence.current += 1;
+      documentRequestSequence.current += 1;
     };
   }, [initialAnnouncementId, initialOpenRequestKey, loadList, openDetail]);
 
@@ -201,7 +238,7 @@ export function AnnouncementRouteScreen({
         : slots.some((slot) => slot.image === null)
           ? 'error'
           : 'ready';
-    return <AnnouncementDetailScreen campusId={campusId} detail={state.detail} mediaStatus={detailMediaStatus} onBack={loadList} onMediaRetry={() => loadDetailMedia(state.detail, true)} slots={slots} userId={userId} />;
+    return <AnnouncementDetailScreen campusId={campusId} detail={state.detail} documentState={documentState} mediaStatus={detailMediaStatus} onBack={loadList} onDocumentRetry={() => loadDetailDocuments(state.detail)} onMediaRetry={() => loadDetailMedia(state.detail, true)} onOpenDocument={openDocument} slots={slots} userId={userId} />;
   }
   return <AnnouncementListScreen items={state.items} onBack={onBack} onOpen={openDetail} onRefresh={loadList} />;
 }
@@ -298,26 +335,33 @@ const AnnouncementRow = memo(function AnnouncementRow({item, onPress}: {item: An
 export function AnnouncementDetailScreen({
   campusId,
   detail,
+  documentState,
   mediaStatus,
   onBack,
   onMediaRetry,
+  onDocumentRetry,
+  onOpenDocument,
   slots,
   userId,
 }: {
   campusId: number;
   detail: AnnouncementDetail;
+  documentState: DocumentState;
   mediaStatus: 'error' | 'loading' | 'ready';
   onBack: () => void;
   onMediaRetry: () => void;
+  onDocumentRetry: () => void;
+  onOpenDocument: (assetId: number) => Promise<void>;
   slots: DetailMediaSlot[];
   userId?: number | undefined;
 }) {
   const {height, width} = useWindowDimensions();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [documentNotice, setDocumentNotice] = useState<string | null>(null);
+  const documentOpenFlights = useRef(new Set<number>());
   const thumbnailSize = 84;
-  const documentItems = isAnnouncementPdfCapabilityEnabled()
-    ? detail.documentAssetIds.map((assetId, index) => ({assetId, byteSize: 128 * 1024, fileName: `첨부 문서 ${index + 1}.pdf`, localId: `document-${assetId}`, status: 'ready' as const}))
+  const documentItems = documentState.status === 'ready'
+    ? documentState.items.map((item) => ({assetId: item.assetId, byteSize: item.byteSize, fileName: item.fileName, localId: `document-${item.assetId}`, status: 'ready' as const}))
     : [];
   return (
     <>
@@ -384,8 +428,22 @@ export function AnnouncementDetailScreen({
             ) : null}
           <AnnouncementDocumentList
             items={documentItems}
-            onOpen={(item) => setDocumentNotice(`${item.fileName} 열기는 Mock 화면에서만 확인할 수 있습니다.`)}
+            onOpen={(item) => {
+              if (!item.assetId || documentOpenFlights.current.has(item.assetId)) return;
+              documentOpenFlights.current.add(item.assetId);
+              setDocumentNotice(`${item.fileName} 파일을 여는 중입니다.`);
+              void onOpenDocument(item.assetId)
+                .then(() => setDocumentNotice(null))
+                .catch(() => setDocumentNotice('PDF 파일을 열지 못했습니다. 다시 시도해 주세요.'))
+                .finally(() => documentOpenFlights.current.delete(item.assetId!));
+            }}
           />
+          {documentState.status === 'loading' ? <Text style={styles.date}>첨부 파일 정보를 불러오고 있습니다.</Text> : null}
+          {documentState.status === 'error' ? (
+            <Pressable accessibilityLabel="공지 첨부 파일 정보 다시 불러오기" accessibilityRole="button" onPress={onDocumentRetry}>
+              <Text style={styles.date}>첨부 파일을 불러오지 못했습니다. 다시 시도</Text>
+            </Pressable>
+          ) : null}
           {documentNotice ? <Text accessibilityRole="alert" style={styles.date}>{documentNotice}</Text> : null}
           </View>
         }

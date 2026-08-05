@@ -43,7 +43,7 @@ describe('announcement filesystem image cache adapter', () => {
     expect(storage.readMetadata().entries).toEqual([]);
   });
 
-  it('applies the 200MB LRU bound using actual file sizes', async () => {
+  it('applies the image half of the shared LRU budget using actual file sizes', async () => {
     const storage = new MemoryCacheStorage();
     let now = 1_000;
     const cache = createAnnouncementImageCacheAdapter({now: () => now, storage});
@@ -52,8 +52,8 @@ describe('announcement filesystem image cache adapter', () => {
     await cache.putBytes(old, new Uint8Array([1]));
     now += 1;
     await cache.putBytes(recent, new Uint8Array([2]));
-    storage.setStoredSize(1, 120 * megabyte);
-    storage.setStoredSize(2, 100 * megabyte);
+    storage.setStoredSize(1, 60 * megabyte);
+    storage.setStoredSize(2, 50 * megabyte);
 
     const result = await cache.cleanup();
 

@@ -3,6 +3,10 @@ import {describe, expect, it, vi} from 'vitest';
 import {MAX_WEEKLY_MATERIAL_PDF_BYTES} from '../media/pdfAttachmentPolicy';
 import {pickAndPrepareWeeklyMaterialPdf} from './weeklyMaterialNativeDocument';
 
+vi.mock('../announcements/announcementNativeMedia', () => ({
+  createNativeAnnouncementBinaryUploader: () => vi.fn(),
+}));
+
 describe('weekly material native PDF selection', () => {
   it('hashes one selected PDF only after the 30 MiB preflight succeeds', async () => {
     const bytes = new Uint8Array([1, 2, 3]);

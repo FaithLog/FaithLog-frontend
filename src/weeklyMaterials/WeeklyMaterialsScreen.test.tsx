@@ -61,12 +61,14 @@ describe('WeeklyMaterialsScreen', () => {
     }));
   });
 
-  it('shows the two independent rows and does not download a PDF during adjacent prefetch', async () => {
+  it('shows the three independent rows and does not download a PDF during adjacent prefetch', async () => {
     const tree = await render(api, openMaterial);
 
+    expect(rootScrollView(tree).props.contentContainerStyle.paddingHorizontal).toBe(8);
     expect(text(tree)).toContain('목자지침');
     expect(text(tree)).toContain('8월 목자지침 아주 긴 파일 이름.pdf');
-    expect(text(tree)).toContain('이번 주 나눔지가 아직 등록되지 않았어요');
+    expect(text(tree)).toContain('이번 주 주일 나눔지가 아직 등록되지 않았어요');
+    expect(text(tree)).toContain('이번 주 토목모 나눔지가 아직 등록되지 않았어요');
     expect(getWeek.mock.calls.map((call) => call[2]).sort()).toEqual([
       '2026-07-27',
       '2026-08-03',
@@ -141,4 +143,8 @@ async function flush() {
 
 function text(tree: ReactTestRenderer) {
   return tree.root.findAll((node) => String(node.type) === 'Text').map((node) => node.children.join('')).join(' ');
+}
+
+function rootScrollView(tree: ReactTestRenderer) {
+  return tree.root.findAll((node) => String(node.type) === 'ScrollView')[0]!;
 }

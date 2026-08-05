@@ -70,5 +70,7 @@ function compareMaterialType(left: WeeklyMaterial, right: WeeklyMaterial) {
 }
 
 function order(value: WeeklyMaterialType) {
-  return value === 'SHEPHERD_GUIDE' ? 0 : 1;
+  if (value === 'SHEPHERD_GUIDE') return 0;
+  if (value === 'SUNDAY_SHARING_SHEET') return 1;
+  return 2;
 }

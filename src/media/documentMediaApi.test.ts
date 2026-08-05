@@ -46,4 +46,16 @@ describe('provisional document media API', () => {
       expect.objectContaining({assetId: 32, downloadUrl: 'https://r2.example/32'}),
     ]);
   });
+
+  it('rejects a READY response from another campus', async () => {
+    const request = vi.fn(async (_path, options) => options.responseParser({
+      assetId: 31, campusId: 8, status: 'READY', assetKind: 'PDF',
+      contentType: 'application/pdf', fileName: '안내.pdf', sha256: 'a'.repeat(64),
+      byteSize: 123, width: null, height: null,
+    }));
+    const api = createDocumentMediaApi({contractStatus: 'confirmed', request});
+    await expect(api.complete('token', 7, 31)).rejects.toMatchObject({
+      detail: {code: 'INVALID_SERVER_RESPONSE'},
+    });
+  });
 });

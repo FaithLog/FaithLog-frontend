@@ -1,6 +1,10 @@
 import type {ShellRoute} from '../navigation/shellRoutes';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {
+  parseWeeklySharingSheetNotification,
+  WEEKLY_SHARING_SHEET_EVENT,
+} from '../weeklyMaterials/weeklyMaterialDeepLink';
 
 export type PushRouteParams = Partial<{
   campusId: number;
@@ -130,6 +134,27 @@ export function parsePushNotificationOpenPayload(
       status: 'valid',
       route: 'announcements',
       params: {announcementId, campusId, categoryId},
+    };
+  }
+
+  if (payload.eventType === WEEKLY_SHARING_SHEET_EVENT) {
+    const allowedKeys = new Set(['eventType', 'campusId', 'weekStartDate']);
+    const payloadKeys = Object.keys(payload);
+    if (payloadKeys.some((key) => !allowedKeys.has(key))) {
+      return {status: 'invalid', reason: 'unknownParam'};
+    }
+    const parsed = parseWeeklySharingSheetNotification(payload);
+    if (!parsed) return {status: 'invalid', reason: 'invalidParam'};
+    if (!isWeeklyMaterialCapabilityEnabled()) {
+      return {status: 'invalid', reason: 'routeNotAllowed'};
+    }
+    return {
+      status: 'valid',
+      route: 'weeklyMaterials',
+      params: {
+        ...(parsed.campusId === null ? {} : {campusId: parsed.campusId}),
+        weekStartDate: parsed.weekStartDate,
+      },
     };
   }
 

@@ -104,6 +104,11 @@ vi.mock('../api/client', () => {
 });
 
 vi.mock('./announcementApi', () => ({announcementApi: {}}));
+const documentRuntimeMocks = vi.hoisted(() => ({
+  openAnnouncementPdf: vi.fn(async () => undefined),
+}));
+vi.mock('./announcementDocumentNativeRuntime', () => documentRuntimeMocks);
+vi.mock('./announcementEnvironment', () => ({isAnnouncementPdfCapabilityEnabled: () => true}));
 vi.mock('./AnnouncementCategoryBadge', async () => {
   const ReactModule = await import('react');
   return {
@@ -115,10 +120,32 @@ vi.mock('./AnnouncementCategoryBadge', async () => {
 import {AnnouncementRouteScreen} from './AnnouncementRouteScreen';
 import type {AnnouncementApi} from './announcementApi';
 import type {AnnouncementDetail, AnnouncementSummary, MediaAccessUrl} from './announcementTypes';
+import type {DocumentAccessUrl} from '../media/documentMediaTypes';
 
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('AnnouncementRouteScreen rendered failure isolation', () => {
+  it('opens an attached announcement PDF through the authorized native document flow', async () => {
+    const renderer = await render(
+      <AnnouncementRouteScreen
+        api={createApi({getDetail: vi.fn(async () => detail(31, {documentAssetIds: [301]}))})}
+        campusId={1}
+        documentApi={{getAccessUrls: vi.fn(async () => [documentAccess(301, '주일 안내.pdf')])}}
+        initialAnnouncementId={31}
+        onBack={vi.fn()}
+      />,
+    );
+
+    await press(renderer, '주일 안내.pdf PDF 열기');
+
+    expect(documentRuntimeMocks.openAnnouncementPdf).toHaveBeenCalledWith({
+      accessToken: 'access-token',
+      assetId: 301,
+      campusId: 1,
+    });
+    expect(renderedText(renderer)).not.toContain('Mock 화면에서만');
+  });
+
   it('keeps the announcement list text-only and does not request image URLs', async () => {
     const getMediaAccessUrls = vi.fn(async () => [media(101)]);
     const api = createApi({
@@ -413,6 +440,21 @@ function createApi(overrides: Partial<AnnouncementApi>): AnnouncementApi {
     updateCategory: vi.fn(),
     ...overrides,
   } as AnnouncementApi;
+}
+
+function documentAccess(assetId: number, fileName: string): DocumentAccessUrl {
+  return {
+    assetId,
+    assetKind: 'PDF',
+    byteSize: 1024,
+    contentType: 'application/pdf',
+    detailUrl: null,
+    downloadUrl: `https://signed.example/${assetId}`,
+    expiresAt: '2026-08-05T12:00:00Z',
+    fileName,
+    sha256: 'a'.repeat(64),
+    thumbnailUrl: null,
+  };
 }
 
 function summary(id: number, overrides: Partial<AnnouncementSummary> = {}): AnnouncementSummary {

@@ -19,19 +19,20 @@ afterEach(() => {
 });
 
 describe('announcement runtime capability', () => {
-  it('exposes provisional PDF UI only in explicitly enabled local mock runs', () => {
+  it('exposes the confirmed PDF UI anywhere the live announcement capability is enabled', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
-    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
-    process.env.EXPO_PUBLIC_ANNOUNCEMENT_PDF_ENABLED = 'true';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+    process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED = 'true';
     expect(isAnnouncementPdfCapabilityEnabled()).toBe(true);
 
     process.env.EXPO_PUBLIC_APP_ENV = 'production';
-    expect(isAnnouncementPdfCapabilityEnabled()).toBe(false);
+    expect(isAnnouncementPdfCapabilityEnabled()).toBe(true);
   });
 
-  it('keeps PDF hidden when its explicit flag is absent', () => {
+  it('keeps PDF hidden when the announcement capability itself is unavailable', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
-    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+    delete process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED;
     delete process.env.EXPO_PUBLIC_ANNOUNCEMENT_PDF_ENABLED;
     expect(isAnnouncementPdfCapabilityEnabled()).toBe(false);
   });

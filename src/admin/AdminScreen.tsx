@@ -3643,13 +3643,17 @@ function AdminHome({
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.adminHomeCampusTitle}>
           {summary.campus.campusName}
         </Text>
-        <View style={styles.metricGrid}>
-          <Metric label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
-          <Metric label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
-          <Metric label="미제출" value={`${summary.devotion.missingCount}명`} />
-          <Metric label="제출률" value={`${summary.devotion.submitRate}%`} />
-          <Metric label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
-          <Metric label="벌금 미납" value={formatCompactWon(getPenaltyUnpaidAmount(summary))} />
+        <View style={styles.adminDashboardMetricGrid}>
+          <Metric compact label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
+          <Metric compact label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
+          <Metric compact label="미제출" value={`${summary.devotion.missingCount}명`} />
+          <Metric compact label="제출률" value={`${summary.devotion.submitRate}%`} />
+          <Metric compact label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
+          <Metric
+            compact
+            label="벌금 미납"
+            value={formatCompactWon(getPenaltyUnpaidAmount(summary))}
+          />
         </View>
       </Card>
       <Card>
@@ -3668,7 +3672,7 @@ function AdminHome({
             accessibilityLabel="관리자 주간 자료 관리 화면으로 이동"
             label="주간 자료 관리"
             onPress={onOpenWeeklyMaterials}
-            supportingText="목자지침과 나눔지 PDF 등록"
+            supportingText="목자지침·주일·토목모 나눔지 PDF 등록"
             value="보기"
           />
         ) : null}
@@ -11918,11 +11922,23 @@ function FigmaSegmentedControl<T extends string>({
   );
 }
 
-function Metric({label, value}: {label: string; value: string}) {
+function Metric({
+  compact = false,
+  label,
+  value,
+}: {
+  compact?: boolean;
+  label: string;
+  value: string;
+}) {
   return (
-    <View style={styles.metric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View style={[styles.metric, compact ? styles.adminDashboardMetric : null]}>
+      <Text style={[styles.metricLabel, compact ? styles.adminDashboardMetricLabel : null]}>
+        {label}
+      </Text>
+      <Text style={[styles.metricValue, compact ? styles.adminDashboardMetricValue : null]}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -14932,6 +14948,29 @@ const styles = StyleSheet.create({
     gap: 6,
     minWidth: 128,
     padding: 14,
+  },
+  adminDashboardMetric: {
+    flexBasis: '30%',
+    gap: 5,
+    minHeight: 78,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+  },
+  adminDashboardMetricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  adminDashboardMetricLabel: {
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  adminDashboardMetricValue: {
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 22,
   },
   metricGrid: {
     flexDirection: 'row',

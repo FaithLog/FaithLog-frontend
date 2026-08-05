@@ -7,6 +7,7 @@ vi.mock('react-native', async () => {
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) =>
     ReactModule.createElement(name, props, children);
   return {
+    ActivityIndicator: host('ActivityIndicator'),
     Modal: host('Modal'),
     Pressable: host('Pressable'),
     ScrollView: host('ScrollView'),
@@ -36,9 +37,9 @@ import {AdminWeeklyMaterialsScreen} from './AdminWeeklyMaterialsScreen';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 const sheet = {
-  materialType: 'SHARING_SHEET' as const,
+  materialType: 'SUNDAY_SHARING_SHEET' as const,
   mediaAssetId: 42,
-  fileName: '기존 나눔지.pdf',
+  fileName: '기존 주일 나눔지.pdf',
   byteSize: 1024,
   sha256: 'b'.repeat(64),
   updatedAt: '2026-08-03T01:00:00Z',
@@ -94,13 +95,15 @@ describe('AdminWeeklyMaterialsScreen', () => {
     deleteMaterial.mockResolvedValue(undefined);
   });
 
-  it('keeps the two material drafts independent and updates only the uploaded type', async () => {
+  it('keeps the three material drafts independent and updates only the uploaded type', async () => {
     const tree = await render();
-    expect(text(tree)).toContain('기존 나눔지.pdf');
+    expect(rootScrollView(tree).props.contentContainerStyle.paddingHorizontal).toBe(8);
+    expect(text(tree)).toContain('기존 주일 나눔지.pdf');
+    expect(text(tree)).toContain('토목모 나눔지');
 
     await press(tree, '목자지침 PDF 선택');
     expect(text(tree)).toContain('새 목자지침.pdf');
-    expect(text(tree)).toContain('기존 나눔지.pdf');
+    expect(text(tree)).toContain('기존 주일 나눔지.pdf');
     await press(tree, '목자지침 등록');
 
     expect(uploadPdf).toHaveBeenCalledWith(guideCandidate, expect.any(Function), expect.any(AbortSignal));
@@ -108,16 +111,41 @@ describe('AdminWeeklyMaterialsScreen', () => {
       'access', 7, '2026-08-03', 'SHEPHERD_GUIDE', 41,
     );
     expect(text(tree)).toContain('새 목자지침.pdf');
-    expect(text(tree)).toContain('기존 나눔지.pdf');
+    expect(text(tree)).toContain('기존 주일 나눔지.pdf');
   });
 
   it('deletes only the confirmed material and preserves the other row', async () => {
     const tree = await render();
-    await press(tree, '나눔지 삭제');
-    expect(text(tree)).toContain('2026년 8월 3일 주차의 나눔지를 삭제할까요?');
-    await press(tree, '나눔지 영구 삭제 확인');
-    expect(deleteMaterial).toHaveBeenCalledWith('access', 7, '2026-08-03', 'SHARING_SHEET');
-    expect(text(tree)).toContain('나눔지가 아직 등록되지 않았어요');
+    await press(tree, '주일 나눔지 삭제');
+    expect(text(tree)).toContain('2026년 8월 3일 주차의 주일 나눔지를 삭제할까요?');
+    await press(tree, '주일 나눔지 영구 삭제 확인');
+    expect(deleteMaterial).toHaveBeenCalledWith('access', 7, '2026-08-03', 'SUNDAY_SHARING_SHEET');
+    expect(text(tree)).toContain('주일 나눔지가 아직 등록되지 않았어요');
+  });
+
+  it('suppresses a synchronous double confirmation while deleting', async () => {
+    let resolveDelete!: () => void;
+    deleteMaterial.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    }));
+    const tree = await render();
+    await press(tree, '주일 나눔지 삭제');
+    await act(async () => {
+      const confirm = activeControl(tree, '주일 나눔지 영구 삭제 확인');
+      confirm.props.onPress();
+      confirm.props.onPress();
+    });
+    expect(deleteMaterial).toHaveBeenCalledTimes(1);
+    resolveDelete();
+    await flush();
+  });
+
+  it('turns a document picker failure into a safe retryable notice', async () => {
+    pickPdf.mockRejectedValueOnce(new Error('private local path'));
+    const tree = await render();
+    await press(tree, '목자지침 PDF 선택');
+    expect(text(tree)).toContain('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+    expect(text(tree)).not.toContain('private local path');
   });
 
   it('blocks week navigation while an upload is in flight', async () => {
@@ -198,4 +226,8 @@ async function flush() {
 
 function text(tree: ReactTestRenderer) {
   return tree.root.findAll((node) => String(node.type) === 'Text').map((node) => node.children.join('')).join(' ');
+}
+
+function rootScrollView(tree: ReactTestRenderer) {
+  return tree.root.findAll((node) => String(node.type) === 'ScrollView')[0]!;
 }

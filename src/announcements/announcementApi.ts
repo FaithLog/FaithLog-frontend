@@ -421,6 +421,7 @@ function announcementSaveWire(body: AnnouncementSaveRequest) {
     isPinned: body.pinned,
     publishAt,
     imageAssetIds: exactImageIds(body.imageAssetIds),
+    documentAssetIds: exactDocumentIds(body.documentAssetIds),
   };
 }
 function categorySaveWire(body: AnnouncementCategorySaveRequest) {

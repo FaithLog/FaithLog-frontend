@@ -25,7 +25,11 @@ import type {
   WeeklyMaterialType,
   WeeklyMaterialWeek,
 } from './weeklyMaterialTypes';
-import {weeklyMaterialLabels, weeklyMaterialTypes} from './weeklyMaterialTypes';
+import {
+  weeklyMaterialEmptySubjects,
+  weeklyMaterialLabels,
+  weeklyMaterialTypes,
+} from './weeklyMaterialTypes';
 
 type WeekState =
   | {status: 'error'}
@@ -69,6 +73,7 @@ export function AdminWeeklyMaterialsScreen({
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingWeekStartDate, setPendingWeekStartDate] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const deleteFlightRef = useRef(false);
   const coordinatorRef = useRef(createWeeklyMaterialRequestCoordinator());
   const inFlightRef = useRef(new Set<string>());
   const uploadControllersRef = useRef(new Map<string, AbortController>());
@@ -128,12 +133,18 @@ export function AdminWeeklyMaterialsScreen({
   const selectPdf = async (type: WeeklyMaterialType) => {
     if (hasUpload) return;
     setNotice(null);
-    const candidate = await pickPdf(type);
-    if (!candidate || !mountedRef.current) return;
-    setDrafts((current) => ({
-      ...current,
-      [draftKey(selectedWeekStartDate, type)]: {candidate, progress: 0, status: 'ready'},
-    }));
+    try {
+      const candidate = await pickPdf(type);
+      if (!candidate || !mountedRef.current) return;
+      setDrafts((current) => ({
+        ...current,
+        [draftKey(selectedWeekStartDate, type)]: {candidate, progress: 0, status: 'ready'},
+      }));
+    } catch {
+      if (mountedRef.current) {
+        setNotice('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+      }
+    }
   };
 
   const upload = async (type: WeeklyMaterialType) => {
@@ -193,7 +204,8 @@ export function AdminWeeklyMaterialsScreen({
 
   const confirmDelete = async () => {
     const target = deleteTarget;
-    if (!target || deleting) return;
+    if (!target || deleteFlightRef.current) return;
+    deleteFlightRef.current = true;
     setDeleting(true);
     try {
       const token = await accessTokenProvider();
@@ -210,6 +222,7 @@ export function AdminWeeklyMaterialsScreen({
     } catch {
       setNotice('자료를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
+      deleteFlightRef.current = false;
       if (mountedRef.current) setDeleting(false);
     }
   };
@@ -313,7 +326,7 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
       <View style={styles.sectionHeading}>
         <View style={styles.headingCopy}>
           <Text style={styles.sectionTitle}>{label}</Text>
-          <Text style={styles.muted}>{type === 'SHARING_SHEET' ? '최초 등록 시에만 서버가 알림을 보냅니다.' : '등록 알림은 전송되지 않습니다.'}</Text>
+          <Text style={styles.muted}>{type === 'SUNDAY_SHARING_SHEET' ? '최초 등록 시에만 서버가 알림을 보냅니다.' : '등록 알림은 전송되지 않습니다.'}</Text>
         </View>
         <SmallButton accessibilityLabel={`${label} PDF 선택`} disabled={busy} label={material ? '교체 선택' : 'PDF 선택'} onPress={onSelect} />
       </View>
@@ -326,7 +339,7 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
           </View>
           <Text style={styles.openText}>열기</Text>
         </Pressable>
-      ) : <Text style={styles.empty}>{label === '나눔지' ? '나눔지가' : '목자지침이'} 아직 등록되지 않았어요</Text>}
+      ) : <Text style={styles.empty}>{weeklyMaterialEmptySubjects[type]} 아직 등록되지 않았어요</Text>}
       {draft ? (
         <View style={styles.draft}>
           <View style={styles.replaceCopy}>
@@ -348,7 +361,7 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
   );
 }
 
-function AdminSkeleton() { return <View style={styles.sections}><View style={styles.skeleton} /><View style={styles.skeleton} /></View>; }
+function AdminSkeleton() { return <View style={styles.sections}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View>; }
 function AdminLoadError({onRetry}: {onRetry: () => void}) { return <View style={styles.loadError}><Text style={styles.sectionTitle}>이 주차 자료를 불러오지 못했습니다</Text><SmallButton accessibilityLabel="관리자 주간 자료 다시 불러오기" label="다시 시도" onPress={onRetry} /></View>; }
 function PdfIcon() { return <View accessibilityElementsHidden style={styles.pdfIcon}><Text style={styles.pdfIconText}>PDF</Text></View>; }
 function BackButton({onPress}: {onPress: () => void}) { return <SmallButton accessibilityLabel="주간 자료 관리 닫기" label="뒤로" onPress={onPress} />; }
@@ -386,10 +399,10 @@ const styles = StyleSheet.create({
   progressFill: {backgroundColor: colors.primary, height: 4},
   progressTrack: {backgroundColor: colors.border, borderRadius: radius.pill, height: 4, overflow: 'hidden'},
   replaceCopy: {gap: 3},
-  screen: {gap: spacing.card, paddingBottom: 40, paddingHorizontal: spacing.screenX, paddingTop: 20},
+  screen: {gap: spacing.card, paddingBottom: 40, paddingHorizontal: 8, paddingTop: 20},
   section: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.gap, padding: spacing.card},
   sectionHeading: {alignItems: 'flex-start', flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between'},
   sectionTitle: {...typography.cardTitle, color: colors.textPrimary},
-  sections: {gap: spacing.gap, minHeight: 520},
+  sections: {gap: spacing.gap, minHeight: 760},
   skeleton: {backgroundColor: colors.neutralSoft, borderRadius: radius.card, height: 230},
 });

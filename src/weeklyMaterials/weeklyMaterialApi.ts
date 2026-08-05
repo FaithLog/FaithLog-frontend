@@ -156,9 +156,17 @@ export function parseWeeklyMaterialWeek(
   }
   const materials: WeeklyMaterial[] = [];
   const shepherdGuide = parseNullableWeeklyMaterial(record.shepherdGuide, 'SHEPHERD_GUIDE');
-  const sharingSheet = parseNullableWeeklyMaterial(record.sharingSheet, 'SHARING_SHEET');
+  const sundaySharingSheet = parseNullableWeeklyMaterial(
+    record.sundaySharingSheet,
+    'SUNDAY_SHARING_SHEET',
+  );
+  const saturdayLeaderSharingSheet = parseNullableWeeklyMaterial(
+    record.saturdayLeaderSharingSheet,
+    'SATURDAY_LEADER_SHARING_SHEET',
+  );
   if (shepherdGuide) materials.push(shepherdGuide);
-  if (sharingSheet) materials.push(sharingSheet);
+  if (sundaySharingSheet) materials.push(sundaySharingSheet);
+  if (saturdayLeaderSharingSheet) materials.push(saturdayLeaderSharingSheet);
   return {campusId: expected.campusId, weekStartDate, materials};
 }
 

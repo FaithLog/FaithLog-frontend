@@ -32,7 +32,7 @@ export function AnnouncementDocumentEditor({
       <View style={styles.headingRow}>
         <View style={styles.headingCopy}>
           <Text style={styles.heading}>첨부 문서</Text>
-          <Text style={styles.caption}>PDF · 파일당 최대 10MB</Text>
+          <Text style={styles.caption}>PDF · 파일당 최대 30MB</Text>
         </View>
         <SmallAction accessibilityLabel="공지 PDF 추가" disabled={disabled} label="PDF 추가" onPress={onAdd} primary />
       </View>

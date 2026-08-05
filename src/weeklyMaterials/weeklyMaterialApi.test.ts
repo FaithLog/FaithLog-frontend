@@ -22,7 +22,8 @@ const weekPayload = {
     sha256: 'a'.repeat(64),
     updatedAt: '2026-08-03T01:00:00Z',
   },
-  sharingSheet: null,
+  sundaySharingSheet: null,
+  saturdayLeaderSharingSheet: null,
 };
 
 describe('weekly material provisional API boundary', () => {
@@ -32,17 +33,50 @@ describe('weekly material provisional API boundary', () => {
     const api = createWeeklyMaterialApi({contractStatus: 'confirmed-test', request: request as unknown as WeeklyMaterialRequest});
 
     await api.getWeek('token', 7, '2026-08-03');
-    await api.putMaterial('token', 7, '2026-08-03', 'SHARING_SHEET', 99);
+    await api.putMaterial('token', 7, '2026-08-03', 'SUNDAY_SHARING_SHEET', 99);
 
     expect(request.mock.calls[0]?.[0]).toBe(
       '/api/v1/campuses/7/weekly-materials/2026-08-03',
     );
     expect(request.mock.calls[1]?.[0]).toBe(
-      '/api/v1/admin/campuses/7/weekly-materials/2026-08-03/SHARING_SHEET',
+      '/api/v1/admin/campuses/7/weekly-materials/2026-08-03/SUNDAY_SHARING_SHEET',
     );
     expect(request.mock.calls[1]?.[1]).toMatchObject({
       body: {mediaAssetId: 99},
       method: 'PUT',
+    });
+  });
+
+  it('parses the three independent weekly material response slots', async () => {
+    const response = {
+      ...weekPayload,
+      sundaySharingSheet: {
+        assetId: 32,
+        materialType: 'SUNDAY_SHARING_SHEET',
+        originalFileName: '주일 나눔지.pdf',
+        byteSize: 4096,
+        sha256: 'b'.repeat(64),
+        updatedAt: '2026-08-03T02:00:00Z',
+      },
+      saturdayLeaderSharingSheet: {
+        assetId: 33,
+        materialType: 'SATURDAY_LEADER_SHARING_SHEET',
+        originalFileName: '토목모 나눔지.pdf',
+        byteSize: 8192,
+        sha256: 'c'.repeat(64),
+        updatedAt: '2026-08-03T03:00:00Z',
+      },
+    };
+    const request = vi.fn(async (_path: string, options: {responseParser?: (value: unknown) => unknown}) =>
+      options.responseParser?.(response));
+    const api = createWeeklyMaterialApi({contractStatus: 'confirmed-test', request: request as unknown as WeeklyMaterialRequest});
+
+    await expect(api.getWeek('token', 7, '2026-08-03')).resolves.toMatchObject({
+      materials: [
+        {materialType: 'SHEPHERD_GUIDE'},
+        {materialType: 'SUNDAY_SHARING_SHEET'},
+        {materialType: 'SATURDAY_LEADER_SHARING_SHEET'},
+      ],
     });
   });
 

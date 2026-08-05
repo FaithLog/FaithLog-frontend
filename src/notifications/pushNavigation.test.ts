@@ -22,6 +22,7 @@ describe('push notification route payload validation', () => {
   beforeEach(() => {
     vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'development');
     vi.stubEnv('EXPO_PUBLIC_MOCK_MODE', 'true');
+    vi.stubEnv('EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED', 'true');
   });
 
   afterEach(() => {
@@ -209,6 +210,40 @@ describe('push notification route payload validation', () => {
       route: 'announcements',
       params: {announcementId: 100, campusId: 1, categoryId: 12},
     });
+  });
+
+  it('routes a weekly sharing-sheet event to its exact week without opening the PDF', () => {
+    expect(parsePushNotificationOpenPayload({
+      eventType: 'WEEKLY_SHARING_SHEET_PUBLISHED',
+      campusId: '1',
+      weekStartDate: '2026-08-03',
+    })).toEqual({
+      status: 'valid',
+      route: 'weeklyMaterials',
+      params: {campusId: 1, weekStartDate: '2026-08-03'},
+    });
+
+    expect(parsePushNotificationOpenPayload({
+      eventType: 'WEEKLY_SHARING_SHEET_PUBLISHED',
+      weekStartDate: '2026-08-03',
+    })).toEqual({
+      status: 'valid',
+      route: 'weeklyMaterials',
+      params: {weekStartDate: '2026-08-03'},
+    });
+  });
+
+  it('rejects weekly sharing-sheet payload content, invalid dates, and unknown fields', () => {
+    expect(parsePushNotificationOpenPayload({
+      eventType: 'WEEKLY_SHARING_SHEET_PUBLISHED',
+      campusId: '1',
+      weekStartDate: '2026-08-04',
+    })).toEqual({status: 'invalid', reason: 'invalidParam'});
+    expect(parsePushNotificationOpenPayload({
+      eventType: 'WEEKLY_SHARING_SHEET_PUBLISHED',
+      weekStartDate: '2026-08-03',
+      downloadUrl: 'https://signed.invalid/private.pdf',
+    })).toEqual({status: 'invalid', reason: 'unknownParam'});
   });
 
   it('requires the exact announcement event keys', () => {

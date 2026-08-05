@@ -40,7 +40,7 @@ describe('weekly material state isolation', () => {
     expect(isWeeklyMaterialRequestCurrent(coordinator, currentRequest)).toBe(true);
   });
 
-  it('updates and deletes one material without changing its sibling', () => {
+  it('updates, orders, and deletes three materials without changing siblings', () => {
     const guide = {
       materialType: 'SHEPHERD_GUIDE' as const,
       mediaAssetId: 1,
@@ -49,12 +49,23 @@ describe('weekly material state isolation', () => {
       sha256: 'a'.repeat(64),
       updatedAt: '2026-08-03T00:00:00Z',
     };
-    const sheet = {...guide, materialType: 'SHARING_SHEET' as const, mediaAssetId: 2};
-    const withBoth = applyWeeklyMaterialUpsert(
+    const sheet = {...guide, materialType: 'SUNDAY_SHARING_SHEET' as const, mediaAssetId: 2};
+    const saturdaySheet = {
+      ...guide,
+      materialType: 'SATURDAY_LEADER_SHARING_SHEET' as const,
+      mediaAssetId: 3,
+    };
+    const withAll = applyWeeklyMaterialUpsert(
       applyWeeklyMaterialUpsert(emptyWeek, guide),
-      sheet,
+      saturdaySheet,
     );
-    const afterDelete = applyWeeklyMaterialDelete(withBoth, 'SHEPHERD_GUIDE');
-    expect(afterDelete.materials).toEqual([sheet]);
+    const ordered = applyWeeklyMaterialUpsert(withAll, sheet);
+    expect(ordered.materials.map((material) => material.materialType)).toEqual([
+      'SHEPHERD_GUIDE',
+      'SUNDAY_SHARING_SHEET',
+      'SATURDAY_LEADER_SHARING_SHEET',
+    ]);
+    const afterDelete = applyWeeklyMaterialDelete(ordered, 'SUNDAY_SHARING_SHEET');
+    expect(afterDelete.materials).toEqual([guide, saturdaySheet]);
   });
 });

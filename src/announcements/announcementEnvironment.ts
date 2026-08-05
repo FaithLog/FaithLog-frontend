@@ -20,14 +20,8 @@ export function isAnnouncementCapabilityEnabled() {
   return integrationRequested || isAnnouncementMockModeEnabled();
 }
 
-/**
- * PDF remains mock-only until backend #242 REST Docs are merged and the native
- * document picker is approved. This prevents provisional fields from leaking
- * into the production announcement contract.
- */
 export function isAnnouncementPdfCapabilityEnabled() {
-  return isAnnouncementMockModeEnabled() &&
-    process.env.EXPO_PUBLIC_ANNOUNCEMENT_PDF_ENABLED?.trim().toLowerCase() === 'true';
+  return isAnnouncementCapabilityEnabled();
 }
 
 function isLocalAnnouncementEnvironment() {

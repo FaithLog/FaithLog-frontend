@@ -1,14 +1,13 @@
 import {documentMediaApi} from '../media/documentMediaApi';
 import type {PdfUploadCandidate, ReadyDocumentAsset} from '../media/documentMediaTypes';
 import {runPdfUpload} from '../media/pdfUploadCoordinator';
+import {getPrivateDocumentCache} from '../media/privateDocumentCache';
 import {openWeeklyMaterialDocument} from './weeklyMaterialDocument';
 import {
   createWeeklyMaterialPdfUploadTransport,
   pickAndPrepareWeeklyMaterialPdf,
 } from './weeklyMaterialNativeDocument';
 import type {WeeklyMaterial} from './weeklyMaterialTypes';
-
-const WEEKLY_DOCUMENT_CACHE_DIRECTORY = 'faithlog-weekly-material-documents-v1';
 
 export async function pickWeeklyMaterialPdf() {
   return pickAndPrepareWeeklyMaterialPdf();
@@ -48,7 +47,7 @@ export async function openWeeklyMaterialPdf({
   campusId: number;
   material: WeeklyMaterial;
 }) {
-  const cache = await createNativeDocumentCache();
+  const cache = getPrivateDocumentCache();
   await openWeeklyMaterialDocument({
     accessToken,
     api: documentMediaApi,
@@ -66,32 +65,4 @@ export async function openWeeklyMaterialPdf({
       });
     },
   });
-}
-
-async function createNativeDocumentCache() {
-  const {Directory, File, Paths} = await import('expo-file-system');
-  const directory = new Directory(Paths.cache, WEEKLY_DOCUMENT_CACHE_DIRECTORY);
-  directory.create({idempotent: true, intermediates: true, overwrite: false});
-  const file = (cacheKey: string) => new File(directory, `${cacheKey}.pdf`);
-
-  return {
-    async download({cacheKey, signedUrl}: {cacheKey: string; signedUrl: string}) {
-      const destination = file(cacheKey);
-      if (destination.exists) destination.delete();
-      const downloaded = await File.downloadFileAsync(signedUrl, destination, {
-        idempotent: false,
-      });
-      return downloaded.uri;
-    },
-    async exists(cacheKey: string) {
-      return file(cacheKey).exists;
-    },
-    resolveUri(cacheKey: string) {
-      return file(cacheKey).uri;
-    },
-    async touch(_cacheKey: string, _at: number) {
-      // The stable cache file is refreshed on access. Shared cache maintenance
-      // owns TTL/LRU cleanup and logout removal.
-    },
-  };
 }

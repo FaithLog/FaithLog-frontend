@@ -1,7 +1,7 @@
 export type ImageCacheVariant = 'detail' | 'thumbnail';
 export type ImageCacheMetadata = {key: string; lastAccessedAt: number; namespace: string; sizeBytes: number};
 const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
-const maxBytes = 200 * 1024 * 1024;
+const maxBytes = MEDIA_IMAGE_CACHE_MAX_BYTES;
 const namespacePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 export function buildImageCacheKey({assetId, namespace, sha256, variant}: {assetId: number; namespace: string; sha256: string; variant: ImageCacheVariant}) {
@@ -62,3 +62,4 @@ function isValidMetadata(entry: ImageCacheMetadata) {
     entry.sizeBytes >= 0
   );
 }
+import {MEDIA_IMAGE_CACHE_MAX_BYTES} from '../media/mediaCachePolicy';
