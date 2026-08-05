@@ -6,6 +6,7 @@ import {
   type ImageCacheVariant,
 } from './announcementImageCache';
 import {ANNOUNCEMENT_IMAGE_CACHE_DIRECTORY_NAME} from './announcementImageTemporaryFiles';
+import {MEDIA_IMAGE_CACHE_MAX_BYTES} from '../media/mediaCachePolicy';
 
 export type AnnouncementImageCacheIdentity = {
   assetId: number;
@@ -60,7 +61,7 @@ const temporaryMaintenanceFileName = 'announcement-image-cache-maintenance-v1.tm
 const metadataVersion = 1;
 const maximumMetadataBytes = 1024 * 1024;
 const maximumMetadataEntries = 2048;
-const maximumCacheBytes = 200 * 1024 * 1024;
+const maximumCacheBytes = MEDIA_IMAGE_CACHE_MAX_BYTES;
 const accessTimestampPersistIntervalMs = 60 * 60 * 1000;
 // Crash-orphaned `.image-download` and `.image-upload` files are reclaimed by
 // this bounded daily reconciliation (so a valid recent marker permits at most

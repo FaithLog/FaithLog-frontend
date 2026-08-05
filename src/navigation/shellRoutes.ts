@@ -1,5 +1,6 @@
 import type {CampusMembershipSummary, CurrentUser} from '../api/types';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
 
 export type ShellRoute =
   | 'userHome'
@@ -8,6 +9,7 @@ export type ShellRoute =
   | 'polls'
   | 'prayers'
   | 'announcements'
+  | 'weeklyMaterials'
   | 'profile'
   | 'campusAdmin'
   | 'serviceAdmin';
@@ -25,11 +27,12 @@ export type UserBottomNavRoute = (typeof USER_BOTTOM_NAV_ROUTES)[number];
 export function isUserBottomNavVisibleRoute(route: ShellRoute) {
   return USER_BOTTOM_NAV_ROUTES.some((availableRoute) => availableRoute === route) ||
     route === 'prayers' ||
-    route === 'announcements';
+    route === 'announcements' ||
+    route === 'weeklyMaterials';
 }
 
 export function getUserBottomNavActiveRoute(route: ShellRoute): UserBottomNavRoute {
-  if (route === 'prayers' || route === 'announcements') return 'userHome';
+  if (route === 'prayers' || route === 'announcements' || route === 'weeklyMaterials') return 'userHome';
   return USER_BOTTOM_NAV_ROUTES.find((availableRoute) => availableRoute === route) ?? 'userHome';
 }
 
@@ -76,6 +79,9 @@ export function getAvailableRoutes(
   if (isAnnouncementCapabilityEnabled()) {
     routes.push('announcements');
   }
+  if (isWeeklyMaterialCapabilityEnabled()) {
+    routes.push('weeklyMaterials');
+  }
 
   return [...routes, ...getAdminModeRoutes(user, campus)];
 }
@@ -94,6 +100,8 @@ export function getRouteLabel(route: ShellRoute) {
       return '기도';
     case 'announcements':
       return '공지';
+    case 'weeklyMaterials':
+      return '주간 자료';
     case 'profile':
       return '내정보';
     case 'campusAdmin':

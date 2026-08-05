@@ -247,6 +247,14 @@ import {
 import {coordinateAdminMealDutyRefresh} from './adminMealDutyRefresh';
 import {AdminAnnouncementCapabilityRoute} from '../announcements/AnnouncementCapabilitySurfaces';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
+import {AdminWeeklyMaterialsScreen} from '../weeklyMaterials/AdminWeeklyMaterialsScreen';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
+import {
+  openWeeklyMaterialPdf,
+  pickWeeklyMaterialPdf,
+  uploadWeeklyMaterialPdf,
+} from '../weeklyMaterials/weeklyMaterialNativeRuntime';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -276,6 +284,7 @@ type AdminTab =
   | 'devotion'
   | 'polls'
   | 'announcements'
+  | 'weeklyMaterials'
   | 'notificationLogs'
   | 'prayer'
   | 'members'
@@ -669,6 +678,7 @@ export function AdminScreen({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const campusId = state.selectedCampus.campusId;
   const announcementCapabilityEnabled = isAnnouncementCapabilityEnabled();
+  const weeklyMaterialCapabilityEnabled = isWeeklyMaterialCapabilityEnabled();
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
   const [memberSection, setMemberSection] = useState<AdminMemberSection>('list');
@@ -2978,6 +2988,7 @@ export function AdminScreen({
     if (nextTab === 'announcements' && !announcementCapabilityEnabled) {
       return;
     }
+    if (nextTab === 'weeklyMaterials' && !weeklyMaterialCapabilityEnabled) return;
 
     const changeTab = () => {
       if (tab === 'settlement' && nextTab !== 'settlement') {
@@ -3046,6 +3057,40 @@ export function AdminScreen({
     );
   }
 
+  if (tab === 'weeklyMaterials') {
+    return (
+      <View style={styles.adminModeFrame}>
+        <AdminWeeklyMaterialsScreen
+          api={getWeeklyMaterialRuntimeApi()}
+          campusId={campusId}
+          onBack={() => setTab('home')}
+          onOpenMaterial={async (material) => {
+            const accessToken = await resolveCurrentAccessToken(() => undefined);
+            if (!accessToken) throw new Error('Missing access token');
+            await openWeeklyMaterialPdf({accessToken, campusId, material});
+          }}
+          pickPdf={async () => pickWeeklyMaterialPdf()}
+          uploadPdf={async (candidate, onProgress, signal) => {
+            const accessToken = await resolveCurrentAccessToken(() => undefined);
+            if (!accessToken) throw new Error('Missing access token');
+            return uploadWeeklyMaterialPdf({
+              accessToken,
+              campusId,
+              file: candidate,
+              onProgress,
+              signal,
+            });
+          }}
+        />
+        <AdminBottomNav
+          activeTab={tab}
+          bottomInset={androidShellInsets.bottomNavInset}
+          onSelectTab={selectAdminTab}
+        />
+      </View>
+    );
+  }
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -3075,6 +3120,9 @@ export function AdminScreen({
           <AdminHome
             {...(announcementCapabilityEnabled
               ? {onOpenAnnouncements: () => setTab('announcements')}
+              : {})}
+            {...(weeklyMaterialCapabilityEnabled
+              ? {onOpenWeeklyMaterials: () => setTab('weeklyMaterials')}
               : {})}
             prayerState={prayerState}
             summary={loadState.summary}
@@ -3172,6 +3220,9 @@ export function AdminScreen({
         <AdminHome
           {...(announcementCapabilityEnabled
             ? {onOpenAnnouncements: () => setTab('announcements')}
+            : {})}
+          {...(weeklyMaterialCapabilityEnabled
+            ? {onOpenWeeklyMaterials: () => setTab('weeklyMaterials')}
             : {})}
           prayerState={prayerState}
           summary={loadState.summary}
@@ -3570,6 +3621,7 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 
 function AdminHome({
   onOpenAnnouncements,
+  onOpenWeeklyMaterials,
   onOpenPrayer,
   onOpenRoles,
   prayerState,
@@ -3577,6 +3629,7 @@ function AdminHome({
 }: {
   coffeeDuty?: DutyAssignment | null;
   onOpenAnnouncements?: () => void;
+  onOpenWeeklyMaterials?: () => void;
   onOpenMembers?: () => void;
   onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
@@ -3590,13 +3643,17 @@ function AdminHome({
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.adminHomeCampusTitle}>
           {summary.campus.campusName}
         </Text>
-        <View style={styles.metricGrid}>
-          <Metric label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
-          <Metric label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
-          <Metric label="미제출" value={`${summary.devotion.missingCount}명`} />
-          <Metric label="제출률" value={`${summary.devotion.submitRate}%`} />
-          <Metric label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
-          <Metric label="벌금 미납" value={formatCompactWon(getPenaltyUnpaidAmount(summary))} />
+        <View style={styles.adminDashboardMetricGrid}>
+          <Metric compact label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
+          <Metric compact label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
+          <Metric compact label="미제출" value={`${summary.devotion.missingCount}명`} />
+          <Metric compact label="제출률" value={`${summary.devotion.submitRate}%`} />
+          <Metric compact label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
+          <Metric
+            compact
+            label="벌금 미납"
+            value={formatCompactWon(getPenaltyUnpaidAmount(summary))}
+          />
         </View>
       </Card>
       <Card>
@@ -3608,6 +3665,15 @@ function AdminHome({
             value="보기"
             onPress={onOpenAnnouncements}
             accessibilityLabel="관리자 공지 관리 화면으로 이동"
+          />
+        ) : null}
+        {onOpenWeeklyMaterials ? (
+          <ListRow
+            accessibilityLabel="관리자 주간 자료 관리 화면으로 이동"
+            label="주간 자료 관리"
+            onPress={onOpenWeeklyMaterials}
+            supportingText="목자지침·주일·토목모 나눔지 PDF 등록"
+            value="보기"
           />
         ) : null}
         {onOpenRoles ? (
@@ -11856,11 +11922,23 @@ function FigmaSegmentedControl<T extends string>({
   );
 }
 
-function Metric({label, value}: {label: string; value: string}) {
+function Metric({
+  compact = false,
+  label,
+  value,
+}: {
+  compact?: boolean;
+  label: string;
+  value: string;
+}) {
   return (
-    <View style={styles.metric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View style={[styles.metric, compact ? styles.adminDashboardMetric : null]}>
+      <Text style={[styles.metricLabel, compact ? styles.adminDashboardMetricLabel : null]}>
+        {label}
+      </Text>
+      <Text style={[styles.metricValue, compact ? styles.adminDashboardMetricValue : null]}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -12042,6 +12120,8 @@ function getAdminShellTitle(tab: AdminTab) {
       return '투표';
     case 'announcements':
       return '공지 관리';
+    case 'weeklyMaterials':
+      return '주간 자료';
     case 'notificationLogs':
       return '알림';
     case 'prayer':
@@ -12067,6 +12147,8 @@ function getAdminTabIcon(tab: AdminTab): IconexIconName {
       return 'document';
     case 'announcements':
       return 'bell';
+    case 'weeklyMaterials':
+      return 'document';
     case 'notificationLogs':
       return 'bell';
     case 'prayer':
@@ -14866,6 +14948,29 @@ const styles = StyleSheet.create({
     gap: 6,
     minWidth: 128,
     padding: 14,
+  },
+  adminDashboardMetric: {
+    flexBasis: '30%',
+    gap: 5,
+    minHeight: 78,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+  },
+  adminDashboardMetricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  adminDashboardMetricLabel: {
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  adminDashboardMetricValue: {
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 22,
   },
   metricGrid: {
     flexDirection: 'row',

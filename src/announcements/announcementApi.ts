@@ -1,6 +1,7 @@
 import {apiRequest, FaithLogApiError} from '../api/client';
 import {isAnnouncementMockModeEnabled} from './announcementEnvironment';
 import {ANNOUNCEMENT_IMAGE_MAX_BYTE_SIZE} from './announcementMedia';
+import {dedupeOrderedDocumentAssetIds} from '../media/pdfAttachmentPolicy';
 import {
   dedupeOrderedImageAssetIds,
   parseAnnouncementCategories,
@@ -258,7 +259,11 @@ function createMockAnnouncementApi(): AnnouncementApi {
       const category = getCategory(store.categories, campusId, body.categoryId);
       const now = new Date().toISOString();
       const detail: AnnouncementDetail = {
-        body: required(body.body), campusId, category, id: store.nextAnnouncementId++,
+        attachmentCount: body.imageAssetIds.length + body.documentAssetIds.length,
+        body: required(body.body), campusId, category,
+        documentAssetIds: exactDocumentIds(body.documentAssetIds),
+        hasAttachments: body.imageAssetIds.length + body.documentAssetIds.length > 0,
+        id: store.nextAnnouncementId++,
         imageAssetIds: exactImageIds(body.imageAssetIds), pinned: body.pinned,
         publishAt: body.publishMode === 'SCHEDULED' ? required(body.publishAt) : now,
         publishedAt: body.publishMode === 'NOW' ? now : null,
@@ -273,7 +278,9 @@ function createMockAnnouncementApi(): AnnouncementApi {
       const previous = store.announcements[index];
       if (!previous) notFound();
       const now = new Date().toISOString();
-      const next: AnnouncementDetail = {...previous, body: required(body.body), category: getCategory(store.categories, campusId, body.categoryId, previous.category.id === body.categoryId), imageAssetIds: exactImageIds(body.imageAssetIds), pinned: body.pinned, publishAt: body.publishMode === 'NOW' ? now : required(body.publishAt), publishedAt: body.publishMode === 'NOW' ? (previous.publishedAt ?? now) : null, status: body.publishMode === 'NOW' ? 'PUBLISHED' : 'SCHEDULED', title: required(body.title)};
+      const documentAssetIds = exactDocumentIds(body.documentAssetIds);
+      const imageAssetIds = exactImageIds(body.imageAssetIds);
+      const next: AnnouncementDetail = {...previous, attachmentCount: imageAssetIds.length + documentAssetIds.length, body: required(body.body), category: getCategory(store.categories, campusId, body.categoryId, previous.category.id === body.categoryId), documentAssetIds, hasAttachments: imageAssetIds.length + documentAssetIds.length > 0, imageAssetIds, pinned: body.pinned, publishAt: body.publishMode === 'NOW' ? now : required(body.publishAt), publishedAt: body.publishMode === 'NOW' ? (previous.publishedAt ?? now) : null, status: body.publishMode === 'NOW' ? 'PUBLISHED' : 'SCHEDULED', title: required(body.title)};
       store.announcements[index] = next;
       return parseMockAnnouncement(next);
     },
@@ -385,7 +392,7 @@ type MockStore = {
 function createMockStore(): MockStore {
   const category: StoredCategory = {campusId: 1, color: '#3182F6', id: 1, isActive: true, name: '예배', sortOrder: 1};
   return {
-    announcements: [{body: '이번 주 예배 안내를 확인해 주세요.', campusId: 1, category, id: 1, imageAssetIds: [], pinned: true, publishAt: '2026-08-03T09:00:00Z', publishedAt: '2026-08-03T09:00:00Z', status: 'PUBLISHED' as const, title: '주일 예배 안내'}],
+    announcements: [{attachmentCount: 0, body: '이번 주 예배 안내를 확인해 주세요.', campusId: 1, category, documentAssetIds: [], hasAttachments: false, id: 1, imageAssetIds: [], pinned: true, publishAt: '2026-08-03T09:00:00Z', publishedAt: '2026-08-03T09:00:00Z', status: 'PUBLISHED' as const, title: '주일 예배 안내'}],
     assets: new Map<number, MediaUploadReservationRequest & {campusId: number; ready: boolean}>(),
     categories: [category], nextAnnouncementId: 100, nextCategoryId: 10,
   };
@@ -394,6 +401,11 @@ function createMockStore(): MockStore {
 function exactImageIds(ids: number[]) {
   const next = dedupeOrderedImageAssetIds(ids);
   if (next.length !== ids.length) invalid('이미지 순서를 확인해 주세요.');
+  return next;
+}
+function exactDocumentIds(ids: number[]) {
+  const next = dedupeOrderedDocumentAssetIds(ids);
+  if (next.length !== ids.length) invalid('PDF 첨부 순서를 확인해 주세요.');
   return next;
 }
 function announcementSaveWire(body: AnnouncementSaveRequest) {
@@ -409,6 +421,7 @@ function announcementSaveWire(body: AnnouncementSaveRequest) {
     isPinned: body.pinned,
     publishAt,
     imageAssetIds: exactImageIds(body.imageAssetIds),
+    documentAssetIds: exactDocumentIds(body.documentAssetIds),
   };
 }
 function categorySaveWire(body: AnnouncementCategorySaveRequest) {
@@ -428,6 +441,9 @@ function parseMockAnnouncement(item: AnnouncementDetail) {
     publishAt: item.publishAt,
     publishedAt: item.publishedAt,
     imageAssetIds: item.imageAssetIds,
+    documentAssetIds: item.documentAssetIds,
+    hasAttachments: item.hasAttachments,
+    attachmentCount: item.attachmentCount,
   }, {campusId: item.campusId, id: item.id, status: item.status});
 }
 function parseMockCategory(item: StoredCategory) {

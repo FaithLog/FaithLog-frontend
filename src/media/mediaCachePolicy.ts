@@ -2,6 +2,11 @@ import type {MediaVariant} from './mediaTypes';
 
 export const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const MEDIA_CACHE_MAX_BYTES = 200 * 1024 * 1024;
+// Images and PDF documents use isolated metadata/filesystems for crash safety.
+// Reserving half of the shared budget for each prevents their aggregate from
+// ever exceeding the product's 200MB private-media ceiling.
+export const MEDIA_IMAGE_CACHE_MAX_BYTES = MEDIA_CACHE_MAX_BYTES / 2;
+export const MEDIA_DOCUMENT_CACHE_MAX_BYTES = MEDIA_CACHE_MAX_BYTES / 2;
 
 export type MediaCacheIdentity = {
   assetId: number;
@@ -24,7 +29,11 @@ export function buildMediaCacheKey(identity: MediaCacheIdentity) {
   }
   return `${identity.assetId}-${identity.sha256.toLowerCase()}-${identity.variant}`;
 }
-export function selectMediaCacheEntriesToDelete(entries: MediaCacheEntry[], now: number) {
+export function selectMediaCacheEntriesToDelete(
+  entries: MediaCacheEntry[],
+  now: number,
+  maximumBytes = MEDIA_CACHE_MAX_BYTES,
+) {
   const expired = entries.filter((entry) => now - entry.lastAccessedAt > MEDIA_CACHE_TTL_MS);
   const expiredKeys = new Set(expired.map((entry) => entry.key));
   let remainingBytes = entries.reduce(
@@ -36,7 +45,7 @@ export function selectMediaCacheEntriesToDelete(entries: MediaCacheEntry[], now:
     .filter((entry) => !expiredKeys.has(entry.key))
     .sort((left, right) => left.lastAccessedAt - right.lastAccessedAt);
   for (const entry of survivors) {
-    if (remainingBytes <= MEDIA_CACHE_MAX_BYTES) break;
+    if (remainingBytes <= maximumBytes) break;
     deletions.push(entry.key);
     remainingBytes -= Math.max(0, entry.byteSize);
   }

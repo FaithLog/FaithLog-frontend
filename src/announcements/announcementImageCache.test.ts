@@ -16,12 +16,12 @@ describe('announcement image cache policy', () => {
     })).toBe(`announcement-images/v1/account-42/9/${'a'.repeat(64)}/thumbnail`);
   });
 
-  it('expires entries after seven days and then applies a 200MB LRU bound', () => {
+  it('expires entries after seven days and applies the image half of the shared cache budget', () => {
     const now = Date.parse('2026-08-10T00:00:00Z');
     const result = planImageCacheCleanup([
       entry('expired', 10, now - 8 * day),
-      entry('old', 120, now - 3 * day),
-      entry('new', 100, now - day),
+      entry('old', 60, now - 3 * day),
+      entry('new', 50, now - day),
     ], now);
     expect(result.deleteKeys).toEqual(['expired', 'old']);
     expect(result.keepKeys).toEqual(['new']);

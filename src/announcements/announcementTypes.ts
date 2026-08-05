@@ -9,9 +9,12 @@ export type AnnouncementCategory = {
 };
 
 export type AnnouncementSummary = {
+  attachmentCount: number;
   body: string;
   campusId: number;
   category: AnnouncementCategory;
+  documentAssetIds: number[];
+  hasAttachments: boolean;
   id: number;
   imageAssetIds: number[];
   pinned: boolean;
@@ -26,6 +29,7 @@ export type AnnouncementDetail = AnnouncementSummary;
 export type AnnouncementSaveRequest = {
   body: string;
   categoryId: number;
+  documentAssetIds: number[];
   imageAssetIds: number[];
   pinned: boolean;
   publishAt: string | null;

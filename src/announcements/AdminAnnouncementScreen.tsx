@@ -29,7 +29,9 @@ import {Button, Card, Empty, ErrorState, Loading, ScreenHeader, TextField} from 
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {colors, radius, spacing, typography} from '../theme';
 import {announcementApi, type AnnouncementApi} from './announcementApi';
-import {isAnnouncementMockModeEnabled} from './announcementEnvironment';
+import {isAnnouncementMockModeEnabled, isAnnouncementPdfCapabilityEnabled} from './announcementEnvironment';
+import {AnnouncementDocumentEditor, type AnnouncementDocumentItem} from './AnnouncementDocumentAttachments';
+import {announcementDocumentMediaApi} from './announcementDocumentMediaApi';
 import {AnnouncementCategoryBadge} from './AnnouncementCategoryBadge';
 import {AnnouncementRetryableImage} from './AnnouncementRetryableImage';
 import {moveUploadItem, reconcileUploadItem, type UploadItem} from './announcementMedia';
@@ -50,6 +52,13 @@ import {
   type MediaBinaryUploadRetryContext,
 } from './announcementUploadFlow';
 import {useHorizontalDragAutoScroll} from '../media/useHorizontalDragAutoScroll';
+import {
+  createNativePdfDirectUploadTransport,
+  pickAndPrepareAnnouncementPdfs,
+} from '../media/announcementNativeDocument';
+import type {PdfUploadCandidate} from '../media/documentMediaTypes';
+import {MAX_WEEKLY_MATERIAL_PDF_BYTES} from '../media/pdfAttachmentPolicy';
+import {runPdfUpload} from '../media/pdfUploadCoordinator';
 import type {
   AnnouncementCategory,
   AnnouncementDetail,
@@ -95,6 +104,7 @@ const categorySwatches = ['#3182F6', '#5BA8B0', '#F59E0B', '#EF4444', '#22C55E']
 const progressiveAdminRowPageSize = 20;
 const isMockModeEnabled = isAnnouncementMockModeEnabled;
 let nextAdminMockAssetIdSequence = 9000;
+let nextPdfDocumentIdentitySequence = 0;
 
 export function AdminAnnouncementScreen({
   campusId,
@@ -425,6 +435,16 @@ export function AnnouncementEditorScreen({
       status: 'ready',
     })),
   );
+  const pdfEnabled = isAnnouncementPdfCapabilityEnabled();
+  const [documents, setDocuments] = useState<AnnouncementDocumentItem[]>([]);
+  const [existingDocumentsStatus, setExistingDocumentsStatus] = useState<'error' | 'loading' | 'ready'>(
+    detail?.documentAssetIds.length ? 'loading' : 'ready',
+  );
+  const nextMockDocumentId = useRef(20_000 + documents.length);
+  const pdfAddFlightRef = useRef(false);
+  const pdfCandidatesRef = useRef(new Map<string, PdfUploadCandidate>());
+  const pdfControllersRef = useRef(new Map<string, AbortController>());
+  const pdfTransportRef = useRef(createNativePdfDirectUploadTransport());
   const [confirmationVisible, setConfirmationVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
@@ -433,6 +453,7 @@ export function AnnouncementEditorScreen({
   const mounted = useRef(true);
   const saveFlightRef = useRef(false);
   const existingMediaRequestRef = useRef(0);
+  const existingDocumentRequestRef = useRef(0);
   const existingAssetIds = useMemo(() => detail?.imageAssetIds ?? [], [detail]);
 
   const loadExistingMedia = useCallback(async (
@@ -465,6 +486,36 @@ export function AnnouncementEditorScreen({
     }
   }, [api, campusId, existingAssetIds]);
 
+  const loadExistingDocuments = useCallback(async () => {
+    const request = ++existingDocumentRequestRef.current;
+    const assetIds = detail?.documentAssetIds ?? [];
+    if (!pdfEnabled || assetIds.length === 0) {
+      setExistingDocumentsStatus('ready');
+      return;
+    }
+    setExistingDocumentsStatus('loading');
+    try {
+      const token = await resolveCurrentAccessToken(() => undefined);
+      if (!token) throw new Error('session');
+      const items = await announcementDocumentMediaApi.getAccessUrls(token, campusId, assetIds);
+      if (!mounted.current || request !== existingDocumentRequestRef.current) return;
+      const existing = items.map((item) => ({
+        assetId: item.assetId,
+        byteSize: item.byteSize,
+        fileName: item.fileName,
+        localId: `document-${item.assetId}`,
+        status: 'ready' as const,
+      }));
+      const ids = new Set(assetIds);
+      setDocuments((current) => [...existing, ...current.filter((item) => !item.assetId || !ids.has(item.assetId))]);
+      setExistingDocumentsStatus('ready');
+    } catch {
+      if (mounted.current && request === existingDocumentRequestRef.current) {
+        setExistingDocumentsStatus('error');
+      }
+    }
+  }, [campusId, detail, pdfEnabled]);
+
   useEffect(() => {
     mounted.current = true;
     void resolveCurrentAccessToken(() => undefined)
@@ -484,8 +535,16 @@ export function AnnouncementEditorScreen({
       });
     return () => {
       mounted.current = false;
+      existingDocumentRequestRef.current += 1;
+      for (const controller of pdfControllersRef.current.values()) controller.abort();
+      pdfControllersRef.current.clear();
+      pdfCandidatesRef.current.clear();
     };
   }, [api, campusId, detail]);
+
+  useEffect(() => {
+    void loadExistingDocuments();
+  }, [loadExistingDocuments]);
 
   useEffect(() => {
     void loadExistingMedia();
@@ -493,6 +552,111 @@ export function AnnouncementEditorScreen({
       existingMediaRequestRef.current += 1;
     };
   }, [loadExistingMedia]);
+
+  const uploadDocument = useCallback(async (localId: string, candidate: PdfUploadCandidate) => {
+    pdfControllersRef.current.get(localId)?.abort();
+    const controller = new AbortController();
+    pdfControllersRef.current.set(localId, controller);
+    setDocuments((current) => current.map((item) => {
+      if (item.localId !== localId) return item;
+      const {message: _message, ...rest} = item;
+      return {...rest, status: 'reserving'};
+    }));
+    try {
+      const token = await resolveCurrentAccessToken(() => undefined);
+      if (!token) throw new Error('session');
+      const ready = await runPdfUpload({
+        accessToken: token,
+        api: announcementDocumentMediaApi,
+        campusId,
+        file: candidate,
+        maxPdfBytes: MAX_WEEKLY_MATERIAL_PDF_BYTES,
+        onStatus: (status) => {
+          if (!mounted.current || controller.signal.aborted) return;
+          setDocuments((current) => current.map((item) => item.localId === localId
+            ? {...item, status}
+            : item));
+        },
+        signal: controller.signal,
+        transport: pdfTransportRef.current,
+      });
+      if (!mounted.current || controller.signal.aborted) return;
+      setDocuments((current) => current.map((item) => {
+        if (item.localId !== localId) return item;
+        const {message: _message, ...rest} = item;
+        return {
+          ...rest,
+          assetId: ready.assetId,
+          byteSize: ready.byteSize,
+          fileName: ready.fileName,
+          status: 'ready',
+        };
+      }));
+    } catch {
+      if (!mounted.current || controller.signal.aborted) return;
+      setDocuments((current) => current.map((item) => item.localId === localId
+        ? {...item, message: 'PDF를 업로드하지 못했습니다. 다시 시도해 주세요.', status: 'failed'}
+        : item));
+    } finally {
+      if (pdfControllersRef.current.get(localId) === controller) {
+        pdfControllersRef.current.delete(localId);
+      }
+    }
+  }, [campusId]);
+
+  const addDocuments = useCallback(async () => {
+    if (pdfAddFlightRef.current || saving) return;
+    if (isMockModeEnabled()) {
+      const assetId = nextMockDocumentId.current++;
+      setDocuments((current) => [...current, {
+        assetId,
+        byteSize: 128 * 1024,
+        fileName: `공지 첨부 ${current.length + 1}.pdf`,
+        localId: `mock-document-${assetId}`,
+        status: 'ready',
+      }]);
+      return;
+    }
+    pdfAddFlightRef.current = true;
+    setMediaBusy(true);
+    setError(null);
+    try {
+      const result = await pickAndPrepareAnnouncementPdfs();
+      if (!mounted.current) return;
+      if (result.failures.length > 0) {
+        setError('일부 PDF 파일을 확인하지 못했습니다. PDF 형식과 30MB 이하 크기를 확인해 주세요.');
+      }
+      for (const candidate of result.prepared) {
+        const localId = nextPdfDocumentLocalId();
+        pdfCandidatesRef.current.set(localId, candidate);
+        setDocuments((current) => [...current, {
+          byteSize: candidate.byteSize,
+          fileName: candidate.fileName,
+          localId,
+          status: 'reserving',
+        }]);
+        await uploadDocument(localId, candidate);
+      }
+    } catch {
+      if (mounted.current) setError('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+    } finally {
+      pdfAddFlightRef.current = false;
+      if (mounted.current) setMediaBusy(false);
+    }
+  }, [saving, uploadDocument]);
+
+  const retryDocument = useCallback((localId: string) => {
+    const candidate = pdfCandidatesRef.current.get(localId);
+    if (!candidate || pdfControllersRef.current.has(localId)) return;
+    void uploadDocument(localId, candidate);
+  }, [uploadDocument]);
+
+  const removeDocument = useCallback((localId: string) => {
+    pdfControllersRef.current.get(localId)?.abort();
+    pdfControllersRef.current.delete(localId);
+    pdfCandidatesRef.current.delete(localId);
+    setDocuments((current) => current.filter((item) => item.localId !== localId));
+  }, []);
 
   const buildRequest = () => {
     const trimmedTitle = title.trim();
@@ -509,6 +673,14 @@ export function AnnouncementEditorScreen({
       setError('이미지 업로드를 완료하거나 실패한 이미지를 삭제한 뒤 다시 시도해 주세요.');
       return null;
     }
+    if (documents.some((item) => item.status !== 'ready')) {
+      setError('PDF 업로드를 완료하거나 실패한 문서를 삭제한 뒤 다시 시도해 주세요.');
+      return null;
+    }
+    if (existingDocumentsStatus !== 'ready') {
+      setError('기존 PDF 첨부 정보를 확인한 뒤 공지를 저장해 주세요.');
+      return null;
+    }
     if (publishMode === 'SCHEDULED' && publishAt.getTime() <= Date.now()) {
       setError('예약 게시 시각은 현재 시각 이후여야 합니다.');
       return null;
@@ -516,6 +688,7 @@ export function AnnouncementEditorScreen({
     const request: AnnouncementSaveRequest = {
       body: trimmedBody,
       categoryId,
+      documentAssetIds: documents.flatMap((item) => item.status === 'ready' && item.assetId ? [item.assetId] : []),
       imageAssetIds: uploads.flatMap((item) => item.status === 'ready' ? [item.assetId] : []),
       pinned,
       publishAt: publishMode === 'SCHEDULED' ? publishAt.toISOString() : null,
@@ -665,6 +838,24 @@ export function AnnouncementEditorScreen({
         remoteThumbnailUrls={existingMedia.status === 'ready' ? existingMedia.urls : {}}
         userId={userId}
       />
+      {pdfEnabled ? (
+        <>
+          <AnnouncementDocumentEditor
+            disabled={saving || mediaBusy || existingDocumentsStatus !== 'ready'}
+            items={documents}
+            onAdd={() => void addDocuments()}
+            onMove={(from, to) => setDocuments((current) => moveDocument(current, from, to))}
+            onRemove={removeDocument}
+            onRetry={retryDocument}
+          />
+          {existingDocumentsStatus === 'loading' ? <Text style={styles.meta}>기존 PDF 첨부 정보를 불러오고 있습니다.</Text> : null}
+          {existingDocumentsStatus === 'error' ? (
+            <Pressable accessibilityLabel="기존 PDF 첨부 정보 다시 불러오기" accessibilityRole="button" onPress={() => void loadExistingDocuments()}>
+              <Text style={styles.error}>기존 PDF 첨부 정보를 불러오지 못했습니다. 다시 시도</Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : null}
       <View accessibilityLabel="공지 작성 작업" style={styles.editorActions}>
         <EditorActionButton
           accessibilityLabel={detail ? '공지 수정 취소' : '공지 작성 취소'}
@@ -2039,6 +2230,22 @@ function hasUniqueCategorySortOrders(items: readonly AnnouncementCategory[]) {
     orders.add(item.sortOrder);
   }
   return true;
+}
+
+function moveDocument(items: AnnouncementDocumentItem[], from: number, to: number) {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return items;
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  if (!item) return items;
+  next.splice(to, 0, item);
+  return next;
+}
+
+function nextPdfDocumentLocalId() {
+  nextPdfDocumentIdentitySequence = nextPdfDocumentIdentitySequence >= Number.MAX_SAFE_INTEGER
+    ? 1
+    : nextPdfDocumentIdentitySequence + 1;
+  return `pdf-${Date.now().toString(36)}-${nextPdfDocumentIdentitySequence.toString(36)}`;
 }
 
 const styles = StyleSheet.create({

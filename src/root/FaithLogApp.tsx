@@ -155,11 +155,17 @@ import {
   clearAllAnnouncementImageCaches,
   clearAnnouncementImageCacheForUser,
 } from '../announcements/announcementImageRuntime';
+import {clearAllPrivateDocumentCaches} from '../media/privateDocumentCache';
 import {mealApi} from '../meal/mealApi';
 import {YearlyRecapHomeCard} from '../recap/YearlyRecapHomeCard';
 import {YearlyRecapScreen} from '../recap/YearlyRecapScreen';
 import {useYearlyRecapExperience} from '../recap/useYearlyRecapExperience';
 import type {YearlyRecap} from '../recap/yearlyRecapTypes';
+import {WeeklyMaterialsScreen} from '../weeklyMaterials/WeeklyMaterialsScreen';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
+import {openWeeklyMaterialPdf} from '../weeklyMaterials/weeklyMaterialNativeRuntime';
+import type {WeeklyMaterialType} from '../weeklyMaterials/weeklyMaterialTypes';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -217,6 +223,12 @@ type AppMessage = {
   title: string;
   message: string;
 } | null;
+
+type NotificationWeeklyMaterialTarget = {
+  highlight: WeeklyMaterialType;
+  requestKey: number;
+  weekStartDate: string;
+};
 
 type SetAuthState = Dispatch<SetStateAction<AuthGateState>>;
 
@@ -380,6 +392,8 @@ export function FaithLogApp() {
   const [announcementInitialId, setAnnouncementInitialId] = useState<number | null>(null);
   const [announcementOpenRequestKey, setAnnouncementOpenRequestKey] = useState(0);
   const [notificationPollTarget, setNotificationPollTarget] = useState<PollOpenTarget | null>(null);
+  const [notificationWeeklyMaterialTarget, setNotificationWeeklyMaterialTarget] =
+    useState<NotificationWeeklyMaterialTarget | null>(null);
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const notificationOpenSequenceRef = useRef(0);
@@ -443,6 +457,7 @@ export function FaithLogApp() {
     purgePaymentContextForAuthState(authState.status);
     if (authState.status !== 'authenticated' && authState.status !== 'noCampus') {
       clearCurrentUserCache();
+      setNotificationWeeklyMaterialTarget(null);
     }
   }, [authState.status]);
 
@@ -460,8 +475,10 @@ export function FaithLogApp() {
     announcementCacheSessionRef.current = transition.state;
     if (transition.action.type === 'clearAll') {
       trackLocalSessionCleanup(clearAllAnnouncementImageCaches());
+      trackLocalSessionCleanup(clearAllPrivateDocumentCaches());
     } else if (transition.action.type === 'clearUser') {
       trackLocalSessionCleanup(clearAnnouncementImageCacheForUser(transition.action.userId));
+      trackLocalSessionCleanup(clearAllPrivateDocumentCaches());
     }
   }, [authState]);
 
@@ -638,7 +655,10 @@ export function FaithLogApp() {
         let navigationState: Extract<AuthGateState, {status: 'authenticated'}> = requestAuthState;
         let navigationGeneration: number | null = null;
 
-        if (target.route === 'announcements' && target.params.campusId !== undefined) {
+        if (
+          (target.route === 'announcements' || target.route === 'weeklyMaterials') &&
+          target.params.campusId !== undefined
+        ) {
           const resolution = await resolveAnnouncementDeepLinkCampus({
             currentCampusId: requestAuthState.selectedCampus.campusId,
             targetCampusId: target.params.campusId,
@@ -683,10 +703,7 @@ export function FaithLogApp() {
             !campusNavigationIntentRef.current.isCurrent(campusNavigationIntent)
           ) return;
           if (resolution.status === 'unavailable') {
-            Alert.alert(
-              '공지를 열 수 없습니다',
-              '현재 계정에 활성화된 캠퍼스의 공지만 확인할 수 있습니다.',
-            );
+            Alert.alert('자료를 열 수 없습니다', '현재 계정에 활성화된 캠퍼스의 자료만 확인할 수 있습니다.');
             return;
           }
           // Even when the target matches the current snapshot, commit that
@@ -723,15 +740,30 @@ export function FaithLogApp() {
             }
             if (target.route === 'announcements') {
               setNotificationPollTarget(null);
+              setNotificationWeeklyMaterialTarget(null);
               setAnnouncementInitialId(target.params.announcementId ?? null);
               setAnnouncementOpenRequestKey((current) =>
                 current >= Number.MAX_SAFE_INTEGER ? 1 : current + 1);
             } else if (target.route === 'polls') {
               setAnnouncementInitialId(null);
+              setNotificationWeeklyMaterialTarget(null);
               setNotificationPollTarget(pollOpenTarget);
+            } else if (target.route === 'weeklyMaterials') {
+              setAnnouncementInitialId(null);
+              setNotificationPollTarget(null);
+              setNotificationWeeklyMaterialTarget(
+                typeof target.params.weekStartDate === 'string'
+                  ? {
+                    highlight: 'SUNDAY_SHARING_SHEET',
+                    requestKey: requestSequence,
+                    weekStartDate: target.params.weekStartDate,
+                  }
+                  : null,
+              );
             } else {
               setAnnouncementInitialId(null);
               setNotificationPollTarget(null);
+              setNotificationWeeklyMaterialTarget(null);
             }
             setRoute(target.route);
           },
@@ -746,12 +778,12 @@ export function FaithLogApp() {
           requestSequence !== notificationOpenSequenceRef.current ||
           !campusNavigationIntentRef.current.isCurrent(campusNavigationIntent)
         ) return;
-        const apiError = toApiError(error, '공지 알림을 열지 못했습니다.');
+        const apiError = toApiError(error, '알림의 자료를 열지 못했습니다.');
         if (apiError.kind === 'sessionExpired') {
           setAuthState({status: 'sessionExpired', message: apiError.message});
           return;
         }
-        Alert.alert('공지를 열 수 없습니다', '캠퍼스 정보를 확인한 뒤 다시 시도해 주세요.');
+        Alert.alert('자료를 열 수 없습니다', '캠퍼스 정보를 확인한 뒤 다시 시도해 주세요.');
       } finally {
         if (
           !navigationCommitted &&
@@ -847,7 +879,9 @@ export function FaithLogApp() {
                 campusNavigation={campusNavigationIntentRef.current}
                 entryTarget={entryTarget}
                 notificationPollTarget={notificationPollTarget}
+                notificationWeeklyMaterialTarget={notificationWeeklyMaterialTarget}
                 onNotificationPollTargetHandled={() => setNotificationPollTarget(null)}
+                onNotificationWeeklyMaterialTargetHandled={() => setNotificationWeeklyMaterialTarget(null)}
                 openEntryTarget={setEntryTarget}
                 route={route}
                 setAuthState={setAuthState}
@@ -1804,7 +1838,9 @@ function AuthenticatedShell({
   campusNavigation,
   entryTarget,
   notificationPollTarget = null,
+  notificationWeeklyMaterialTarget = null,
   onNotificationPollTargetHandled = () => {},
+  onNotificationWeeklyMaterialTargetHandled = () => {},
   openEntryTarget,
   route,
   setAuthState,
@@ -1818,7 +1854,9 @@ function AuthenticatedShell({
   campusNavigation: CampusNavigationIntentCoordinator;
   entryTarget: EntryTarget | null;
   notificationPollTarget?: PollOpenTarget | null;
+  notificationWeeklyMaterialTarget?: NotificationWeeklyMaterialTarget | null;
   onNotificationPollTargetHandled?: () => void;
+  onNotificationWeeklyMaterialTargetHandled?: () => void;
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
@@ -2353,6 +2391,27 @@ function AuthenticatedShell({
               }}
               userId={state.user.id}
             />
+          ) : route === 'weeklyMaterials' ? (
+            <WeeklyMaterialsScreen
+              api={getWeeklyMaterialRuntimeApi()}
+              campusId={state.selectedCampus.campusId}
+              highlightedType={notificationWeeklyMaterialTarget?.highlight ?? null}
+              initialWeekStartDate={notificationWeeklyMaterialTarget?.weekStartDate}
+              key={`weekly-materials-${state.selectedCampus.campusId}-${notificationWeeklyMaterialTarget?.requestKey ?? 'manual'}`}
+              onBack={() => {
+                onNotificationWeeklyMaterialTargetHandled();
+                setRoute('userHome');
+              }}
+              openMaterial={async (material) => {
+                const accessToken = await resolveCurrentAccessToken(() => undefined);
+                if (!accessToken) throw new Error('Missing access token');
+                await openWeeklyMaterialPdf({
+                  accessToken,
+                  campusId: state.selectedCampus.campusId,
+                  material,
+                });
+              }}
+            />
           ) : (
             <PollScreen
               androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
@@ -2457,6 +2516,10 @@ function AuthenticatedShell({
                 setAnnouncementInitialId(null);
                 setRoute('announcements');
               }}
+              onOpenWeeklyMaterials={() => {
+                onNotificationWeeklyMaterialTargetHandled();
+                setRoute('weeklyMaterials');
+              }}
               onOpenAnnouncement={(announcementId) => {
                 setAnnouncementInitialId(announcementId);
                 setRoute('announcements');
@@ -2542,7 +2605,7 @@ function AuthenticatedShell({
           />
         )}
 
-        {(['profile', 'userHome', 'devotion', 'payments', 'polls', 'prayers', 'announcements', 'campusAdmin', 'serviceAdmin'] as ShellRoute[]).includes(route) ? null : (
+        {(['profile', 'userHome', 'devotion', 'payments', 'polls', 'prayers', 'announcements', 'weeklyMaterials', 'campusAdmin', 'serviceAdmin'] as ShellRoute[]).includes(route) ? null : (
           <Card>
             <Eyebrow>{getRouteLabel(route)}</Eyebrow>
             <Title>{getRouteTitle(route)}</Title>
@@ -2827,6 +2890,7 @@ function UserHomeDashboard({
   onOpenPayments,
   onOpenPrayers,
   onOpenYearlyRecap,
+  onOpenWeeklyMaterials,
   setAuthState,
   state,
   yearlyRecap,
@@ -2841,6 +2905,7 @@ function UserHomeDashboard({
   onOpenPayments: () => void;
   onOpenPrayers: (entryMode: PrayerEntryMode) => void;
   onOpenYearlyRecap: () => void;
+  onOpenWeeklyMaterials: () => void;
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   yearlyRecap: YearlyRecap | null;
@@ -3081,6 +3146,9 @@ function UserHomeDashboard({
         userId={state.user.id}
       />
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
+      {isWeeklyMaterialCapabilityEnabled() ? (
+        <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
+      ) : null}
       <HomePrayerEntryCard
         entryMode="groups"
         onPress={() => onOpenPrayers('groups')}
@@ -3235,6 +3303,31 @@ function HomeCalendarEntryCard({onPress}: {onPress: () => void}) {
         </Text>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarBody}>
           이번 달 체크 보기
+        </Text>
+      </View>
+      <View style={styles.homeCalendarButton}>
+        <Text style={styles.homeCalendarButtonText}>보기</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function HomeWeeklyMaterialsEntryCard({onPress}: {onPress: () => void}) {
+  return (
+    <Pressable
+      accessibilityLabel="이번 주 자료 보기"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [styles.homeCalendarCard, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.homeCalendarIcon}>
+        <IconexIcon color={colors.primary} name="document" size={22} strokeWidth={1.7} />
+      </View>
+      <View style={styles.homeCalendarText}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarTitle}>
+          이번 주 자료
+        </Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarBody}>
+          목자지침·주일·토목모 나눔지 PDF
         </Text>
       </View>
       <View style={styles.homeCalendarButton}>
@@ -4727,6 +4820,8 @@ function getRouteTitle(route: ShellRoute) {
       return '기도제목';
     case 'announcements':
       return '공지';
+    case 'weeklyMaterials':
+      return '주간 자료';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -4752,6 +4847,8 @@ function getRouteIcon(route: ShellRoute) {
       return 'R';
     case 'announcements':
       return 'N';
+    case 'weeklyMaterials':
+      return 'W';
     case 'profile':
       return '○';
     case 'campusAdmin':
@@ -4777,6 +4874,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return '사용자 조별 기도제목 조회, 사람별 입력, version 충돌 복구를 다루는 일반 사용자 화면입니다.';
     case 'announcements':
       return '캠퍼스의 게시 공지를 확인하는 화면입니다.';
+    case 'weeklyMaterials':
+      return '주차별 목자지침과 주일·토목모 나눔지를 확인하는 화면입니다.';
     case 'profile':
       return '내 정보 새로고침, 공동체 메뉴, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':

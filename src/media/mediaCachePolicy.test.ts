@@ -14,6 +14,12 @@ describe('media local cache policy', () => {
     );
   });
 
+  it('uses the same 200MB cache budget for PDF documents', () => {
+    expect(buildMediaCacheKey({assetId: 31, sha256: 'b'.repeat(64), variant: 'document'})).toBe(
+      `31-${'b'.repeat(64)}-document`,
+    );
+  });
+
   it('deletes entries older than seven days and then evicts least recently used over 200MB', () => {
     const now = Date.parse('2026-08-03T00:00:00Z');
     const expired = {key: 'expired', byteSize: 1, lastAccessedAt: now - MEDIA_CACHE_TTL_MS - 1};

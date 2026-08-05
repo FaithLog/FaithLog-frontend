@@ -20,6 +20,10 @@ export function isAnnouncementCapabilityEnabled() {
   return integrationRequested || isAnnouncementMockModeEnabled();
 }
 
+export function isAnnouncementPdfCapabilityEnabled() {
+  return isAnnouncementCapabilityEnabled();
+}
+
 function isLocalAnnouncementEnvironment() {
   const environment = process.env.EXPO_PUBLIC_APP_ENV?.trim().toLowerCase();
   return environment === 'local' || environment === 'development';

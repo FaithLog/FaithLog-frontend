@@ -114,7 +114,7 @@ describe('announcement API boundary', () => {
     };
     const api = createAnnouncementApi({isMockMode: () => false, request});
     const save = {
-      body: ' 본문 ', categoryId: 2, imageAssetIds: [31, 32], pinned: true,
+      body: ' 본문 ', categoryId: 2, documentAssetIds: [71], imageAssetIds: [31, 32], pinned: true,
       publishAt: null, publishMode: 'NOW' as const, title: ' 공지 ',
     };
 
@@ -127,7 +127,7 @@ describe('announcement API boundary', () => {
     await api.deactivateCategory('token', 1, 2);
 
     expect(calls).toEqual([
-      expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements', options: expect.objectContaining({method: 'POST', body: {categoryId: 2, title: '공지', content: '본문', isPinned: true, publishAt: null, imageAssetIds: [31, 32]}})}),
+      expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements', options: expect.objectContaining({method: 'POST', body: {categoryId: 2, title: '공지', content: '본문', isPinned: true, publishAt: null, imageAssetIds: [31, 32], documentAssetIds: [71]}})}),
       expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements/11', options: expect.objectContaining({method: 'PATCH'})}),
       expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements/11/publish', options: expect.objectContaining({method: 'POST'})}),
       expect.objectContaining({path: '/api/v1/admin/campuses/1/announcements/11/archive', options: expect.objectContaining({method: 'POST'})}),
@@ -143,6 +143,7 @@ describe('announcement API boundary', () => {
     const created = await api.createAnnouncement('token', 1, {
       body: '본문',
       categoryId: categories[0]!.id,
+      documentAssetIds: [9, 8],
       imageAssetIds: [7, 5],
       pinned: false,
       publishAt: null,
@@ -151,6 +152,7 @@ describe('announcement API boundary', () => {
     });
 
     expect(created.imageAssetIds).toEqual([7, 5]);
+    expect(created.documentAssetIds).toEqual([9, 8]);
     expect((await api.listAdmin('token', 1, 'PUBLISHED')).some((item) => item.id === created.id)).toBe(true);
   });
 
@@ -160,6 +162,7 @@ describe('announcement API boundary', () => {
     const created = await api.createAnnouncement('token', 1, {
       body: '본문',
       categoryId: category.id,
+      documentAssetIds: [],
       imageAssetIds: [],
       pinned: false,
       publishAt: null,
@@ -180,6 +183,7 @@ describe('announcement API boundary', () => {
     await expect(api.updateAnnouncement('token', 1, created.id, {
       body: '수정 본문',
       categoryId: category.id,
+      documentAssetIds: [],
       imageAssetIds: [],
       pinned: false,
       publishAt: null,
@@ -189,6 +193,7 @@ describe('announcement API boundary', () => {
     await expect(api.createAnnouncement('token', 1, {
       body: '신규 본문',
       categoryId: category.id,
+      documentAssetIds: [],
       imageAssetIds: [],
       pinned: false,
       publishAt: null,

@@ -1,5 +1,10 @@
 import type {ShellRoute} from '../navigation/shellRoutes';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {
+  parseWeeklySharingSheetNotification,
+  WEEKLY_SHARING_SHEET_EVENT,
+} from '../weeklyMaterials/weeklyMaterialDeepLink';
 
 export type PushRouteParams = Partial<{
   campusId: number;
@@ -70,6 +75,10 @@ const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
     campusId: toPositiveInteger,
     categoryId: toPositiveInteger,
   },
+  weeklyMaterials: {
+    campusId: toPositiveInteger,
+    weekStartDate: toValidDateString,
+  },
   profile: {},
   campusAdmin: {
     campusId: toPositiveInteger,
@@ -128,6 +137,27 @@ export function parsePushNotificationOpenPayload(
     };
   }
 
+  if (payload.eventType === WEEKLY_SHARING_SHEET_EVENT) {
+    const allowedKeys = new Set(['eventType', 'campusId', 'weekStartDate']);
+    const payloadKeys = Object.keys(payload);
+    if (payloadKeys.some((key) => !allowedKeys.has(key))) {
+      return {status: 'invalid', reason: 'unknownParam'};
+    }
+    const parsed = parseWeeklySharingSheetNotification(payload);
+    if (!parsed) return {status: 'invalid', reason: 'invalidParam'};
+    if (!isWeeklyMaterialCapabilityEnabled()) {
+      return {status: 'invalid', reason: 'routeNotAllowed'};
+    }
+    return {
+      status: 'valid',
+      route: 'weeklyMaterials',
+      params: {
+        ...(parsed.campusId === null ? {} : {campusId: parsed.campusId}),
+        weekStartDate: parsed.weekStartDate,
+      },
+    };
+  }
+
   if (payload.eventType !== undefined) {
     return parseEventPayload(payload, capabilities);
   }
@@ -138,7 +168,10 @@ export function parsePushNotificationOpenPayload(
     return {status: 'invalid', reason: 'routeNotAllowed'};
   }
 
-  if (route === 'announcements' && !isAnnouncementCapabilityEnabled()) {
+  if (
+    (route === 'announcements' && !isAnnouncementCapabilityEnabled()) ||
+    (route === 'weeklyMaterials' && !isWeeklyMaterialCapabilityEnabled())
+  ) {
     return {status: 'invalid', reason: 'routeNotAllowed'};
   }
 
