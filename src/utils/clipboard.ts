@@ -7,11 +7,15 @@ export type ClipboardCopyResult =
 
 export function formatAccountClipboardText({
   accountNumber,
+  bankName,
 }: {
   accountNumber: string;
   bankName?: string | null;
 }) {
-  return accountNumber.replace(/\D/g, '');
+  const digits = accountNumber.replace(/\D/g, '');
+  const normalizedBankName = bankName?.trim().replace(/\s+/g, ' ') ?? '';
+
+  return normalizedBankName ? `${normalizedBankName} ${digits}` : digits;
 }
 
 export async function copyTextToClipboard(text: string): Promise<ClipboardCopyResult> {

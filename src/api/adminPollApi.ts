@@ -94,6 +94,8 @@ export type AdminPollCreateRequest = {
   startsAt: string;
   endsAt: string;
   options: AdminPollTemplateOptionRequest[];
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type AdminPoll = {
@@ -112,6 +114,8 @@ export type AdminPoll = {
   endsAt: string;
   status: AdminPollStatus;
   options: PollOption[];
+  notice?: string | null;
+  imageAssetIds?: number[];
 };
 
 export type AdminPollMissingMember = {
@@ -373,7 +377,34 @@ function toAdminPollCreateRequest(body: AdminPollCreateRequest): AdminPollCreate
     request.paymentAccountId = paymentAccountId;
   }
 
+  if (body.notice !== undefined || body.imageAssetIds !== undefined) {
+    request.notice = normalizePollNotice(body.notice);
+    request.imageAssetIds = normalizeImageAssetIds(body.imageAssetIds);
+  }
+
   return request;
+}
+
+function normalizePollNotice(value: string | null | undefined) {
+  if (value === undefined || value === null) return null;
+  const normalized = value.trim();
+  if (normalized.length > 5_000) {
+    throw new FaithLogApiError({kind: 'error', message: '투표 공지글은 5,000자 이하로 입력해 주세요.'});
+  }
+  return normalized || null;
+}
+
+function normalizeImageAssetIds(value: number[] | undefined) {
+  const result: number[] = [];
+  const seen = new Set<number>();
+  for (const assetId of value ?? []) {
+    const normalized = Number(toPositiveIntegerPathSegment(assetId, 'imageAssetIds'));
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+  return result;
 }
 
 function toAdminPollNotificationRequest(

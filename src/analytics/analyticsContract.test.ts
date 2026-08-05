@@ -25,6 +25,8 @@ describe('privacy-safe Analytics contract', () => {
       'notifications',
       'settings',
       'admin_dashboard',
+      'announcement_list',
+      'announcement_detail',
     ]);
     expect(ANALYTICS_EVENT_NAMES).toEqual([
       'sign_up',

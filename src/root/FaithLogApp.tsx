@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import {
+  Alert,
   AppState,
   Image,
   Keyboard,
@@ -122,6 +123,8 @@ import {
   getAdminModeRoutes,
   getAvailableRoutes,
   getRouteLabel,
+  getUserBottomNavActiveRoute,
+  isUserBottomNavVisibleRoute,
   type ShellRoute,
   USER_BOTTOM_NAV_ROUTES,
 } from '../navigation/shellRoutes';
@@ -131,7 +134,38 @@ import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {MealDutyScreen} from '../meal/MealDutyScreen';
+import {
+  HomeAnnouncementCapabilitySection,
+  MemberAnnouncementCapabilityRoute,
+} from '../announcements/AnnouncementCapabilitySurfaces';
+import {
+  createCampusNavigationIntentCoordinator,
+  enqueueCampusNavigationRecovery,
+  handleInitialAnnouncementNotificationOpen,
+  resolveAnnouncementDeepLinkCampus,
+  type CampusNavigationIntent,
+  type CampusNavigationIntentCoordinator,
+} from '../announcements/announcementDeepLink';
+import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
+import {
+  initialAnnouncementCacheSession,
+  transitionAnnouncementCacheSession,
+} from '../announcements/announcementCacheSession';
+import {
+  clearAllAnnouncementImageCaches,
+  clearAnnouncementImageCacheForUser,
+} from '../announcements/announcementImageRuntime';
+import {clearAllPrivateDocumentCaches} from '../media/privateDocumentCache';
 import {mealApi} from '../meal/mealApi';
+import {YearlyRecapHomeCard} from '../recap/YearlyRecapHomeCard';
+import {YearlyRecapScreen} from '../recap/YearlyRecapScreen';
+import {useYearlyRecapExperience} from '../recap/useYearlyRecapExperience';
+import type {YearlyRecap} from '../recap/yearlyRecapTypes';
+import {WeeklyMaterialsScreen} from '../weeklyMaterials/WeeklyMaterialsScreen';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
+import {openWeeklyMaterialPdf} from '../weeklyMaterials/weeklyMaterialNativeRuntime';
+import type {WeeklyMaterialType} from '../weeklyMaterials/weeklyMaterialTypes';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -152,10 +186,13 @@ import {
 } from '../notifications/notificationAdapter';
 import {
   parsePushNotificationOpenPayload,
+  resolveNotificationPollTarget,
+  type PollOpenTarget,
 } from '../notifications/pushNavigation';
 import {PaymentScreen} from '../payments/PaymentScreen';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
 import {PollScreen} from '../polls/PollScreen';
+import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
 import {PrayerScreen, type PrayerEntryMode} from '../prayers/PrayerScreen';
 import {ProfileNameEditor} from '../profile/ProfileNameEditor';
 import {ProfilePasswordChangeScreen} from '../profile/ProfilePasswordChangeScreen';
@@ -163,7 +200,7 @@ import {
   applyProfileUserUpdate,
   applyRefreshedAuthState,
 } from '../profile/profileNameEdit';
-import {colors, spacing} from '../theme';
+import {colors, radius, spacing} from '../theme';
 import {isCurrentRequest, settleIndependently} from '../utils/requestIdentity';
 import {formatCompactWon} from '../utils/money';
 
@@ -186,6 +223,12 @@ type AppMessage = {
   title: string;
   message: string;
 } | null;
+
+type NotificationWeeklyMaterialTarget = {
+  highlight: WeeklyMaterialType;
+  requestKey: number;
+  weekStartDate: string;
+};
 
 type SetAuthState = Dispatch<SetStateAction<AuthGateState>>;
 
@@ -342,10 +385,20 @@ type NotificationUiState =
 export function FaithLogApp() {
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [authState, setAuthState] = useState<AuthGateState>(initialState);
+  const authStateRef = useRef<AuthGateState>(authState);
+  authStateRef.current = authState;
   const [entryTarget, setEntryTarget] = useState<EntryTarget | null>(null);
   const [route, setRoute] = useState<ShellRoute>('userHome');
+  const [announcementInitialId, setAnnouncementInitialId] = useState<number | null>(null);
+  const [announcementOpenRequestKey, setAnnouncementOpenRequestKey] = useState(0);
+  const [notificationPollTarget, setNotificationPollTarget] = useState<PollOpenTarget | null>(null);
+  const [notificationWeeklyMaterialTarget, setNotificationWeeklyMaterialTarget] =
+    useState<NotificationWeeklyMaterialTarget | null>(null);
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
+  const notificationOpenSequenceRef = useRef(0);
+  const campusNavigationIntentRef = useRef(createCampusNavigationIntentCoordinator());
+  const announcementCacheSessionRef = useRef(initialAnnouncementCacheSession);
   const autoFcmRegistrationAttemptRef = useRef<string | null>(null);
   const authTransitionEpoch = useRef(0);
   const clearAppMessage = () => {};
@@ -356,6 +409,9 @@ export function FaithLogApp() {
     authState.status === 'configurationError';
   useAnalyticsScreen(getPublicAnalyticsScreen(authState.status, entryTarget));
   const RootContainer = Platform.OS === 'android' ? View : SafeAreaView;
+  const notificationSessionUserId = authState.status === 'authenticated'
+    ? authState.user.id
+    : null;
 
   const retryBootstrap = () => {
     const epoch = ++authTransitionEpoch.current;
@@ -401,8 +457,30 @@ export function FaithLogApp() {
     purgePaymentContextForAuthState(authState.status);
     if (authState.status !== 'authenticated' && authState.status !== 'noCampus') {
       clearCurrentUserCache();
+      setNotificationWeeklyMaterialTarget(null);
     }
   }, [authState.status]);
+
+  useEffect(() => {
+    const transition = transitionAnnouncementCacheSession(
+      announcementCacheSessionRef.current,
+      {
+        authStatus: authState.status,
+        capabilityEnabled: isAnnouncementCapabilityEnabled(),
+        userId: authState.status === 'authenticated' || authState.status === 'noCampus'
+          ? authState.user.id
+          : null,
+      },
+    );
+    announcementCacheSessionRef.current = transition.state;
+    if (transition.action.type === 'clearAll') {
+      trackLocalSessionCleanup(clearAllAnnouncementImageCaches());
+      trackLocalSessionCleanup(clearAllPrivateDocumentCaches());
+    } else if (transition.action.type === 'clearUser') {
+      trackLocalSessionCleanup(clearAnnouncementImageCacheForUser(transition.action.userId));
+      trackLocalSessionCleanup(clearAllPrivateDocumentCaches());
+    }
+  }, [authState]);
 
   useEffect(() => {
     if (authState.status !== 'authenticated' || !isFcmRuntimeEnabled()) {
@@ -522,44 +600,236 @@ export function FaithLogApp() {
   }, [authState, route]);
 
   useEffect(() => {
-    if (authState.status !== 'authenticated') {
+    const subscribedAuthState = authStateRef.current;
+    if (
+      subscribedAuthState.status !== 'authenticated' ||
+      subscribedAuthState.user.id !== notificationSessionUserId
+    ) {
       initialNotificationOpenHandledRef.current = false;
+      notificationOpenSequenceRef.current += 1;
+      setNotificationPollTarget(null);
       return undefined;
     }
 
     let active = true;
-    const handlePayload = (payload: unknown) => {
-      const target = parsePushNotificationOpenPayload(payload);
+    const recoverCampusNavigation = (
+      intent: CampusNavigationIntent,
+      requestGeneration: AuthSessionGeneration,
+      requestUserId: number,
+    ) => enqueueCampusNavigationRecovery({
+      coordinator: campusNavigationIntentRef.current,
+      intent,
+      isSessionCurrent: () => {
+        const current = authStateRef.current;
+        return active &&
+          isAuthSessionRequestAllowed(requestGeneration) &&
+          (current.status === 'authenticated' || current.status === 'noCampus') &&
+          current.user.id === requestUserId;
+      },
+      persistCampusId: saveSelectedCampusId,
+      readAuthoritativeCampusId: () => {
+        const current = authStateRef.current;
+        return current.status === 'authenticated' ? current.selectedCampus.campusId : null;
+      },
+    });
+    const handlePayload = async (payload: unknown) => {
+      const requestAuthState = authStateRef.current;
+      if (
+        requestAuthState.status !== 'authenticated' ||
+        requestAuthState.user.id !== notificationSessionUserId
+      ) return;
+      const pushCapabilities = {
+        pollOpenEnabled: getPollNoticeCapabilities().canReadNotice,
+      };
+      const target = parsePushNotificationOpenPayload(payload, pushCapabilities);
 
       if (target.status === 'invalid') {
         return;
       }
+      const requestSequence = ++notificationOpenSequenceRef.current;
+      const campusNavigationIntent = campusNavigationIntentRef.current.begin();
+      const requestGeneration = getAuthSessionGeneration();
+      let navigationCommitted = false;
 
-      const routes = getAvailableRoutes(authState.user, authState.selectedCampus);
+      try {
+        let navigationState: Extract<AuthGateState, {status: 'authenticated'}> = requestAuthState;
+        let navigationGeneration: number | null = null;
 
-      if (!routes.includes(target.route)) {
-        return;
+        if (
+          (target.route === 'announcements' || target.route === 'weeklyMaterials') &&
+          target.params.campusId !== undefined
+        ) {
+          const resolution = await resolveAnnouncementDeepLinkCampus({
+            currentCampusId: requestAuthState.selectedCampus.campusId,
+            targetCampusId: target.params.campusId,
+            refreshCampus: async (targetCampusId) => {
+              const accessToken = await resolveCurrentAccessToken(() => {
+                setAuthState({
+                  status: 'sessionExpired',
+                  message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+                });
+              });
+              if (!accessToken) return null;
+
+              const refreshed = await refreshAuthenticatedCampusState(
+                accessToken,
+                requestAuthState,
+                targetCampusId,
+                requestGeneration,
+                false,
+              );
+              if (
+                !active ||
+                requestSequence !== notificationOpenSequenceRef.current ||
+                !campusNavigationIntentRef.current.isCurrent(campusNavigationIntent) ||
+                requestGeneration !== getAuthSessionGeneration() ||
+                refreshed.status !== 'authenticated'
+              ) {
+                return null;
+              }
+
+              if (refreshed.selectedCampus.campusId === targetCampusId) {
+                navigationState = refreshed;
+                navigationGeneration = requestGeneration;
+              }
+
+              return refreshed.selectedCampus.campusId;
+            },
+          });
+
+          if (
+            !active ||
+            requestSequence !== notificationOpenSequenceRef.current ||
+            !campusNavigationIntentRef.current.isCurrent(campusNavigationIntent)
+          ) return;
+          if (resolution.status === 'unavailable') {
+            Alert.alert('자료를 열 수 없습니다', '현재 계정에 활성화된 캠퍼스의 자료만 확인할 수 있습니다.');
+            return;
+          }
+          // Even when the target matches the current snapshot, commit that
+          // campus through the queue. An older cross-campus save may already be
+          // in flight and must be followed by this newer selection.
+          navigationGeneration ??= requestGeneration;
+        }
+
+        const routes = getAvailableRoutes(navigationState.user, navigationState.selectedCampus);
+        if (!routes.includes(target.route)) return;
+
+        const pollResolution = resolveNotificationPollTarget(
+          target,
+          navigationState.selectedCampus.campusId,
+          pushCapabilities,
+        );
+        if (pollResolution.status === 'rejected') {
+          return;
+        }
+        const pollOpenTarget = pollResolution.pollTarget;
+
+        const refreshed = navigationState;
+        const commitGeneration = navigationGeneration;
+        navigationCommitted = await campusNavigationIntentRef.current.enqueue({
+          apply: () => {
+            if (commitGeneration !== null) {
+              setAuthState((current) => applyRefreshedAuthState(
+                current,
+                refreshed,
+                commitGeneration,
+                getAuthSessionGeneration(),
+                readCurrentUserCache(commitGeneration, refreshed.user.id),
+              ));
+            }
+            if (target.route === 'announcements') {
+              setNotificationPollTarget(null);
+              setNotificationWeeklyMaterialTarget(null);
+              setAnnouncementInitialId(target.params.announcementId ?? null);
+              setAnnouncementOpenRequestKey((current) =>
+                current >= Number.MAX_SAFE_INTEGER ? 1 : current + 1);
+            } else if (target.route === 'polls') {
+              setAnnouncementInitialId(null);
+              setNotificationWeeklyMaterialTarget(null);
+              setNotificationPollTarget(pollOpenTarget);
+            } else if (target.route === 'weeklyMaterials') {
+              setAnnouncementInitialId(null);
+              setNotificationPollTarget(null);
+              setNotificationWeeklyMaterialTarget(
+                typeof target.params.weekStartDate === 'string'
+                  ? {
+                    highlight: 'SUNDAY_SHARING_SHEET',
+                    requestKey: requestSequence,
+                    weekStartDate: target.params.weekStartDate,
+                  }
+                  : null,
+              );
+            } else {
+              setAnnouncementInitialId(null);
+              setNotificationPollTarget(null);
+              setNotificationWeeklyMaterialTarget(null);
+            }
+            setRoute(target.route);
+          },
+          intent: campusNavigationIntent,
+          isLatest: () => requestSequence === notificationOpenSequenceRef.current,
+          isSessionCurrent: () => active && isAuthSessionRequestAllowed(requestGeneration),
+          persist: () => saveSelectedCampusId(refreshed.selectedCampus.campusId),
+        });
+      } catch (error) {
+        if (
+          !active ||
+          requestSequence !== notificationOpenSequenceRef.current ||
+          !campusNavigationIntentRef.current.isCurrent(campusNavigationIntent)
+        ) return;
+        const apiError = toApiError(error, '알림의 자료를 열지 못했습니다.');
+        if (apiError.kind === 'sessionExpired') {
+          setAuthState({status: 'sessionExpired', message: apiError.message});
+          return;
+        }
+        Alert.alert('자료를 열 수 없습니다', '캠퍼스 정보를 확인한 뒤 다시 시도해 주세요.');
+      } finally {
+        if (
+          !navigationCommitted &&
+          requestSequence === notificationOpenSequenceRef.current &&
+          campusNavigationIntentRef.current.isCurrent(campusNavigationIntent)
+        ) {
+          await recoverCampusNavigation(
+            campusNavigationIntent,
+            requestGeneration,
+            requestAuthState.user.id,
+          ).catch(() => false);
+        }
       }
-
-      setRoute(target.route);
     };
 
     if (!initialNotificationOpenHandledRef.current) {
       initialNotificationOpenHandledRef.current = true;
-      void getInitialNotificationOpenPayload().then((payload) => {
-        if (active && payload !== null && payload !== undefined) {
-          handlePayload(payload);
+      const initialCampusIntent = campusNavigationIntentRef.current.begin();
+      const initialGeneration = getAuthSessionGeneration();
+      void handleInitialAnnouncementNotificationOpen({
+        getPayload: getInitialNotificationOpenPayload,
+        handlePayload,
+        isActive: () => active,
+        isCurrent: () => campusNavigationIntentRef.current.isCurrent(initialCampusIntent),
+        readSequence: () => notificationOpenSequenceRef.current,
+      }).finally(async () => {
+        if (campusNavigationIntentRef.current.isCurrent(initialCampusIntent)) {
+          await recoverCampusNavigation(
+            initialCampusIntent,
+            initialGeneration,
+            subscribedAuthState.user.id,
+          ).catch(() => false);
         }
-      });
+      }).catch(() => false);
     }
 
-    const unsubscribe = subscribeNotificationOpenPayload(handlePayload);
+    const unsubscribe = subscribeNotificationOpenPayload((payload) => {
+      void handlePayload(payload);
+    });
 
     return () => {
       active = false;
+      notificationOpenSequenceRef.current += 1;
       unsubscribe();
     };
-  }, [authState]);
+  }, [notificationSessionUserId]);
 
   return (
     <>
@@ -586,6 +856,9 @@ export function FaithLogApp() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
               {renderAuthState({
+                announcementInitialId,
+                announcementOpenRequestKey,
+                campusNavigation: campusNavigationIntentRef.current,
                 clearNotice: clearAppMessage,
                 entryTarget,
                 openEntryTarget: setEntryTarget,
@@ -594,18 +867,27 @@ export function FaithLogApp() {
                 setAuthState,
                 setNotice: ignoreAppMessage,
                 setRoute,
+                setAnnouncementInitialId,
                 state: authState,
               })}
             </ScrollView>
           ) : authState.status === 'authenticated' ? (
             <Screen variant="appShell">
               <AuthenticatedShell
+                announcementInitialId={announcementInitialId}
+                announcementOpenRequestKey={announcementOpenRequestKey}
+                campusNavigation={campusNavigationIntentRef.current}
                 entryTarget={entryTarget}
+                notificationPollTarget={notificationPollTarget}
+                notificationWeeklyMaterialTarget={notificationWeeklyMaterialTarget}
+                onNotificationPollTargetHandled={() => setNotificationPollTarget(null)}
+                onNotificationWeeklyMaterialTargetHandled={() => setNotificationWeeklyMaterialTarget(null)}
                 openEntryTarget={setEntryTarget}
                 route={route}
                 setAuthState={setAuthState}
                 setNotice={ignoreAppMessage}
                 setRoute={setRoute}
+                setAnnouncementInitialId={setAnnouncementInitialId}
                 state={authState}
               />
             </Screen>
@@ -615,6 +897,9 @@ export function FaithLogApp() {
                 contentContainerStyle={styles.content}
                 keyboardShouldPersistTaps="handled">
                 {renderAuthState({
+                  announcementInitialId,
+                  announcementOpenRequestKey,
+                  campusNavigation: campusNavigationIntentRef.current,
                   clearNotice: clearAppMessage,
                   entryTarget,
                   openEntryTarget: setEntryTarget,
@@ -623,6 +908,7 @@ export function FaithLogApp() {
                   setAuthState,
                   setNotice: ignoreAppMessage,
                   setRoute,
+                  setAnnouncementInitialId,
                   state: authState,
                 })}
               </ScrollView>
@@ -635,6 +921,9 @@ export function FaithLogApp() {
 }
 
 function renderAuthState({
+  announcementInitialId,
+  announcementOpenRequestKey,
+  campusNavigation,
   clearNotice,
   entryTarget,
   openEntryTarget,
@@ -643,8 +932,12 @@ function renderAuthState({
   setAuthState,
   setNotice,
   setRoute,
+  setAnnouncementInitialId,
   state,
 }: {
+  announcementInitialId: number | null;
+  announcementOpenRequestKey: number;
+  campusNavigation: CampusNavigationIntentCoordinator;
   clearNotice: () => void;
   entryTarget: EntryTarget | null;
   openEntryTarget: (target: EntryTarget | null) => void;
@@ -653,6 +946,7 @@ function renderAuthState({
   setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
   setRoute: (route: ShellRoute) => void;
+  setAnnouncementInitialId: (id: number | null) => void;
   state: AuthGateState;
 }) {
   switch (state.status) {
@@ -760,6 +1054,9 @@ function renderAuthState({
     case 'authenticated':
       return (
         <AuthenticatedShell
+          announcementInitialId={announcementInitialId}
+          announcementOpenRequestKey={announcementOpenRequestKey}
+          campusNavigation={campusNavigation}
           entryTarget={entryTarget}
           openEntryTarget={openEntryTarget}
           setAuthState={setAuthState}
@@ -767,6 +1064,7 @@ function renderAuthState({
           state={state}
           route={route}
           setRoute={setRoute}
+          setAnnouncementInitialId={setAnnouncementInitialId}
         />
       );
     default:
@@ -1375,6 +1673,7 @@ async function refreshAuthenticatedCampusState(
   current: Extract<AuthGateState, {status: 'authenticated'}>,
   preferredCampusId = current.selectedCampus.campusId,
   generation = getAuthSessionGeneration(),
+  persistSelection = true,
 ): Promise<Extract<AuthGateState, {status: 'authenticated' | 'noCampus'}>> {
   const [user, campuses] = await Promise.all([
     fetchCurrentUser(accessToken, generation).catch(() => current.user),
@@ -1383,6 +1682,7 @@ async function refreshAuthenticatedCampusState(
   const activeCampuses = campuses.filter((campus) => campus.status === 'ACTIVE');
 
   if (activeCampuses.length === 0) {
+    if (persistSelection) await saveSelectedCampusId(null);
     return {
       status: 'noCampus',
       user: readCurrentUserCache(generation, user.id) ?? user,
@@ -1394,7 +1694,7 @@ async function refreshAuthenticatedCampusState(
     activeCampuses.find((campus) => campus.campusId === current.selectedCampus.campusId) ??
     activeCampuses[0]!;
 
-  await saveSelectedCampusId(selectedCampus.campusId);
+  if (persistSelection) await saveSelectedCampusId(selectedCampus.campusId);
 
   return {
     status: 'authenticated',
@@ -1533,21 +1833,37 @@ function StatusCard({
 }
 
 function AuthenticatedShell({
+  announcementInitialId,
+  announcementOpenRequestKey,
+  campusNavigation,
   entryTarget,
+  notificationPollTarget = null,
+  notificationWeeklyMaterialTarget = null,
+  onNotificationPollTargetHandled = () => {},
+  onNotificationWeeklyMaterialTargetHandled = () => {},
   openEntryTarget,
   route,
   setAuthState,
   setNotice,
   setRoute,
+  setAnnouncementInitialId,
   state,
 }: {
+  announcementInitialId: number | null;
+  announcementOpenRequestKey: number;
+  campusNavigation: CampusNavigationIntentCoordinator;
   entryTarget: EntryTarget | null;
+  notificationPollTarget?: PollOpenTarget | null;
+  notificationWeeklyMaterialTarget?: NotificationWeeklyMaterialTarget | null;
+  onNotificationPollTargetHandled?: () => void;
+  onNotificationWeeklyMaterialTargetHandled?: () => void;
   openEntryTarget: (target: EntryTarget | null) => void;
   setAuthState: SetAuthState;
   setNotice: (notice: AppMessage) => void;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   route: ShellRoute;
   setRoute: (route: ShellRoute) => void;
+  setAnnouncementInitialId: (id: number | null) => void;
 }) {
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
@@ -1556,6 +1872,7 @@ function AuthenticatedShell({
   >('main');
   const [prayerEntryMode, setPrayerEntryMode] = useState<PrayerEntryMode>('groups');
   const [devotionInitialDate, setDevotionInitialDate] = useState<string | null>(null);
+  const [announcementView, setAnnouncementView] = useState<'detail' | 'list' | null>(null);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [campusSwitchVisible, setCampusSwitchVisible] = useState(false);
@@ -1569,6 +1886,10 @@ function AuthenticatedShell({
   });
   const canCreateCampus = canCreateCampusWithRole(state.user.role);
   const canManageCampuses = canCreateCampus;
+  const recapExperience = useYearlyRecapExperience({
+    canAutoPresent: entryTarget === null,
+    userId: state.user.id,
+  });
   const adminModeRoutes = useMemo(
     () => getAdminModeRoutes(state.user, state.selectedCampus),
     [state.selectedCampus, state.user],
@@ -1586,11 +1907,19 @@ function AuthenticatedShell({
   const shouldShowUserBottomNav =
     entryTarget === null &&
     !keyboardVisible &&
-    (USER_BOTTOM_NAV_ROUTES.some((availableRoute) => availableRoute === route) ||
-      route === 'prayers');
-  const userBottomNavActiveId = route === 'prayers' ? 'userHome' : route;
+    isUserBottomNavVisibleRoute(route);
+  const userBottomNavActiveId = getUserBottomNavActiveRoute(route);
   const isAdminRoute = route === 'campusAdmin' || route === 'serviceAdmin';
-  useAnalyticsScreen(getAuthenticatedAnalyticsScreen({entryTarget, profileView, route}));
+  useAnalyticsScreen(getAuthenticatedAnalyticsScreen({
+    announcementView,
+    entryTarget,
+    profileView,
+    route,
+  }));
+
+  useEffect(() => {
+    if (route !== 'announcements') setAnnouncementView(null);
+  }, [route]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -1614,11 +1943,27 @@ function AuthenticatedShell({
     setRoute('prayers');
   };
 
+  const recoverCampusNavigation = (
+    intent: CampusNavigationIntent,
+    requestGeneration: AuthSessionGeneration,
+  ) => enqueueCampusNavigationRecovery({
+    coordinator: campusNavigation,
+    intent,
+    isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+    persistCampusId: saveSelectedCampusId,
+    readAuthoritativeCampusId: () => state.selectedCampus.campusId,
+  });
+
   const refreshCampuses = async () => {
     if (campusSwitchLoading) {
       return;
     }
 
+    const returnAnnouncementId = announcementInitialId;
+    const returnRoute = route;
+    const campusIntent = campusNavigation.begin();
+    const requestGeneration = getAuthSessionGeneration();
+    let campusIntentCommitted = false;
     setCampusSwitchLoading(true);
     setCampusSwitchError(null);
     try {
@@ -1630,21 +1975,33 @@ function AuthenticatedShell({
       });
       if (!accessToken) return;
 
-      const requestGeneration = getAuthSessionGeneration();
       const nextState = await refreshAuthenticatedCampusState(
         accessToken,
         state,
         state.selectedCampus.campusId,
         requestGeneration,
+        false,
       );
-      setAuthState((current) => applyRefreshedAuthState(
-        current,
-        nextState,
-        requestGeneration,
-        getAuthSessionGeneration(),
-        readCurrentUserCache(requestGeneration, nextState.user.id),
-      ));
+      campusIntentCommitted = await campusNavigation.enqueue({
+        apply: () => {
+          setAuthState((current) => applyRefreshedAuthState(
+            current,
+            nextState,
+            requestGeneration,
+            getAuthSessionGeneration(),
+            readCurrentUserCache(requestGeneration, nextState.user.id),
+          ));
+          setAnnouncementInitialId(returnAnnouncementId);
+          setRoute(returnRoute);
+        },
+        intent: campusIntent,
+        isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+        persist: () => saveSelectedCampusId(
+          nextState.status === 'authenticated' ? nextState.selectedCampus.campusId : null,
+        ),
+      });
     } catch (error) {
+      if (!campusNavigation.isCurrent(campusIntent)) return;
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
         if (error.detail.kind === 'sessionExpired') {
@@ -1654,6 +2011,9 @@ function AuthenticatedShell({
         setCampusSwitchError({kind: 'error', message: '캠퍼스 목록을 불러오지 못했습니다.'});
       }
     } finally {
+      if (!campusIntentCommitted && campusNavigation.isCurrent(campusIntent)) {
+        await recoverCampusNavigation(campusIntent, requestGeneration).catch(() => false);
+      }
       setCampusSwitchLoading(false);
     }
   };
@@ -1668,8 +2028,43 @@ function AuthenticatedShell({
   };
 
   const selectCampus = async (campus: CampusMembershipSummary) => {
-    if (campusSwitchLoading || campus.campusId === state.selectedCampus.campusId) {
-      setCampusSwitchVisible(false);
+    if (campusSwitchLoading) return;
+    const campusIntent = campusNavigation.begin();
+    const requestGeneration = getAuthSessionGeneration();
+    let campusIntentCommitted = false;
+    if (campus.campusId === state.selectedCampus.campusId) {
+      setCampusSwitchLoading(true);
+      setCampusSwitchError(null);
+      try {
+        campusIntentCommitted = await campusNavigation.enqueue({
+          apply: () => {
+            setAuthState((current) => applyRefreshedAuthState(
+              current,
+              state,
+              requestGeneration,
+              getAuthSessionGeneration(),
+              readCurrentUserCache(requestGeneration, state.user.id),
+            ));
+            setCampusSwitchVisible(false);
+            setUserHomeView('dashboard');
+            setProfileView('main');
+            setAnnouncementInitialId(null);
+            setRoute('userHome');
+          },
+          intent: campusIntent,
+          isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+          persist: () => saveSelectedCampusId(state.selectedCampus.campusId),
+        });
+      } catch {
+        if (campusNavigation.isCurrent(campusIntent)) {
+          setCampusSwitchError({kind: 'error', message: '캠퍼스를 변경하지 못했습니다.'});
+        }
+      } finally {
+        if (!campusIntentCommitted && campusNavigation.isCurrent(campusIntent)) {
+          await recoverCampusNavigation(campusIntent, requestGeneration).catch(() => false);
+        }
+        setCampusSwitchLoading(false);
+      }
       return;
     }
 
@@ -1685,34 +2080,40 @@ function AuthenticatedShell({
       if (!accessToken) return;
 
       const detail = await fetchCampusDetail(accessToken, campus.campusId);
-      const requestGeneration = getAuthSessionGeneration();
       const nextState = await refreshAuthenticatedCampusState(
         accessToken,
         state,
         campus.campusId,
         requestGeneration,
+        false,
       );
 
-      if (nextState.status === 'noCampus') {
-        setAuthState((current) => applyRefreshedAuthState(
-          current, nextState, requestGeneration, getAuthSessionGeneration(),
-          readCurrentUserCache(requestGeneration, nextState.user.id),
-        ));
-        setCampusSwitchVisible(false);
-        return;
-      }
-
-      setSelectedCampusDetail(detail);
-      setCampusDetailState({status: 'success', data: detail});
-      setAuthState((current) => applyRefreshedAuthState(
-        current, nextState, requestGeneration, getAuthSessionGeneration(),
-        readCurrentUserCache(requestGeneration, nextState.user.id),
-      ));
-      setCampusSwitchVisible(false);
-      setUserHomeView('dashboard');
-      setProfileView('main');
-      setRoute('userHome');
+      campusIntentCommitted = await campusNavigation.enqueue({
+        apply: () => {
+          if (nextState.status === 'authenticated') {
+            setSelectedCampusDetail(detail);
+            setCampusDetailState({status: 'success', data: detail});
+          }
+          setAuthState((current) => applyRefreshedAuthState(
+            current, nextState, requestGeneration, getAuthSessionGeneration(),
+            readCurrentUserCache(requestGeneration, nextState.user.id),
+          ));
+          setCampusSwitchVisible(false);
+          if (nextState.status === 'authenticated') {
+            setUserHomeView('dashboard');
+            setProfileView('main');
+            setAnnouncementInitialId(null);
+            setRoute('userHome');
+          }
+        },
+        intent: campusIntent,
+        isSessionCurrent: () => isAuthSessionRequestAllowed(requestGeneration),
+        persist: () => saveSelectedCampusId(
+          nextState.status === 'authenticated' ? nextState.selectedCampus.campusId : null,
+        ),
+      });
     } catch (error) {
+      if (!campusNavigation.isCurrent(campusIntent)) return;
       if (error instanceof FaithLogApiError) {
         setCampusSwitchError(error.detail);
         if (error.detail.kind === 'sessionExpired') {
@@ -1722,6 +2123,9 @@ function AuthenticatedShell({
         setCampusSwitchError({kind: 'error', message: '캠퍼스를 변경하지 못했습니다.'});
       }
     } finally {
+      if (!campusIntentCommitted && campusNavigation.isCurrent(campusIntent)) {
+        await recoverCampusNavigation(campusIntent, requestGeneration).catch(() => false);
+      }
       setCampusSwitchLoading(false);
     }
   };
@@ -1974,15 +2378,53 @@ function AuthenticatedShell({
         )
       ) : shellScrollOwner === 'route' ? (
         <View style={styles.pollRouteHost}>
-          <PollScreen
-            androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
-            canOpenAdminMode={adminModeRoutes.length > 0}
-            onOpenAdminMode={openAdminMode}
-            onOpenNotifications={openNotificationSettings}
-            setAuthState={setAuthState}
-            setNotice={setNotice}
-            state={state}
-          />
+          {route === 'announcements' ? (
+            <MemberAnnouncementCapabilityRoute
+              onAnalyticsViewChange={setAnnouncementView}
+              campusId={state.selectedCampus.campusId}
+              initialAnnouncementId={announcementInitialId}
+              initialOpenRequestKey={announcementOpenRequestKey}
+              key={`announcement-route-campus-${state.selectedCampus.campusId}`}
+              onBack={() => {
+                setAnnouncementInitialId(null);
+                setRoute('userHome');
+              }}
+              userId={state.user.id}
+            />
+          ) : route === 'weeklyMaterials' ? (
+            <WeeklyMaterialsScreen
+              api={getWeeklyMaterialRuntimeApi()}
+              campusId={state.selectedCampus.campusId}
+              highlightedType={notificationWeeklyMaterialTarget?.highlight ?? null}
+              initialWeekStartDate={notificationWeeklyMaterialTarget?.weekStartDate}
+              key={`weekly-materials-${state.selectedCampus.campusId}-${notificationWeeklyMaterialTarget?.requestKey ?? 'manual'}`}
+              onBack={() => {
+                onNotificationWeeklyMaterialTargetHandled();
+                setRoute('userHome');
+              }}
+              openMaterial={async (material) => {
+                const accessToken = await resolveCurrentAccessToken(() => undefined);
+                if (!accessToken) throw new Error('Missing access token');
+                await openWeeklyMaterialPdf({
+                  accessToken,
+                  campusId: state.selectedCampus.campusId,
+                  material,
+                });
+              }}
+            />
+          ) : (
+            <PollScreen
+              androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
+              canOpenAdminMode={adminModeRoutes.length > 0}
+              notificationPollTarget={notificationPollTarget}
+              onNotificationPollHandled={onNotificationPollTargetHandled}
+              onOpenAdminMode={openAdminMode}
+              onOpenNotifications={openNotificationSettings}
+              setAuthState={setAuthState}
+              setNotice={setNotice}
+              state={state}
+            />
+          )}
         </View>
       ) : (
         <ScrollView
@@ -2070,6 +2512,18 @@ function AuthenticatedShell({
             />
           ) : (
             <UserHomeDashboard
+              onOpenAnnouncements={() => {
+                setAnnouncementInitialId(null);
+                setRoute('announcements');
+              }}
+              onOpenWeeklyMaterials={() => {
+                onNotificationWeeklyMaterialTargetHandled();
+                setRoute('weeklyMaterials');
+              }}
+              onOpenAnnouncement={(announcementId) => {
+                setAnnouncementInitialId(announcementId);
+                setRoute('announcements');
+              }}
               onOpenDevotion={() => {
                 setDevotionInitialDate(null);
                 setRoute('devotion');
@@ -2080,6 +2534,10 @@ function AuthenticatedShell({
               onOpenAdminMode={openAdminMode}
               onOpenPayments={() => setRoute('payments')}
               onOpenPrayers={openPrayers}
+              onOpenYearlyRecap={recapExperience.open}
+              yearlyRecap={
+                recapExperience.homeCardVisible ? recapExperience.recap : null
+              }
               setAuthState={setAuthState}
               state={state}
             />
@@ -2147,14 +2605,7 @@ function AuthenticatedShell({
           />
         )}
 
-        {route === 'profile' ||
-        route === 'userHome' ||
-        route === 'devotion' ||
-        route === 'payments' ||
-        route === 'polls' ||
-        route === 'prayers' ||
-        route === 'campusAdmin' ||
-        route === 'serviceAdmin' ? null : (
+        {(['profile', 'userHome', 'devotion', 'payments', 'polls', 'prayers', 'announcements', 'weeklyMaterials', 'campusAdmin', 'serviceAdmin'] as ShellRoute[]).includes(route) ? null : (
           <Card>
             <Eyebrow>{getRouteLabel(route)}</Eyebrow>
             <Title>{getRouteTitle(route)}</Title>
@@ -2201,6 +2652,14 @@ function AuthenticatedShell({
         routes={adminModeRoutes}
         visible={adminModeSelectorVisible}
       />
+      {recapExperience.recap ? (
+        <YearlyRecapScreen
+          onClose={recapExperience.close}
+          onFirstFrame={recapExperience.markFirstFramePresented}
+          recap={recapExperience.recap}
+          visible={recapExperience.visible}
+        />
+      ) : null}
     </View>
   );
 }
@@ -2423,23 +2882,33 @@ function CampusDetailScreen({
 function UserHomeDashboard({
   canOpenAdminMode,
   onOpenAdminMode,
+  onOpenAnnouncements,
+  onOpenAnnouncement,
   onOpenDevotion,
   onOpenMonthlyCalendar,
   onOpenNotifications,
   onOpenPayments,
   onOpenPrayers,
+  onOpenYearlyRecap,
+  onOpenWeeklyMaterials,
   setAuthState,
   state,
+  yearlyRecap,
 }: {
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
+  onOpenAnnouncements: () => void;
+  onOpenAnnouncement: (announcementId: number) => void;
   onOpenDevotion: () => void;
   onOpenMonthlyCalendar: () => void;
   onOpenNotifications: () => void;
   onOpenPayments: () => void;
   onOpenPrayers: (entryMode: PrayerEntryMode) => void;
+  onOpenYearlyRecap: () => void;
+  onOpenWeeklyMaterials: () => void;
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
+  yearlyRecap: YearlyRecap | null;
 }) {
   const [today, setToday] = useState(() => new Date());
   const weekStartDate = useMemo(() => getWeekStartDate(today), [today]);
@@ -2602,6 +3071,13 @@ function UserHomeDashboard({
         </Text>
       </View>
 
+      {yearlyRecap ? (
+        <YearlyRecapHomeCard
+          onPress={onOpenYearlyRecap}
+          recapYear={yearlyRecap.recapYear}
+        />
+      ) : null}
+
       <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
       <View style={styles.homeMetricRow}>
         <HomeMetricTile
@@ -2662,7 +3138,17 @@ function UserHomeDashboard({
           onPress={onOpenDevotion}
         />
       </View>
+      <HomeAnnouncementCapabilitySection
+        campusId={campusId}
+        key={`home-announcements-campus-${campusId}`}
+        onOpenAll={onOpenAnnouncements}
+        onOpenAnnouncement={onOpenAnnouncement}
+        userId={state.user.id}
+      />
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
+      {isWeeklyMaterialCapabilityEnabled() ? (
+        <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
+      ) : null}
       <HomePrayerEntryCard
         entryMode="groups"
         onPress={() => onOpenPrayers('groups')}
@@ -2817,6 +3303,31 @@ function HomeCalendarEntryCard({onPress}: {onPress: () => void}) {
         </Text>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarBody}>
           이번 달 체크 보기
+        </Text>
+      </View>
+      <View style={styles.homeCalendarButton}>
+        <Text style={styles.homeCalendarButtonText}>보기</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function HomeWeeklyMaterialsEntryCard({onPress}: {onPress: () => void}) {
+  return (
+    <Pressable
+      accessibilityLabel="이번 주 자료 보기"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({pressed}) => [styles.homeCalendarCard, pressed ? styles.authButtonPressed : null]}>
+      <View style={styles.homeCalendarIcon}>
+        <IconexIcon color={colors.primary} name="document" size={22} strokeWidth={1.7} />
+      </View>
+      <View style={styles.homeCalendarText}>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarTitle}>
+          이번 주 자료
+        </Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.homeCalendarBody}>
+          목자지침·주일·토목모 나눔지 PDF
         </Text>
       </View>
       <View style={styles.homeCalendarButton}>
@@ -4307,6 +4818,10 @@ function getRouteTitle(route: ShellRoute) {
       return '투표';
     case 'prayers':
       return '기도제목';
+    case 'announcements':
+      return '공지';
+    case 'weeklyMaterials':
+      return '주간 자료';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -4330,6 +4845,10 @@ function getRouteIcon(route: ShellRoute) {
       return '▤';
     case 'prayers':
       return 'R';
+    case 'announcements':
+      return 'N';
+    case 'weeklyMaterials':
+      return 'W';
     case 'profile':
       return '○';
     case 'campusAdmin':
@@ -4353,6 +4872,10 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return '사용자 투표 목록, 상세, 응답, 댓글, 결과 조회를 다루는 일반 사용자 화면입니다.';
     case 'prayers':
       return '사용자 조별 기도제목 조회, 사람별 입력, version 충돌 복구를 다루는 일반 사용자 화면입니다.';
+    case 'announcements':
+      return '캠퍼스의 게시 공지를 확인하는 화면입니다.';
+    case 'weeklyMaterials':
+      return '주차별 목자지침과 주일·토목모 나눔지를 확인하는 화면입니다.';
     case 'profile':
       return '내 정보 새로고침, 공동체 메뉴, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':
@@ -5070,6 +5593,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 28,
     textAlign: 'left',
+  },
+  homeAnnouncementRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  homeAnnouncementButtonTouch: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  homeAnnouncementButtonVisual: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    height: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  homeAnnouncementButtonText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   homeCalendarBody: {
     color: colors.textMuted,

@@ -42,7 +42,9 @@ vi.mock('../polls/PollScreen', () => ({}));
 vi.mock('../prayers/PrayerScreen', () => ({}));
 vi.mock('../theme', () => ({
   colors: new Proxy({}, {get: () => '#000000'}),
+  radius: new Proxy({}, {get: () => 12}),
   spacing: new Proxy({}, {get: () => 8}),
+  typography: new Proxy({}, {get: () => ({})}),
 }));
 vi.mock('../utils/money', () => ({}));
 

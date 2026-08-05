@@ -368,13 +368,22 @@ function sanitizePollCreateRequest(body: MealPollCreateRequest): MealPollCreateR
   if (new Set(options.map((option) => option.content.toLocaleLowerCase())).size !== options.length) {
     throw invalidMealRequest('서로 다른 선택지를 입력해 주세요.');
   }
-  return {
+  const request: MealPollCreateRequest = {
     title: requireText(body.title, '제목'),
     isAnonymous: body.isAnonymous,
     endsAt: body.endsAt,
     options,
     allowUserOptionAdd: body.allowUserOptionAdd,
   };
+  if (body.notice !== undefined) {
+    request.notice = typeof body.notice === 'string' ? body.notice.trim() || null : null;
+  }
+  if (body.imageAssetIds !== undefined) {
+    request.imageAssetIds = Array.isArray(body.imageAssetIds)
+      ? [...new Set(body.imageAssetIds.map((assetId) => positiveId(assetId, 'assetId')))]
+      : [];
+  }
+  return request;
 }
 
 function sanitizeMealChargeRequest(body: MealChargeRequest): MealChargeRequest {

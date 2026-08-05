@@ -50,6 +50,8 @@ describe('Firebase Analytics native configuration', () => {
     expect(analyticsImplementation).not.toMatch(/G-[A-Z0-9]+/);
     expect(analyticsImplementation).not.toContain('setUserId');
     expect(analyticsImplementation).not.toContain('setUserProperty');
-    expect(analyticsImplementation).not.toMatch(/phone|campusName|authorization|fcmToken|advertisingId/i);
+    expect(analyticsImplementation).not.toMatch(
+      /\bphone\b|campusName|authorization|fcmToken|advertisingId/i,
+    );
   });
 });

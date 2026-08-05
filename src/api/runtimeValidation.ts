@@ -781,9 +781,12 @@ function requireAliasedBoolean(record: UnknownRecord, keys: readonly string[]) {
   return invalidResponse();
 }
 
-function parsePollSummaryValue(value: unknown): PollSummary {
+function parsePollSummaryValue(value: unknown, allowDetailFields = false): PollSummary {
   const record = requireRecord(value);
   if (record.createdByUserId !== undefined) {
+    return invalidResponse();
+  }
+  if (!allowDetailFields && (record.notice !== undefined || record.imageAssetIds !== undefined)) {
     return invalidResponse();
   }
   const responded =
@@ -825,6 +828,11 @@ function parsePollSummaryValue(value: unknown): PollSummary {
     status: requireOpenString(record.status),
     responded,
     manageableByMe: requireBoolean(record.manageableByMe),
+    ...(record.hasNotice === undefined ? {} : {hasNotice: requireBoolean(record.hasNotice)}),
+    ...(record.hasImages === undefined ? {} : {hasImages: requireBoolean(record.hasImages)}),
+    ...(record.thumbnailAssetId === undefined
+      ? {}
+      : {thumbnailAssetId: requireNullablePositiveId(record.thumbnailAssetId)}),
   };
 }
 
@@ -884,8 +892,10 @@ function parsePollDetailValue(value: unknown): PollDetail {
   const wrapper = requireRecord(value);
   const source =
     wrapper.poll === undefined ? wrapper : requireRecord(wrapper.poll);
-  const summary = parsePollSummaryValue(source);
+  const summary = parsePollSummaryValue(source, true);
   const optionsValue = source.options ?? wrapper.options;
+  const imageAssetIds = parsePollImageAssetIds(source.imageAssetIds);
+  const notice = parsePollNoticeValue(source.notice);
 
   return {
     ...summary,
@@ -909,7 +919,23 @@ function parsePollDetailValue(value: unknown): PollDetail {
     myResponse: parseNullablePollResponseValue(
       source.myResponse ?? source.response ?? null,
     ),
+    ...(source.notice === undefined ? {} : {notice}),
+    ...(source.imageAssetIds === undefined ? {} : {imageAssetIds}),
   };
+}
+
+function parsePollNoticeValue(value: unknown) {
+  if (value === undefined || value === null) return null;
+  const notice = requireString(value, 5_000).trim();
+  return notice === '' ? null : notice;
+}
+
+function parsePollImageAssetIds(value: unknown) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return invalidResponse();
+  const result = value.map(requirePositiveId);
+  if (new Set(result).size !== result.length) return invalidResponse();
+  return result;
 }
 
 function parsePollResultsValue(value: unknown): PollResults {
@@ -1397,6 +1423,8 @@ function parseAdminPollValue(value: unknown): AdminPoll {
     endsAt: requireDateTime(record.endsAt),
     status: requireOpenString(record.status),
     options: requireArray(record.options, parsePollOptionValue),
+    notice: parsePollNoticeValue(record.notice),
+    imageAssetIds: parsePollImageAssetIds(record.imageAssetIds),
   };
 }
 
@@ -1619,7 +1647,7 @@ export function parseCoffeeMenus(value: unknown): CoffeeMenu[] {
 export function parsePollSummaryList(value: unknown): PollSummary[] {
   return parseSafely(() =>
     requireArrayPayload(value, ['content', 'items', 'polls']).map(
-      parsePollSummaryValue,
+      (item) => parsePollSummaryValue(item),
     ),
   );
 }

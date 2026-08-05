@@ -9,6 +9,7 @@ import type {
   MealPollCreateDraft,
   MealPollCreateRequest,
 } from './mealTypes';
+import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
 
 export type MealChargeConfirmation = {
   groups: Array<MealChargeCalculation & {
@@ -103,12 +104,20 @@ export function buildMealPollCreateRequest(
     throw new MealLocalValidationError('중복 선택지는 사용할 수 없습니다.');
   }
 
+  const noticeFields = draft.notice === undefined && draft.imageAssetIds === undefined
+    ? {}
+    : buildPollNoticeMutationFields({
+        notice: draft.notice ?? '',
+        imageAssetIds: draft.imageAssetIds ?? [],
+      });
+
   return {
     title,
     isAnonymous: draft.isAnonymous,
     endsAt: endsAt.toISOString(),
     options: options.map((content, sortOrder) => ({content, sortOrder})),
     allowUserOptionAdd: draft.allowUserOptionAdd,
+    ...noticeFields,
   };
 }
 

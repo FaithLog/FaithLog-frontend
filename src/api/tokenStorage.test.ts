@@ -1048,6 +1048,15 @@ describe('native auth token storage', () => {
     await expect(tokenStorage.getStoredSelectedCampusId()).resolves.toBe(17);
   });
 
+  it('clears the selected campus when the authoritative state has no campus', async () => {
+    const tokenStorage = await import('./tokenStorage');
+    await tokenStorage.saveSelectedCampusId(17);
+
+    await tokenStorage.saveSelectedCampusId(null);
+
+    await expect(tokenStorage.getStoredSelectedCampusId()).resolves.toBeNull();
+  });
+
   it('declines an old password-change clear without deleting a newer login session', async () => {
     const tokenStorage = await import('./tokenStorage');
     const oldGeneration = await tokenStorage.beginAuthSession();
