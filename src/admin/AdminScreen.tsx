@@ -247,6 +247,10 @@ import {
 import {coordinateAdminMealDutyRefresh} from './adminMealDutyRefresh';
 import {AdminAnnouncementCapabilityRoute} from '../announcements/AnnouncementCapabilitySurfaces';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
+import {AdminWeeklyMaterialsScreen} from '../weeklyMaterials/AdminWeeklyMaterialsScreen';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {createMockWeeklyMaterialCandidate} from '../weeklyMaterials/weeklyMaterialMockApi';
+import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -276,6 +280,7 @@ type AdminTab =
   | 'devotion'
   | 'polls'
   | 'announcements'
+  | 'weeklyMaterials'
   | 'notificationLogs'
   | 'prayer'
   | 'members'
@@ -669,6 +674,7 @@ export function AdminScreen({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const campusId = state.selectedCampus.campusId;
   const announcementCapabilityEnabled = isAnnouncementCapabilityEnabled();
+  const weeklyMaterialCapabilityEnabled = isWeeklyMaterialCapabilityEnabled();
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
   const [memberSection, setMemberSection] = useState<AdminMemberSection>('list');
@@ -2978,6 +2984,7 @@ export function AdminScreen({
     if (nextTab === 'announcements' && !announcementCapabilityEnabled) {
       return;
     }
+    if (nextTab === 'weeklyMaterials' && !weeklyMaterialCapabilityEnabled) return;
 
     const changeTab = () => {
       if (tab === 'settlement' && nextTab !== 'settlement') {
@@ -3046,6 +3053,45 @@ export function AdminScreen({
     );
   }
 
+  if (tab === 'weeklyMaterials') {
+    return (
+      <View style={styles.adminModeFrame}>
+        <AdminWeeklyMaterialsScreen
+          api={getWeeklyMaterialRuntimeApi()}
+          campusId={campusId}
+          onBack={() => setTab('home')}
+          onOpenMaterial={async (material) => setNotice({
+            tone: 'info',
+            title: material.fileName,
+            message: 'PDF 열기는 백엔드 REST Docs 확정 후 실기기 QA에서 활성화합니다.',
+          })}
+          pickPdf={async (materialType) => createMockWeeklyMaterialCandidate(materialType)}
+          uploadPdf={async (candidate, onProgress) => {
+            onProgress(0.4);
+            await Promise.resolve();
+            onProgress(1);
+            return {
+              assetId: Date.now(),
+              assetKind: 'PDF',
+              byteSize: candidate.byteSize,
+              contentType: 'application/pdf',
+              fileName: candidate.fileName,
+              height: null,
+              sha256: candidate.sha256,
+              status: 'READY',
+              width: null,
+            };
+          }}
+        />
+        <AdminBottomNav
+          activeTab={tab}
+          bottomInset={androidShellInsets.bottomNavInset}
+          onSelectTab={selectAdminTab}
+        />
+      </View>
+    );
+  }
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -3075,6 +3121,9 @@ export function AdminScreen({
           <AdminHome
             {...(announcementCapabilityEnabled
               ? {onOpenAnnouncements: () => setTab('announcements')}
+              : {})}
+            {...(weeklyMaterialCapabilityEnabled
+              ? {onOpenWeeklyMaterials: () => setTab('weeklyMaterials')}
               : {})}
             prayerState={prayerState}
             summary={loadState.summary}
@@ -3172,6 +3221,9 @@ export function AdminScreen({
         <AdminHome
           {...(announcementCapabilityEnabled
             ? {onOpenAnnouncements: () => setTab('announcements')}
+            : {})}
+          {...(weeklyMaterialCapabilityEnabled
+            ? {onOpenWeeklyMaterials: () => setTab('weeklyMaterials')}
             : {})}
           prayerState={prayerState}
           summary={loadState.summary}
@@ -3570,6 +3622,7 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 
 function AdminHome({
   onOpenAnnouncements,
+  onOpenWeeklyMaterials,
   onOpenPrayer,
   onOpenRoles,
   prayerState,
@@ -3577,6 +3630,7 @@ function AdminHome({
 }: {
   coffeeDuty?: DutyAssignment | null;
   onOpenAnnouncements?: () => void;
+  onOpenWeeklyMaterials?: () => void;
   onOpenMembers?: () => void;
   onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
@@ -3608,6 +3662,15 @@ function AdminHome({
             value="보기"
             onPress={onOpenAnnouncements}
             accessibilityLabel="관리자 공지 관리 화면으로 이동"
+          />
+        ) : null}
+        {onOpenWeeklyMaterials ? (
+          <ListRow
+            accessibilityLabel="관리자 주간 자료 관리 화면으로 이동"
+            label="주간 자료 관리"
+            onPress={onOpenWeeklyMaterials}
+            supportingText="목자지침과 나눔지 PDF 등록"
+            value="보기"
           />
         ) : null}
         {onOpenRoles ? (
@@ -12042,6 +12105,8 @@ function getAdminShellTitle(tab: AdminTab) {
       return '투표';
     case 'announcements':
       return '공지 관리';
+    case 'weeklyMaterials':
+      return '주간 자료';
     case 'notificationLogs':
       return '알림';
     case 'prayer':
@@ -12067,6 +12132,8 @@ function getAdminTabIcon(tab: AdminTab): IconexIconName {
       return 'document';
     case 'announcements':
       return 'bell';
+    case 'weeklyMaterials':
+      return 'document';
     case 'notificationLogs':
       return 'bell';
     case 'prayer':

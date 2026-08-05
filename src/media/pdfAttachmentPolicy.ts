@@ -1,4 +1,5 @@
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
+export const MAX_WEEKLY_MATERIAL_PDF_BYTES = 30 * 1024 * 1024;
 
 export type PdfCandidateMetadata = {
   byteSize: number;
@@ -6,12 +7,12 @@ export type PdfCandidateMetadata = {
   fileName: string;
 };
 
-export function validatePdfCandidate(candidate: PdfCandidateMetadata):
+export function validatePdfCandidate(candidate: PdfCandidateMetadata, maximumBytes = MAX_PDF_BYTES):
   | {ok: true; fileName: string}
   | {ok: false; reason: 'empty' | 'invalidExtension' | 'invalidFileName' | 'tooLarge' | 'unsupportedType'} {
   const fileName = sanitizePdfFileName(candidate.fileName);
   if (!Number.isSafeInteger(candidate.byteSize) || candidate.byteSize <= 0) return {ok: false, reason: 'empty'};
-  if (candidate.byteSize > MAX_PDF_BYTES) return {ok: false, reason: 'tooLarge'};
+  if (candidate.byteSize > maximumBytes) return {ok: false, reason: 'tooLarge'};
   if (candidate.contentType !== 'application/pdf') return {ok: false, reason: 'unsupportedType'};
   if (!fileName) return {ok: false, reason: 'invalidFileName'};
   if (!/\.pdf$/i.test(fileName)) return {ok: false, reason: 'invalidExtension'};

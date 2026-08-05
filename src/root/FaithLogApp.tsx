@@ -160,6 +160,9 @@ import {YearlyRecapHomeCard} from '../recap/YearlyRecapHomeCard';
 import {YearlyRecapScreen} from '../recap/YearlyRecapScreen';
 import {useYearlyRecapExperience} from '../recap/useYearlyRecapExperience';
 import type {YearlyRecap} from '../recap/yearlyRecapTypes';
+import {WeeklyMaterialsScreen} from '../weeklyMaterials/WeeklyMaterialsScreen';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
+import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -2353,6 +2356,19 @@ function AuthenticatedShell({
               }}
               userId={state.user.id}
             />
+          ) : route === 'weeklyMaterials' ? (
+            <WeeklyMaterialsScreen
+              api={getWeeklyMaterialRuntimeApi()}
+              campusId={state.selectedCampus.campusId}
+              onBack={() => setRoute('userHome')}
+              openMaterial={async (material) => {
+                setNotice({
+                  tone: 'info',
+                  title: material.fileName,
+                  message: 'PDF 열기는 백엔드 REST Docs 확정 후 실기기 QA에서 활성화합니다.',
+                });
+              }}
+            />
           ) : (
             <PollScreen
               androidContentBottomPadding={androidShellInsets.shellContentBottomPadding}
@@ -2457,6 +2473,7 @@ function AuthenticatedShell({
                 setAnnouncementInitialId(null);
                 setRoute('announcements');
               }}
+              onOpenWeeklyMaterials={() => setRoute('weeklyMaterials')}
               onOpenAnnouncement={(announcementId) => {
                 setAnnouncementInitialId(announcementId);
                 setRoute('announcements');
@@ -2542,7 +2559,7 @@ function AuthenticatedShell({
           />
         )}
 
-        {(['profile', 'userHome', 'devotion', 'payments', 'polls', 'prayers', 'announcements', 'campusAdmin', 'serviceAdmin'] as ShellRoute[]).includes(route) ? null : (
+        {(['profile', 'userHome', 'devotion', 'payments', 'polls', 'prayers', 'announcements', 'weeklyMaterials', 'campusAdmin', 'serviceAdmin'] as ShellRoute[]).includes(route) ? null : (
           <Card>
             <Eyebrow>{getRouteLabel(route)}</Eyebrow>
             <Title>{getRouteTitle(route)}</Title>
@@ -2827,6 +2844,7 @@ function UserHomeDashboard({
   onOpenPayments,
   onOpenPrayers,
   onOpenYearlyRecap,
+  onOpenWeeklyMaterials,
   setAuthState,
   state,
   yearlyRecap,
@@ -2841,6 +2859,7 @@ function UserHomeDashboard({
   onOpenPayments: () => void;
   onOpenPrayers: (entryMode: PrayerEntryMode) => void;
   onOpenYearlyRecap: () => void;
+  onOpenWeeklyMaterials: () => void;
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   yearlyRecap: YearlyRecap | null;
@@ -3080,6 +3099,17 @@ function UserHomeDashboard({
         onOpenAnnouncement={onOpenAnnouncement}
         userId={state.user.id}
       />
+      {isWeeklyMaterialCapabilityEnabled() ? (
+        <Card>
+          <ListRow
+            accessibilityLabel="주간 자료 화면으로 이동"
+            label="이번 주 자료"
+            onPress={onOpenWeeklyMaterials}
+            supportingText="목자지침과 나눔지 PDF"
+            value="보기"
+          />
+        </Card>
+      ) : null}
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
       <HomePrayerEntryCard
         entryMode="groups"
@@ -4727,6 +4757,8 @@ function getRouteTitle(route: ShellRoute) {
       return '기도제목';
     case 'announcements':
       return '공지';
+    case 'weeklyMaterials':
+      return '주간 자료';
     case 'profile':
       return '내정보와 로그아웃';
     case 'campusAdmin':
@@ -4752,6 +4784,8 @@ function getRouteIcon(route: ShellRoute) {
       return 'R';
     case 'announcements':
       return 'N';
+    case 'weeklyMaterials':
+      return 'W';
     case 'profile':
       return '○';
     case 'campusAdmin':
@@ -4777,6 +4811,8 @@ function getRouteDescription(route: ShellRoute, campusCount: number) {
       return '사용자 조별 기도제목 조회, 사람별 입력, version 충돌 복구를 다루는 일반 사용자 화면입니다.';
     case 'announcements':
       return '캠퍼스의 게시 공지를 확인하는 화면입니다.';
+    case 'weeklyMaterials':
+      return '주차별 목자지침과 나눔지를 확인하는 화면입니다.';
     case 'profile':
       return '내 정보 새로고침, 공동체 메뉴, 로그아웃 확인 흐름입니다.';
     case 'campusAdmin':

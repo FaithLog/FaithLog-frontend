@@ -7,8 +7,8 @@ import type {
 } from './documentMediaTypes';
 import {sanitizePdfFileName, validatePdfCandidate} from './pdfAttachmentPolicy';
 
-type RequestOptions<T> = {accessToken: string; body?: unknown; expectedStatuses?: readonly number[]; method: 'POST'; responseParser: (value: unknown) => T};
-type Request = <T>(path: string, options: RequestOptions<T>) => Promise<T>;
+export type DocumentMediaRequestOptions<T> = {accessToken: string; body?: unknown; expectedStatuses?: readonly number[]; method: 'POST'; responseParser: (value: unknown) => T};
+export type DocumentMediaRequest = <T>(path: string, options: DocumentMediaRequestOptions<T>) => Promise<T>;
 export type DocumentContractStatus = 'confirmed' | 'pending';
 
 export type DocumentMediaApi = {
@@ -17,14 +17,14 @@ export type DocumentMediaApi = {
   getAccessUrls(token: string, campusId: number, assetIds: number[]): Promise<DocumentAccessUrl[]>;
 };
 
-export function createDocumentMediaApi({contractStatus, request}: {contractStatus: DocumentContractStatus; request: Request}): DocumentMediaApi {
+export function createDocumentMediaApi({contractStatus, maxPdfBytes, request}: {contractStatus: DocumentContractStatus; maxPdfBytes?: number; request: DocumentMediaRequest}): DocumentMediaApi {
   const confirmed = () => {
     if (contractStatus !== 'confirmed') throw new FaithLogApiError({kind: 'error', code: 'API_CONTRACT_PENDING', message: 'PDF 첨부 기능을 준비하고 있습니다.'});
   };
   return {
     async reserve(token, campusId, body) {
       confirmed();
-      const checked = validatePdfCandidate(body);
+      const checked = validatePdfCandidate(body, maxPdfBytes);
       if (!checked.ok || !/^[a-f0-9]{64}$/.test(body.sha256)) invalidRequest();
       return request(`/api/v1/admin/campuses/${id(campusId)}/media-assets/upload-reservations`, {
         accessToken: token, body: {...body, fileName: checked.fileName}, expectedStatuses: [201], method: 'POST', responseParser: parseReservation,

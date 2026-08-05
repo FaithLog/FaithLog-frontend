@@ -1,5 +1,6 @@
 import type {ShellRoute} from '../navigation/shellRoutes';
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
+import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
 
 export type PushRouteParams = Partial<{
   campusId: number;
@@ -70,6 +71,10 @@ const routeParamSchemas: Record<ShellRoute, Record<string, ParamNormalizer>> = {
     campusId: toPositiveInteger,
     categoryId: toPositiveInteger,
   },
+  weeklyMaterials: {
+    campusId: toPositiveInteger,
+    weekStartDate: toValidDateString,
+  },
   profile: {},
   campusAdmin: {
     campusId: toPositiveInteger,
@@ -138,7 +143,10 @@ export function parsePushNotificationOpenPayload(
     return {status: 'invalid', reason: 'routeNotAllowed'};
   }
 
-  if (route === 'announcements' && !isAnnouncementCapabilityEnabled()) {
+  if (
+    (route === 'announcements' && !isAnnouncementCapabilityEnabled()) ||
+    (route === 'weeklyMaterials' && !isWeeklyMaterialCapabilityEnabled())
+  ) {
     return {status: 'invalid', reason: 'routeNotAllowed'};
   }
 
