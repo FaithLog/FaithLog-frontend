@@ -249,8 +249,12 @@ import {AdminAnnouncementCapabilityRoute} from '../announcements/AnnouncementCap
 import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvironment';
 import {AdminWeeklyMaterialsScreen} from '../weeklyMaterials/AdminWeeklyMaterialsScreen';
 import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
-import {createMockWeeklyMaterialCandidate} from '../weeklyMaterials/weeklyMaterialMockApi';
 import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
+import {
+  openWeeklyMaterialPdf,
+  pickWeeklyMaterialPdf,
+  uploadWeeklyMaterialPdf,
+} from '../weeklyMaterials/weeklyMaterialNativeRuntime';
 import {
   beginAdminLoad,
   commitAdminLoadCampus,
@@ -3060,27 +3064,22 @@ export function AdminScreen({
           api={getWeeklyMaterialRuntimeApi()}
           campusId={campusId}
           onBack={() => setTab('home')}
-          onOpenMaterial={async (material) => setNotice({
-            tone: 'info',
-            title: material.fileName,
-            message: 'PDF 열기는 백엔드 REST Docs 확정 후 실기기 QA에서 활성화합니다.',
-          })}
-          pickPdf={async (materialType) => createMockWeeklyMaterialCandidate(materialType)}
-          uploadPdf={async (candidate, onProgress) => {
-            onProgress(0.4);
-            await Promise.resolve();
-            onProgress(1);
-            return {
-              assetId: Date.now(),
-              assetKind: 'PDF',
-              byteSize: candidate.byteSize,
-              contentType: 'application/pdf',
-              fileName: candidate.fileName,
-              height: null,
-              sha256: candidate.sha256,
-              status: 'READY',
-              width: null,
-            };
+          onOpenMaterial={async (material) => {
+            const accessToken = await resolveCurrentAccessToken(() => undefined);
+            if (!accessToken) throw new Error('Missing access token');
+            await openWeeklyMaterialPdf({accessToken, campusId, material});
+          }}
+          pickPdf={async () => pickWeeklyMaterialPdf()}
+          uploadPdf={async (candidate, onProgress, signal) => {
+            const accessToken = await resolveCurrentAccessToken(() => undefined);
+            if (!accessToken) throw new Error('Missing access token');
+            return uploadWeeklyMaterialPdf({
+              accessToken,
+              campusId,
+              file: candidate,
+              onProgress,
+              signal,
+            });
           }}
         />
         <AdminBottomNav

@@ -9,13 +9,20 @@ export type WeeklyMaterial = {
   byteSize: number;
   sha256: string;
   updatedAt: string;
-  uploadedByName: string;
 };
 
 export type WeeklyMaterialWeek = {
   campusId: number;
   weekStartDate: string;
   materials: WeeklyMaterial[];
+};
+
+export type WeeklyMaterialYearPage = {
+  content: WeeklyMaterialWeek[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 };
 
 export const weeklyMaterialLabels: Record<WeeklyMaterialType, string> = {

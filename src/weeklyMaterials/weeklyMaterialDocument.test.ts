@@ -9,7 +9,6 @@ const material = {
   byteSize: 4096,
   sha256: 'b'.repeat(64),
   updatedAt: '2026-08-03T01:00:00Z',
-  uploadedByName: '관리자',
 };
 
 describe('openWeeklyMaterialDocument', () => {

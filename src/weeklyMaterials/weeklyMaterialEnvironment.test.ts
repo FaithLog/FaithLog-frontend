@@ -13,13 +13,15 @@ afterEach(() => {
 });
 
 describe('weekly material capability', () => {
-  it('is available only in an explicit local mock environment before REST Docs confirmation', () => {
+  it('is available when the confirmed production feature flag is enabled', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
-    process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
     process.env.EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED = 'true';
     expect(isWeeklyMaterialCapabilityEnabled()).toBe(true);
 
     process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    expect(isWeeklyMaterialCapabilityEnabled()).toBe(true);
+    process.env.EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED = 'false';
     expect(isWeeklyMaterialCapabilityEnabled()).toBe(false);
   });
 });

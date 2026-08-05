@@ -42,7 +42,6 @@ const sheet = {
   byteSize: 1024,
   sha256: 'b'.repeat(64),
   updatedAt: '2026-08-03T01:00:00Z',
-  uploadedByName: '관리자',
 };
 const guideCandidate: PdfUploadCandidate = {
   byteSize: 2048,
@@ -90,7 +89,6 @@ describe('AdminWeeklyMaterialsScreen', () => {
         byteSize: 2048,
         sha256: 'a'.repeat(64),
         updatedAt: '2026-08-03T02:00:00Z',
-        uploadedByName: '관리자',
       }, sheet],
     });
     deleteMaterial.mockResolvedValue(undefined);

@@ -13,19 +13,16 @@ vi.mock('../api/client', () => ({
 import {createWeeklyMaterialApi, type WeeklyMaterialRequest} from './weeklyMaterialApi';
 
 const weekPayload = {
-  campusId: 7,
   weekStartDate: '2026-08-03',
-  materials: [
-    {
-      materialType: 'SHEPHERD_GUIDE',
-      mediaAssetId: 31,
-      fileName: '목자지침.pdf',
-      byteSize: 2048,
-      sha256: 'a'.repeat(64),
-      updatedAt: '2026-08-03T01:00:00Z',
-      uploadedByName: '관리자',
-    },
-  ],
+  shepherdGuide: {
+    assetId: 31,
+    materialType: 'SHEPHERD_GUIDE',
+    originalFileName: '목자지침.pdf',
+    byteSize: 2048,
+    sha256: 'a'.repeat(64),
+    updatedAt: '2026-08-03T01:00:00Z',
+  },
+  sharingSheet: null,
 };
 
 describe('weekly material provisional API boundary', () => {
@@ -60,7 +57,26 @@ describe('weekly material provisional API boundary', () => {
     expect((request.mock.calls[0] as unknown[] | undefined)?.[1]).not.toHaveProperty('responseParser');
   });
 
-  it('rejects a response for a different campus or week', async () => {
+  it('uses the documented current and paged year paths', async () => {
+    const yearPayload = {
+      content: [weekPayload], page: 0, size: 20, totalElements: 1, totalPages: 1,
+    };
+    const request = vi.fn(async (path: string, options: {responseParser: (value: unknown) => unknown}) =>
+      options.responseParser(path.endsWith('/current') ? weekPayload : yearPayload));
+    const api = createWeeklyMaterialApi({contractStatus: 'confirmed', request: request as unknown as WeeklyMaterialRequest});
+
+    const current = await api.getCurrentWeek('token', 7);
+    const page = await api.listYear('token', 7, 2026);
+
+    expect(current.materials[0]).toMatchObject({mediaAssetId: 31, fileName: '목자지침.pdf'});
+    expect(page.content[0]?.materials[0]).toMatchObject({materialType: 'SHEPHERD_GUIDE'});
+    expect(request.mock.calls.map(([path]) => path)).toEqual([
+      '/api/v1/campuses/7/weekly-materials/current',
+      '/api/v1/campuses/7/weekly-materials?year=2026&page=0&size=20',
+    ]);
+  });
+
+  it('rejects a response for a different requested week', async () => {
     const request = vi.fn(async (_path: string, options: {responseParser: (value: unknown) => unknown}) =>
       options.responseParser({...weekPayload, weekStartDate: '2026-08-10'}));
     const api = createWeeklyMaterialApi({contractStatus: 'confirmed-test', request: request as unknown as WeeklyMaterialRequest});

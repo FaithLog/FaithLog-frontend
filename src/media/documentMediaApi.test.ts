@@ -1,5 +1,7 @@
 import {describe, expect, it, vi} from 'vitest';
 
+vi.mock('../api/client', () => ({apiRequest: vi.fn()}));
+
 import {createDocumentMediaApi} from './documentMediaApi';
 
 describe('provisional document media API', () => {
@@ -26,12 +28,12 @@ describe('provisional document media API', () => {
         contentType: 'application/pdf', fileName: '안내.pdf', sha256: 'a'.repeat(64),
         byteSize: 123, width: null, height: null,
       });
-      return options.responseParser({assets: [31, 32].map((assetId) => ({
+      return options.responseParser([31, 32].map((assetId) => ({
         assetId, assetKind: 'PDF', fileName: `${assetId}.pdf`, contentType: 'application/pdf',
         byteSize: assetId, sha256: String(assetId).padStart(64, '0'),
         thumbnailUrl: null, detailUrl: null, downloadUrl: `https://r2.example/${assetId}`,
         expiresAt: '2026-08-04T12:00:00Z',
-      }))});
+      })));
     });
     const api = createDocumentMediaApi({contractStatus: 'confirmed', request});
     const reservation = await api.reserve('token', 7, {

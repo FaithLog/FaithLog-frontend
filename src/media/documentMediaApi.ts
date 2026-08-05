@@ -1,4 +1,5 @@
 import {FaithLogApiError} from '../api/apiError';
+import {apiRequest} from '../api/client';
 import type {
   DocumentAccessUrl,
   DocumentUploadReservation,
@@ -53,6 +54,12 @@ export function createDocumentMediaApi({contractStatus, maxPdfBytes, request}: {
   };
 }
 
+export const documentMediaApi = createDocumentMediaApi({
+  contractStatus: 'confirmed',
+  request: ((path, options) =>
+    (apiRequest as unknown as DocumentMediaRequest)(path, options)) as DocumentMediaRequest,
+});
+
 function parseReservation(value: unknown): DocumentUploadReservation {
   const record = object(value); const requiredHeaders = object(record.requiredHeaders); const headers: Record<string, string> = {};
   for (const [key, header] of Object.entries(requiredHeaders)) { if (!key.trim() || typeof header !== 'string') invalidResponse(); headers[key] = header; }
@@ -67,8 +74,8 @@ function parseReady(value: unknown, expectedId: number): ReadyDocumentAsset {
 }
 
 function parseAccess(value: unknown, expected: number[]): DocumentAccessUrl[] {
-  const record = object(value); if (!Array.isArray(record.assets) || record.assets.length !== expected.length) invalidResponse();
-  return record.assets.map((raw, index) => {
+  if (!Array.isArray(value) || value.length !== expected.length) invalidResponse();
+  return value.map((raw, index) => {
     const item = object(raw); const assetId = id(item.assetId); if (assetId !== expected[index] || item.assetKind !== 'PDF' || item.contentType !== 'application/pdf' || item.thumbnailUrl !== null || item.detailUrl !== null) invalidResponse();
     return {assetId, assetKind: 'PDF', contentType: 'application/pdf', fileName: fileName(item.fileName), sha256: hash(item.sha256), byteSize: positive(item.byteSize), thumbnailUrl: null, detailUrl: null, downloadUrl: https(item.downloadUrl), expiresAt: iso(item.expiresAt)};
   });

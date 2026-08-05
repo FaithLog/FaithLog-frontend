@@ -48,7 +48,6 @@ describe('weekly material state isolation', () => {
       byteSize: 100,
       sha256: 'a'.repeat(64),
       updatedAt: '2026-08-03T00:00:00Z',
-      uploadedByName: '관리자',
     };
     const sheet = {...guide, materialType: 'SHARING_SHEET' as const, mediaAssetId: 2};
     const withBoth = applyWeeklyMaterialUpsert(

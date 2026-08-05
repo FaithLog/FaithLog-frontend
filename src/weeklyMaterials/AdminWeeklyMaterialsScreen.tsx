@@ -322,7 +322,7 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
           <PdfIcon />
           <View style={styles.fileCopy}>
             <Text numberOfLines={2} style={styles.fileName}>{material.fileName}</Text>
-            <Text style={styles.muted}>{formatAttachmentByteSize(material.byteSize)} · {material.uploadedByName}</Text>
+            <Text style={styles.muted}>{formatAttachmentByteSize(material.byteSize)} · {formatUpdatedAt(material.updatedAt)}</Text>
           </View>
           <Text style={styles.openText}>열기</Text>
         </Pressable>
@@ -357,6 +357,11 @@ function SmallButton({accessibilityLabel, disabled = false, label, onPress, prim
 }
 async function defaultAccessTokenProvider() { const token = await resolveCurrentAccessToken(() => undefined); if (!token) throw new Error('Missing access token'); return token; }
 function draftKey(weekStartDate: string, type: WeeklyMaterialType) { return `${weekStartDate}:${type}`; }
+function formatUpdatedAt(value: string) {
+  return new Intl.DateTimeFormat('ko-KR', {
+    day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'numeric', timeZone: 'Asia/Seoul',
+  }).format(new Date(value));
+}
 
 const styles = StyleSheet.create({
   actionRow: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'flex-end'},

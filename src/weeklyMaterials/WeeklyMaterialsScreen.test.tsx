@@ -45,7 +45,6 @@ const guide = {
   byteSize: 2048,
   sha256: 'a'.repeat(64),
   updatedAt: '2026-08-03T01:00:00Z',
-  uploadedByName: '관리자',
 };
 
 describe('WeeklyMaterialsScreen', () => {

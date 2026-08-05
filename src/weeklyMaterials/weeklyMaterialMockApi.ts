@@ -12,6 +12,18 @@ export const weeklyMaterialMockApi: WeeklyMaterialApi = {
   async getWeek(_token, campusId, weekStartDate) {
     return getOrCreate(campusId, weekStartDate);
   },
+  async listYear(_token, campusId, year, page = 0, size = 20) {
+    const content = Array.from(weeks.values())
+      .filter((week) => week.campusId === campusId && week.weekStartDate.startsWith(`${year}-`))
+      .sort((left, right) => right.weekStartDate.localeCompare(left.weekStartDate));
+    return {
+      content: content.slice(page * size, (page + 1) * size).map(clone),
+      page,
+      size,
+      totalElements: content.length,
+      totalPages: content.length === 0 ? 0 : Math.ceil(content.length / size),
+    };
+  },
   async putMaterial(_token, campusId, weekStartDate, materialType, mediaAssetId) {
     const current = getOrCreate(campusId, weekStartDate);
     const next = applyWeeklyMaterialUpsert(current, {
@@ -21,7 +33,6 @@ export const weeklyMaterialMockApi: WeeklyMaterialApi = {
       mediaAssetId,
       sha256: (materialType === 'SHEPHERD_GUIDE' ? 'a' : 'b').repeat(64),
       updatedAt: new Date().toISOString(),
-      uploadedByName: '관리자',
     });
     weeks.set(getWeeklyMaterialCacheKey(campusId, weekStartDate), next);
     return clone(next);
@@ -56,7 +67,6 @@ function getOrCreate(campusId: number, weekStartDate: string) {
       mediaAssetId: 90_001,
       sha256: 'a'.repeat(64),
       updatedAt: new Date().toISOString(),
-      uploadedByName: '관리자',
     }] : [],
     weekStartDate,
   };

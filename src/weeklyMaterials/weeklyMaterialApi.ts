@@ -5,6 +5,7 @@ import {
   type WeeklyMaterial,
   type WeeklyMaterialType,
   type WeeklyMaterialWeek,
+  type WeeklyMaterialYearPage,
   weeklyMaterialTypes,
 } from './weeklyMaterialTypes';
 
@@ -21,11 +22,18 @@ export type WeeklyMaterialRequest = <T>(
   options: WeeklyMaterialRequestOptions<T>,
 ) => Promise<T>;
 
-export type WeeklyMaterialContractStatus = 'confirmed-test' | 'pending';
+export type WeeklyMaterialContractStatus = 'confirmed' | 'confirmed-test' | 'pending';
 
 export type WeeklyMaterialApi = {
   getWeek(token: string, campusId: number, weekStartDate: string): Promise<WeeklyMaterialWeek>;
   getCurrentWeek(token: string, campusId: number): Promise<WeeklyMaterialWeek>;
+  listYear(
+    token: string,
+    campusId: number,
+    year: number,
+    page?: number,
+    size?: number,
+  ): Promise<WeeklyMaterialYearPage>;
   putMaterial(
     token: string,
     campusId: number,
@@ -83,6 +91,24 @@ export function createWeeklyMaterialApi({
         }),
       });
     },
+    async listYear(token, campusId, year, page = 0, size = 20) {
+      assertConfirmed();
+      const expectedCampusId = positiveId(campusId);
+      if (!Number.isSafeInteger(year) || year < 2000 || year > 9999) invalidRequest();
+      if (!Number.isSafeInteger(page) || page < 0) invalidRequest();
+      if (!Number.isSafeInteger(size) || size <= 0 || size > 100) invalidRequest();
+      const path = `/api/v1/campuses/${expectedCampusId}/weekly-materials?year=${year}&page=${page}&size=${size}`;
+      return await request(path, {
+        accessToken: token,
+        method: 'GET',
+        responseParser: (value) => parseWeeklyMaterialYearPage(value, {
+          campusId: expectedCampusId,
+          page,
+          size,
+          year,
+        }),
+      });
+    },
     async putMaterial(token, campusId, weekStartDate, materialType, mediaAssetId) {
       assertConfirmed();
       const expectedCampusId = positiveId(campusId);
@@ -114,7 +140,7 @@ export function createWeeklyMaterialApi({
 }
 
 export const weeklyMaterialApi = createWeeklyMaterialApi({
-  contractStatus: 'pending',
+  contractStatus: 'confirmed',
   request: ((path, options) =>
     (apiRequest as unknown as WeeklyMaterialRequest)(path, options)) as WeeklyMaterialRequest,
 });
@@ -124,36 +150,56 @@ export function parseWeeklyMaterialWeek(
   expected: {campusId: number; weekStartDate?: string},
 ): WeeklyMaterialWeek {
   const record = requireRecord(value);
-  const campusId = requirePositiveInteger(record.campusId);
   const weekStartDate = normalizeServerWeek(record.weekStartDate);
-  if (
-    campusId !== expected.campusId ||
-    (expected.weekStartDate !== undefined && weekStartDate !== expected.weekStartDate)
-  ) {
+  if (expected.weekStartDate !== undefined && weekStartDate !== expected.weekStartDate) {
     return invalidResponse();
   }
-  if (!Array.isArray(record.materials) || record.materials.length > 2) {
-    return invalidResponse();
-  }
-  const materials = record.materials.map(parseWeeklyMaterial);
-  const seen = new Set<WeeklyMaterialType>();
-  for (const material of materials) {
-    if (seen.has(material.materialType)) return invalidResponse();
-    seen.add(material.materialType);
-  }
-  return {campusId, weekStartDate, materials};
+  const materials: WeeklyMaterial[] = [];
+  const shepherdGuide = parseNullableWeeklyMaterial(record.shepherdGuide, 'SHEPHERD_GUIDE');
+  const sharingSheet = parseNullableWeeklyMaterial(record.sharingSheet, 'SHARING_SHEET');
+  if (shepherdGuide) materials.push(shepherdGuide);
+  if (sharingSheet) materials.push(sharingSheet);
+  return {campusId: expected.campusId, weekStartDate, materials};
 }
 
-function parseWeeklyMaterial(value: unknown): WeeklyMaterial {
+export function parseWeeklyMaterialYearPage(
+  value: unknown,
+  expected: {campusId: number; page: number; size: number; year: number},
+): WeeklyMaterialYearPage {
   const record = requireRecord(value);
+  if (!Array.isArray(record.content)) return invalidResponse();
+  const page = requireNonNegativeInteger(record.page);
+  const size = requirePositiveInteger(record.size);
+  const totalElements = requireNonNegativeInteger(record.totalElements);
+  const totalPages = requireNonNegativeInteger(record.totalPages);
+  if (page !== expected.page || size !== expected.size) return invalidResponse();
+  if (totalPages !== (totalElements === 0 ? 0 : Math.ceil(totalElements / size))) {
+    return invalidResponse();
+  }
+  const content = record.content.map((item) => parseWeeklyMaterialWeek(item, {
+    campusId: expected.campusId,
+  }));
+  if (content.some((week) => Number(week.weekStartDate.slice(0, 4)) !== expected.year)) {
+    return invalidResponse();
+  }
+  return {content, page, size, totalElements, totalPages};
+}
+
+function parseNullableWeeklyMaterial(
+  value: unknown,
+  expectedType: WeeklyMaterialType,
+): WeeklyMaterial | null {
+  if (value === null) return null;
+  const record = requireRecord(value);
+  const materialType = normalizeMaterialType(record.materialType);
+  if (materialType !== expectedType) return invalidResponse();
   return {
-    materialType: normalizeMaterialType(record.materialType),
-    mediaAssetId: requirePositiveInteger(record.mediaAssetId),
-    fileName: requirePdfFileName(record.fileName),
+    materialType,
+    mediaAssetId: requirePositiveInteger(record.assetId),
+    fileName: requirePdfFileName(record.originalFileName),
     byteSize: requirePositiveInteger(record.byteSize),
     sha256: requireSha256(record.sha256),
     updatedAt: requireDateTime(record.updatedAt),
-    uploadedByName: requireDisplayName(record.uploadedByName),
   };
 }
 
@@ -197,6 +243,13 @@ function requirePositiveInteger(value: unknown) {
   return value;
 }
 
+function requireNonNegativeInteger(value: unknown) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    return invalidResponse();
+  }
+  return value;
+}
+
 function requirePdfFileName(value: unknown) {
   if (typeof value !== 'string') return invalidResponse();
   const normalized = value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
@@ -216,11 +269,12 @@ function requireDateTime(value: unknown) {
   return value;
 }
 
-function requireDisplayName(value: unknown) {
-  if (typeof value !== 'string' || value.trim() === '' || value.length > 100) {
-    return invalidResponse();
-  }
-  return value.trim();
+function invalidRequest(): never {
+  throw new FaithLogApiError({
+    kind: 'error',
+    code: 'GLOBAL_VALIDATION_FAILED',
+    message: '주간 자료 조회 조건을 확인해 주세요.',
+  });
 }
 
 function invalidResponse(): never {

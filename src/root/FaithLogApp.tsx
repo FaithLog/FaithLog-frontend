@@ -163,6 +163,7 @@ import type {YearlyRecap} from '../recap/yearlyRecapTypes';
 import {WeeklyMaterialsScreen} from '../weeklyMaterials/WeeklyMaterialsScreen';
 import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
 import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
+import {openWeeklyMaterialPdf} from '../weeklyMaterials/weeklyMaterialNativeRuntime';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -2362,10 +2363,12 @@ function AuthenticatedShell({
               campusId={state.selectedCampus.campusId}
               onBack={() => setRoute('userHome')}
               openMaterial={async (material) => {
-                setNotice({
-                  tone: 'info',
-                  title: material.fileName,
-                  message: 'PDF 열기는 백엔드 REST Docs 확정 후 실기기 QA에서 활성화합니다.',
+                const accessToken = await resolveCurrentAccessToken(() => undefined);
+                if (!accessToken) throw new Error('Missing access token');
+                await openWeeklyMaterialPdf({
+                  accessToken,
+                  campusId: state.selectedCampus.campusId,
+                  material,
                 });
               }}
             />
