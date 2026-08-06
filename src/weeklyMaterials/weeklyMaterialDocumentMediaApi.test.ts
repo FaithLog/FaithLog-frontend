@@ -3,6 +3,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 vi.mock('../api/client', () => ({apiRequest: vi.fn()}));
 
 import {apiRequest} from '../api/client';
+import {MAX_WEEKLY_MATERIAL_PDF_BYTES} from '../media/pdfAttachmentPolicy';
 import {weeklyMaterialDocumentMediaApi} from './weeklyMaterialDocumentMediaApi';
 
 describe('weekly material document media API', () => {
@@ -17,7 +18,7 @@ describe('weekly material document media API', () => {
     } as never);
 
     await expect(weeklyMaterialDocumentMediaApi.reserve('access', 7, {
-      byteSize: 15 * 1024 * 1024,
+      byteSize: MAX_WEEKLY_MATERIAL_PDF_BYTES,
       contentType: 'application/pdf',
       fileName: '목자지침.pdf',
       sha256: 'a'.repeat(64),
@@ -25,7 +26,18 @@ describe('weekly material document media API', () => {
 
     expect(apiRequest).toHaveBeenCalledWith(
       '/api/v1/admin/campuses/7/media-assets/upload-reservations',
-      expect.objectContaining({body: expect.objectContaining({byteSize: 15 * 1024 * 1024})}),
+      expect.objectContaining({body: expect.objectContaining({byteSize: MAX_WEEKLY_MATERIAL_PDF_BYTES})}),
     );
+  });
+
+  it('rejects a PDF larger than 30 MiB before dispatching the reservation request', async () => {
+    await expect(weeklyMaterialDocumentMediaApi.reserve('access', 7, {
+      byteSize: MAX_WEEKLY_MATERIAL_PDF_BYTES + 1,
+      contentType: 'application/pdf',
+      fileName: '목자지침.pdf',
+      sha256: 'a'.repeat(64),
+    })).rejects.toMatchObject({detail: {code: 'MEDIA_PDF_INVALID'}});
+
+    expect(apiRequest).not.toHaveBeenCalled();
   });
 });
