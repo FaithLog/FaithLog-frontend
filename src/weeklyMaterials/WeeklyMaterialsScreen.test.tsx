@@ -33,6 +33,7 @@ vi.mock('../api/client', () => ({
 vi.mock('../components/IconexIcon', () => ({IconexIcon: () => null}));
 
 import type {WeeklyMaterialApi} from './weeklyMaterialApi';
+import {WeeklyMaterialPager} from './WeeklyMaterialPager';
 import type {WeeklyMaterial} from './weeklyMaterialTypes';
 import {WeeklyMaterialsScreen} from './WeeklyMaterialsScreen';
 
@@ -66,6 +67,28 @@ describe('WeeklyMaterialsScreen', () => {
       weekStartDate: week,
       materials: week === '2026-08-03' ? [guide] : [],
     }));
+  });
+
+  it('revises the native current-week page when the first API response arrives', async () => {
+    let resolveCurrentWeek!: (value: {
+      campusId: number;
+      materials: WeeklyMaterial[];
+      weekStartDate: string;
+    }) => void;
+    getWeek.mockImplementation(async (_token: string, campusId: number, week: string) => {
+      if (week !== '2026-08-03') return {campusId, weekStartDate: week, materials: []};
+      return await new Promise((resolve) => { resolveCurrentWeek = resolve; });
+    });
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(renderScreen(api, openMaterial, 7));
+    });
+    expect(tree.root.findByType(WeeklyMaterialPager).props.contentRevision).toBe('2026-08-03:loading');
+
+    resolveCurrentWeek({campusId: 7, materials: [guide], weekStartDate: '2026-08-03'});
+    await flush();
+
+    expect(tree.root.findByType(WeeklyMaterialPager).props.contentRevision).toBe('2026-08-03:ready');
   });
 
   it('shows the three independent rows and does not download a PDF during adjacent prefetch', async () => {
