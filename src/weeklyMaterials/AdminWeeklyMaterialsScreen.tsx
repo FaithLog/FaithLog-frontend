@@ -30,6 +30,7 @@ import type {
 import {
   weeklyMaterialEmptySubjects,
   weeklyMaterialLabels,
+  weeklyMaterialScopeLabels,
   weeklyMaterialTypes,
 } from './weeklyMaterialTypes';
 
@@ -41,6 +42,7 @@ type DraftState = {
   candidate: PdfUploadCandidate;
   error?: string;
   progress: number;
+  selectionRevision: number;
   status: 'failed' | 'ready' | 'uploading';
 };
 type DeleteTarget = {materialType: WeeklyMaterialType; weekStartDate: string};
@@ -79,13 +81,15 @@ export function AdminWeeklyMaterialsScreen({
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingWeekStartDate, setPendingWeekStartDate] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const deleteFlightRef = useRef(false);
+  const deleteFlightRef = useRef<{key: string; operationId: symbol} | null>(null);
   const coordinatorRef = useRef(createWeeklyMaterialRequestCoordinator());
-  const inFlightRef = useRef(new Set<string>());
+  const uploadOperationsRef = useRef(new Map<string, symbol>());
   const uploadControllersRef = useRef(new Map<string, AbortController>());
   const mountedRef = useRef(true);
   const committedCampusIdRef = useRef(campusId);
   const campusGenerationRef = useRef(0);
+  const draftSelectionSequenceRef = useRef(0);
+  const selectedWeekStartDateRef = useRef(selectedWeekStartDate);
 
   useLayoutEffect(() => {
     if (committedCampusIdRef.current === campusId) return;
@@ -93,8 +97,9 @@ export function AdminWeeklyMaterialsScreen({
     campusGenerationRef.current += 1;
     for (const controller of uploadControllersRef.current.values()) controller.abort();
     uploadControllersRef.current.clear();
-    inFlightRef.current.clear();
-    deleteFlightRef.current = false;
+    uploadOperationsRef.current.clear();
+    deleteFlightRef.current = null;
+    selectedWeekStartDateRef.current = currentWeekStartDate;
     setSelectedWeekStartDate(currentWeekStartDate);
     setDrafts({});
     setSelectionErrors({});
@@ -149,10 +154,10 @@ export function AdminWeeklyMaterialsScreen({
   useEffect(() => () => {
     for (const controller of uploadControllersRef.current.values()) controller.abort();
     uploadControllersRef.current.clear();
-    inFlightRef.current.clear();
+    uploadOperationsRef.current.clear();
   }, []);
 
-  const hasUpload = Array.from(inFlightRef.current).some((key) =>
+  const hasUpload = Array.from(uploadOperationsRef.current.keys()).some((key) =>
     key.startsWith(`${campusId}:${selectedWeekStartDate}:`));
   const hasDraft = weeklyMaterialTypes.some((type) =>
     drafts[draftKey(campusId, selectedWeekStartDate, type)] !== undefined);
@@ -168,6 +173,7 @@ export function AdminWeeklyMaterialsScreen({
       return false;
     }
     setNotice(null);
+    selectedWeekStartDateRef.current = nextWeek;
     setSelectedWeekStartDate(nextWeek);
     return true;
   };
@@ -194,15 +200,20 @@ export function AdminWeeklyMaterialsScreen({
       ) return;
       setDrafts((current) => ({
         ...current,
-        [key]: {candidate, progress: 0, status: 'ready'},
+        [key]: {
+          candidate,
+          progress: 0,
+          selectionRevision: ++draftSelectionSequenceRef.current,
+          status: 'ready',
+        },
       }));
-    } catch {
+    } catch (error) {
       if (
         mountedRef.current &&
         committedCampusIdRef.current === operationCampusId &&
         campusGenerationRef.current === operationGeneration
       ) {
-        const message = 'PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.';
+        const message = getWeeklyMaterialSelectionErrorMessage(error);
         setSelectionErrors((current) => ({...current, [key]: message}));
       }
     }
@@ -214,8 +225,13 @@ export function AdminWeeklyMaterialsScreen({
     const operationWeekStartDate = selectedWeekStartDate;
     const key = draftKey(operationCampusId, operationWeekStartDate, type);
     const draft = drafts[key];
-    if (!draft || inFlightRef.current.has(key)) return;
-    inFlightRef.current.add(key);
+    if (
+      !draft ||
+      uploadOperationsRef.current.has(key) ||
+      deleteFlightRef.current?.key === key
+    ) return;
+    const operationId = Symbol(key);
+    uploadOperationsRef.current.set(key, operationId);
     const controller = new AbortController();
     uploadControllersRef.current.set(key, controller);
     setDrafts((current) => {
@@ -229,7 +245,7 @@ export function AdminWeeklyMaterialsScreen({
           !mountedRef.current ||
           committedCampusIdRef.current !== operationCampusId ||
           campusGenerationRef.current !== operationGeneration ||
-          !inFlightRef.current.has(key)
+          uploadOperationsRef.current.get(key) !== operationId
         ) return;
         setDrafts((current) => current[key]
           ? {...current, [key]: {...current[key], progress}}
@@ -248,7 +264,7 @@ export function AdminWeeklyMaterialsScreen({
         committedCampusIdRef.current !== operationCampusId ||
         campusGenerationRef.current !== operationGeneration ||
         controller.signal.aborted ||
-        !inFlightRef.current.has(key)
+        uploadOperationsRef.current.get(key) !== operationId
       ) return;
       const cacheKey = getWeeklyMaterialCacheKey(operationCampusId, operationWeekStartDate);
       setWeeks((current) => ({
@@ -267,7 +283,7 @@ export function AdminWeeklyMaterialsScreen({
         mountedRef.current &&
         committedCampusIdRef.current === operationCampusId &&
         campusGenerationRef.current === operationGeneration &&
-        inFlightRef.current.has(key)
+        uploadOperationsRef.current.get(key) === operationId
       ) {
         setDrafts((current) => current[key]
           ? {...current, [key]: {
@@ -278,7 +294,9 @@ export function AdminWeeklyMaterialsScreen({
           : current);
       }
     } finally {
-      inFlightRef.current.delete(key);
+      if (uploadOperationsRef.current.get(key) === operationId) {
+        uploadOperationsRef.current.delete(key);
+      }
       if (uploadControllersRef.current.get(key) === controller) uploadControllersRef.current.delete(key);
       if (
         mountedRef.current &&
@@ -294,19 +312,21 @@ export function AdminWeeklyMaterialsScreen({
     const key = draftKey(campusId, weekStartDate, type);
     uploadControllersRef.current.get(key)?.abort();
     uploadControllersRef.current.delete(key);
-    inFlightRef.current.delete(key);
+    uploadOperationsRef.current.delete(key);
     setDrafts((current) => current[key]
       ? {...current, [key]: {...current[key], error: '업로드가 취소되었습니다.', progress: 0, status: 'ready'}}
       : current);
     setNotice(`${weeklyMaterialLabels[type]} 업로드를 취소했습니다.`);
   };
 
-  const openMaterialForCurrentCampus = (material: WeeklyMaterial) => {
+  const openMaterialForCurrentCampus = (material: WeeklyMaterial, weekStartDate: string) => {
     const operationCampusId = campusId;
     const operationGeneration = campusGenerationRef.current;
     void onOpenMaterial(material, () => (
+      mountedRef.current &&
       committedCampusIdRef.current === operationCampusId &&
-      campusGenerationRef.current === operationGeneration
+      campusGenerationRef.current === operationGeneration &&
+      selectedWeekStartDateRef.current === weekStartDate
     ));
   };
 
@@ -315,7 +335,14 @@ export function AdminWeeklyMaterialsScreen({
     if (!target || deleteFlightRef.current) return;
     const operationCampusId = campusId;
     const operationGeneration = campusGenerationRef.current;
-    deleteFlightRef.current = true;
+    const key = draftKey(operationCampusId, target.weekStartDate, target.materialType);
+    if (uploadOperationsRef.current.has(key)) {
+      setDeleteTarget(null);
+      setNotice('업로드가 진행 중입니다. 완료 후 삭제해 주세요.');
+      return;
+    }
+    const operationId = Symbol(key);
+    deleteFlightRef.current = {key, operationId};
     setDeleting(true);
     try {
       const token = await accessTokenProvider();
@@ -328,7 +355,8 @@ export function AdminWeeklyMaterialsScreen({
       if (
         !mountedRef.current ||
         committedCampusIdRef.current !== operationCampusId ||
-        campusGenerationRef.current !== operationGeneration
+        campusGenerationRef.current !== operationGeneration ||
+        deleteFlightRef.current?.operationId !== operationId
       ) return;
       const cacheKey = getWeeklyMaterialCacheKey(operationCampusId, target.weekStartDate);
       setWeeks((current) => {
@@ -349,18 +377,20 @@ export function AdminWeeklyMaterialsScreen({
       });
       setDeleteTarget(null);
       setNotice(`${weeklyMaterialLabels[target.materialType]}가 삭제되었습니다.`);
+      void loadWeek(target.weekStartDate, false);
     } catch (error) {
       if (
         committedCampusIdRef.current === operationCampusId &&
-        campusGenerationRef.current === operationGeneration
+        campusGenerationRef.current === operationGeneration &&
+        deleteFlightRef.current?.operationId === operationId
       ) {
         setNotice(getWeeklyMaterialErrorMessage(error, 'delete'));
       }
     } finally {
-      if (campusGenerationRef.current === operationGeneration) {
-        deleteFlightRef.current = false;
-      }
+      const ownsDelete = deleteFlightRef.current?.operationId === operationId;
+      if (ownsDelete) deleteFlightRef.current = null;
       if (
+        ownsDelete &&
         mountedRef.current &&
         committedCampusIdRef.current === operationCampusId &&
         campusGenerationRef.current === operationGeneration
@@ -388,14 +418,20 @@ export function AdminWeeklyMaterialsScreen({
           const draft = drafts[draftKey(campusId, weekStartDate, type)];
           const selectionError = selectionErrors[draftKey(campusId, weekStartDate, type)];
           const material = byType.get(type);
+          const key = draftKey(campusId, weekStartDate, type);
+          const mutationBusy = uploadOperationsRef.current.has(key) || deleteFlightRef.current?.key === key;
           return (
             <AdminMaterialSection
               {...(draft ? {draft} : {})}
               key={type}
               {...(material ? {material} : {})}
-              onDelete={() => setDeleteTarget({materialType: type, weekStartDate})}
+              mutationBusy={mutationBusy}
+              onDelete={() => {
+                if (mutationBusy) return;
+                setDeleteTarget({materialType: type, weekStartDate});
+              }}
               onCancelUpload={() => cancelUpload(weekStartDate, type)}
-              onOpen={openMaterialForCurrentCampus}
+              onOpen={(openedMaterial) => openMaterialForCurrentCampus(openedMaterial, weekStartDate)}
               onRemoveDraft={() => setDrafts((current) => {
                 const next = {...current};
                 delete next[draftKey(campusId, weekStartDate, type)];
@@ -414,12 +450,14 @@ export function AdminWeeklyMaterialsScreen({
 
   const deleteLabel = deleteTarget ? weeklyMaterialLabels[deleteTarget.materialType] : '';
   const deleteDate = deleteTarget ? formatWeeklyMaterialDeletionDate(deleteTarget.weekStartDate) : '';
+  const pagerContentRevision = getAdminPagerContentRevision(weeks, drafts, selectionErrors);
 
   return (
     <ScrollView contentContainerStyle={styles.screen}>
       <ScreenHeader action={<BackButton onPress={onBack} />} eyebrow="관리자" subtitle="주차별 자료를 각각 등록하고 관리합니다." title="주간 자료 관리" />
       {notice ? <Text accessibilityRole="alert" style={styles.notice}>{notice}</Text> : null}
       <WeeklyMaterialPager
+        contentRevision={pagerContentRevision}
         currentWeekStartDate={currentWeekStartDate}
         navigationDisabled={hasUpload}
         onBlockedNavigation={() => setNotice('업로드가 진행 중입니다. 완료 후 주차를 이동해 주세요.')}
@@ -453,6 +491,7 @@ export function AdminWeeklyMaterialsScreen({
             }
             return next;
           });
+          selectedWeekStartDateRef.current = pendingWeekStartDate;
           setSelectedWeekStartDate(pendingWeekStartDate);
           setPendingWeekStartDate(null);
           setNotice(null);
@@ -464,9 +503,10 @@ export function AdminWeeklyMaterialsScreen({
   );
 }
 
-function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen, onRemoveDraft, onSelect, onUpload, selectionError, type}: {
+function AdminMaterialSection({draft, material, mutationBusy, onCancelUpload, onDelete, onOpen, onRemoveDraft, onSelect, onUpload, selectionError, type}: {
   draft?: DraftState;
   material?: WeeklyMaterial;
+  mutationBusy: boolean;
   onCancelUpload: () => void;
   onDelete: () => void;
   onOpen: (material: WeeklyMaterial) => Promise<void> | void;
@@ -477,12 +517,16 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
   type: WeeklyMaterialType;
 }) {
   const label = weeklyMaterialLabels[type];
-  const busy = draft?.status === 'uploading';
+  const uploading = draft?.status === 'uploading';
+  const busy = mutationBusy || uploading;
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeading}>
         <View style={styles.headingCopy}>
           <Text style={styles.sectionTitle}>{label}</Text>
+          {weeklyMaterialScopeLabels[type] ? (
+            <Text style={styles.scopeLabel}>{weeklyMaterialScopeLabels[type]}</Text>
+          ) : null}
           <Text style={styles.muted}>{type === 'SUNDAY_SHARING_SHEET' ? '최초 등록 시에만 서버가 알림을 보냅니다.' : '등록 알림은 전송되지 않습니다.'}</Text>
         </View>
         <SmallButton accessibilityLabel={`${label} PDF 선택`} disabled={busy} label={material ? '교체 선택' : 'PDF 선택'} onPress={onSelect} />
@@ -515,13 +559,13 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
             </Text>
           </View>
           <View style={styles.actionRow}>
-            <SmallButton accessibilityLabel={busy ? `${label} 업로드 취소` : `${label} 선택 취소`} label="취소" onPress={busy ? onCancelUpload : onRemoveDraft} />
+            <SmallButton accessibilityLabel={uploading ? `${label} 업로드 취소` : `${label} 선택 취소`} disabled={mutationBusy && !uploading} label="취소" onPress={uploading ? onCancelUpload : onRemoveDraft} />
             <SmallButton accessibilityLabel={`${label} 등록`} disabled={busy} label={material ? '교체' : '등록'} onPress={onUpload} primary />
           </View>
           <View style={styles.progressTrack}><View style={[styles.progressFill, {width: `${Math.round(draft.progress * 100)}%`}]} /></View>
         </View>
       ) : null}
-      {material ? <SmallButton accessibilityLabel={`${label} 삭제`} label="삭제" onPress={onDelete} /> : null}
+      {material ? <SmallButton accessibilityLabel={`${label} 삭제`} disabled={mutationBusy} label="삭제" onPress={onDelete} /> : null}
     </View>
   );
 }
@@ -537,6 +581,28 @@ async function defaultAccessTokenProvider() { const token = await resolveCurrent
 function draftKey(campusId: number, weekStartDate: string, type: WeeklyMaterialType) {
   return `${campusId}:${weekStartDate}:${type}`;
 }
+function getWeeklyMaterialSelectionErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    if (error.message === 'PDF는 30MB 이하여야 합니다.') return error.message;
+    if (error.message === 'PDF 파일을 확인해 주세요.') return error.message;
+  }
+  return 'PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.';
+}
+function getAdminPagerContentRevision(
+  weeks: Record<string, WeekState>,
+  drafts: Record<string, DraftState>,
+  selectionErrors: Record<string, string>,
+) {
+  const weekRevision = Object.entries(weeks).sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, state]) => state.status === 'ready'
+      ? `${key}:ready:${state.week.materials.map((material) => `${material.materialType}:${material.mediaAssetId}:${material.updatedAt}`).join(',')}`
+      : `${key}:${state.status}`)
+    .join('|');
+  const draftRevision = Object.entries(drafts).sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, draft]) => `${key}:${draft.selectionRevision}:${draft.status}:${Math.round(draft.progress * 100)}:${draft.error ? 'error' : 'ok'}`)
+    .join('|');
+  return `${weekRevision}#${draftRevision}#${Object.keys(selectionErrors).sort().join('|')}`;
+}
 function formatUpdatedAt(value: string) {
   return new Intl.DateTimeFormat('ko-KR', {
     day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'numeric', timeZone: 'Asia/Seoul',
@@ -547,10 +613,10 @@ const styles = StyleSheet.create({
   actionRow: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'flex-end'},
   button: {alignItems: 'center', borderColor: colors.border, borderRadius: radius.control, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14},
   buttonText: {...typography.caption, color: colors.textPrimary, fontWeight: '700'},
-  currentFile: {alignItems: 'center', backgroundColor: colors.neutralSoft, borderRadius: radius.item, flexDirection: 'row', gap: spacing.gap, minHeight: 76, padding: spacing.gap},
+  currentFile: {alignItems: 'center', backgroundColor: colors.neutralSoft, borderRadius: radius.item, flexDirection: 'row', gap: spacing.gap, minHeight: 68, padding: 10},
   disabled: {opacity: 0.45},
   draft: {backgroundColor: colors.neutralSoft, borderRadius: radius.item, gap: spacing.gap, minHeight: 132, padding: spacing.gap},
-  empty: {...typography.body, color: colors.textMuted, minHeight: 52, paddingVertical: 14},
+  empty: {...typography.body, color: colors.textMuted, minHeight: 36, paddingVertical: 6},
   error: {...typography.caption, color: colors.danger},
   fileCopy: {flex: 1, gap: 3, minWidth: 0},
   fileName: {...typography.body, color: colors.textPrimary, fontWeight: '700'},
@@ -567,9 +633,10 @@ const styles = StyleSheet.create({
   progressTrack: {backgroundColor: colors.border, borderRadius: radius.pill, height: 4, overflow: 'hidden'},
   replaceCopy: {gap: 3},
   screen: {gap: spacing.card, paddingBottom: 40, paddingHorizontal: 8, paddingTop: 20},
-  section: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.gap, padding: spacing.card},
+  scopeLabel: {...typography.caption, color: colors.primary, fontWeight: '700'},
+  section: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: 9, padding: 14},
   sectionHeading: {alignItems: 'flex-start', flexDirection: 'row', gap: spacing.gap, justifyContent: 'space-between'},
   sectionTitle: {...typography.cardTitle, color: colors.textPrimary},
-  sections: {gap: spacing.gap, minHeight: 760},
+  sections: {gap: 10, minHeight: 650},
   skeleton: {backgroundColor: colors.neutralSoft, borderRadius: radius.card, height: 230},
 });

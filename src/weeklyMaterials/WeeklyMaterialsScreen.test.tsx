@@ -76,6 +76,7 @@ describe('WeeklyMaterialsScreen', () => {
     expect(text(tree)).toContain('8월 목자지침 아주 긴 파일 이름.pdf');
     expect(text(tree)).toContain('이번 주 주일 나눔지가 아직 등록되지 않았어요');
     expect(text(tree)).toContain('이번 주 토목모 나눔지가 아직 등록되지 않았어요');
+    expect(text(tree).match(/모든 캠퍼스 공유/g)).toHaveLength(6);
     expect(getWeek.mock.calls.map((call) => call[2]).sort()).toEqual([
       '2026-07-27',
       '2026-08-03',
@@ -120,6 +121,51 @@ describe('WeeklyMaterialsScreen', () => {
     await flush();
     expect(text(tree)).toContain('다시 시도');
     expect(text(tree)).not.toContain('signed URL with secret');
+  });
+
+  it('revokes a pending PDF open when the user moves to another week', async () => {
+    let shouldOpen!: () => boolean;
+    let finishOpen!: () => void;
+    openMaterial.mockImplementationOnce(async (_material, predicate) => {
+      shouldOpen = predicate!;
+      await new Promise<void>((resolve) => { finishOpen = resolve; });
+    });
+    const tree = await render(api, openMaterial);
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '목자지침 PDF 열기'}).props.onPress();
+    });
+    expect(shouldOpen()).toBe(true);
+
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '다음 주'}).props.onPress();
+    });
+    expect(shouldOpen()).toBe(false);
+    finishOpen();
+    await flush();
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '이전 주'}).props.onPress();
+    });
+    await flush();
+    expect(text(tree)).not.toContain('여는 중');
+  });
+
+  it('revokes a pending PDF open after leaving the route', async () => {
+    let shouldOpen!: () => boolean;
+    let finishOpen!: () => void;
+    openMaterial.mockImplementationOnce(async (_material, predicate) => {
+      shouldOpen = predicate!;
+      await new Promise<void>((resolve) => { finishOpen = resolve; });
+    });
+    const tree = await render(api, openMaterial);
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '목자지침 PDF 열기'}).props.onPress();
+    });
+    expect(shouldOpen()).toBe(true);
+
+    await act(async () => { tree.unmount(); });
+    expect(shouldOpen()).toBe(false);
+    finishOpen();
+    await flush();
   });
 
   it('never shows the previous campus guide while switching campuses', async () => {

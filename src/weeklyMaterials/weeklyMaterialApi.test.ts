@@ -109,15 +109,24 @@ describe('weekly material provisional API boundary', () => {
     });
   });
 
-  it('does not parse a 204 delete body', async () => {
-    const request = vi.fn(async () => undefined);
+  it('normalizes a 204 delete without attempting to read a response body', async () => {
+    const request = vi.fn(async (
+      _path: string,
+      options: {responseParser?: (value: unknown) => unknown},
+    ) => {
+      if (!options.responseParser) throw new Error('204 response parser is required');
+      return options.responseParser(null);
+    });
     const api = createWeeklyMaterialApi({contractStatus: 'confirmed-test', request: request as unknown as WeeklyMaterialRequest});
     await api.deleteMaterial('token', 7, '2026-08-03', 'SHEPHERD_GUIDE');
     expect(request).toHaveBeenCalledWith(
       '/api/v1/admin/campuses/7/weekly-materials/2026-08-03/SHEPHERD_GUIDE',
       expect.objectContaining({expectedStatuses: [204], method: 'DELETE'}),
     );
-    expect((request.mock.calls[0] as unknown[] | undefined)?.[1]).not.toHaveProperty('responseParser');
+    const options = (request.mock.calls[0] as unknown[] | undefined)?.[1] as {
+      responseParser?: (value: unknown) => unknown;
+    };
+    expect(options.responseParser?.(null)).toBeUndefined();
   });
 
   it('uses the documented current and paged year paths', async () => {

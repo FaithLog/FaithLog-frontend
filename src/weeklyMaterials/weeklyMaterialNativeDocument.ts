@@ -1,10 +1,15 @@
 import {createNativeAnnouncementBinaryUploader} from '../announcements/announcementNativeMedia';
+import {MediaBinaryUploadHttpError} from '../announcements/announcementUploadFlow';
 import type {PdfUploadCandidate} from '../media/documentMediaTypes';
 import {
   createNativePdfDocumentDependencies,
   type NativePdfDocumentDependencies,
 } from '../media/nativePdfDocumentDependencies';
 import type {PdfDirectUploadTransport} from '../media/pdfUploadCoordinator';
+import {
+  getAndroidWeeklyMaterialUploadDependencies,
+  getWeeklyMaterialPlatform,
+} from './weeklyMaterialPlatform';
 import {validateWeeklyMaterialPdf} from './weeklyMaterialUpload';
 
 type NativeDocumentSource = {contentType: string; fileName: string; uri: string};
@@ -70,8 +75,81 @@ function hasPdfSignature(bytes: Uint8Array) {
   return false;
 }
 
-export function createWeeklyMaterialPdfUploadTransport(): PdfDirectUploadTransport {
-  const uploadBinary = createNativeAnnouncementBinaryUploader();
+
+type WeeklyMaterialBinaryUploader = (
+  request: {headers: Record<string, string>; localUri: string; uploadUrl: string},
+  onProgress: (progress: number) => void,
+  signal?: AbortSignal,
+) => Promise<void>;
+
+type AndroidLegacyUploadDependencies = {
+  binaryUploadType: number;
+  createUploadTask: (
+    uploadUrl: string,
+    localUri: string,
+    options: {headers: Record<string, string>; httpMethod: 'PUT'; uploadType: number},
+    onProgress: (progress: {totalBytesExpectedToSend: number; totalBytesSent: number}) => void,
+  ) => {
+    cancelAsync: () => Promise<void>;
+    uploadAsync: () => Promise<{status: number} | null | undefined>;
+  };
+};
+
+export function createAndroidWeeklyMaterialBinaryUploader(
+  dependencies?: AndroidLegacyUploadDependencies,
+): WeeklyMaterialBinaryUploader {
+  return async (request, onProgress, signal) => {
+    const legacy = dependencies ?? getAndroidWeeklyMaterialUploadDependencies();
+    if (signal?.aborted) throw new Error('PDF upload canceled');
+    const task = legacy.createUploadTask(
+      request.uploadUrl,
+      request.localUri,
+      {
+        headers: request.headers,
+        httpMethod: 'PUT',
+        uploadType: legacy.binaryUploadType,
+      },
+      ({totalBytesExpectedToSend, totalBytesSent}) => {
+        if (
+          Number.isFinite(totalBytesExpectedToSend) &&
+          Number.isFinite(totalBytesSent) &&
+          totalBytesExpectedToSend > 0 &&
+          totalBytesSent >= 0
+        ) {
+          onProgress(Math.min(1, totalBytesSent / totalBytesExpectedToSend));
+        }
+      },
+    );
+    const abort = () => { void task.cancelAsync().catch(() => undefined); };
+    const supportsAbortEvents = Boolean(
+      signal &&
+      typeof signal.addEventListener === 'function' &&
+      typeof signal.removeEventListener === 'function',
+    );
+    if (supportsAbortEvents) signal?.addEventListener('abort', abort, {once: true});
+    try {
+      const result = await task.uploadAsync();
+      if (!result) throw new Error('PDF upload canceled');
+      if (!Number.isSafeInteger(result.status) || result.status < 200 || result.status >= 300) {
+        throw new MediaBinaryUploadHttpError(result.status);
+      }
+      onProgress(1);
+    } finally {
+      if (supportsAbortEvents) signal?.removeEventListener('abort', abort);
+    }
+  };
+}
+
+export function createWeeklyMaterialPdfUploadTransport({
+  androidUploader = createAndroidWeeklyMaterialBinaryUploader(),
+  nativeUploader = createNativeAnnouncementBinaryUploader(),
+  platform = getWeeklyMaterialPlatform(),
+}: {
+  androidUploader?: WeeklyMaterialBinaryUploader;
+  nativeUploader?: WeeklyMaterialBinaryUploader;
+  platform?: string;
+} = {}): PdfDirectUploadTransport {
+  const uploadBinary = platform === 'android' ? androidUploader : nativeUploader;
   return {
     upload: ({headers, onProgress, signal, uploadUrl, uri}) =>
       uploadBinary({headers, localUri: uri, uploadUrl}, onProgress, signal),
