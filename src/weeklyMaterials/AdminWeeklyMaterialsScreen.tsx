@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
@@ -12,12 +12,14 @@ import {
   getSeoulCurrentWeekStartDate,
 } from './weeklyMaterialDate';
 import {WeeklyMaterialPager} from './WeeklyMaterialPager';
+import {getWeeklyMaterialErrorMessage} from './weeklyMaterialErrors';
 import {
   applyWeeklyMaterialDelete,
   beginWeeklyMaterialRequest,
   createWeeklyMaterialRequestCoordinator,
   getAdjacentWeekStartDates,
   getWeeklyMaterialCacheKey,
+  invalidateWeeklyMaterialCacheForMutation,
   isWeeklyMaterialRequestCurrent,
 } from './weeklyMaterialState';
 import type {
@@ -32,7 +34,7 @@ import {
 } from './weeklyMaterialTypes';
 
 type WeekState =
-  | {status: 'error'}
+  | {message: string; status: 'error'}
   | {status: 'loading'}
   | {status: 'ready'; week: WeeklyMaterialWeek};
 type DraftState = {
@@ -58,7 +60,10 @@ export function AdminWeeklyMaterialsScreen({
   campusId: number;
   currentWeekStartDate?: string;
   onBack: () => void;
-  onOpenMaterial: (material: WeeklyMaterial) => Promise<void> | void;
+  onOpenMaterial: (
+    material: WeeklyMaterial,
+    shouldOpen?: () => boolean,
+  ) => Promise<void> | void;
   pickPdf: (materialType: WeeklyMaterialType) => Promise<PdfUploadCandidate | null>;
   uploadPdf: (
     candidate: PdfUploadCandidate,
@@ -79,19 +84,53 @@ export function AdminWeeklyMaterialsScreen({
   const inFlightRef = useRef(new Set<string>());
   const uploadControllersRef = useRef(new Map<string, AbortController>());
   const mountedRef = useRef(true);
+  const committedCampusIdRef = useRef(campusId);
+  const campusGenerationRef = useRef(0);
+
+  useLayoutEffect(() => {
+    if (committedCampusIdRef.current === campusId) return;
+    committedCampusIdRef.current = campusId;
+    campusGenerationRef.current += 1;
+    for (const controller of uploadControllersRef.current.values()) controller.abort();
+    uploadControllersRef.current.clear();
+    inFlightRef.current.clear();
+    deleteFlightRef.current = false;
+    setSelectedWeekStartDate(currentWeekStartDate);
+    setDrafts({});
+    setSelectionErrors({});
+    setNotice(null);
+    setDeleteTarget(null);
+    setPendingWeekStartDate(null);
+    setDeleting(false);
+  }, [campusId, currentWeekStartDate]);
 
   const loadWeek = useCallback(async (weekStartDate: string, foreground: boolean) => {
+    const operationGeneration = campusGenerationRef.current;
     const key = getWeeklyMaterialCacheKey(campusId, weekStartDate);
     if (foreground) setWeeks((current) => current[key]?.status === 'ready' ? current : {...current, [key]: {status: 'loading'}});
     const identity = beginWeeklyMaterialRequest(coordinatorRef.current, campusId, weekStartDate);
     try {
       const token = await accessTokenProvider();
       const week = await api.getWeek(token, campusId, weekStartDate);
-      if (!mountedRef.current || !isWeeklyMaterialRequestCurrent(coordinatorRef.current, identity)) return;
+      if (
+        !mountedRef.current ||
+        committedCampusIdRef.current !== campusId ||
+        campusGenerationRef.current !== operationGeneration ||
+        !isWeeklyMaterialRequestCurrent(coordinatorRef.current, identity)
+      ) return;
       setWeeks((current) => ({...current, [key]: {status: 'ready', week}}));
-    } catch {
-      if (foreground && mountedRef.current && isWeeklyMaterialRequestCurrent(coordinatorRef.current, identity)) {
-        setWeeks((current) => ({...current, [key]: {status: 'error'}}));
+    } catch (error) {
+      if (
+        foreground &&
+        mountedRef.current &&
+        committedCampusIdRef.current === campusId &&
+        campusGenerationRef.current === operationGeneration &&
+        isWeeklyMaterialRequestCurrent(coordinatorRef.current, identity)
+      ) {
+        setWeeks((current) => ({
+          ...current,
+          [key]: {message: getWeeklyMaterialErrorMessage(error, 'read'), status: 'error'},
+        }));
       }
     }
   }, [accessTokenProvider, api, campusId]);
@@ -113,8 +152,10 @@ export function AdminWeeklyMaterialsScreen({
     inFlightRef.current.clear();
   }, []);
 
-  const hasUpload = Array.from(inFlightRef.current).some((key) => key.startsWith(`${selectedWeekStartDate}:`));
-  const hasDraft = weeklyMaterialTypes.some((type) => drafts[draftKey(selectedWeekStartDate, type)] !== undefined);
+  const hasUpload = Array.from(inFlightRef.current).some((key) =>
+    key.startsWith(`${campusId}:${selectedWeekStartDate}:`));
+  const hasDraft = weeklyMaterialTypes.some((type) =>
+    drafts[draftKey(campusId, selectedWeekStartDate, type)] !== undefined);
 
   const selectWeek = (nextWeek: string) => {
     if (hasUpload) {
@@ -133,7 +174,9 @@ export function AdminWeeklyMaterialsScreen({
 
   const selectPdf = async (type: WeeklyMaterialType) => {
     if (hasUpload) return;
-    const key = draftKey(selectedWeekStartDate, type);
+    const operationCampusId = campusId;
+    const operationGeneration = campusGenerationRef.current;
+    const key = draftKey(operationCampusId, selectedWeekStartDate, type);
     setNotice(null);
     setSelectionErrors((current) => {
       if (!current[key]) return current;
@@ -143,13 +186,22 @@ export function AdminWeeklyMaterialsScreen({
     });
     try {
       const candidate = await pickPdf(type);
-      if (!candidate || !mountedRef.current) return;
+      if (
+        !candidate ||
+        !mountedRef.current ||
+        committedCampusIdRef.current !== operationCampusId ||
+        campusGenerationRef.current !== operationGeneration
+      ) return;
       setDrafts((current) => ({
         ...current,
         [key]: {candidate, progress: 0, status: 'ready'},
       }));
     } catch {
-      if (mountedRef.current) {
+      if (
+        mountedRef.current &&
+        committedCampusIdRef.current === operationCampusId &&
+        campusGenerationRef.current === operationGeneration
+      ) {
         const message = 'PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.';
         setSelectionErrors((current) => ({...current, [key]: message}));
       }
@@ -157,7 +209,10 @@ export function AdminWeeklyMaterialsScreen({
   };
 
   const upload = async (type: WeeklyMaterialType) => {
-    const key = draftKey(selectedWeekStartDate, type);
+    const operationCampusId = campusId;
+    const operationGeneration = campusGenerationRef.current;
+    const operationWeekStartDate = selectedWeekStartDate;
+    const key = draftKey(operationCampusId, operationWeekStartDate, type);
     const draft = drafts[key];
     if (!draft || inFlightRef.current.has(key)) return;
     inFlightRef.current.add(key);
@@ -170,38 +225,73 @@ export function AdminWeeklyMaterialsScreen({
     try {
       const token = await accessTokenProvider();
       const ready = await uploadPdf(draft.candidate, (progress) => {
-        if (!mountedRef.current || !inFlightRef.current.has(key)) return;
+        if (
+          !mountedRef.current ||
+          committedCampusIdRef.current !== operationCampusId ||
+          campusGenerationRef.current !== operationGeneration ||
+          !inFlightRef.current.has(key)
+        ) return;
         setDrafts((current) => current[key]
           ? {...current, [key]: {...current[key], progress}}
           : current);
       }, controller.signal);
       if (controller.signal.aborted) return;
-      const week = await api.putMaterial(token, campusId, selectedWeekStartDate, type, ready.assetId);
-      if (!mountedRef.current || controller.signal.aborted || !inFlightRef.current.has(key)) return;
-      const cacheKey = getWeeklyMaterialCacheKey(campusId, selectedWeekStartDate);
-      setWeeks((current) => ({...current, [cacheKey]: {status: 'ready', week}}));
+      const week = await api.putMaterial(
+        token,
+        operationCampusId,
+        operationWeekStartDate,
+        type,
+        ready.assetId,
+      );
+      if (
+        !mountedRef.current ||
+        committedCampusIdRef.current !== operationCampusId ||
+        campusGenerationRef.current !== operationGeneration ||
+        controller.signal.aborted ||
+        !inFlightRef.current.has(key)
+      ) return;
+      const cacheKey = getWeeklyMaterialCacheKey(operationCampusId, operationWeekStartDate);
+      setWeeks((current) => ({
+        ...invalidateWeeklyMaterialCacheForMutation(current, operationCampusId, type),
+        [cacheKey]: {status: 'ready', week},
+      }));
       setDrafts((current) => {
         const next = {...current};
         delete next[key];
         return next;
       });
       setNotice(`${weeklyMaterialLabels[type]}가 등록되었습니다.`);
-    } catch {
+    } catch (error) {
       if (controller.signal.aborted) return;
-      if (mountedRef.current && inFlightRef.current.has(key)) {
+      if (
+        mountedRef.current &&
+        committedCampusIdRef.current === operationCampusId &&
+        campusGenerationRef.current === operationGeneration &&
+        inFlightRef.current.has(key)
+      ) {
         setDrafts((current) => current[key]
-          ? {...current, [key]: {...current[key], error: '업로드하지 못했습니다. 다시 시도해 주세요.', status: 'failed'}}
+          ? {...current, [key]: {
+            ...current[key],
+            error: getWeeklyMaterialErrorMessage(error, 'upload'),
+            status: 'failed',
+          }}
           : current);
       }
     } finally {
       inFlightRef.current.delete(key);
       if (uploadControllersRef.current.get(key) === controller) uploadControllersRef.current.delete(key);
-      if (mountedRef.current) setDrafts((current) => ({...current}));
+      if (
+        mountedRef.current &&
+        committedCampusIdRef.current === operationCampusId &&
+        campusGenerationRef.current === operationGeneration
+      ) {
+        setDrafts((current) => ({...current}));
+      }
     }
   };
 
   const cancelUpload = (weekStartDate: string, type: WeeklyMaterialType) => {
-    const key = draftKey(weekStartDate, type);
+    const key = draftKey(campusId, weekStartDate, type);
     uploadControllersRef.current.get(key)?.abort();
     uploadControllersRef.current.delete(key);
     inFlightRef.current.delete(key);
@@ -211,41 +301,92 @@ export function AdminWeeklyMaterialsScreen({
     setNotice(`${weeklyMaterialLabels[type]} 업로드를 취소했습니다.`);
   };
 
+  const openMaterialForCurrentCampus = (material: WeeklyMaterial) => {
+    const operationCampusId = campusId;
+    const operationGeneration = campusGenerationRef.current;
+    void onOpenMaterial(material, () => (
+      committedCampusIdRef.current === operationCampusId &&
+      campusGenerationRef.current === operationGeneration
+    ));
+  };
+
   const confirmDelete = async () => {
     const target = deleteTarget;
     if (!target || deleteFlightRef.current) return;
+    const operationCampusId = campusId;
+    const operationGeneration = campusGenerationRef.current;
     deleteFlightRef.current = true;
     setDeleting(true);
     try {
       const token = await accessTokenProvider();
-      await api.deleteMaterial(token, campusId, target.weekStartDate, target.materialType);
-      if (!mountedRef.current) return;
-      const cacheKey = getWeeklyMaterialCacheKey(campusId, target.weekStartDate);
+      await api.deleteMaterial(
+        token,
+        operationCampusId,
+        target.weekStartDate,
+        target.materialType,
+      );
+      if (
+        !mountedRef.current ||
+        committedCampusIdRef.current !== operationCampusId ||
+        campusGenerationRef.current !== operationGeneration
+      ) return;
+      const cacheKey = getWeeklyMaterialCacheKey(operationCampusId, target.weekStartDate);
       setWeeks((current) => {
         const state = current[cacheKey];
-        if (!state || state.status !== 'ready') return current;
-        return {...current, [cacheKey]: {status: 'ready', week: applyWeeklyMaterialDelete(state.week, target.materialType)}};
+        const invalidated = invalidateWeeklyMaterialCacheForMutation(
+          current,
+          operationCampusId,
+          target.materialType,
+        );
+        if (!state || state.status !== 'ready') return invalidated;
+        return {
+          ...invalidated,
+          [cacheKey]: {
+            status: 'ready',
+            week: applyWeeklyMaterialDelete(state.week, target.materialType),
+          },
+        };
       });
       setDeleteTarget(null);
       setNotice(`${weeklyMaterialLabels[target.materialType]}가 삭제되었습니다.`);
-    } catch {
-      setNotice('자료를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } catch (error) {
+      if (
+        committedCampusIdRef.current === operationCampusId &&
+        campusGenerationRef.current === operationGeneration
+      ) {
+        setNotice(getWeeklyMaterialErrorMessage(error, 'delete'));
+      }
     } finally {
-      deleteFlightRef.current = false;
-      if (mountedRef.current) setDeleting(false);
+      if (campusGenerationRef.current === operationGeneration) {
+        deleteFlightRef.current = false;
+      }
+      if (
+        mountedRef.current &&
+        committedCampusIdRef.current === operationCampusId &&
+        campusGenerationRef.current === operationGeneration
+      ) {
+        setDeleting(false);
+      }
     }
   };
 
   const renderWeek = (weekStartDate: string) => {
     const state: WeekState = weeks[getWeeklyMaterialCacheKey(campusId, weekStartDate)] ?? {status: 'loading'};
     if (state.status === 'loading') return <AdminSkeleton />;
-    if (state.status === 'error') return <AdminLoadError onRetry={() => void loadWeek(weekStartDate, true)} />;
+    if (state.status === 'error') {
+      return (
+        <AdminLoadError
+          message={state.message}
+          onRetry={() => void loadWeek(weekStartDate, true)}
+        />
+      );
+    }
     const byType = new Map(state.week.materials.map((material) => [material.materialType, material]));
     return (
       <View style={styles.sections}>
         {weeklyMaterialTypes.map((type) => {
-          const draft = drafts[draftKey(weekStartDate, type)];
-          const selectionError = selectionErrors[draftKey(weekStartDate, type)];
+          const draft = drafts[draftKey(campusId, weekStartDate, type)];
+          const selectionError = selectionErrors[draftKey(campusId, weekStartDate, type)];
           const material = byType.get(type);
           return (
             <AdminMaterialSection
@@ -254,9 +395,11 @@ export function AdminWeeklyMaterialsScreen({
               {...(material ? {material} : {})}
               onDelete={() => setDeleteTarget({materialType: type, weekStartDate})}
               onCancelUpload={() => cancelUpload(weekStartDate, type)}
-              onOpen={onOpenMaterial}
+              onOpen={openMaterialForCurrentCampus}
               onRemoveDraft={() => setDrafts((current) => {
-                const next = {...current}; delete next[draftKey(weekStartDate, type)]; return next;
+                const next = {...current};
+                delete next[draftKey(campusId, weekStartDate, type)];
+                return next;
               })}
               onSelect={() => void selectPdf(type)}
               onUpload={() => void upload(type)}
@@ -305,7 +448,9 @@ export function AdminWeeklyMaterialsScreen({
           if (!pendingWeekStartDate) return;
           setDrafts((current) => {
             const next = {...current};
-            for (const type of weeklyMaterialTypes) delete next[draftKey(selectedWeekStartDate, type)];
+            for (const type of weeklyMaterialTypes) {
+              delete next[draftKey(campusId, selectedWeekStartDate, type)];
+            }
             return next;
           });
           setSelectedWeekStartDate(pendingWeekStartDate);
@@ -382,14 +527,16 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
 }
 
 function AdminSkeleton() { return <View style={styles.sections}><View style={styles.skeleton} /><View style={styles.skeleton} /><View style={styles.skeleton} /></View>; }
-function AdminLoadError({onRetry}: {onRetry: () => void}) { return <View style={styles.loadError}><Text style={styles.sectionTitle}>이 주차 자료를 불러오지 못했습니다</Text><SmallButton accessibilityLabel="관리자 주간 자료 다시 불러오기" label="다시 시도" onPress={onRetry} /></View>; }
+function AdminLoadError({message, onRetry}: {message: string; onRetry: () => void}) { return <View style={styles.loadError}><Text style={styles.sectionTitle}>{message}</Text><SmallButton accessibilityLabel="관리자 주간 자료 다시 불러오기" label="다시 시도" onPress={onRetry} /></View>; }
 function PdfIcon() { return <View accessibilityElementsHidden style={styles.pdfIcon}><Text style={styles.pdfIconText}>PDF</Text></View>; }
 function BackButton({onPress}: {onPress: () => void}) { return <SmallButton accessibilityLabel="주간 자료 관리 닫기" label="뒤로" onPress={onPress} />; }
 function SmallButton({accessibilityLabel, disabled = false, label, onPress, primary = false}: {accessibilityLabel: string; disabled?: boolean; label: string; onPress: () => void; primary?: boolean}) {
   return <Pressable accessibilityLabel={accessibilityLabel} accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={[styles.button, primary ? styles.primaryButton : null, disabled ? styles.disabled : null]}><Text style={[styles.buttonText, primary ? styles.primaryButtonText : null]}>{label}</Text></Pressable>;
 }
 async function defaultAccessTokenProvider() { const token = await resolveCurrentAccessToken(() => undefined); if (!token) throw new Error('Missing access token'); return token; }
-function draftKey(weekStartDate: string, type: WeeklyMaterialType) { return `${weekStartDate}:${type}`; }
+function draftKey(campusId: number, weekStartDate: string, type: WeeklyMaterialType) {
+  return `${campusId}:${weekStartDate}:${type}`;
+}
 function formatUpdatedAt(value: string) {
   return new Intl.DateTimeFormat('ko-KR', {
     day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'numeric', timeZone: 'Asia/Seoul',

@@ -39,7 +39,9 @@ export function getUserBottomNavActiveRoute(route: ShellRoute): UserBottomNavRou
 export type AdminModeRoute = Extract<ShellRoute, 'campusAdmin' | 'serviceAdmin'>;
 
 export function canUseCampusAdmin(user: CurrentUser, campus: CampusMembershipSummary) {
-  return user.role === 'ADMIN' || CAMPUS_ADMIN_ROLES.has(campus.campusRole);
+  return user.role === 'ADMIN' || (
+    campus.status === 'ACTIVE' && CAMPUS_ADMIN_ROLES.has(campus.campusRole)
+  );
 }
 
 export function canUseServiceAdmin(user: CurrentUser) {

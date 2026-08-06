@@ -71,6 +71,16 @@ describe('admin mode routes', () => {
     expect(getAdminModeRoutes(createUser('MANAGER'), createCampus('MEMBER'))).toEqual([]);
   });
 
+  it.each(['CAMPUS_LEADER', 'ELDER', 'MINISTER'] as const)(
+    'does not grant %s management UI from an inactive campus membership',
+    (campusRole) => {
+      expect(getAdminModeRoutes(
+        createUser('USER'),
+        {...createCampus(campusRole), status: 'INACTIVE'},
+      )).toEqual([]);
+    },
+  );
+
   it('allows global admins to choose campus admin or service admin mode', () => {
     expect(getAdminModeRoutes(createUser('ADMIN'), createCampus('MEMBER'))).toEqual([
       'campusAdmin',

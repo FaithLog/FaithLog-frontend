@@ -19,6 +19,19 @@ export function getWeeklyMaterialCacheKey(campusId: number, weekStartDate: strin
   return `${campusId}:${normalizeWeekStartDate(weekStartDate)}`;
 }
 
+export function invalidateWeeklyMaterialCacheForMutation<T>(
+  cache: Record<string, T>,
+  campusId: number,
+  materialType: WeeklyMaterialType,
+): Record<string, T> {
+  if (materialType !== 'SHEPHERD_GUIDE') return {};
+
+  const campusPrefix = `${campusId}:`;
+  return Object.fromEntries(
+    Object.entries(cache).filter(([key]) => !key.startsWith(campusPrefix)),
+  );
+}
+
 export function getAdjacentWeekStartDates(weekStartDate: string) {
   return [moveWeekStartDate(weekStartDate, -1), moveWeekStartDate(weekStartDate, 1)];
 }

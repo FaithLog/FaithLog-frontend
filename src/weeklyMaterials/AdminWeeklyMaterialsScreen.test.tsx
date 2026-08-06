@@ -152,6 +152,69 @@ describe('AdminWeeklyMaterialsScreen', () => {
     expect(text(tree)).not.toContain('private local path');
   });
 
+  it('does not carry a selected shepherd guide into another campus', async () => {
+    const tree = await render();
+    await press(tree, '목자지침 PDF 선택');
+    expect(text(tree)).toContain('새 목자지침.pdf');
+
+    await act(async () => {
+      tree.update(renderScreen(8));
+    });
+    await flush();
+
+    expect(text(tree)).not.toContain('새 목자지침.pdf');
+    expect(getWeek).toHaveBeenCalledWith('access', 8, '2026-08-03');
+  });
+
+  it('ignores an old campus response after an A to B to A transition', async () => {
+    let resolveOldA!: (value: ReturnType<typeof weekFor>) => void;
+    let resolveNewA!: (value: ReturnType<typeof weekFor>) => void;
+    let campusACalls = 0;
+    getWeek.mockImplementation(async (_token: string, campusId: number, week: string) => {
+      if (week !== '2026-08-03') return weekFor(campusId, week, []);
+      if (campusId === 8) return weekFor(8, week, []);
+      campusACalls += 1;
+      return await new Promise((resolve) => {
+        if (campusACalls === 1) resolveOldA = resolve;
+        else resolveNewA = resolve;
+      });
+    });
+
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(renderScreen(7)); });
+    await act(async () => { tree.update(renderScreen(8)); });
+    await flush();
+    await act(async () => { tree.update(renderScreen(7)); });
+    await flush();
+
+    resolveNewA(weekFor(7, '2026-08-03', [{...sheet, fileName: '새 A 자료.pdf'}]));
+    await flush();
+    expect(text(tree)).toContain('새 A 자료.pdf');
+
+    resolveOldA(weekFor(7, '2026-08-03', [{...sheet, fileName: '오래된 A 자료.pdf'}]));
+    await flush();
+    expect(text(tree)).toContain('새 A 자료.pdf');
+    expect(text(tree)).not.toContain('오래된 A 자료.pdf');
+  });
+
+  it('ignores a stale picker result after an A to B to A transition', async () => {
+    let resolvePick!: (value: PdfUploadCandidate) => void;
+    pickPdf.mockReturnValueOnce(new Promise((resolve) => { resolvePick = resolve; }));
+    const tree = await render();
+    await act(async () => {
+      activeControl(tree, '목자지침 PDF 선택').props.onPress();
+    });
+    await act(async () => { tree.update(renderScreen(8)); });
+    await flush();
+    await act(async () => { tree.update(renderScreen(7)); });
+    await flush();
+
+    resolvePick(guideCandidate);
+    await flush();
+
+    expect(text(tree)).not.toContain('새 목자지침.pdf');
+  });
+
   it('blocks week navigation while an upload is in flight', async () => {
     let resolve!: (value: ReadyDocumentAsset) => void;
     uploadPdf.mockReturnValue(new Promise((done) => { resolve = done; }));
@@ -183,23 +246,35 @@ describe('AdminWeeklyMaterialsScreen', () => {
   async function render() {
     let tree!: ReactTestRenderer;
     await act(async () => {
-      tree = create(
-        <AdminWeeklyMaterialsScreen
-          accessTokenProvider={async () => 'access'}
-          api={api}
-          campusId={7}
-          currentWeekStartDate="2026-08-03"
-          onBack={vi.fn()}
-          onOpenMaterial={vi.fn()}
-          pickPdf={pickPdf}
-          uploadPdf={uploadPdf}
-        />,
-      );
+      tree = create(renderScreen(7));
     });
     await flush();
     return tree;
   }
+
+  function renderScreen(campusId: number) {
+    return (
+      <AdminWeeklyMaterialsScreen
+        accessTokenProvider={async () => 'access'}
+        api={api}
+        campusId={campusId}
+        currentWeekStartDate="2026-08-03"
+        onBack={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        pickPdf={pickPdf}
+        uploadPdf={uploadPdf}
+      />
+    );
+  }
 });
+
+function weekFor(
+  campusId: number,
+  weekStartDate: string,
+  materials: Array<typeof sheet>,
+) {
+  return {campusId, materials, weekStartDate};
+}
 
 async function press(tree: ReactTestRenderer, label: string) {
   await act(async () => {

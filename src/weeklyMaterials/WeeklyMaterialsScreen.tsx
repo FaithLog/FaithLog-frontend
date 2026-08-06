@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
@@ -8,6 +8,7 @@ import {colors, radius, spacing, typography} from '../theme';
 import {weeklyMaterialApi, type WeeklyMaterialApi} from './weeklyMaterialApi';
 import {getSeoulCurrentWeekStartDate} from './weeklyMaterialDate';
 import {WeeklyMaterialPager} from './WeeklyMaterialPager';
+import {getWeeklyMaterialErrorMessage} from './weeklyMaterialErrors';
 import {
   beginWeeklyMaterialRequest,
   createWeeklyMaterialRequestCoordinator,
@@ -25,7 +26,7 @@ import {
 } from './weeklyMaterialTypes';
 
 type WeekViewState =
-  | {status: 'error'}
+  | {message: string; status: 'error'}
   | {status: 'loading'}
   | {status: 'ready'; week: WeeklyMaterialWeek};
 type DocumentOpenState = 'error' | 'loading';
@@ -47,16 +48,26 @@ export function WeeklyMaterialsScreen({
   highlightedType?: WeeklyMaterialType | null;
   initialWeekStartDate?: string | undefined;
   onBack: () => void;
-  openMaterial: (material: WeeklyMaterial) => Promise<void> | void;
+  openMaterial: (
+    material: WeeklyMaterial,
+    shouldOpen?: () => boolean,
+  ) => Promise<void> | void;
 }) {
   const initialWeek = initialWeekStartDate ?? currentWeekStartDate;
   const [selectedWeekStartDate, setSelectedWeekStartDate] = useState(initialWeek);
   const [states, setStates] = useState<Record<string, WeekViewState>>({});
   const [openStates, setOpenStates] = useState<Record<number, DocumentOpenState>>({});
-  const openFlightsRef = useRef(new Set<number>());
+  const openFlightsRef = useRef(new Set<string>());
   const coordinatorRef = useRef(createWeeklyMaterialRequestCoordinator());
   const campusRef = useRef(campusId);
-  campusRef.current = campusId;
+  const campusGenerationRef = useRef(0);
+
+  useLayoutEffect(() => {
+    if (campusRef.current !== campusId) campusGenerationRef.current += 1;
+    campusRef.current = campusId;
+    setOpenStates({});
+    openFlightsRef.current.clear();
+  }, [campusId]);
 
   const loadWeek = useCallback(async (weekStartDate: string, foreground: boolean) => {
     const key = getWeeklyMaterialCacheKey(campusId, weekStartDate);
@@ -74,12 +85,15 @@ export function WeeklyMaterialsScreen({
         !isWeeklyMaterialRequestCurrent(coordinatorRef.current, identity)
       ) return;
       setStates((current) => ({...current, [key]: {status: 'ready', week}}));
-    } catch {
+    } catch (error) {
       if (
         foreground && campusRef.current === campusId &&
         isWeeklyMaterialRequestCurrent(coordinatorRef.current, identity)
       ) {
-        setStates((current) => ({...current, [key]: {status: 'error'}}));
+        setStates((current) => ({
+          ...current,
+          [key]: {message: getWeeklyMaterialErrorMessage(error, 'read'), status: 'error'},
+        }));
       }
     }
   }, [accessTokenProvider, api, campusId]);
@@ -94,22 +108,31 @@ export function WeeklyMaterialsScreen({
   }, [campusId, loadWeek, selectedWeekStartDate]);
 
   const openOneMaterial = useCallback(async (material: WeeklyMaterial) => {
-    if (openFlightsRef.current.has(material.mediaAssetId)) return;
-    openFlightsRef.current.add(material.mediaAssetId);
+    const operationCampusId = campusId;
+    const operationGeneration = campusGenerationRef.current;
+    const flightKey = `${operationGeneration}:${material.mediaAssetId}`;
+    const isCurrent = () => (
+      campusRef.current === operationCampusId &&
+      campusGenerationRef.current === operationGeneration
+    );
+    if (openFlightsRef.current.has(flightKey)) return;
+    openFlightsRef.current.add(flightKey);
     setOpenStates((current) => ({...current, [material.mediaAssetId]: 'loading'}));
     try {
-      await openMaterial(material);
+      await openMaterial(material, isCurrent);
+      if (!isCurrent()) return;
       setOpenStates((current) => {
         const next = {...current};
         delete next[material.mediaAssetId];
         return next;
       });
     } catch {
+      if (!isCurrent()) return;
       setOpenStates((current) => ({...current, [material.mediaAssetId]: 'error'}));
     } finally {
-      openFlightsRef.current.delete(material.mediaAssetId);
+      openFlightsRef.current.delete(flightKey);
     }
-  }, [openMaterial]);
+  }, [campusId, openMaterial]);
 
   const renderWeek = useCallback((weekStartDate: string) => {
     const state = states[getWeeklyMaterialCacheKey(campusId, weekStartDate)] ?? {status: 'loading'};
@@ -172,7 +195,7 @@ function WeeklyMaterialWeekPage({
   if (state.status === 'error') {
     return (
       <View style={styles.errorState}>
-        <Text style={styles.errorTitle}>이 주차 자료를 불러오지 못했습니다</Text>
+        <Text style={styles.errorTitle}>{state.message}</Text>
         <Text style={styles.muted}>다른 주차는 계속 확인할 수 있습니다.</Text>
         <Pressable accessibilityLabel="이 주차 자료 다시 불러오기" accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
           <Text style={styles.retryText}>다시 시도</Text>

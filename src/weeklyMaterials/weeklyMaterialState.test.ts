@@ -7,6 +7,7 @@ import {
   createWeeklyMaterialRequestCoordinator,
   getAdjacentWeekStartDates,
   getWeeklyMaterialCacheKey,
+  invalidateWeeklyMaterialCacheForMutation,
   isWeeklyMaterialRequestCurrent,
 } from './weeklyMaterialState';
 import type {WeeklyMaterialWeek} from './weeklyMaterialTypes';
@@ -67,5 +68,33 @@ describe('weekly material state isolation', () => {
     ]);
     const afterDelete = applyWeeklyMaterialDelete(ordered, 'SUNDAY_SHARING_SHEET');
     expect(afterDelete.materials).toEqual([guide, saturdaySheet]);
+  });
+
+  it('invalidates only the selected campus after a shepherd guide mutation', () => {
+    const cache = {
+      '1:2026-08-03': 'campus-1-current',
+      '1:2026-08-10': 'campus-1-next',
+      '2:2026-08-03': 'campus-2-current',
+    };
+
+    expect(invalidateWeeklyMaterialCacheForMutation(
+      cache,
+      1,
+      'SHEPHERD_GUIDE',
+    )).toEqual({'2:2026-08-03': 'campus-2-current'});
+  });
+
+  it.each([
+    'SUNDAY_SHARING_SHEET',
+    'SATURDAY_LEADER_SHARING_SHEET',
+  ] as const)('invalidates every campus after a global %s mutation', (materialType) => {
+    expect(invalidateWeeklyMaterialCacheForMutation(
+      {
+        '1:2026-08-03': 'campus-1',
+        '2:2026-08-03': 'campus-2',
+      },
+      1,
+      materialType,
+    )).toEqual({});
   });
 });

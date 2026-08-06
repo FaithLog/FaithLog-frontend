@@ -80,6 +80,35 @@ describe('weekly material provisional API boundary', () => {
     });
   });
 
+  it('accepts an empty 200 week and does not expose an internal scope field', async () => {
+    const request = vi.fn(async (
+      _path: string,
+      options: {responseParser: (value: unknown) => unknown},
+    ) => options.responseParser({
+      ...weekPayload,
+      shepherdGuide: {...weekPayload.shepherdGuide, scopeCampusId: 7},
+    }));
+    const api = createWeeklyMaterialApi({
+      contractStatus: 'confirmed-test',
+      request: request as unknown as WeeklyMaterialRequest,
+    });
+
+    const scoped = await api.getWeek('token', 7, '2026-08-03');
+    expect(scoped.materials[0]).not.toHaveProperty('scopeCampusId');
+
+    request.mockImplementationOnce(async (_path, options) => options.responseParser({
+      weekStartDate: '2026-08-03',
+      shepherdGuide: null,
+      sundaySharingSheet: null,
+      saturdayLeaderSharingSheet: null,
+    }));
+    await expect(api.getWeek('token', 7, '2026-08-03')).resolves.toEqual({
+      campusId: 7,
+      materials: [],
+      weekStartDate: '2026-08-03',
+    });
+  });
+
   it('does not parse a 204 delete body', async () => {
     const request = vi.fn(async () => undefined);
     const api = createWeeklyMaterialApi({contractStatus: 'confirmed-test', request: request as unknown as WeeklyMaterialRequest});

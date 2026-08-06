@@ -3063,11 +3063,17 @@ export function AdminScreen({
         <AdminWeeklyMaterialsScreen
           api={getWeeklyMaterialRuntimeApi()}
           campusId={campusId}
+          key={`admin-weekly-materials-campus-${campusId}`}
           onBack={() => setTab('home')}
-          onOpenMaterial={async (material) => {
+          onOpenMaterial={async (material, shouldOpen) => {
             const accessToken = await resolveCurrentAccessToken(() => undefined);
             if (!accessToken) throw new Error('Missing access token');
-            await openWeeklyMaterialPdf({accessToken, campusId, material});
+            await openWeeklyMaterialPdf({
+              accessToken,
+              campusId,
+              material,
+              ...(shouldOpen ? {shouldOpen} : {}),
+            });
           }}
           pickPdf={async () => pickWeeklyMaterialPdf()}
           uploadPdf={async (candidate, onProgress, signal) => {

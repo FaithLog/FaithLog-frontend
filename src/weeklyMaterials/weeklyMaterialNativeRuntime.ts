@@ -43,10 +43,12 @@ export async function openWeeklyMaterialPdf({
   accessToken,
   campusId,
   material,
+  shouldOpen,
 }: {
   accessToken: string;
   campusId: number;
   material: WeeklyMaterial;
+  shouldOpen?: () => boolean;
 }) {
   const cache = getPrivateDocumentCache();
   await openWeeklyMaterialDocument({
@@ -56,5 +58,6 @@ export async function openWeeklyMaterialPdf({
     campusId,
     material,
     open: openNativePdf,
+    ...(shouldOpen ? {shouldOpen} : {}),
   });
 }
