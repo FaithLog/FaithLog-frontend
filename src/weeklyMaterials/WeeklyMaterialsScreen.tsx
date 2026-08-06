@@ -170,6 +170,8 @@ export function WeeklyMaterialsScreen({
       />
     );
   }, [campusId, currentWeekStartDate, highlightedType, loadWeek, openOneMaterial, openStates, selectedWeekStartDate, states]);
+  const selectedWeekState = states[getWeeklyMaterialCacheKey(campusId, selectedWeekStartDate)];
+  const contentRevision = `${selectedWeekStartDate}:${selectedWeekState?.status ?? 'loading'}`;
 
   return (
     <ScrollView contentContainerStyle={styles.screen}>
@@ -180,6 +182,7 @@ export function WeeklyMaterialsScreen({
         title="주간 자료"
       />
       <WeeklyMaterialPager
+        contentRevision={contentRevision}
         currentWeekStartDate={currentWeekStartDate}
         onSelectWeek={(weekStartDate) => {
           selectedWeekStartDateRef.current = weekStartDate;
