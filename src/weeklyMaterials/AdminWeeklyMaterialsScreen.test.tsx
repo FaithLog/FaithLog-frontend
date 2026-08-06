@@ -140,11 +140,15 @@ describe('AdminWeeklyMaterialsScreen', () => {
     await flush();
   });
 
-  it('turns a document picker failure into a safe retryable notice', async () => {
+  it('shows a document picker failure safely in the affected material slot', async () => {
     pickPdf.mockRejectedValueOnce(new Error('private local path'));
     const tree = await render();
     await press(tree, '목자지침 PDF 선택');
     expect(text(tree)).toContain('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+    expect(tree.root.findAll((node) =>
+      String(node.type) === 'Text' &&
+      node.props.accessibilityLabel === '목자지침 PDF 선택 오류',
+    )).toHaveLength(1);
     expect(text(tree)).not.toContain('private local path');
   });
 

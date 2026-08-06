@@ -69,6 +69,7 @@ export function AdminWeeklyMaterialsScreen({
   const [selectedWeekStartDate, setSelectedWeekStartDate] = useState(currentWeekStartDate);
   const [weeks, setWeeks] = useState<Record<string, WeekState>>({});
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({});
+  const [selectionErrors, setSelectionErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingWeekStartDate, setPendingWeekStartDate] = useState<string | null>(null);
@@ -132,17 +133,25 @@ export function AdminWeeklyMaterialsScreen({
 
   const selectPdf = async (type: WeeklyMaterialType) => {
     if (hasUpload) return;
+    const key = draftKey(selectedWeekStartDate, type);
     setNotice(null);
+    setSelectionErrors((current) => {
+      if (!current[key]) return current;
+      const next = {...current};
+      delete next[key];
+      return next;
+    });
     try {
       const candidate = await pickPdf(type);
       if (!candidate || !mountedRef.current) return;
       setDrafts((current) => ({
         ...current,
-        [draftKey(selectedWeekStartDate, type)]: {candidate, progress: 0, status: 'ready'},
+        [key]: {candidate, progress: 0, status: 'ready'},
       }));
     } catch {
       if (mountedRef.current) {
-        setNotice('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+        const message = 'PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.';
+        setSelectionErrors((current) => ({...current, [key]: message}));
       }
     }
   };
@@ -236,6 +245,7 @@ export function AdminWeeklyMaterialsScreen({
       <View style={styles.sections}>
         {weeklyMaterialTypes.map((type) => {
           const draft = drafts[draftKey(weekStartDate, type)];
+          const selectionError = selectionErrors[draftKey(weekStartDate, type)];
           const material = byType.get(type);
           return (
             <AdminMaterialSection
@@ -250,6 +260,7 @@ export function AdminWeeklyMaterialsScreen({
               })}
               onSelect={() => void selectPdf(type)}
               onUpload={() => void upload(type)}
+              {...(selectionError ? {selectionError} : {})}
               type={type}
             />
           );
@@ -308,7 +319,7 @@ export function AdminWeeklyMaterialsScreen({
   );
 }
 
-function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen, onRemoveDraft, onSelect, onUpload, type}: {
+function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen, onRemoveDraft, onSelect, onUpload, selectionError, type}: {
   draft?: DraftState;
   material?: WeeklyMaterial;
   onCancelUpload: () => void;
@@ -317,6 +328,7 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
   onRemoveDraft: () => void;
   onSelect: () => void;
   onUpload: () => void;
+  selectionError?: string;
   type: WeeklyMaterialType;
 }) {
   const label = weeklyMaterialLabels[type];
@@ -340,6 +352,14 @@ function AdminMaterialSection({draft, material, onCancelUpload, onDelete, onOpen
           <Text style={styles.openText}>열기</Text>
         </Pressable>
       ) : <Text style={styles.empty}>{weeklyMaterialEmptySubjects[type]} 아직 등록되지 않았어요</Text>}
+      {selectionError ? (
+        <Text
+          accessibilityLabel={`${label} PDF 선택 오류`}
+          accessibilityRole="alert"
+          style={styles.error}>
+          {selectionError}
+        </Text>
+      ) : null}
       {draft ? (
         <View style={styles.draft}>
           <View style={styles.replaceCopy}>

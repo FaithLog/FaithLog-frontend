@@ -19,9 +19,11 @@ export async function pickAndPrepareWeeklyMaterialPdf(
   const source = await dependencies.pickDocument();
   if (!source) return null;
   const byteSize = await dependencies.getByteSize(source.uri);
+  const providerContentType = normalizeProviderContentType(source.contentType);
+  const requiresPdfSignature = isGenericPdfProviderContentType(providerContentType);
   const checked = validateWeeklyMaterialPdf({
     byteSize,
-    contentType: source.contentType,
+    contentType: requiresPdfSignature ? 'application/pdf' : providerContentType,
     fileName: source.fileName,
   });
   if (!checked.ok) {
@@ -30,6 +32,9 @@ export async function pickAndPrepareWeeklyMaterialPdf(
   }
   const bytes = await dependencies.readBytes(source.uri);
   if (bytes.byteLength !== byteSize) throw new Error('PDF 파일 크기가 변경되었습니다.');
+  if (requiresPdfSignature && !hasPdfSignature(bytes)) {
+    throw new Error('PDF 파일을 확인해 주세요.');
+  }
   const sha256 = (await dependencies.sha256(bytes)).toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('PDF 파일을 확인해 주세요.');
   return {
@@ -39,6 +44,30 @@ export async function pickAndPrepareWeeklyMaterialPdf(
     sha256,
     uri: source.uri,
   };
+}
+
+const genericPdfProviderContentTypes = new Set([
+  '',
+  'application/octet-stream',
+  'application/x-pdf',
+  'binary/octet-stream',
+]);
+
+function normalizeProviderContentType(value: string) {
+  return value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+
+function isGenericPdfProviderContentType(value: string) {
+  return genericPdfProviderContentTypes.has(value);
+}
+
+function hasPdfSignature(bytes: Uint8Array) {
+  const signature = [0x25, 0x50, 0x44, 0x46, 0x2d] as const;
+  const lastStart = Math.min(1024, bytes.byteLength - signature.length);
+  for (let offset = 0; offset <= lastStart; offset += 1) {
+    if (signature.every((value, index) => bytes[offset + index] === value)) return true;
+  }
+  return false;
 }
 
 export function createWeeklyMaterialPdfUploadTransport(): PdfDirectUploadTransport {
