@@ -1,8 +1,9 @@
-import {documentMediaApi} from '../media/documentMediaApi';
 import type {PdfUploadCandidate, ReadyDocumentAsset} from '../media/documentMediaTypes';
+import {openNativePdf} from '../media/nativePdfViewer';
 import {runPdfUpload} from '../media/pdfUploadCoordinator';
 import {getPrivateDocumentCache} from '../media/privateDocumentCache';
 import {openWeeklyMaterialDocument} from './weeklyMaterialDocument';
+import {weeklyMaterialDocumentMediaApi} from './weeklyMaterialDocumentMediaApi';
 import {
   createWeeklyMaterialPdfUploadTransport,
   pickAndPrepareWeeklyMaterialPdf,
@@ -28,7 +29,7 @@ export async function uploadWeeklyMaterialPdf({
 }): Promise<ReadyDocumentAsset> {
   return runPdfUpload({
     accessToken,
-    api: documentMediaApi,
+    api: weeklyMaterialDocumentMediaApi,
     campusId,
     file,
     maxPdfBytes: 30 * 1024 * 1024,
@@ -50,19 +51,10 @@ export async function openWeeklyMaterialPdf({
   const cache = getPrivateDocumentCache();
   await openWeeklyMaterialDocument({
     accessToken,
-    api: documentMediaApi,
+    api: weeklyMaterialDocumentMediaApi,
     cache,
     campusId,
     material,
-    open: async (uri) => {
-      const Sharing = await import('expo-sharing');
-      if (!(await Sharing.isAvailableAsync())) {
-        throw new Error('PDF viewer is unavailable');
-      }
-      await Sharing.shareAsync(uri, {
-        mimeType: 'application/pdf',
-        UTI: 'com.adobe.pdf',
-      });
-    },
+    open: openNativePdf,
   });
 }

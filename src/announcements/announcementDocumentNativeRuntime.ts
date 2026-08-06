@@ -1,4 +1,5 @@
 import {documentMediaApi} from '../media/documentMediaApi';
+import {openNativePdf} from '../media/nativePdfViewer';
 import {getPrivateDocumentCache} from '../media/privateDocumentCache';
 import {openAnnouncementDocument} from './announcementDocumentOpen';
 
@@ -18,15 +19,6 @@ export async function openAnnouncementPdf({
     assetId,
     cache,
     campusId,
-    open: async (uri) => {
-      const Sharing = await import('expo-sharing');
-      if (!(await Sharing.isAvailableAsync())) {
-        throw new Error('PDF viewer is unavailable');
-      }
-      await Sharing.shareAsync(uri, {
-        mimeType: 'application/pdf',
-        UTI: 'com.adobe.pdf',
-      });
-    },
+    open: openNativePdf,
   });
 }
