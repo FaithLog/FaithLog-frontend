@@ -134,6 +134,7 @@ export function createWeeklyMaterialApi({
         accessToken: token,
         expectedStatuses: [204],
         method: 'DELETE',
+        responseParser: () => undefined,
       });
     },
   };

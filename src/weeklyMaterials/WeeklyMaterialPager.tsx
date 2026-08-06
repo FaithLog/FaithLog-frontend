@@ -14,6 +14,7 @@ import {colors, radius, spacing, typography} from '../theme';
 import {formatWeeklyMaterialHeader, moveWeekStartDate} from './weeklyMaterialDate';
 
 export function WeeklyMaterialPager({
+  contentRevision = 'initial',
   currentWeekStartDate,
   navigationDisabled = false,
   onBlockedNavigation,
@@ -21,6 +22,7 @@ export function WeeklyMaterialPager({
   renderWeek,
   selectedWeekStartDate,
 }: {
+  contentRevision?: string;
   currentWeekStartDate: string;
   navigationDisabled?: boolean;
   onBlockedNavigation?: () => void;
@@ -114,6 +116,7 @@ export function WeeklyMaterialPager({
           contentOffset={{x: pageWidth, y: 0}}
           decelerationRate="fast"
           horizontal
+          key={`pager:${contentRevision}`}
           onMomentumScrollEnd={onMomentumScrollEnd}
           pagingEnabled
           ref={scrollRef}
@@ -124,7 +127,7 @@ export function WeeklyMaterialPager({
             <View
               accessibilityElementsHidden={week !== selectedWeekStartDate}
               importantForAccessibility={week === selectedWeekStartDate ? 'auto' : 'no-hide-descendants'}
-              key={week}
+              key={`${week}:${contentRevision}`}
               style={[styles.page, {width: pageWidth}]}>
               {renderWeek(week)}
             </View>

@@ -10,6 +10,7 @@ export async function openWeeklyMaterialDocument({
   campusId,
   material,
   open,
+  shouldOpen = () => true,
 }: {
   accessToken: string;
   api: Pick<DocumentMediaApi, 'getAccessUrls'>;
@@ -17,7 +18,9 @@ export async function openWeeklyMaterialDocument({
   campusId: number;
   material: WeeklyMaterial;
   open: (uri: string) => Promise<void> | void;
+  shouldOpen?: () => boolean;
 }) {
+  if (!shouldOpen()) return;
   const [access] = await api.getAccessUrls(accessToken, campusId, [material.mediaAssetId]);
   if (
     !access || access.assetId !== material.mediaAssetId ||
@@ -25,11 +28,13 @@ export async function openWeeklyMaterialDocument({
   ) {
     throw new Error('Weekly material metadata mismatch');
   }
+  if (!shouldOpen()) return;
   const resolved = await resolveCachedDocument({
     adapter: cache,
     assetId: material.mediaAssetId,
     sha256: material.sha256,
     signedUrl: access.downloadUrl,
   });
+  if (!shouldOpen()) return;
   await open(resolved.uri);
 }

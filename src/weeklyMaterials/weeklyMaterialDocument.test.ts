@@ -67,4 +67,37 @@ describe('openWeeklyMaterialDocument', () => {
     })).rejects.toThrow('metadata');
     expect(open).not.toHaveBeenCalled();
   });
+
+  it('does not open a downloaded document after the campus context changes', async () => {
+    let current = true;
+    const getAccessUrls = vi.fn(async () => [{
+      assetId: 41,
+      byteSize: 4096,
+      downloadUrl: 'https://signed.example/document',
+      sha256: 'b'.repeat(64),
+    }]);
+    const open = vi.fn();
+    const cache = {
+      download: vi.fn(async () => {
+        current = false;
+        return 'file:///cache/41-document.pdf';
+      }),
+      exists: vi.fn(async () => false),
+      resolveUri: vi.fn(() => 'file:///cache/existing.pdf'),
+      touch: vi.fn(async () => undefined),
+    };
+
+    await openWeeklyMaterialDocument({
+      accessToken: 'access',
+      api: {getAccessUrls} as never,
+      cache,
+      campusId: 7,
+      material,
+      open,
+      shouldOpen: () => current,
+    });
+
+    expect(getAccessUrls).toHaveBeenCalledWith('access', 7, [41]);
+    expect(open).not.toHaveBeenCalled();
+  });
 });

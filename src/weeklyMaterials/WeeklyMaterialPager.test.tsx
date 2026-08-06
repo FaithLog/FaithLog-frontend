@@ -1,4 +1,5 @@
 import React from 'react';
+import {Pressable, Text} from 'react-native';
 import {act, create, type ReactTestRenderer} from 'react-test-renderer';
 import {describe, expect, it, vi} from 'vitest';
 
@@ -27,6 +28,26 @@ import {WeeklyMaterialPager} from './WeeklyMaterialPager';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('WeeklyMaterialPager', () => {
+  it('remounts the current week page when its opaque content revision changes', async () => {
+    let tree!: ReactTestRenderer;
+    const renderPager = (contentRevision: string) => (
+      <WeeklyMaterialPager
+        contentRevision={contentRevision}
+        currentWeekStartDate="2026-08-03"
+        onSelectWeek={vi.fn()}
+        renderWeek={(week) => <StatefulWeek label={week} />}
+        selectedWeekStartDate="2026-08-03"
+      />
+    );
+    await act(async () => { tree = create(renderPager('draft-0')); });
+    act(() => tree.root.findByProps({accessibilityLabel: '2026-08-03 counter'}).props.onPress());
+    expect(readText(tree)).toContain('2026-08-03:1');
+
+    await act(async () => { tree.update(renderPager('draft-1')); });
+
+    expect(readText(tree)).toContain('2026-08-03:0');
+  });
+
   it('keeps arrow and swipe movement on the same week calculation', async () => {
     const onSelectWeek = vi.fn();
     let tree!: ReactTestRenderer;
@@ -65,3 +86,18 @@ describe('WeeklyMaterialPager', () => {
     expect(tree.root.findByProps({accessibilityLabel: '이번 주로 이동'})).toBeTruthy();
   });
 });
+
+function StatefulWeek({label}: {label: string}) {
+  const [count, setCount] = React.useState(0);
+  return (
+    <Pressable accessibilityLabel={`${label} counter`} onPress={() => setCount((value) => value + 1)}>
+      <Text>{label}:{count}</Text>
+    </Pressable>
+  );
+}
+
+function readText(tree: ReactTestRenderer) {
+  return tree.root.findAll((node) => String(node.type) === 'Text')
+    .map((node) => node.children.join(''))
+    .join(' ');
+}

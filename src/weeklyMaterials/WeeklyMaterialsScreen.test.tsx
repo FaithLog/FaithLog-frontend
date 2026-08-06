@@ -46,6 +46,13 @@ const guide = {
   sha256: 'a'.repeat(64),
   updatedAt: '2026-08-03T01:00:00Z',
 };
+const globalSundaySheet = {
+  ...guide,
+  materialType: 'SUNDAY_SHARING_SHEET' as const,
+  mediaAssetId: 32,
+  fileName: '전 캠퍼스 주일 나눔지.pdf',
+  sha256: 'b'.repeat(64),
+};
 
 describe('WeeklyMaterialsScreen', () => {
   const getWeek = vi.fn();
@@ -69,6 +76,7 @@ describe('WeeklyMaterialsScreen', () => {
     expect(text(tree)).toContain('8월 목자지침 아주 긴 파일 이름.pdf');
     expect(text(tree)).toContain('이번 주 주일 나눔지가 아직 등록되지 않았어요');
     expect(text(tree)).toContain('이번 주 토목모 나눔지가 아직 등록되지 않았어요');
+    expect(text(tree).match(/모든 캠퍼스 공유/g)).toHaveLength(6);
     expect(getWeek.mock.calls.map((call) => call[2]).sort()).toEqual([
       '2026-07-27',
       '2026-08-03',
@@ -80,7 +88,7 @@ describe('WeeklyMaterialsScreen', () => {
       tree.root.findByProps({accessibilityLabel: '목자지침 PDF 열기'}).props.onPress();
     });
     expect(openMaterial).toHaveBeenCalledOnce();
-    expect(openMaterial).toHaveBeenCalledWith(guide);
+    expect(openMaterial).toHaveBeenCalledWith(guide, expect.any(Function));
   });
 
   it('keeps another week navigable when the selected week fails and retries only that week', async () => {
@@ -114,24 +122,119 @@ describe('WeeklyMaterialsScreen', () => {
     expect(text(tree)).toContain('다시 시도');
     expect(text(tree)).not.toContain('signed URL with secret');
   });
+
+  it('revokes a pending PDF open when the user moves to another week', async () => {
+    let shouldOpen!: () => boolean;
+    let finishOpen!: () => void;
+    openMaterial.mockImplementationOnce(async (_material, predicate) => {
+      shouldOpen = predicate!;
+      await new Promise<void>((resolve) => { finishOpen = resolve; });
+    });
+    const tree = await render(api, openMaterial);
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '목자지침 PDF 열기'}).props.onPress();
+    });
+    expect(shouldOpen()).toBe(true);
+
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '다음 주'}).props.onPress();
+    });
+    expect(shouldOpen()).toBe(false);
+    finishOpen();
+    await flush();
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '이전 주'}).props.onPress();
+    });
+    await flush();
+    expect(text(tree)).not.toContain('여는 중');
+  });
+
+  it('revokes a pending PDF open after leaving the route', async () => {
+    let shouldOpen!: () => boolean;
+    let finishOpen!: () => void;
+    openMaterial.mockImplementationOnce(async (_material, predicate) => {
+      shouldOpen = predicate!;
+      await new Promise<void>((resolve) => { finishOpen = resolve; });
+    });
+    const tree = await render(api, openMaterial);
+    await act(async () => {
+      tree.root.findByProps({accessibilityLabel: '목자지침 PDF 열기'}).props.onPress();
+    });
+    expect(shouldOpen()).toBe(true);
+
+    await act(async () => { tree.unmount(); });
+    expect(shouldOpen()).toBe(false);
+    finishOpen();
+    await flush();
+  });
+
+  it('never shows the previous campus guide while switching campuses', async () => {
+    let resolveCampusB!: (value: {
+      campusId: number;
+      materials: WeeklyMaterial[];
+      weekStartDate: string;
+    }) => void;
+    getWeek.mockImplementation(async (_token: string, campusId: number, week: string) => {
+      if (week !== '2026-08-03') return {campusId, weekStartDate: week, materials: []};
+      if (campusId === 7) {
+        return {
+          campusId,
+          weekStartDate: week,
+          materials: [{...guide, fileName: 'A 캠퍼스 목자지침.pdf'}, globalSundaySheet],
+        };
+      }
+      return await new Promise((resolve) => { resolveCampusB = resolve; });
+    });
+    const tree = await render(api, openMaterial, 7);
+    expect(text(tree)).toContain('A 캠퍼스 목자지침.pdf');
+    expect(text(tree)).toContain('전 캠퍼스 주일 나눔지.pdf');
+
+    await act(async () => {
+      tree.update(renderScreen(api, openMaterial, 8));
+    });
+    expect(text(tree)).not.toContain('A 캠퍼스 목자지침.pdf');
+
+    resolveCampusB({
+      campusId: 8,
+      weekStartDate: '2026-08-03',
+      materials: [{...guide, fileName: 'B 캠퍼스 목자지침.pdf'}, globalSundaySheet],
+    });
+    await flush();
+
+    expect(text(tree)).toContain('B 캠퍼스 목자지침.pdf');
+    expect(text(tree)).toContain('전 캠퍼스 주일 나눔지.pdf');
+    expect(text(tree)).not.toContain('A 캠퍼스 목자지침.pdf');
+  });
 });
 
-async function render(api: WeeklyMaterialApi, openMaterial: (material: WeeklyMaterial) => Promise<void> | void) {
+async function render(
+  api: WeeklyMaterialApi,
+  openMaterial: (material: WeeklyMaterial) => Promise<void> | void,
+  campusId = 7,
+) {
   let tree!: ReactTestRenderer;
   await act(async () => {
-    tree = create(
-      <WeeklyMaterialsScreen
-        accessTokenProvider={async () => 'access'}
-        api={api}
-        campusId={7}
-        currentWeekStartDate="2026-08-03"
-        onBack={vi.fn()}
-        openMaterial={openMaterial}
-      />,
-    );
+    tree = create(renderScreen(api, openMaterial, campusId));
   });
   await flush();
   return tree;
+}
+
+function renderScreen(
+  api: WeeklyMaterialApi,
+  openMaterial: (material: WeeklyMaterial) => Promise<void> | void,
+  campusId: number,
+) {
+  return (
+    <WeeklyMaterialsScreen
+      accessTokenProvider={async () => 'access'}
+      api={api}
+      campusId={campusId}
+      currentWeekStartDate="2026-08-03"
+      onBack={vi.fn()}
+      openMaterial={openMaterial}
+    />
+  );
 }
 
 async function flush() {
