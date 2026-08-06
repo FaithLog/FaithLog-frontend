@@ -2402,13 +2402,14 @@ function AuthenticatedShell({
                 onNotificationWeeklyMaterialTargetHandled();
                 setRoute('userHome');
               }}
-              openMaterial={async (material) => {
+              openMaterial={async (material, shouldOpen) => {
                 const accessToken = await resolveCurrentAccessToken(() => undefined);
                 if (!accessToken) throw new Error('Missing access token');
                 await openWeeklyMaterialPdf({
                   accessToken,
                   campusId: state.selectedCampus.campusId,
                   material,
+                  ...(shouldOpen ? {shouldOpen} : {}),
                 });
               }}
             />

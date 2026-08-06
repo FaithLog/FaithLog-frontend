@@ -100,6 +100,7 @@ describe('AdminWeeklyMaterialsScreen', () => {
     expect(rootScrollView(tree).props.contentContainerStyle.paddingHorizontal).toBe(8);
     expect(text(tree)).toContain('기존 주일 나눔지.pdf');
     expect(text(tree)).toContain('토목모 나눔지');
+    expect(text(tree).match(/모든 캠퍼스 공유/g)).toHaveLength(6);
 
     await press(tree, '목자지침 PDF 선택');
     expect(text(tree)).toContain('새 목자지침.pdf');
@@ -116,11 +117,20 @@ describe('AdminWeeklyMaterialsScreen', () => {
 
   it('deletes only the confirmed material and preserves the other row', async () => {
     const tree = await render();
+    const initialWeekReads = currentWeekReadCount();
+    deleteMaterial.mockImplementationOnce(async () => {
+      getWeek.mockImplementation(async (_token: string, campusId: number, week: string) => ({
+        campusId,
+        weekStartDate: week,
+        materials: [],
+      }));
+    });
     await press(tree, '주일 나눔지 삭제');
     expect(text(tree)).toContain('2026년 8월 3일 주차의 주일 나눔지를 삭제할까요?');
     await press(tree, '주일 나눔지 영구 삭제 확인');
     expect(deleteMaterial).toHaveBeenCalledWith('access', 7, '2026-08-03', 'SUNDAY_SHARING_SHEET');
     expect(text(tree)).toContain('주일 나눔지가 아직 등록되지 않았어요');
+    expect(currentWeekReadCount()).toBe(initialWeekReads + 1);
   });
 
   it('suppresses a synchronous double confirmation while deleting', async () => {
@@ -140,12 +150,86 @@ describe('AdminWeeklyMaterialsScreen', () => {
     await flush();
   });
 
-  it('turns a document picker failure into a safe retryable notice', async () => {
+  it('shows a document picker failure safely in the affected material slot', async () => {
     pickPdf.mockRejectedValueOnce(new Error('private local path'));
     const tree = await render();
     await press(tree, '목자지침 PDF 선택');
     expect(text(tree)).toContain('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+    expect(tree.root.findAll((node) =>
+      String(node.type) === 'Text' &&
+      node.props.accessibilityLabel === '목자지침 PDF 선택 오류',
+    )).toHaveLength(1);
     expect(text(tree)).not.toContain('private local path');
+  });
+
+  it('preserves the safe 30 MiB picker validation message', async () => {
+    pickPdf.mockRejectedValueOnce(new Error('PDF는 30MB 이하여야 합니다.'));
+    const tree = await render();
+    await press(tree, '목자지침 PDF 선택');
+    expect(text(tree)).toContain('PDF는 30MB 이하여야 합니다.');
+  });
+
+  it('does not carry a selected shepherd guide into another campus', async () => {
+    const tree = await render();
+    await press(tree, '목자지침 PDF 선택');
+    expect(text(tree)).toContain('새 목자지침.pdf');
+
+    await act(async () => {
+      tree.update(renderScreen(8));
+    });
+    await flush();
+
+    expect(text(tree)).not.toContain('새 목자지침.pdf');
+    expect(getWeek).toHaveBeenCalledWith('access', 8, '2026-08-03');
+  });
+
+  it('ignores an old campus response after an A to B to A transition', async () => {
+    let resolveOldA!: (value: ReturnType<typeof weekFor>) => void;
+    let resolveNewA!: (value: ReturnType<typeof weekFor>) => void;
+    let campusACalls = 0;
+    getWeek.mockImplementation(async (_token: string, campusId: number, week: string) => {
+      if (week !== '2026-08-03') return weekFor(campusId, week, []);
+      if (campusId === 8) return weekFor(8, week, []);
+      campusACalls += 1;
+      return await new Promise((resolve) => {
+        if (campusACalls === 1) resolveOldA = resolve;
+        else resolveNewA = resolve;
+      });
+    });
+
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(renderScreen(7)); });
+    await act(async () => { tree.update(renderScreen(8)); });
+    await flush();
+    await act(async () => { tree.update(renderScreen(7)); });
+    await flush();
+
+    resolveNewA(weekFor(7, '2026-08-03', [{...sheet, fileName: '새 A 자료.pdf'}]));
+    await flush();
+    expect(text(tree)).toContain('새 A 자료.pdf');
+
+    resolveOldA(weekFor(7, '2026-08-03', [{...sheet, fileName: '오래된 A 자료.pdf'}]));
+    await flush();
+    expect(text(tree)).toContain('새 A 자료.pdf');
+    expect(text(tree)).not.toContain('오래된 A 자료.pdf');
+  });
+
+  it('ignores a stale picker result after an A to B to A transition', async () => {
+    let resolvePick!: (value: PdfUploadCandidate) => void;
+    pickPdf.mockReturnValueOnce(new Promise((resolve) => { resolvePick = resolve; }));
+    const tree = await render();
+    await act(async () => {
+      activeControl(tree, '목자지침 PDF 선택').props.onPress();
+    });
+    await act(async () => { tree.update(renderScreen(8)); });
+    await flush();
+    await act(async () => { tree.update(renderScreen(7)); });
+    await flush();
+
+    resolvePick(guideCandidate);
+    await flush();
+
+    expect(text(tree)).not.toContain('새 목자지침.pdf');
   });
 
   it('blocks week navigation while an upload is in flight', async () => {
@@ -164,6 +248,39 @@ describe('AdminWeeklyMaterialsScreen', () => {
     await flush();
   });
 
+  it('keeps a retried upload authoritative after the canceled upload settles late', async () => {
+    let resolveFirst!: (value: ReadyDocumentAsset) => void;
+    let resolveSecond!: (value: ReadyDocumentAsset) => void;
+    uploadPdf
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
+    const tree = await render();
+    await press(tree, '목자지침 PDF 선택');
+    await act(async () => { activeControl(tree, '목자지침 등록').props.onPress(); });
+    await press(tree, '목자지침 업로드 취소');
+    await act(async () => { activeControl(tree, '목자지침 등록').props.onPress(); });
+
+    resolveFirst(guideReady);
+    await flush();
+    resolveSecond(guideReady);
+    await flush();
+
+    expect(uploadPdf).toHaveBeenCalledTimes(2);
+    expect(putMaterial).toHaveBeenCalledTimes(1);
+    expect(text(tree)).toContain('목자지침가 등록되었습니다.');
+    expect(text(tree)).not.toContain('새 파일: 새 목자지침.pdf');
+  });
+
+  it('disables deleting a material while the same slot is uploading', async () => {
+    uploadPdf.mockReturnValueOnce(new Promise(() => undefined));
+    const tree = await render();
+    await press(tree, '주일 나눔지 PDF 선택');
+    await act(async () => { activeControl(tree, '주일 나눔지 등록').props.onPress(); });
+
+    expect(activeControl(tree, '주일 나눔지 삭제').props.disabled).toBe(true);
+    expect(deleteMaterial).not.toHaveBeenCalled();
+  });
+
   it('keeps the selected week when a picked file has not been registered', async () => {
     const tree = await render();
     await press(tree, '목자지침 PDF 선택');
@@ -179,23 +296,39 @@ describe('AdminWeeklyMaterialsScreen', () => {
   async function render() {
     let tree!: ReactTestRenderer;
     await act(async () => {
-      tree = create(
-        <AdminWeeklyMaterialsScreen
-          accessTokenProvider={async () => 'access'}
-          api={api}
-          campusId={7}
-          currentWeekStartDate="2026-08-03"
-          onBack={vi.fn()}
-          onOpenMaterial={vi.fn()}
-          pickPdf={pickPdf}
-          uploadPdf={uploadPdf}
-        />,
-      );
+      tree = create(renderScreen(7));
     });
     await flush();
     return tree;
   }
+
+  function renderScreen(campusId: number) {
+    return (
+      <AdminWeeklyMaterialsScreen
+        accessTokenProvider={async () => 'access'}
+        api={api}
+        campusId={campusId}
+        currentWeekStartDate="2026-08-03"
+        onBack={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        pickPdf={pickPdf}
+        uploadPdf={uploadPdf}
+      />
+    );
+  }
+
+  function currentWeekReadCount() {
+    return getWeek.mock.calls.filter((call) => call[1] === 7 && call[2] === '2026-08-03').length;
+  }
 });
+
+function weekFor(
+  campusId: number,
+  weekStartDate: string,
+  materials: Array<typeof sheet>,
+) {
+  return {campusId, materials, weekStartDate};
+}
 
 async function press(tree: ReactTestRenderer, label: string) {
   await act(async () => {

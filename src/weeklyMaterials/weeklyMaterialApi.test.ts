@@ -80,15 +80,53 @@ describe('weekly material provisional API boundary', () => {
     });
   });
 
-  it('does not parse a 204 delete body', async () => {
-    const request = vi.fn(async () => undefined);
+  it('accepts an empty 200 week and does not expose an internal scope field', async () => {
+    const request = vi.fn(async (
+      _path: string,
+      options: {responseParser: (value: unknown) => unknown},
+    ) => options.responseParser({
+      ...weekPayload,
+      shepherdGuide: {...weekPayload.shepherdGuide, scopeCampusId: 7},
+    }));
+    const api = createWeeklyMaterialApi({
+      contractStatus: 'confirmed-test',
+      request: request as unknown as WeeklyMaterialRequest,
+    });
+
+    const scoped = await api.getWeek('token', 7, '2026-08-03');
+    expect(scoped.materials[0]).not.toHaveProperty('scopeCampusId');
+
+    request.mockImplementationOnce(async (_path, options) => options.responseParser({
+      weekStartDate: '2026-08-03',
+      shepherdGuide: null,
+      sundaySharingSheet: null,
+      saturdayLeaderSharingSheet: null,
+    }));
+    await expect(api.getWeek('token', 7, '2026-08-03')).resolves.toEqual({
+      campusId: 7,
+      materials: [],
+      weekStartDate: '2026-08-03',
+    });
+  });
+
+  it('normalizes a 204 delete without attempting to read a response body', async () => {
+    const request = vi.fn(async (
+      _path: string,
+      options: {responseParser?: (value: unknown) => unknown},
+    ) => {
+      if (!options.responseParser) throw new Error('204 response parser is required');
+      return options.responseParser(null);
+    });
     const api = createWeeklyMaterialApi({contractStatus: 'confirmed-test', request: request as unknown as WeeklyMaterialRequest});
     await api.deleteMaterial('token', 7, '2026-08-03', 'SHEPHERD_GUIDE');
     expect(request).toHaveBeenCalledWith(
       '/api/v1/admin/campuses/7/weekly-materials/2026-08-03/SHEPHERD_GUIDE',
       expect.objectContaining({expectedStatuses: [204], method: 'DELETE'}),
     );
-    expect((request.mock.calls[0] as unknown[] | undefined)?.[1]).not.toHaveProperty('responseParser');
+    const options = (request.mock.calls[0] as unknown[] | undefined)?.[1] as {
+      responseParser?: (value: unknown) => unknown;
+    };
+    expect(options.responseParser?.(null)).toBeUndefined();
   });
 
   it('uses the documented current and paged year paths', async () => {
