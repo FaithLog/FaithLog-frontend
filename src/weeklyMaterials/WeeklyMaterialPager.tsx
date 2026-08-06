@@ -31,6 +31,8 @@ export function WeeklyMaterialPager({
   selectedWeekStartDate: string;
 }) {
   const scrollRef = useRef<ScrollView>(null);
+  const contentReadyCenterPendingRef = useRef(true);
+  const userDragInProgressRef = useRef(false);
   const [pageWidth, setPageWidth] = useState(1);
   const pages = useMemo(
     () => [
@@ -44,8 +46,21 @@ export function WeeklyMaterialPager({
   const isCurrent = selectedWeekStartDate === currentWeekStartDate;
 
   useEffect(() => {
+    contentReadyCenterPendingRef.current = true;
+  }, [pageWidth]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({animated: false, x: pageWidth});
   }, [pageWidth, selectedWeekStartDate]);
+
+  const onContentSizeChange = (contentWidth: number) => {
+    if (
+      !contentReadyCenterPendingRef.current ||
+      contentWidth < pageWidth * pages.length
+    ) return;
+    contentReadyCenterPendingRef.current = false;
+    scrollRef.current?.scrollTo({animated: false, x: pageWidth});
+  };
 
   const selectRelativeWeek = (distance: -1 | 1) => {
     if (navigationDisabled) {
@@ -63,6 +78,15 @@ export function WeeklyMaterialPager({
   const onMomentumScrollEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    if (
+      contentReadyCenterPendingRef.current ||
+      !userDragInProgressRef.current
+    ) {
+      userDragInProgressRef.current = false;
+      scrollRef.current?.scrollTo({animated: false, x: pageWidth});
+      return;
+    }
+    userDragInProgressRef.current = false;
     const page = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
     const accepted = page === 0
       ? selectRelativeWeek(-1)
@@ -116,8 +140,11 @@ export function WeeklyMaterialPager({
           contentOffset={{x: pageWidth, y: 0}}
           decelerationRate="fast"
           horizontal
-          key={`pager:${contentRevision}`}
+          onContentSizeChange={onContentSizeChange}
           onMomentumScrollEnd={onMomentumScrollEnd}
+          onScrollBeginDrag={() => {
+            userDragInProgressRef.current = true;
+          }}
           pagingEnabled
           ref={scrollRef}
           scrollEnabled={!navigationDisabled}
