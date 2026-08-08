@@ -74,12 +74,12 @@ describe('user poll list visibility', () => {
     expect(groups.recentlyClosedPolls).toEqual([expiredOpenPoll]);
   });
 
-  it('shows status closed polls for 24 hours in the closed section', () => {
+  it('shows status closed polls through the seven-day boundary', () => {
     const closedPoll = poll({
       id: 20,
       status: 'CLOSED',
       responded: true,
-      endsAt: '2026-06-28T09:00:00.000Z',
+      endsAt: '2026-06-22T09:00:00.000Z',
     });
 
     const groups = getUserPollListGroups([closedPoll], now);
@@ -90,12 +90,12 @@ describe('user poll list visibility', () => {
     expect(groups.recentlyClosedPolls).toEqual([closedPoll]);
   });
 
-  it('moves expired open polls into the closed section for 24 hours', () => {
+  it('moves expired open polls into the closed section for seven days', () => {
     const expiredOpenPoll = poll({
       id: 25,
       status: 'OPEN',
       responded: false,
-      endsAt: '2026-06-29T08:30:00.000Z',
+      endsAt: '2026-06-22T09:00:00.000Z',
     });
 
     const groups = getUserPollListGroups([expiredOpenPoll], now);
@@ -106,12 +106,12 @@ describe('user poll list visibility', () => {
     expect(groups.recentlyClosedPolls).toEqual([expiredOpenPoll]);
   });
 
-  it('hides ended polls after the 24 hour window from the user list', () => {
+  it('hides ended polls after the seven-day window from the user list', () => {
     const oldClosedPoll = poll({
       id: 30,
       status: 'CLOSED',
       responded: true,
-      endsAt: '2026-06-28T08:59:59.000Z',
+      endsAt: '2026-06-22T08:59:59.000Z',
     });
 
     const groups = getUserPollListGroups([oldClosedPoll], now);
@@ -123,12 +123,12 @@ describe('user poll list visibility', () => {
     expect(groups.recentlyClosedPolls).toEqual([]);
   });
 
-  it('hides expired open polls after the 24 hour window from the user list', () => {
+  it('hides expired open polls after the seven-day window from the user list', () => {
     const oldExpiredOpenPoll = poll({
       id: 35,
       status: 'OPEN',
       responded: false,
-      endsAt: '2026-06-28T08:59:59.000Z',
+      endsAt: '2026-06-22T08:59:59.000Z',
     });
 
     const groups = getUserPollListGroups([oldExpiredOpenPoll], now);
