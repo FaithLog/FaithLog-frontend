@@ -1,6 +1,6 @@
 import type {PollSummary} from '../api/types';
 
-const CLOSED_POLL_VISIBLE_MS = 24 * 60 * 60 * 1000;
+const CLOSED_POLL_VISIBLE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type UserPollListGroups = {
   activePolls: PollSummary[];
