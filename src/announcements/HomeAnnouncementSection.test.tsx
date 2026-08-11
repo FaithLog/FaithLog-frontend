@@ -1,6 +1,6 @@
 import React from 'react';
 import {act, create} from 'react-test-renderer';
-import {describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -28,6 +28,15 @@ import type {AnnouncementSummary} from './announcementTypes';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('HomeAnnouncementSection', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders one pinned notice and this week latest notice without image previews', async () => {
     const onOpenAll = vi.fn();
     const onOpenAnnouncement = vi.fn();
