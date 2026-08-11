@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import {
@@ -35,6 +35,10 @@ import {
   type DevotionCheckField,
   type DevotionPenaltySummary,
 } from './devotionUtils';
+import {
+  resolveInitialDevotionWeek,
+  type InitialDevotionWeekReason,
+} from './devotionDefaultWeek';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -51,8 +55,8 @@ type DevotionScreenProps = {
 
 type DevotionLoadState =
   | {status: 'idle' | 'loading'}
-  | {status: 'success'; weekly: WeeklyDevotionSummary}
-  | {status: 'error'; error: ApiError};
+  | {status: 'success'; scopeKey: string; weekly: WeeklyDevotionSummary}
+  | {status: 'error'; error: ApiError; scopeKey: string};
 
 type PenaltyRuleLoadState =
   | {status: 'idle' | 'loading'}
@@ -84,10 +88,11 @@ export function DevotionScreen({
   setAuthState,
   state,
 }: DevotionScreenProps) {
-  const [selectedDate, setSelectedDate] = useState(
-    () => initialSelectedDate ?? formatLocalDate(new Date()),
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const selectedWeekStart = useMemo(
+    () => selectedDate ? getWeekStartDate(parseDate(selectedDate)) : null,
+    [selectedDate],
   );
-  const selectedWeekStart = useMemo(() => getWeekStartDate(parseDate(selectedDate)), [selectedDate]);
   const [loadState, setLoadState] = useState<DevotionLoadState>({status: 'idle'});
   const [penaltyRuleState, setPenaltyRuleState] = useState<PenaltyRuleLoadState>({status: 'idle'});
   const [formChecks, setFormChecks] = useState<DailyFormCheck[]>([]);
@@ -97,9 +102,75 @@ export function DevotionScreen({
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [screenMode, setScreenMode] = useState<ScreenMode>('entry');
   const [submitConfirmVisible, setSubmitConfirmVisible] = useState(false);
+  const [currentWeekStart, setCurrentWeekStart] = useState<string | null>(null);
+  const [initialWeekReason, setInitialWeekReason] = useState<InitialDevotionWeekReason | null>(null);
+  const [initializationVersion, setInitializationVersion] = useState(0);
   const campusId = state.selectedCampus.campusId;
+  const latestRequest = useRef(0);
+  const preloadedWeekly = useRef<{scopeKey: string; weekly: WeeklyDevotionSummary} | null>(null);
+  const selectedScopeKey = selectedWeekStart ? `${campusId}:${selectedWeekStart}` : null;
+
+  useEffect(() => {
+    const requestId = ++latestRequest.current;
+    preloadedWeekly.current = null;
+    setSelectedDate(null);
+    setCurrentWeekStart(null);
+    setInitialWeekReason(null);
+    setLoadState({status: 'loading'});
+    setActionError(null);
+
+    void (async () => {
+      try {
+        const accessToken = await resolveAccessToken(setAuthState);
+
+        if (!accessToken || requestId !== latestRequest.current) {
+          return;
+        }
+
+        const selection = await resolveInitialDevotionWeek({
+          explicitSelectedDate: initialSelectedDate,
+          loadWeek: (weekStartDate) =>
+            fetchWeeklyDevotionSummary(accessToken, campusId, weekStartDate),
+        });
+
+        if (requestId !== latestRequest.current) {
+          return;
+        }
+
+        if (selection.preloadedWeekly) {
+          preloadedWeekly.current = {
+            scopeKey: `${campusId}:${selection.selectedWeekStart}`,
+            weekly: selection.preloadedWeekly,
+          };
+        }
+        setCurrentWeekStart(selection.currentWeekStart);
+        setInitialWeekReason(selection.reason);
+        setSelectedDate(selection.selectedWeekStart);
+      } catch (error) {
+        if (requestId !== latestRequest.current) {
+          return;
+        }
+        const apiError = toApiError(error, '경건생활 기본 주차를 확인하지 못했습니다.');
+        setLoadState({status: 'error', error: apiError, scopeKey: `${campusId}:initial`});
+        handleAuthError(apiError, setAuthState);
+      }
+    })();
+
+    return () => {
+      if (requestId === latestRequest.current) {
+        latestRequest.current += 1;
+      }
+    };
+  }, [campusId, initialSelectedDate, initializationVersion]);
 
   const loadDevotion = async () => {
+    if (!selectedWeekStart || !selectedScopeKey) {
+      setInitializationVersion((current) => current + 1);
+      return;
+    }
+
+    const requestId = ++latestRequest.current;
+    const requestedScopeKey = selectedScopeKey;
     setLoadState({status: 'loading'});
     setPenaltyRuleState({status: 'loading'});
     setActionError(null);
@@ -110,9 +181,28 @@ export function DevotionScreen({
         return;
       }
 
-      const weekly = await fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart);
+      if (requestId !== latestRequest.current) {
+        return;
+      }
 
-      setLoadState({status: 'success', weekly});
+      const preload = preloadedWeekly.current;
+      const weekly = preload?.scopeKey === requestedScopeKey
+        ? preload.weekly
+        : await fetchWeeklyDevotionSummary(accessToken, campusId, selectedWeekStart);
+
+      if (preload?.scopeKey === requestedScopeKey) {
+        preloadedWeekly.current = null;
+      }
+
+      if (requestId !== latestRequest.current) {
+        return;
+      }
+
+      if (weekly.weekStartDate !== selectedWeekStart) {
+        throw new Error('Unexpected weekly devotion response.');
+      }
+
+      setLoadState({status: 'success', scopeKey: requestedScopeKey, weekly});
       setFormChecks(normalizeWeekChecks(weekly));
       setLateMinutesText(String(Math.max(0, weekly.saturdayLateMinutes)));
       setScreenMode(isWeeklyDevotionEditable(weekly) ? 'entry' : 'locked');
@@ -121,32 +211,40 @@ export function DevotionScreen({
       try {
         const rules = await fetchPenaltyRules(accessToken, campusId);
 
-        setPenaltyRuleState({status: 'success', rules});
+        if (requestId === latestRequest.current) {
+          setPenaltyRuleState({status: 'success', rules});
+        }
       } catch (penaltyRuleError) {
-        setPenaltyRuleState({
-          status: 'error',
-          error: toApiError(penaltyRuleError, '벌금 규칙을 불러오지 못했습니다.'),
-        });
+        if (requestId === latestRequest.current) {
+          setPenaltyRuleState({
+            status: 'error',
+            error: toApiError(penaltyRuleError, '벌금 규칙을 불러오지 못했습니다.'),
+          });
+        }
       }
     } catch (error) {
+      if (requestId !== latestRequest.current) {
+        return;
+      }
       const apiError = toApiError(error, '경건생활 기록을 불러오지 못했습니다.');
-      setLoadState({status: 'error', error: apiError});
+      setLoadState({status: 'error', error: apiError, scopeKey: requestedScopeKey});
       handleAuthError(apiError, setAuthState);
     }
   };
 
   useEffect(() => {
-    void loadDevotion();
+    if (selectedWeekStart) {
+      void loadDevotion();
+    }
   }, [campusId, selectedWeekStart]);
 
-  useEffect(() => {
-    if (initialSelectedDate) {
-      setSelectedDate(initialSelectedDate);
-    }
-  }, [initialSelectedDate]);
-
-  if (loadState.status !== 'success') {
-    if (loadState.status === 'error') {
+  if (
+    loadState.status !== 'success' ||
+    !selectedWeekStart ||
+    loadState.scopeKey !== selectedScopeKey
+  ) {
+    const expectedErrorScopeKey = selectedScopeKey ?? `${campusId}:initial`;
+    if (loadState.status === 'error' && loadState.scopeKey === expectedErrorScopeKey) {
       return <DevotionErrorState error={loadState.error} onRetry={loadDevotion} />;
     }
 
@@ -168,7 +266,17 @@ export function DevotionScreen({
   const moveWeek = (direction: -1 | 1) => {
     const nextWeek = addDays(parseDate(selectedWeekStart), direction * 7);
 
+    setInitialWeekReason(null);
     setSelectedDate(formatLocalDate(nextWeek));
+  };
+
+  const openCurrentWeek = () => {
+    if (!currentWeekStart) {
+      return;
+    }
+
+    setInitialWeekReason(null);
+    setSelectedDate(currentWeekStart);
   };
 
   const toggleCheck = (recordDate: string, field: DevotionCheckField) => {
@@ -214,7 +322,11 @@ export function DevotionScreen({
         ? await runWithCompletionEvent(saveRequest, trackDevotionSubmitComplete)
         : await saveRequest();
 
-      setLoadState({status: 'success', weekly: nextWeekly});
+      setLoadState({
+        status: 'success',
+        scopeKey: `${campusId}:${selectedWeekStart}`,
+        weekly: nextWeekly,
+      });
       setFormChecks(normalizeWeekChecks(nextWeekly));
       setLateMinutesText(String(Math.max(0, nextWeekly.saturdayLateMinutes)));
       setScreenMode(submit ? 'locked' : 'entry');
@@ -302,6 +414,7 @@ export function DevotionScreen({
           invalidLateMinutes={invalidLateMinutes}
           lateMinutesText={lateMinutesText}
           moveWeek={moveWeek}
+          onOpenCurrentWeek={openCurrentWeek}
           onLateMinutesChange={(value) => {
             setActionError(null);
             setLateMinutesText(value.replace(/[^\d]/g, '').slice(0, 4));
@@ -312,6 +425,7 @@ export function DevotionScreen({
           saveFeedback={saveFeedback}
           savingAction={savingAction}
           selectedWeekStart={selectedWeekStart}
+          showPreviousWeekNotice={initialWeekReason === 'previousUnsubmitted'}
           toggleCheck={toggleCheck}
           weekly={weekly}
         />
@@ -334,6 +448,7 @@ function EntryView({
   invalidLateMinutes,
   lateMinutesText,
   moveWeek,
+  onOpenCurrentWeek,
   onLateMinutesChange,
   onRequestSubmit,
   onSaveWeek,
@@ -341,6 +456,7 @@ function EntryView({
   saveFeedback,
   savingAction,
   selectedWeekStart,
+  showPreviousWeekNotice,
   toggleCheck,
   weekly,
 }: {
@@ -349,6 +465,7 @@ function EntryView({
   invalidLateMinutes: boolean;
   lateMinutesText: string;
   moveWeek: (direction: -1 | 1) => void;
+  onOpenCurrentWeek: () => void;
   onLateMinutesChange: (value: string) => void;
   onRequestSubmit: () => void;
   onSaveWeek: (submit: boolean) => void;
@@ -356,6 +473,7 @@ function EntryView({
   saveFeedback: string | null;
   savingAction: SavingAction;
   selectedWeekStart: string;
+  showPreviousWeekNotice: boolean;
   toggleCheck: (recordDate: string, field: DevotionCheckField) => void;
   weekly: WeeklyDevotionSummary;
 }) {
@@ -390,6 +508,24 @@ function EntryView({
           {counts.bibleReading}/{REQUIRED_DAYS}
         </Text>
       </View>
+
+      {showPreviousWeekNotice ? (
+        <View accessibilityRole="summary" style={styles.previousWeekNotice}>
+          <View style={styles.previousWeekNoticeText}>
+            <Text style={styles.previousWeekNoticeTitle}>지난주 기록을 먼저 보여드려요</Text>
+            <Text style={styles.previousWeekNoticeDescription}>
+              아직 제출하지 않은 지난주 7일 기록을 확인한 뒤 제출해 주세요.
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="이번 주 경건생활 기록 보기"
+            accessibilityRole="button"
+            onPress={onOpenCurrentWeek}
+            style={({pressed}) => [styles.currentWeekButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.currentWeekButtonText}>이번 주 보기</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>7일 기록</Text>
@@ -1111,6 +1247,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  currentWeekButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  currentWeekButtonText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
   cardTitle: {
     ...typography.cardTitle,
     color: colors.textPrimary,
@@ -1473,6 +1626,32 @@ const styles = StyleSheet.create({
     color: colors.surface,
     fontSize: 15,
     fontWeight: '600',
+    lineHeight: 20,
+  },
+  previousWeekNotice: {
+    alignItems: 'center',
+    backgroundColor: colors.borderSoft,
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 70,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  previousWeekNoticeDescription: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  previousWeekNoticeText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  previousWeekNoticeTitle: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
     lineHeight: 20,
   },
   screen: {
