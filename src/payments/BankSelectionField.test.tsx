@@ -44,15 +44,26 @@ describe('BankSelectionField', () => {
     expect(onChange).toHaveBeenCalledWith('카카오뱅크');
   });
 
-  it('does not expose a free-text input outside the approved bank list', () => {
+  it('offers direct input after the approved bank list and preserves a custom bank', () => {
     const onChange = vi.fn();
     const renderer = renderField({bankName: '부산은행', domainLabel: '커피', onChange});
-    expect(byLabel(renderer, '커피 계좌 은행명 직접 입력')).toHaveLength(0);
+    expect(byLabel(renderer, '커피 계좌 은행명 직접 입력')).toHaveLength(1);
 
     press(renderer, '커피 계좌 은행 선택');
-    expect(byLabel(renderer, '직접 입력 선택')).toHaveLength(0);
+    expect(byLabel(renderer, '직접 입력 선택')).toHaveLength(1);
     expect(byLabel(renderer, '카카오뱅크 선택')).toHaveLength(1);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('switches from a preset bank to direct input', () => {
+    const onChange = vi.fn();
+    const renderer = renderField({bankName: '신한은행', domainLabel: '납부', onChange});
+
+    press(renderer, '납부 계좌 은행 선택');
+    press(renderer, '직접 입력 선택');
+
+    expect(onChange).toHaveBeenCalledWith('');
+    expect(byLabel(renderer, '납부 계좌 은행명 직접 입력')).toHaveLength(1);
   });
 });
 

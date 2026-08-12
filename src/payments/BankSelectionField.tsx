@@ -2,8 +2,9 @@ import {useState} from 'react';
 import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {IconexIcon} from '../components/IconexIcon';
+import {TextField} from '../components/ui';
 import {colors, radius, spacing} from '../theme';
-import {BANK_OPTIONS, isPresetBankName} from './paymentAccountInput';
+import {BANK_OPTIONS, isPresetBankName, normalizeBankName} from './paymentAccountInput';
 
 export function BankSelectionField({
   bankName,
@@ -17,10 +18,20 @@ export function BankSelectionField({
   onChange: (bankName: string) => void;
 }) {
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [directInput, setDirectInput] = useState(
+    () => normalizeBankName(bankName).length > 0 && !isPresetBankName(bankName),
+  );
   const selectedBankName = isPresetBankName(bankName) ? bankName : '';
 
   const selectBank = (nextBankName: string) => {
+    setDirectInput(false);
     onChange(nextBankName);
+    setPickerVisible(false);
+  };
+
+  const selectDirectInput = () => {
+    setDirectInput(true);
+    if (selectedBankName) onChange('');
     setPickerVisible(false);
   };
 
@@ -42,7 +53,7 @@ export function BankSelectionField({
           ellipsizeMode="tail"
           numberOfLines={1}
           style={[styles.selectText, selectedBankName ? null : styles.placeholder]}>
-          {selectedBankName || '은행을 선택해 주세요'}
+          {selectedBankName || (directInput ? '직접 입력' : '은행을 선택해 주세요')}
         </Text>
         <Text accessibilityElementsHidden style={styles.chevron}>⌄</Text>
       </Pressable>
@@ -82,10 +93,27 @@ export function BankSelectionField({
                   selected={selectedBankName === option}
                 />
               ))}
+              <View style={styles.optionDivider} />
+              <BankOption
+                label="직접 입력"
+                onPress={selectDirectInput}
+                selected={directInput}
+              />
             </ScrollView>
           </View>
         </View>
       </Modal>
+
+      {directInput ? (
+        <TextField
+          accessibilityLabel={`${domainLabel} 계좌 은행명 직접 입력`}
+          editable={!disabled}
+          label="은행명 직접 입력"
+          onChangeText={onChange}
+          placeholder="은행명을 입력해 주세요"
+          value={bankName}
+        />
+      ) : null}
     </View>
   );
 }
@@ -145,6 +173,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   optionList: {gap: 2, paddingBottom: spacing.bottomSafe},
+  optionDivider: {backgroundColor: colors.borderSoft, height: 1, marginVertical: 6},
   optionSelected: {backgroundColor: colors.primarySoft},
   optionText: {color: colors.textPrimary, fontSize: 15, fontWeight: '600', lineHeight: 21},
   optionTextSelected: {color: colors.primary, fontWeight: '700'},
