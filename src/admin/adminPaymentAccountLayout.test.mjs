@@ -11,4 +11,10 @@ describe('admin payment account page flow', () => {
     expect(source).toContain("paymentAccountView === 'create'");
     expect(source).toContain('accessibilityLabel="관리자 납부 계좌 목록으로 돌아가기"');
   });
+
+  it('uses the shared bank selector and normalized account payload', () => {
+    expect(source).toContain('<BankSelectionField');
+    expect(source).toContain('domainLabel="납부"');
+    expect(source).toContain('preparePaymentAccountFields(paymentAccountForm)');
+  });
 });

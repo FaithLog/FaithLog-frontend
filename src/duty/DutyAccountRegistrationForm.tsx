@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import {StyleSheet, View} from 'react-native';
 
 import {TextField} from '../components/ui';
+import {BankSelectionField} from '../payments/BankSelectionField';
 import {colors, spacing} from '../theme';
 import {DutyActionButton, DutySectionHeader} from './DutyPresentation';
 
@@ -60,13 +61,11 @@ export function DutyAccountRegistrationForm({
             />
           </View>
           <View style={styles.formField}>
-            <TextField
-              accessibilityLabel={`${domainLabel} 계좌 은행명`}
-              editable={!busy}
-              label="은행"
-              onChangeText={onBankNameChange}
-              placeholder="카카오뱅크"
-              value={bankName}
+            <BankSelectionField
+              bankName={bankName}
+              disabled={busy}
+              domainLabel={domainLabel}
+              onChange={onBankNameChange}
             />
           </View>
         </View>

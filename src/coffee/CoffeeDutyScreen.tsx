@@ -54,6 +54,7 @@ import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract'
 import {getPollNoticeCapabilities} from '../polls/notice/pollNoticeCapabilities';
 import {usePollNoticeMediaUploads} from '../polls/notice/usePollNoticeMediaUploads';
 import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
+import {preparePaymentAccountFields} from '../payments/paymentAccountInput';
 import {
   dutyChargeReminderApi,
   type DutyChargeReminderApi,
@@ -441,10 +442,8 @@ export function CoffeeDutyScreen({
       return false;
     }
 
-    const nickname = accountForm.nickname.trim();
-    const bankName = accountForm.bankName.trim();
-    const accountNumber = accountForm.accountNumber.trim();
-    const accountHolder = accountForm.accountHolder.trim();
+    const {nickname, bankName, accountNumber, accountHolder} =
+      preparePaymentAccountFields(accountForm);
 
     if (!nickname || !bankName || !accountNumber || !accountHolder) {
       setAccountSaveState({status: 'error', message: '계좌 정보를 모두 입력해 주세요.'});

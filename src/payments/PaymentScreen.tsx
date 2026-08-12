@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -58,6 +59,8 @@ import {
   type PaymentCategoryFilter,
 } from './paymentPayableAccounts';
 import {invalidatePaymentListRequest, isPaymentListRequestCurrent, isPaymentNavigationLocked, shouldChangePaymentFilter} from './paymentViewSafety';
+import {isPresetBankName} from './paymentAccountInput';
+import {createTossRemittanceOpener, runTossRemittanceWithCopyFallback} from './tossRemittance';
 
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
@@ -151,6 +154,7 @@ export function PaymentScreen({
   const latestListRequest = useRef(0);
   const latestListRequestKey = useRef('');
   const paymentMutationInFlight = useRef(false);
+  const [tossRemittanceOpener] = useState(() => createTossRemittanceOpener(Linking));
 
   useEffect(() => {
     if (!accountCopyFeedback) {
@@ -345,6 +349,31 @@ export function PaymentScreen({
       tone: copied ? 'success' : 'warning',
     });
     AccessibilityInfo.announceForAccessibility(message);
+    return copied;
+  };
+
+  const sendWithToss = async (charge: ChargeItem) => {
+    const account = charge.account;
+    if (charge.status !== 'UNPAID' || !account) return;
+
+    const result = await runTossRemittanceWithCopyFallback({
+      copyFallback: () => copyAccountNumber(account),
+      input: {
+        accountNumber: account.accountNumber,
+        amount: charge.amount,
+        bankName: account.bankName,
+      },
+      opener: tossRemittanceOpener,
+    });
+    if (result.status === 'opened' || result.status === 'busy') return;
+
+    setNotice({
+      tone: 'warning',
+      title: result.status === 'invalid' ? '토스 송금을 지원하지 않는 은행입니다' : '토스를 열지 못했습니다',
+      message: result.copied
+        ? '대신 은행명과 계좌번호를 복사했습니다. 송금 앱에서 금액을 확인해 주세요.'
+        : '계좌 정보를 확인한 뒤 다시 시도해 주세요.',
+    });
   };
 
   if (loadState.status === 'error') {
@@ -423,6 +452,7 @@ export function PaymentScreen({
           }
           onCopyAccount={copyAccountNumber}
           onMarkPaid={() => markPaid(selectedCharge)}
+          onSendWithToss={() => void sendWithToss(selectedCharge)}
         />
       </View>
     );
@@ -594,6 +624,7 @@ export function PaymentScreen({
                 }
                 onMarkPaid={() => markPaid(charge)}
                 onOpenDetail={() => setSelectedChargeId(charge.id)}
+                onSendWithToss={() => void sendWithToss(charge)}
                 compact={compactPaymentLayout}
               />
             ))}
@@ -828,6 +859,7 @@ function ChargeCard({
   markingPaid,
   onMarkPaid,
   onOpenDetail,
+  onSendWithToss,
 }: {
   charge: ChargeItem;
   compact: boolean;
@@ -835,6 +867,7 @@ function ChargeCard({
   markingPaid: boolean;
   onMarkPaid: () => void;
   onOpenDetail: () => void;
+  onSendWithToss: () => void;
 }) {
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
   const statusTone = getChargeStatusTone(charge.status);
@@ -893,24 +926,41 @@ function ChargeCard({
               : '연결된 계좌 없음'}
           </Text>
         </View>
-        <Pressable
-          accessibilityLabel={`${charge.title} 납부 완료 처리`}
-          accessibilityRole="button"
-          accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
-          disabled={disabled || !canMarkPaid}
-          onPress={(event) => {
-            event.stopPropagation();
-            onMarkPaid();
-          }}
-          style={({pressed}) => [
-            styles.figmaChargeButton,
-            !canMarkPaid ? styles.figmaChargeButtonDone : null,
-            pressed ? styles.pressed : null,
-          ]}>
-          <Text style={styles.figmaChargeButtonText}>
-            {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '입금' : '완료'}
-          </Text>
-        </Pressable>
+        <View style={styles.chargeButtonGroup}>
+          {canMarkPaid ? (
+            <Pressable
+              accessibilityLabel={`${charge.title} 토스로 송금`}
+              accessibilityRole="button"
+              disabled={disabled}
+              onPress={(event) => {
+                event.stopPropagation();
+                onSendWithToss();
+              }}
+              style={({pressed}) => [styles.figmaChargeButton, styles.tossButton, pressed ? styles.pressed : null]}>
+              <Text style={styles.tossButtonText}>
+                {isPresetBankName(charge.account?.bankName ?? '') ? '토스 송금' : '계좌 복사'}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityLabel={`${charge.title} 납부 완료 처리`}
+            accessibilityRole="button"
+            accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
+            disabled={disabled || !canMarkPaid}
+            onPress={(event) => {
+              event.stopPropagation();
+              onMarkPaid();
+            }}
+            style={({pressed}) => [
+              styles.figmaChargeButton,
+              !canMarkPaid ? styles.figmaChargeButtonDone : null,
+              pressed ? styles.pressed : null,
+            ]}>
+            <Text style={styles.figmaChargeButtonText}>
+              {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '납부 완료' : '완료'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     </Pressable>
   );
@@ -924,6 +974,7 @@ function PaymentChargeDetail({
   markingPaid,
   onCopyAccount,
   onMarkPaid,
+  onSendWithToss,
 }: {
   charge: ChargeItem;
   copyFeedback: AccountCopyFeedback;
@@ -932,6 +983,7 @@ function PaymentChargeDetail({
   markingPaid: boolean;
   onCopyAccount: (account: ChargePaymentAccountSnapshot) => void;
   onMarkPaid: () => void;
+  onSendWithToss: () => void;
 }) {
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
   const account = charge.account ?? null;
@@ -1016,25 +1068,39 @@ function PaymentChargeDetail({
         )}
       </View>
 
-      <Pressable
-        accessibilityLabel={`${charge.title} 납부 완료 처리`}
-        accessibilityRole="button"
-        accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
-        disabled={disabled || !canMarkPaid}
-        onPress={onMarkPaid}
-        style={({pressed}) => [
-          styles.detailPrimaryButton,
-          !canMarkPaid ? styles.detailPrimaryButtonDisabled : null,
-          pressed ? styles.pressed : null,
-        ]}>
-        <Text
-          style={[
-            styles.detailPrimaryButtonText,
-            !canMarkPaid ? styles.detailPrimaryButtonTextDisabled : null,
+      <View style={styles.detailActionRow}>
+        {canMarkPaid ? (
+          <Pressable
+            accessibilityLabel={`${charge.title} 토스로 송금`}
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={onSendWithToss}
+            style={({pressed}) => [styles.detailTossButton, pressed ? styles.pressed : null]}>
+            <Text style={styles.detailTossButtonText}>
+              {isPresetBankName(account?.bankName ?? '') ? '토스로 송금' : '계좌 복사'}
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityLabel={`${charge.title} 납부 완료 처리`}
+          accessibilityRole="button"
+          accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
+          disabled={disabled || !canMarkPaid}
+          onPress={onMarkPaid}
+          style={({pressed}) => [
+            styles.detailPrimaryButton,
+            !canMarkPaid ? styles.detailPrimaryButtonDisabled : null,
+            pressed ? styles.pressed : null,
           ]}>
-          {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '입금 완료' : '처리 완료'}
-        </Text>
-      </Pressable>
+          <Text
+            style={[
+              styles.detailPrimaryButtonText,
+              !canMarkPaid ? styles.detailPrimaryButtonTextDisabled : null,
+            ]}>
+            {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '납부 완료' : '처리 완료'}
+          </Text>
+        </Pressable>
+      </View>
     </>
   );
 }
@@ -1449,6 +1515,12 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     maxWidth: 190,
   },
+  chargeButtonGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 6,
+  },
   chargeMetaStack: {
     flex: 1,
     gap: 3,
@@ -1493,6 +1565,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 42,
   },
+  detailActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
   detailHeroCard: {
     backgroundColor: paymentColors.card,
     borderRadius: 22,
@@ -1517,6 +1594,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
     paddingHorizontal: 18,
+    flexGrow: 1,
+    flexBasis: 140,
   },
   detailPrimaryButtonDisabled: {
     backgroundColor: colors.borderSoft,
@@ -1529,6 +1608,22 @@ const styles = StyleSheet.create({
   },
   detailPrimaryButtonTextDisabled: {
     color: colors.textMuted,
+  },
+  detailTossButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    flexBasis: 140,
+    flexGrow: 1,
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingHorizontal: 18,
+  },
+  detailTossButtonText: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
   },
   detailSubtitle: {
     color: paymentColors.muted,
@@ -1824,5 +1919,15 @@ const styles = StyleSheet.create({
   },
   summaryGrid: {
     gap: 8,
+  },
+  tossButton: {
+    backgroundColor: colors.primary,
+    minWidth: 68,
+  },
+  tossButtonText: {
+    color: colors.surface,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
 });

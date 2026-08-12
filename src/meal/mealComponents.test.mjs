@@ -54,6 +54,11 @@ vi.mock('../components/ui', async () => {
   };
 });
 
+vi.mock('../components/IconexIcon', async () => {
+  const ReactModule = await import('react');
+  return {IconexIcon: (props) => ReactModule.createElement('IconexIcon', props)};
+});
+
 vi.mock('../api/tokenStorage', () => ({
   getAuthSessionGeneration: vi.fn(() => auth.generation),
   isAuthSessionRequestAllowed: vi.fn((generation) => generation === auth.generation),
@@ -451,8 +456,9 @@ describe('MEAL component behavior', () => {
       placeholder: '3333-00-7777777',
     });
     await change(renderer, '밥 계좌 별칭', '점심 계좌');
-    await change(renderer, '밥 계좌 은행명', '신한은행');
-    await change(renderer, '밥 계좌번호', '110000000000');
+    await press(renderer, '밥 계좌 은행 선택');
+    await press(renderer, '신한은행 선택');
+    await change(renderer, '밥 계좌번호', '110-000-000000');
     await change(renderer, '밥 계좌 예금주', '샘플 사용자');
     const button = findByLabel(renderer, '본인 밥 계좌 등록');
     await act(async () => {
@@ -463,12 +469,21 @@ describe('MEAL component behavior', () => {
     expect(api.createPaymentAccount).toHaveBeenCalledTimes(1);
     for (const label of [
       '밥 계좌 별칭',
-      '밥 계좌 은행명',
       '밥 계좌번호',
       '밥 계좌 예금주',
     ]) {
       expect(findByLabel(renderer, label).props.editable).toBe(false);
     }
+    expect(findByLabel(renderer, '밥 계좌 은행 선택').props).toMatchObject({
+      accessibilityState: {disabled: true, expanded: false},
+      disabled: true,
+    });
+    expect(api.createPaymentAccount).toHaveBeenCalledWith(
+      'A1',
+      1,
+      7,
+      expect.objectContaining({accountNumber: '110000000000', bankName: '신한은행'}),
+    );
     await act(async () => {
       createRequest.resolve(mealAccount());
       await settle();
@@ -514,7 +529,8 @@ describe('MEAL component behavior', () => {
     });
     await press(renderer, '밥 계좌 추가 페이지 열기');
     await change(renderer, '밥 계좌 별칭', '저녁 계좌');
-    await change(renderer, '밥 계좌 은행명', '신한은행');
+    await press(renderer, '밥 계좌 은행 선택');
+    await press(renderer, '신한은행 선택');
     await change(renderer, '밥 계좌번호', '110000000001');
     await change(renderer, '밥 계좌 예금주', '샘플 사용자');
     await press(renderer, '본인 밥 계좌 등록');
@@ -580,7 +596,8 @@ describe('MEAL component behavior', () => {
     });
     await press(renderer, '밥 계좌 추가 페이지 열기');
     await change(renderer, '밥 계좌 별칭', '점심 계좌');
-    await change(renderer, '밥 계좌 은행명', '신한은행');
+    await press(renderer, '밥 계좌 은행 선택');
+    await press(renderer, '신한은행 선택');
     await change(renderer, '밥 계좌번호', '110000000000');
     await change(renderer, '밥 계좌 예금주', '샘플 사용자');
     await press(renderer, '본인 밥 계좌 등록');

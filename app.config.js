@@ -98,6 +98,7 @@ module.exports = ({config}) => {
     plugins: [
       ...(config.plugins || []),
       './plugins/withAndroidNavigationMode',
+      './plugins/withTossRemittance',
       './plugins/withFirebaseAnalyticsScreenReporting',
       buildPropertiesPlugin,
       announcementImagePickerPlugin,

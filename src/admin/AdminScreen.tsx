@@ -219,6 +219,8 @@ import {
   isPublishedPollNoticeEditCurrent,
 } from '../polls/notice/publishedPollNoticeEditCoordinator';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
+import {BankSelectionField} from '../payments/BankSelectionField';
+import {preparePaymentAccountFields} from '../payments/paymentAccountInput';
 import {formatCompactWon, formatWon} from '../utils/money';
 import {
   beginPenaltyRuleSave,
@@ -1513,12 +1515,10 @@ export function AdminScreen({
         return;
       }
 
+      const normalized = preparePaymentAccountFields(paymentAccountForm);
       const account = await createAdminPaymentAccount(accessToken, campusId, {
         accountType: paymentAccountForm.accountType,
-        nickname: paymentAccountForm.nickname,
-        bankName: paymentAccountForm.bankName,
-        accountNumber: paymentAccountForm.accountNumber,
-        accountHolder: paymentAccountForm.accountHolder,
+        ...normalized,
       });
       invalidatePaymentContextCache(campusId);
 
@@ -9484,12 +9484,11 @@ function AdminPaymentAccounts({
               />
             </View>
             <View style={styles.filterField}>
-              <TextField
-                accessibilityLabel="납부 계좌 은행명"
-                label="은행"
-                onChangeText={(bankName) => onChangeForm({bankName})}
-                placeholder="카카오뱅크"
-                value={form.bankName}
+              <BankSelectionField
+                bankName={form.bankName}
+                disabled={busy}
+                domainLabel="납부"
+                onChange={(bankName) => onChangeForm({bankName})}
               />
             </View>
           </View>
