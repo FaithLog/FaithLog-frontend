@@ -20,7 +20,9 @@ describe('payment Toss remittance wiring', () => {
   it('keeps remittance separate from the existing explicit paid confirmation', () => {
     expect(source).toContain('onSendWithToss');
     expect(source).toContain('onMarkPaid');
-    expect(source).toContain('토스로 송금');
-    expect(source).toContain('납부 완료');
+    expect(source).toContain("? '토스로 송금' : '계좌 복사'");
+    expect(source).toContain("? '입금했어요' : '완료'");
+    expect(source).toContain("? '입금했어요' : '처리 완료'");
+    expect(source).not.toContain("? '납부 완료' :");
   });
 });

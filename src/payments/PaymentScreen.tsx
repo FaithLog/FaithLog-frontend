@@ -938,12 +938,12 @@ function ChargeCard({
               }}
               style={({pressed}) => [styles.figmaChargeButton, styles.tossButton, pressed ? styles.pressed : null]}>
               <Text style={styles.tossButtonText}>
-                {isPresetBankName(charge.account?.bankName ?? '') ? '토스 송금' : '계좌 복사'}
+                {isPresetBankName(charge.account?.bankName ?? '') ? '토스로 송금' : '계좌 복사'}
               </Text>
             </Pressable>
           ) : null}
           <Pressable
-            accessibilityLabel={`${charge.title} 납부 완료 처리`}
+            accessibilityLabel={`${charge.title} 입금했어요 처리`}
             accessibilityRole="button"
             accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
             disabled={disabled || !canMarkPaid}
@@ -957,7 +957,7 @@ function ChargeCard({
               pressed ? styles.pressed : null,
             ]}>
             <Text style={styles.figmaChargeButtonText}>
-              {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '납부 완료' : '완료'}
+              {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '입금했어요' : '완료'}
             </Text>
           </Pressable>
         </View>
@@ -1082,7 +1082,7 @@ function PaymentChargeDetail({
           </Pressable>
         ) : null}
         <Pressable
-          accessibilityLabel={`${charge.title} 납부 완료 처리`}
+          accessibilityLabel={`${charge.title} 입금했어요 처리`}
           accessibilityRole="button"
           accessibilityState={{busy: markingPaid, disabled: disabled || !canMarkPaid}}
           disabled={disabled || !canMarkPaid}
@@ -1097,7 +1097,7 @@ function PaymentChargeDetail({
               styles.detailPrimaryButtonText,
               !canMarkPaid ? styles.detailPrimaryButtonTextDisabled : null,
             ]}>
-            {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '납부 완료' : '처리 완료'}
+            {markingPaid ? '처리 중' : charge.status === 'UNPAID' ? '입금했어요' : '처리 완료'}
           </Text>
         </Pressable>
       </View>
