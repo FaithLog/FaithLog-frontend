@@ -44,24 +44,31 @@ describe('BankSelectionField', () => {
     expect(onChange).toHaveBeenCalledWith('카카오뱅크');
   });
 
-  it('shows a free-text input only after 직접 입력 is selected', () => {
+  it('does not expose a free-text input outside the approved bank list', () => {
     const onChange = vi.fn();
-    const renderer = renderField({domainLabel: '커피', onChange});
+    const renderer = renderField({bankName: '부산은행', domainLabel: '커피', onChange});
     expect(byLabel(renderer, '커피 계좌 은행명 직접 입력')).toHaveLength(0);
 
     press(renderer, '커피 계좌 은행 선택');
-    press(renderer, '직접 입력 선택');
-
-    expect(onChange).toHaveBeenCalledWith('');
-    expect(byLabel(renderer, '커피 계좌 은행명 직접 입력')).toHaveLength(1);
+    expect(byLabel(renderer, '직접 입력 선택')).toHaveLength(0);
+    expect(byLabel(renderer, '카카오뱅크 선택')).toHaveLength(1);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
 
-function renderField({domainLabel, onChange}: {domainLabel: string; onChange: (value: string) => void}) {
+function renderField({
+  bankName = '',
+  domainLabel,
+  onChange,
+}: {
+  bankName?: string;
+  domainLabel: string;
+  onChange: (value: string) => void;
+}) {
   let renderer!: ReactTestRenderer;
   act(() => {
     renderer = create(
-      <BankSelectionField bankName="" domainLabel={domainLabel} onChange={onChange} />,
+      <BankSelectionField bankName={bankName} domainLabel={domainLabel} onChange={onChange} />,
     );
   });
   return renderer;

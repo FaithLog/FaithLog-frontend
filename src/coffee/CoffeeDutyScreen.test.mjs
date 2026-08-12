@@ -418,15 +418,13 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     });
     await change(renderer, '커피 계좌 별칭', '새 커피 계좌');
     await press(renderer, '커피 계좌 은행 선택');
-    await press(renderer, '직접 입력 선택');
-    await change(renderer, '커피 계좌 은행명 직접 입력', '테스트은행');
+    await press(renderer, '카카오뱅크 선택');
     await change(renderer, '커피 계좌번호', '111-222');
     await change(renderer, '커피 계좌 예금주', '커피 담당');
     await press(renderer, '커피 계좌 등록');
 
     for (const label of [
       '커피 계좌 별칭',
-      '커피 계좌 은행명 직접 입력',
       '커피 계좌번호',
       '커피 계좌 예금주',
     ]) {
@@ -439,7 +437,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     expect(mocks.createCoffeeDutyPaymentAccount).toHaveBeenCalledWith(
       'A1',
       1,
-      expect.objectContaining({accountNumber: '111222', bankName: '테스트은행'}),
+      expect.objectContaining({accountNumber: '111222', bankName: '카카오뱅크'}),
     );
 
     await act(async () => {

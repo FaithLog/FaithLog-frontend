@@ -2,7 +2,6 @@ import {useState} from 'react';
 import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
 import {IconexIcon} from '../components/IconexIcon';
-import {TextField} from '../components/ui';
 import {colors, radius, spacing} from '../theme';
 import {BANK_OPTIONS, isPresetBankName} from './paymentAccountInput';
 
@@ -18,22 +17,10 @@ export function BankSelectionField({
   onChange: (bankName: string) => void;
 }) {
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [directInputSelected, setDirectInputSelected] = useState(
-    bankName.trim().length > 0 && !isPresetBankName(bankName),
-  );
-  const directInput = directInputSelected || (
-    bankName.trim().length > 0 && !isPresetBankName(bankName)
-  );
+  const selectedBankName = isPresetBankName(bankName) ? bankName : '';
 
   const selectBank = (nextBankName: string) => {
-    setDirectInputSelected(false);
     onChange(nextBankName);
-    setPickerVisible(false);
-  };
-
-  const selectDirectInput = () => {
-    setDirectInputSelected(true);
-    onChange('');
     setPickerVisible(false);
   };
 
@@ -54,22 +41,11 @@ export function BankSelectionField({
         <Text
           ellipsizeMode="tail"
           numberOfLines={1}
-          style={[styles.selectText, bankName ? null : styles.placeholder]}>
-          {directInput ? '직접 입력' : bankName || '은행을 선택해 주세요'}
+          style={[styles.selectText, selectedBankName ? null : styles.placeholder]}>
+          {selectedBankName || '은행을 선택해 주세요'}
         </Text>
         <Text accessibilityElementsHidden style={styles.chevron}>⌄</Text>
       </Pressable>
-
-      {directInput ? (
-        <TextField
-          accessibilityLabel={`${domainLabel} 계좌 은행명 직접 입력`}
-          editable={!disabled}
-          label="은행명 직접 입력"
-          onChangeText={onChange}
-          placeholder="은행명을 입력해 주세요"
-          value={bankName}
-        />
-      ) : null}
 
       <Modal
         animationType="fade"
@@ -103,14 +79,9 @@ export function BankSelectionField({
                   key={option}
                   label={option}
                   onPress={() => selectBank(option)}
-                  selected={!directInput && bankName === option}
+                  selected={selectedBankName === option}
                 />
               ))}
-              <BankOption
-                label="직접 입력"
-                onPress={selectDirectInput}
-                selected={directInput}
-              />
             </ScrollView>
           </View>
         </View>
