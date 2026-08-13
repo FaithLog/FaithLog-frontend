@@ -5,6 +5,7 @@ import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
 import {DutyAccountRegistrationForm} from '../duty/DutyAccountRegistrationForm';
+import {preparePaymentAccountFields} from '../payments/paymentAccountInput';
 import {
   DutyActionButton,
   DutyAsyncState,
@@ -118,12 +119,12 @@ export function MealAccountScreen({api = mealApi, campusId, currentUserId, onBac
         if (apiError) setActionError(apiError);
         return;
       }
-      const created = await api.createPaymentAccount(access.request.accessToken, campusId, currentUserId, {
-        nickname,
-        bankName,
-        accountNumber,
-        accountHolder,
-      });
+      const created = await api.createPaymentAccount(
+        access.request.accessToken,
+        campusId,
+        currentUserId,
+        preparePaymentAccountFields({nickname, bankName, accountNumber, accountHolder}),
+      );
       if (!tracker.isSuccessCurrent(identity)) return;
       setState({status: 'success', data: [created]});
       setNickname('');

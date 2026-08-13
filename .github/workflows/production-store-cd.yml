@@ -1,0 +1,80 @@
+name: Production Store CD
+
+on:
+  workflow_run:
+    workflows:
+      - Frontend CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-store-cd
+  cancel-in-progress: false
+
+jobs:
+  build-and-submit:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      EXPO_PUBLIC_API_BASE_URL: https://faithlog-549871256004.asia-northeast3.run.app
+      EXPO_PUBLIC_APP_ENV: production
+      EXPO_PUBLIC_MOCK_MODE: 'false'
+    steps:
+      - name: Checkout verified main commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Verify checked out commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.workflow_run.head_sha }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22.13.1
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # v9
+        with:
+          eas-version: 20.5.1
+
+      - name: Verify production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_APP_ENV" = "production"
+          test "$EXPO_PUBLIC_MOCK_MODE" = "false"
+          test -n "$EXPO_PUBLIC_API_BASE_URL"
+          node -e "const eas=require('./eas.json'); if(eas.submit?.production?.android?.track!=='internal') process.exit(1); if(!eas.submit?.production?.ios?.ascAppId) process.exit(1)"
+
+      - name: Verify backend reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_code="$(curl -sS -o /tmp/faithlog-backend-health.json -w "%{http_code}" "$EXPO_PUBLIC_API_BASE_URL/api/v1/health")"
+          test "$status_code" = "200"
+
+      - name: Build and submit both stores
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: >-
+          eas build
+          --profile production
+          --platform all
+          --auto-submit
+          --auto-submit-with-profile production
+          --non-interactive

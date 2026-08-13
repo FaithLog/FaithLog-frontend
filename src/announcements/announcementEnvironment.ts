@@ -8,16 +8,17 @@ export function isAnnouncementMockModeEnabled() {
  * Single exposure gate for the announcement experience.
  *
  * The production contract is confirmed against backend #237 REST Docs.
- * Shipped preview/production builds expose the live transport, while
- * local/development builds still require an explicit integration or mock flag.
+ * The confirmed contract is enabled by default in every supported app
+ * environment. Local builds may still use an explicit false value as a
+ * troubleshooting kill switch; builds no longer need to inject true.
  */
 export function isAnnouncementCapabilityEnabled() {
   const environment = process.env.EXPO_PUBLIC_APP_ENV?.trim().toLowerCase();
   if (environment === 'preview' || environment === 'production') return true;
   if (!isLocalAnnouncementEnvironment()) return false;
-  const integrationRequested =
-    process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED?.trim().toLowerCase() === 'true';
-  return integrationRequested || isAnnouncementMockModeEnabled();
+  const configured = process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED?.trim().toLowerCase();
+  if (configured === 'false') return isAnnouncementMockModeEnabled();
+  return true;
 }
 
 export function isAnnouncementPdfCapabilityEnabled() {
