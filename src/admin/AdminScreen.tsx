@@ -252,6 +252,9 @@ import {isAnnouncementCapabilityEnabled} from '../announcements/announcementEnvi
 import {AdminWeeklyMaterialsScreen} from '../weeklyMaterials/AdminWeeklyMaterialsScreen';
 import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMaterialEnvironment';
 import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
+import {AdminShepherdAttendanceScreen} from '../shepherdAttendance/AdminShepherdAttendanceScreen';
+import {getShepherdAttendanceRuntimeApi} from '../shepherdAttendance/shepherdAttendanceRuntime';
+import {isShepherdAttendanceCapabilityEnabled} from '../shepherdAttendance/shepherdAttendanceEnvironment';
 import {
   openWeeklyMaterialPdf,
   pickWeeklyMaterialPdf,
@@ -287,6 +290,7 @@ type AdminTab =
   | 'polls'
   | 'announcements'
   | 'weeklyMaterials'
+  | 'shepherdAttendance'
   | 'notificationLogs'
   | 'prayer'
   | 'members'
@@ -681,6 +685,7 @@ export function AdminScreen({
   const campusId = state.selectedCampus.campusId;
   const announcementCapabilityEnabled = isAnnouncementCapabilityEnabled();
   const weeklyMaterialCapabilityEnabled = isWeeklyMaterialCapabilityEnabled();
+  const shepherdAttendanceCapabilityEnabled = isShepherdAttendanceCapabilityEnabled();
   const [weekStartDate, setWeekStartDate] = useState(() => getWeekStartDate(new Date()));
   const [tab, setTab] = useState<AdminTab>('home');
   const [memberSection, setMemberSection] = useState<AdminMemberSection>('list');
@@ -2989,6 +2994,7 @@ export function AdminScreen({
       return;
     }
     if (nextTab === 'weeklyMaterials' && !weeklyMaterialCapabilityEnabled) return;
+    if (nextTab === 'shepherdAttendance' && !shepherdAttendanceCapabilityEnabled) return;
 
     const changeTab = () => {
       if (tab === 'settlement' && nextTab !== 'settlement') {
@@ -3097,6 +3103,26 @@ export function AdminScreen({
     );
   }
 
+  if (tab === 'shepherdAttendance') {
+    return (
+      <View style={styles.adminModeFrame}>
+        <AdminShepherdAttendanceScreen
+          api={getShepherdAttendanceRuntimeApi()}
+          campusId={campusId}
+          key={`admin-shepherd-attendance-campus-${campusId}`}
+          getAccessToken={async () => {
+            const token = await resolveCurrentAccessToken(() => undefined);
+            if (!token) throw new Error('Missing access token');
+            return token;
+          }}
+          members={loadState.status === 'success' ? loadState.members : []}
+          onBack={() => setTab('home')}
+        />
+        <AdminBottomNav activeTab={tab} bottomInset={androidShellInsets.bottomNavInset} onSelectTab={selectAdminTab} />
+      </View>
+    );
+  }
+
   if (loadState.status === 'loading') {
     return <Loading message="관리자 홈, 멤버, 커피 담당자 정보를 불러오고 있어요." />;
   }
@@ -3129,6 +3155,9 @@ export function AdminScreen({
               : {})}
             {...(weeklyMaterialCapabilityEnabled
               ? {onOpenWeeklyMaterials: () => setTab('weeklyMaterials')}
+              : {})}
+            {...(shepherdAttendanceCapabilityEnabled
+              ? {onOpenShepherdAttendance: () => setTab('shepherdAttendance')}
               : {})}
             prayerState={prayerState}
             summary={loadState.summary}
@@ -3229,6 +3258,9 @@ export function AdminScreen({
             : {})}
           {...(weeklyMaterialCapabilityEnabled
             ? {onOpenWeeklyMaterials: () => setTab('weeklyMaterials')}
+            : {})}
+          {...(shepherdAttendanceCapabilityEnabled
+            ? {onOpenShepherdAttendance: () => setTab('shepherdAttendance')}
             : {})}
           prayerState={prayerState}
           summary={loadState.summary}
@@ -3628,6 +3660,7 @@ function getPrayerMissingMetricValue(prayerState: AdminPrayerState) {
 function AdminHome({
   onOpenAnnouncements,
   onOpenWeeklyMaterials,
+  onOpenShepherdAttendance,
   onOpenPrayer,
   onOpenRoles,
   prayerState,
@@ -3636,6 +3669,7 @@ function AdminHome({
   coffeeDuty?: DutyAssignment | null;
   onOpenAnnouncements?: () => void;
   onOpenWeeklyMaterials?: () => void;
+  onOpenShepherdAttendance?: () => void;
   onOpenMembers?: () => void;
   onOpenPrayer?: () => void;
   onOpenRoles?: () => void;
@@ -3681,6 +3715,9 @@ function AdminHome({
             supportingText="목자지침·주일·토목모 나눔지 PDF 등록"
             value="보기"
           />
+        ) : null}
+        {onOpenShepherdAttendance ? (
+          <ListRow accessibilityLabel="관리자 목홀타 관리 화면으로 이동" label="목홀타 관리" onPress={onOpenShepherdAttendance} supportingText="목장별 제출 현황과 참여 인원" value="보기" />
         ) : null}
         {onOpenRoles ? (
           <ListRow
@@ -12127,6 +12164,8 @@ function getAdminShellTitle(tab: AdminTab) {
       return '공지 관리';
     case 'weeklyMaterials':
       return '주간 자료';
+    case 'shepherdAttendance':
+      return '목홀타';
     case 'notificationLogs':
       return '알림';
     case 'prayer':
@@ -12154,6 +12193,8 @@ function getAdminTabIcon(tab: AdminTab): IconexIconName {
       return 'bell';
     case 'weeklyMaterials':
       return 'document';
+    case 'shepherdAttendance':
+      return 'check';
     case 'notificationLogs':
       return 'bell';
     case 'prayer':
