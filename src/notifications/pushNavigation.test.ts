@@ -314,9 +314,10 @@ describe('push notification route payload validation', () => {
     });
   });
 
-  it('keeps announcement deep links disabled in a local build without an explicit capability', () => {
+  it('keeps announcement deep links disabled when the local kill switch is explicit', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'local';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+    vi.stubEnv('EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED', 'false');
 
     expect(parsePushNotificationOpenPayload({
       eventType: 'ANNOUNCEMENT_PUBLISHED',

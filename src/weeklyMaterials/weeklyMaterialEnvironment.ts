@@ -1,6 +1,5 @@
 export function isWeeklyMaterialCapabilityEnabled() {
-  const enabled = process.env.EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED?.trim().toLowerCase() === 'true';
-  return enabled;
+  return process.env.EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED?.trim().toLowerCase() !== 'false';
 }
 
 export function shouldUseWeeklyMaterialMockApi() {

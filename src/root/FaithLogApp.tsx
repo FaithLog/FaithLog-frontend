@@ -3174,17 +3174,6 @@ function UserHomeDashboard({
           onPress={onOpenDevotion}
         />
       </View>
-      {campusReady ? <HomeAnnouncementCapabilitySection
-        campusId={campusId}
-        key={`home-announcements-campus-${campusId}`}
-        onOpenAll={onOpenAnnouncements}
-        onOpenAnnouncement={onOpenAnnouncement}
-        userId={state.user.id}
-      /> : null}
-      <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
-      {campusReady && isWeeklyMaterialCapabilityEnabled() ? (
-        <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
-      ) : null}
       {campusReady && isShepherdAttendanceCapabilityEnabled() ? (
         <HomeShepherdAttendanceSection
           api={getShepherdAttendanceRuntimeApi()}
@@ -3197,6 +3186,17 @@ function UserHomeDashboard({
           }}
           onOpen={onOpenShepherdAttendance}
         />
+      ) : null}
+      {campusReady ? <HomeAnnouncementCapabilitySection
+        campusId={campusId}
+        key={`home-announcements-campus-${campusId}`}
+        onOpenAll={onOpenAnnouncements}
+        onOpenAnnouncement={onOpenAnnouncement}
+        userId={state.user.id}
+      /> : null}
+      <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
+      {campusReady && isWeeklyMaterialCapabilityEnabled() ? (
+        <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
       ) : null}
       <HomePrayerEntryCard
         entryMode="groups"

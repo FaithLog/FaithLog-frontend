@@ -29,12 +29,20 @@ describe('announcement runtime capability', () => {
     expect(isAnnouncementPdfCapabilityEnabled()).toBe(true);
   });
 
-  it('keeps PDF hidden when the announcement capability itself is unavailable', () => {
+  it('enables the confirmed announcement and PDF capability by default in development', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
     delete process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED;
     delete process.env.EXPO_PUBLIC_ANNOUNCEMENT_PDF_ENABLED;
-    expect(isAnnouncementPdfCapabilityEnabled()).toBe(false);
+    expect(isAnnouncementCapabilityEnabled()).toBe(true);
+    expect(isAnnouncementPdfCapabilityEnabled()).toBe(true);
+  });
+
+  it('still supports an explicit local kill switch', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_MOCK_MODE = 'false';
+    process.env.EXPO_PUBLIC_ANNOUNCEMENTS_ENABLED = 'false';
+    expect(isAnnouncementCapabilityEnabled()).toBe(false);
   });
 
   it.each(['local', 'development'])('enables announcements only for mock %s runs', (appEnvironment) => {
