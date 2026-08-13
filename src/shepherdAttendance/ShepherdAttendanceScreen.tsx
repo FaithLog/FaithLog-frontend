@@ -42,7 +42,7 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
   const selected = data?.groups.find((group) => group.groupId === selectedGroupId) ?? null;
   const selectGroup = (groupId: number) => { const group = data?.groups.find((item) => item.groupId === groupId); if (!group) return; setSelectedGroupId(groupId); setRecentShepherdGroup(campusId, groupId); setInput(fromReport(group.report)); setError(null); };
   const save = async (status: ShepherdAttendanceStatus) => {
-    if (savingRef.current || !selected || !data) return;
+    if (savingRef.current || !selected || !data?.serviceDate) return;
     const validated = validateAttendanceInput(input); if (!validated.ok) { setError(validated.message); return; }
     savingRef.current = true; setSaving(true); setError(null);
     try {
@@ -52,7 +52,7 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
       setData(next); onChanged?.(next); setInput(fromReport(report));
       if (status === 'SUBMITTED') { const nextGroup = groups.find((group) => group.report?.status !== 'SUBMITTED'); if (nextGroup) selectGroup(nextGroup.groupId); }
     } catch (reason) {
-      if (reason instanceof FaithLogApiError && reason.detail.status === 409) { await load(); if (mounted.current) setError('다른 사용자가 먼저 수정했습니다. 최신 내용을 불러왔습니다.'); }
+      if (reason instanceof FaithLogApiError && reason.detail.code === 'SHEPHERD_ATTENDANCE_CONFLICT') { await load(); if (mounted.current) setError('다른 사용자가 먼저 수정했습니다. 최신 내용을 불러왔습니다.'); }
       else setError('저장하지 못했습니다. 입력한 내용을 유지했습니다.');
     } finally { savingRef.current = false; if (mounted.current) setSaving(false); }
   };
@@ -67,7 +67,7 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
       <Text style={styles.label}>메모 (선택)</Text><TextInput accessibilityLabel="목홀타 메모" multiline onChangeText={(note) => setInput((current) => ({...current, note}))} placeholder="특이사항이 있으면 입력해 주세요" style={[styles.input, styles.note]} value={input.note} />
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}<View style={styles.actions}><Button accessibilityLabel="목홀타 임시 저장" disabled={saving} onPress={() => void save('DRAFT')} variant="secondary">{saving ? '저장 중' : '임시 저장'}</Button><Button accessibilityLabel="목홀타 제출 완료" disabled={saving} onPress={() => void save('SUBMITTED')}>{saving ? '제출 중' : '제출 완료'}</Button></View>
     </View> : <Text style={styles.empty}>현재 담당하는 목장이 없습니다.</Text>}
-    <View style={styles.create}><Text style={styles.groupTitle}>새 목장 만들기</Text><TextInput accessibilityLabel="새 목장 이름" onChangeText={setCreateName} placeholder="목장 이름" style={styles.input} value={createName} /><Button accessibilityLabel="목장 생성" disabled={creating || !createName.trim()} onPress={() => void create()} variant="secondary">목장 생성</Button></View>
+    <View style={styles.create}><Text style={styles.groupTitle}>새 목장 만들기</Text><TextInput accessibilityLabel="새 목장 이름" maxLength={100} onChangeText={setCreateName} placeholder="목장 이름" style={styles.input} value={createName} /><Button accessibilityLabel="목장 생성" disabled={creating || !createName.trim()} onPress={() => void create()} variant="secondary">목장 생성</Button></View>
   </ScrollView>;
 }
 

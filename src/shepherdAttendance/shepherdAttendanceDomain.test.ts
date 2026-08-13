@@ -9,6 +9,7 @@ describe('shepherd attendance domain', () => {
   it('accepts a visible home payload and keeps independent zero counts', () => {
     const value = parseShepherdHome({
       visible: true,
+      title: '이번 주 목홀타를 입력해 주세요',
       serviceDate: '2026-08-16',
       assignedGroupCount: 1,
       submittedGroupCount: 0,
@@ -33,11 +34,23 @@ describe('shepherd attendance domain', () => {
   it('requires hidden home payloads to have no assigned groups', () => {
     expect(() => parseShepherdHome({
       visible: false,
-      serviceDate: '2026-08-16',
+      title: '이번 주 목홀타를 입력해 주세요',
+      serviceDate: null,
       assignedGroupCount: 1,
       submittedGroupCount: 0,
       groups: [],
     })).toThrowError(/INVALID_SERVER_RESPONSE/);
+  });
+
+  it('accepts the documented hidden home payload with a null service date', () => {
+    expect(parseShepherdHome({
+      visible: false,
+      title: '이번 주 목홀타를 입력해 주세요',
+      serviceDate: null,
+      assignedGroupCount: 0,
+      submittedGroupCount: 0,
+      groups: [],
+    })).toMatchObject({visible: false, serviceDate: null, groups: []});
   });
 
   it('validates integer inputs and allows exactly zero', () => {
@@ -52,20 +65,28 @@ describe('shepherd attendance domain', () => {
 
   it('uses server totals instead of summing the current page', () => {
     const page = parseAdminAttendancePage({
+      campusId: 7,
       serviceDate: '2026-08-16',
-      content: [{
+      groups: [{
         groupId: 1,
         groupName: '사랑목장',
-        assignees: [{userId: 2, name: '홍길동'}],
+        groupVersion: 1,
+        assignees: [{userId: 2, name: '홍길동', email: 'qa@example.com'}],
         report: null,
       }],
-      totals: {smallGroupMeetingCount: 80, holyWaveCount: 50, otherWorshipCount: 20},
       page: 0,
       size: 50,
       totalElements: 75,
       totalPages: 2,
-    }, {page: 0, size: 50, serviceDate: '2026-08-16'});
+      totalSubmittedCount: 30,
+      totalMissingCount: 45,
+      totalSmallGroupMeetingCount: 80,
+      totalHolyWaveCount: 50,
+      totalOtherWorshipCount: 20,
+    }, {campusId: 7, page: 0, size: 50, serviceDate: '2026-08-16'});
     expect(page.totals.smallGroupMeetingCount).toBe(80);
+    expect(page.totalSubmittedCount).toBe(30);
+    expect(page.totalMissingCount).toBe(45);
     expect(page.totalElements).toBe(75);
   });
 });

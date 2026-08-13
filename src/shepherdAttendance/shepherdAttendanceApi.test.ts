@@ -7,6 +7,7 @@ vi.mock('../api/client', () => ({
   },
 }));
 import {createShepherdAttendanceApi} from './shepherdAttendanceApi';
+import type {ShepherdAttendanceRequest} from './shepherdAttendanceApi';
 
 describe('shepherd attendance API boundary', () => {
   it('fails closed without dispatching while REST Docs are pending', async () => {
@@ -16,12 +17,14 @@ describe('shepherd attendance API boundary', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('uses the exact provisional home and save paths in confirmed tests', async () => {
+  it('uses the exact documented home and save paths in confirmed tests', async () => {
     const request = vi.fn()
-      .mockResolvedValueOnce({visible: false, serviceDate: '2026-08-16', assignedGroupCount: 0, submittedGroupCount: 0, groups: []})
+      .mockResolvedValueOnce({visible: false, title: '이번 주 목홀타를 입력해 주세요', serviceDate: null, assignedGroupCount: 0, submittedGroupCount: 0, groups: []})
       .mockResolvedValueOnce({
-        reportId: 1, smallGroupMeetingCount: 0, holyWaveCount: 1, otherWorshipCount: 2,
-        note: null, status: 'SUBMITTED', version: 1, lastModifiedAt: '2026-08-16T00:00:00Z',
+        reportId: 1, campusId: 7, groupId: 9, serviceDate: '2026-08-16',
+        smallGroupMeetingCount: 0, holyWaveCount: 1, otherWorshipCount: 2,
+        note: null, status: 'SUBMITTED', version: 1, lastModifiedByUserId: 3,
+        lastModifiedByName: '홍길동', lastModifiedAt: '2026-08-16T00:00:00Z',
       });
     const api = createShepherdAttendanceApi({contractStatus: 'confirmed-test', request});
     await api.getHome('token', 7);
@@ -38,15 +41,21 @@ describe('shepherd attendance API boundary', () => {
   });
 
   it('uses server-paged admin paths and keeps assignee ids exact', async () => {
-    const request = vi.fn()
-      .mockResolvedValueOnce({serviceDate: '2026-08-16', content: [], totals: {smallGroupMeetingCount: 80, holyWaveCount: 50, otherWorshipCount: 20}, page: 1, size: 50, totalElements: 75, totalPages: 2})
-      .mockResolvedValueOnce({groupId: 9});
+    const responses = [
+      {campusId: 7, serviceDate: '2026-08-16', groups: [], page: 1, size: 50, totalElements: 75, totalPages: 2, totalSubmittedCount: 30, totalMissingCount: 45, totalSmallGroupMeetingCount: 80, totalHolyWaveCount: 50, totalOtherWorshipCount: 20},
+      {groupId: 9, campusId: 7, name: '사랑 목장', status: 'ACTIVE', version: 2, assignees: [{userId: 10, name: '홍길동', email: 'qa@example.com'}]},
+    ];
+    const requestMock = vi.fn(async (_path: string, options: {responseParser?: (value: unknown) => unknown}) => {
+      const response = responses.shift();
+      return options.responseParser ? options.responseParser(response) : response;
+    });
+    const request = requestMock as unknown as ShepherdAttendanceRequest;
     const api = createShepherdAttendanceApi({contractStatus: 'confirmed-test', request});
     const page = await api.getAdminPage('token', 7, '2026-08-16', 1, 50);
     await api.updateAssignees('token', 7, 9, [10, 11]);
     expect(page.totals).toEqual({smallGroupMeetingCount: 80, holyWaveCount: 50, otherWorshipCount: 20});
-    expect(request.mock.calls[0]?.[0]).toBe('/api/v1/admin/campuses/7/shepherd-attendance?serviceDate=2026-08-16&page=1&size=50');
-    expect(request.mock.calls[1]).toEqual(['/api/v1/admin/campuses/7/shepherd-groups/9/assignees', {accessToken: 'token', body: {assigneeUserIds: [10, 11]}, method: 'PUT'}]);
+    expect(requestMock.mock.calls[0]?.[0]).toBe('/api/v1/admin/campuses/7/shepherd-attendance?serviceDate=2026-08-16&page=1&size=50');
+    expect(requestMock.mock.calls[1]).toEqual(['/api/v1/admin/campuses/7/shepherd-groups/9/assignees', expect.objectContaining({accessToken: 'token', body: {assigneeUserIds: [10, 11]}, method: 'PUT'})]);
   });
 
   it('rejects removing the last assignee before dispatch', async () => {

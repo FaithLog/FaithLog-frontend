@@ -8,10 +8,10 @@ afterEach(() => {
   if (originalMock === undefined) delete process.env.EXPO_PUBLIC_MOCK_MODE; else process.env.EXPO_PUBLIC_MOCK_MODE = originalMock;
 });
 describe('shepherd attendance environment', () => {
-  it('enables the provisional feature only in local mock development', () => {
+  it('enables the confirmed feature in production and keeps mock selection development-only', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development'; process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
     expect(shouldUseShepherdAttendanceMock()).toBe(true); expect(isShepherdAttendanceCapabilityEnabled()).toBe(true);
     process.env.EXPO_PUBLIC_APP_ENV = 'production'; process.env.EXPO_PUBLIC_MOCK_MODE = 'true';
-    expect(shouldUseShepherdAttendanceMock()).toBe(false); expect(isShepherdAttendanceCapabilityEnabled()).toBe(false);
+    expect(shouldUseShepherdAttendanceMock()).toBe(false); expect(isShepherdAttendanceCapabilityEnabled()).toBe(true);
   });
 });

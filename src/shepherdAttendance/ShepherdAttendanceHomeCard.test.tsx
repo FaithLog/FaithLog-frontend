@@ -12,9 +12,9 @@ import {ShepherdAttendanceHomeCard} from './ShepherdAttendanceHomeCard';
 describe('ShepherdAttendanceHomeCard', () => {
   it('renders only for visible assigned groups and shows completion', () => {
     let renderer: TestRenderer.ReactTestRenderer;
-    TestRenderer.act(() => { renderer = TestRenderer.create(<ShepherdAttendanceHomeCard data={{visible: true, serviceDate: '2026-08-16', assignedGroupCount: 2, submittedGroupCount: 2, groups: []}} onPress={vi.fn()} />); });
+    TestRenderer.act(() => { renderer = TestRenderer.create(<ShepherdAttendanceHomeCard data={{visible: true, title: '이번 주 목홀타를 입력해 주세요', serviceDate: '2026-08-16', assignedGroupCount: 2, submittedGroupCount: 2, groups: []}} onPress={vi.fn()} />); });
     expect(JSON.stringify(renderer!.toJSON())).toContain('이번 주 목홀타 입력 완료');
-    TestRenderer.act(() => { renderer!.update(<ShepherdAttendanceHomeCard data={{visible: false, serviceDate: '2026-08-16', assignedGroupCount: 0, submittedGroupCount: 0, groups: []}} onPress={vi.fn()} />); });
+    TestRenderer.act(() => { renderer!.update(<ShepherdAttendanceHomeCard data={{visible: false, title: '이번 주 목홀타를 입력해 주세요', serviceDate: null, assignedGroupCount: 0, submittedGroupCount: 0, groups: []}} onPress={vi.fn()} />); });
     expect(renderer!.toJSON()).toBeNull();
   });
 });

@@ -11,11 +11,11 @@ import {ShepherdAttendanceScreen} from './ShepherdAttendanceScreen';
 import type {ShepherdAttendanceApi} from './shepherdAttendanceApi';
 import {FaithLogApiError} from '../api/apiError';
 
-const home = {visible: true, serviceDate: '2026-08-16', assignedGroupCount: 2, submittedGroupCount: 0, groups: [
+const home = {visible: true, title: '이번 주 목홀타를 입력해 주세요', serviceDate: '2026-08-16', assignedGroupCount: 2, submittedGroupCount: 0, groups: [
   {groupId: 10, groupName: '사랑목장', report: null}, {groupId: 11, groupName: '소망목장', report: null},
 ]} as const;
-const report = {reportId: 1, smallGroupMeetingCount: 0, holyWaveCount: 0, otherWorshipCount: 0, note: null, status: 'SUBMITTED' as const, version: 1, lastModifiedAt: '2026-08-16T00:00:00Z'};
-function api(): ShepherdAttendanceApi { return {getHome: vi.fn().mockResolvedValue(home), saveMyReport: vi.fn().mockResolvedValue(report), createGroup: vi.fn(), getAdminPage: vi.fn(), saveAdminReport: vi.fn(), updateAssignees: vi.fn()}; }
+const report = {reportId: 1, campusId: 1, groupId: 10, serviceDate: '2026-08-16', smallGroupMeetingCount: 0, holyWaveCount: 0, otherWorshipCount: 0, note: null, status: 'SUBMITTED' as const, version: 1, lastModifiedByUserId: 2, lastModifiedByName: '홍길동', lastModifiedAt: '2026-08-16T00:00:00Z'};
+function api(): ShepherdAttendanceApi { return {getHome: vi.fn().mockResolvedValue(home), getMyGroups: vi.fn(), getMyReport: vi.fn(), saveMyReport: vi.fn().mockResolvedValue(report), createGroup: vi.fn(), getAdminGroups: vi.fn(), updateGroup: vi.fn(), getAdminPage: vi.fn(), saveAdminReport: vi.fn(), updateAssignees: vi.fn()}; }
 function node(renderer: TestRenderer.ReactTestRenderer, label: string) { return renderer.root.find((item) => item.props.accessibilityLabel === label); }
 async function flush() { await TestRenderer.act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
 describe('ShepherdAttendanceScreen', () => {
@@ -32,7 +32,7 @@ describe('ShepherdAttendanceScreen', () => {
   });
 
   it('refetches on a stale version conflict without erasing by success', async () => {
-    const client = api(); (client.saveMyReport as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new FaithLogApiError({kind: 'conflict', status: 409, message: 'stale'}));
+    const client = api(); (client.saveMyReport as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new FaithLogApiError({kind: 'conflict', status: 409, code: 'SHEPHERD_ATTENDANCE_CONFLICT', message: 'stale'}));
     let renderer: TestRenderer.ReactTestRenderer; await TestRenderer.act(async () => { renderer = TestRenderer.create(<ShepherdAttendanceScreen api={client} campusId={1} getAccessToken={async () => 'token'} initialData={home as never} onBack={vi.fn()} />); });
     for (const label of ['목장모임 참여 인원','홀리웨이브 참여 인원','타예배 참여 인원']) TestRenderer.act(() => node(renderer!, label).props.onChangeText('1'));
     TestRenderer.act(() => node(renderer!, '목홀타 임시 저장').props.onPress()); await flush();

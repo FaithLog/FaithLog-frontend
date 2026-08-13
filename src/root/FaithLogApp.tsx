@@ -169,6 +169,7 @@ import type {WeeklyMaterialType} from '../weeklyMaterials/weeklyMaterialTypes';
 import {HomeShepherdAttendanceSection} from '../shepherdAttendance/HomeShepherdAttendanceSection';
 import {ShepherdAttendanceScreen} from '../shepherdAttendance/ShepherdAttendanceScreen';
 import {getShepherdAttendanceRuntimeApi} from '../shepherdAttendance/shepherdAttendanceRuntime';
+import {isCampusRequestReady} from './campusRequestGuard';
 import {isShepherdAttendanceCapabilityEnabled} from '../shepherdAttendance/shepherdAttendanceEnvironment';
 import type {ShepherdAttendanceHome} from '../shepherdAttendance/shepherdAttendanceTypes';
 import {clearRecentShepherdGroups} from '../shepherdAttendance/recentShepherdGroup';
@@ -2945,6 +2946,7 @@ function UserHomeDashboard({
   const weekStartDate = useMemo(() => getWeekStartDate(today), [today]);
   const {month, year} = useMemo(() => getYearMonth(today), [today]);
   const campusId = state.selectedCampus.campusId;
+  const campusReady = isCampusRequestReady(campusId);
   const [monthlyDevotionState, setMonthlyDevotionState] = useState<
     CardState<DevotionMonthlySummary>
   >({status: 'idle'});
@@ -2958,6 +2960,9 @@ function UserHomeDashboard({
   currentHomeKey.current = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
 
   const loadHomeCards = async () => {
+    // Runtime responses are validated, but this guard also protects the restore boundary
+    // from dispatching campus-scoped requests if persisted/auth state is ever incomplete.
+    if (!campusReady) return;
     const requestSequence = ++homeRequestSequence.current;
     const requestGeneration = getAuthSessionGeneration();
     const requestKey = `${requestGeneration}:${campusId}:${year}-${month}:${weekStartDate}`;
@@ -3071,7 +3076,7 @@ function UserHomeDashboard({
 
   useEffect(() => {
     void loadHomeCards();
-  }, [campusId, month, weekStartDate, year]);
+  }, [campusId, campusReady, month, weekStartDate, year]);
 
   return (
     <View style={styles.userFrame}>
@@ -3169,18 +3174,18 @@ function UserHomeDashboard({
           onPress={onOpenDevotion}
         />
       </View>
-      <HomeAnnouncementCapabilitySection
+      {campusReady ? <HomeAnnouncementCapabilitySection
         campusId={campusId}
         key={`home-announcements-campus-${campusId}`}
         onOpenAll={onOpenAnnouncements}
         onOpenAnnouncement={onOpenAnnouncement}
         userId={state.user.id}
-      />
+      /> : null}
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
-      {isWeeklyMaterialCapabilityEnabled() ? (
+      {campusReady && isWeeklyMaterialCapabilityEnabled() ? (
         <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
       ) : null}
-      {isShepherdAttendanceCapabilityEnabled() ? (
+      {campusReady && isShepherdAttendanceCapabilityEnabled() ? (
         <HomeShepherdAttendanceSection
           api={getShepherdAttendanceRuntimeApi()}
           campusId={campusId}

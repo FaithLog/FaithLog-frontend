@@ -5,5 +5,5 @@ export function shouldUseShepherdAttendanceMock() {
 }
 
 export function isShepherdAttendanceCapabilityEnabled() {
-  return shouldUseShepherdAttendanceMock();
+  return true;
 }
