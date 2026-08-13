@@ -13,6 +13,11 @@ afterEach(() => {
 });
 
 describe('weekly material capability', () => {
+  it('is enabled by default without a per-build environment value', () => {
+    delete process.env.EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED;
+    expect(isWeeklyMaterialCapabilityEnabled()).toBe(true);
+  });
+
   it('is available when the confirmed production feature flag is enabled', () => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
     process.env.EXPO_PUBLIC_MOCK_MODE = 'false';

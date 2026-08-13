@@ -166,6 +166,13 @@ import {isWeeklyMaterialCapabilityEnabled} from '../weeklyMaterials/weeklyMateri
 import {getWeeklyMaterialRuntimeApi} from '../weeklyMaterials/weeklyMaterialRuntime';
 import {openWeeklyMaterialPdf} from '../weeklyMaterials/weeklyMaterialNativeRuntime';
 import type {WeeklyMaterialType} from '../weeklyMaterials/weeklyMaterialTypes';
+import {HomeShepherdAttendanceSection} from '../shepherdAttendance/HomeShepherdAttendanceSection';
+import {ShepherdAttendanceScreen} from '../shepherdAttendance/ShepherdAttendanceScreen';
+import {getShepherdAttendanceRuntimeApi} from '../shepherdAttendance/shepherdAttendanceRuntime';
+import {isCampusRequestReady} from './campusRequestGuard';
+import {isShepherdAttendanceCapabilityEnabled} from '../shepherdAttendance/shepherdAttendanceEnvironment';
+import type {ShepherdAttendanceHome} from '../shepherdAttendance/shepherdAttendanceTypes';
+import {clearRecentShepherdGroups} from '../shepherdAttendance/recentShepherdGroup';
 import {
   deactivateCurrentFcmToken,
   ensureAutomaticFcmRegistration,
@@ -457,6 +464,7 @@ export function FaithLogApp() {
     purgePaymentContextForAuthState(authState.status);
     if (authState.status !== 'authenticated' && authState.status !== 'noCampus') {
       clearCurrentUserCache();
+      clearRecentShepherdGroups();
       setNotificationWeeklyMaterialTarget(null);
     }
   }, [authState.status]);
@@ -1866,7 +1874,8 @@ function AuthenticatedShell({
   setAnnouncementInitialId: (id: number | null) => void;
 }) {
   const androidShellInsets = useAndroidShellLayoutInsets();
-  const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar'>('dashboard');
+  const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance'>('dashboard');
+  const [shepherdAttendanceHome, setShepherdAttendanceHome] = useState<{campusId: number; data: ShepherdAttendanceHome} | null>(null);
   const [profileView, setProfileView] = useState<
     'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password'
   >('main');
@@ -2511,6 +2520,22 @@ function AuthenticatedShell({
               setAuthState={setAuthState}
               state={state}
             />
+          ) : userHomeView === 'shepherdAttendance' ? (
+            <ShepherdAttendanceScreen
+              api={getShepherdAttendanceRuntimeApi()}
+              campusId={state.selectedCampus.campusId}
+              key={`shepherd-attendance-campus-${state.selectedCampus.campusId}`}
+              getAccessToken={async () => {
+                const token = await resolveCurrentAccessToken(() => undefined);
+                if (!token) throw new Error('Missing access token');
+                return token;
+              }}
+              {...(shepherdAttendanceHome?.campusId === state.selectedCampus.campusId
+                ? {initialData: shepherdAttendanceHome.data}
+                : {})}
+              onBack={() => setUserHomeView('dashboard')}
+              onChanged={(data) => setShepherdAttendanceHome({campusId: state.selectedCampus.campusId, data})}
+            />
           ) : (
             <UserHomeDashboard
               onOpenAnnouncements={() => {
@@ -2520,6 +2545,10 @@ function AuthenticatedShell({
               onOpenWeeklyMaterials={() => {
                 onNotificationWeeklyMaterialTargetHandled();
                 setRoute('weeklyMaterials');
+              }}
+              onOpenShepherdAttendance={(data) => {
+                setShepherdAttendanceHome({campusId: state.selectedCampus.campusId, data});
+                setUserHomeView('shepherdAttendance');
               }}
               onOpenAnnouncement={(announcementId) => {
                 setAnnouncementInitialId(announcementId);
@@ -2892,6 +2921,7 @@ function UserHomeDashboard({
   onOpenPrayers,
   onOpenYearlyRecap,
   onOpenWeeklyMaterials,
+  onOpenShepherdAttendance,
   setAuthState,
   state,
   yearlyRecap,
@@ -2907,6 +2937,7 @@ function UserHomeDashboard({
   onOpenPrayers: (entryMode: PrayerEntryMode) => void;
   onOpenYearlyRecap: () => void;
   onOpenWeeklyMaterials: () => void;
+  onOpenShepherdAttendance: (data: ShepherdAttendanceHome) => void;
   setAuthState: SetAuthState;
   state: Extract<AuthGateState, {status: 'authenticated'}>;
   yearlyRecap: YearlyRecap | null;
@@ -2915,6 +2946,7 @@ function UserHomeDashboard({
   const weekStartDate = useMemo(() => getWeekStartDate(today), [today]);
   const {month, year} = useMemo(() => getYearMonth(today), [today]);
   const campusId = state.selectedCampus.campusId;
+  const campusReady = isCampusRequestReady(campusId);
   const [monthlyDevotionState, setMonthlyDevotionState] = useState<
     CardState<DevotionMonthlySummary>
   >({status: 'idle'});
@@ -2928,6 +2960,9 @@ function UserHomeDashboard({
   currentHomeKey.current = `${getAuthSessionGeneration()}:${campusId}:${year}-${month}:${weekStartDate}`;
 
   const loadHomeCards = async () => {
+    // Runtime responses are validated, but this guard also protects the restore boundary
+    // from dispatching campus-scoped requests if persisted/auth state is ever incomplete.
+    if (!campusReady) return;
     const requestSequence = ++homeRequestSequence.current;
     const requestGeneration = getAuthSessionGeneration();
     const requestKey = `${requestGeneration}:${campusId}:${year}-${month}:${weekStartDate}`;
@@ -3041,7 +3076,7 @@ function UserHomeDashboard({
 
   useEffect(() => {
     void loadHomeCards();
-  }, [campusId, month, weekStartDate, year]);
+  }, [campusId, campusReady, month, weekStartDate, year]);
 
   return (
     <View style={styles.userFrame}>
@@ -3139,15 +3174,28 @@ function UserHomeDashboard({
           onPress={onOpenDevotion}
         />
       </View>
-      <HomeAnnouncementCapabilitySection
+      {campusReady && isShepherdAttendanceCapabilityEnabled() ? (
+        <HomeShepherdAttendanceSection
+          api={getShepherdAttendanceRuntimeApi()}
+          campusId={campusId}
+          key={`home-shepherd-attendance-campus-${campusId}`}
+          getAccessToken={async () => {
+            const token = await resolveCurrentAccessToken(() => undefined);
+            if (!token) throw new Error('Missing access token');
+            return token;
+          }}
+          onOpen={onOpenShepherdAttendance}
+        />
+      ) : null}
+      {campusReady ? <HomeAnnouncementCapabilitySection
         campusId={campusId}
         key={`home-announcements-campus-${campusId}`}
         onOpenAll={onOpenAnnouncements}
         onOpenAnnouncement={onOpenAnnouncement}
         userId={state.user.id}
-      />
+      /> : null}
       <HomeCalendarEntryCard onPress={onOpenMonthlyCalendar} />
-      {isWeeklyMaterialCapabilityEnabled() ? (
+      {campusReady && isWeeklyMaterialCapabilityEnabled() ? (
         <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
       ) : null}
       <HomePrayerEntryCard
