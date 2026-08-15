@@ -134,6 +134,7 @@ import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {MealDutyScreen} from '../meal/MealDutyScreen';
+import {HomeDutyManagementCards} from '../duty/HomeDutyManagementCards';
 import {
   HomeAnnouncementCapabilitySection,
   MemberAnnouncementCapabilityRoute,
@@ -2559,6 +2560,14 @@ function AuthenticatedShell({
                 setRoute('devotion');
               }}
               onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenCoffeeDuty={() => {
+                setProfileView('coffee');
+                setRoute('profile');
+              }}
+              onOpenMealDuty={() => {
+                setProfileView('meal');
+                setRoute('profile');
+              }}
               onOpenNotifications={openNotificationSettings}
               canOpenAdminMode={adminModeRoutes.length > 0}
               onOpenAdminMode={openAdminMode}
@@ -2915,6 +2924,8 @@ function UserHomeDashboard({
   onOpenAnnouncements,
   onOpenAnnouncement,
   onOpenDevotion,
+  onOpenCoffeeDuty,
+  onOpenMealDuty,
   onOpenMonthlyCalendar,
   onOpenNotifications,
   onOpenPayments,
@@ -2931,6 +2942,8 @@ function UserHomeDashboard({
   onOpenAnnouncements: () => void;
   onOpenAnnouncement: (announcementId: number) => void;
   onOpenDevotion: () => void;
+  onOpenCoffeeDuty: () => void;
+  onOpenMealDuty: () => void;
   onOpenMonthlyCalendar: () => void;
   onOpenNotifications: () => void;
   onOpenPayments: () => void;
@@ -3198,6 +3211,13 @@ function UserHomeDashboard({
       {campusReady && isWeeklyMaterialCapabilityEnabled() ? (
         <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
       ) : null}
+      <HomeDutyManagementCards
+        campusId={campusId}
+        onOpenCoffee={onOpenCoffeeDuty}
+        onOpenMeal={onOpenMealDuty}
+        setAuthState={setAuthState}
+        userId={state.user.id}
+      />
       <HomePrayerEntryCard
         entryMode="groups"
         onPress={() => onOpenPrayers('groups')}
