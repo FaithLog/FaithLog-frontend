@@ -19,4 +19,22 @@ describe('admin notification navigation', () => {
     expect(sentSheetSource).not.toContain('<AdminInlineError');
     expect(sentSheetSource).not.toContain("kind: 'conflict'");
   });
+
+  it('keeps notification confirmation and result sheets above Android button navigation', () => {
+    const screenWiringStart = source.indexOf('<NotificationConfirmSheet');
+    const screenWiringEnd = source.indexOf('<ChargeStatusConfirmSheet', screenWiringStart);
+    const screenWiring = source.slice(screenWiringStart, screenWiringEnd);
+    const confirmSheetStart = source.indexOf('function NotificationConfirmSheet(');
+    const confirmSheetEnd = source.indexOf('\nfunction NotificationSentSheet(', confirmSheetStart);
+    const confirmSheetSource = source.slice(confirmSheetStart, confirmSheetEnd);
+    const sentSheetStart = source.indexOf('function NotificationSentSheet(');
+    const sentSheetEnd = source.indexOf('\nfunction PollCloseConfirmSheet(', sentSheetStart);
+    const sentSheetSource = source.slice(sentSheetStart, sentSheetEnd);
+
+    expect(screenWiring.match(/bottomInset=\{androidShellInsets\.bottomNavInset\}/g)).toHaveLength(2);
+    expect(confirmSheetSource).toContain('bottomInset: number;');
+    expect(confirmSheetSource).toContain('paddingBottom: spacing.card + bottomInset');
+    expect(sentSheetSource).toContain('bottomInset: number;');
+    expect(sentSheetSource).toContain('marginBottom: bottomInset');
+  });
 });
