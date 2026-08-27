@@ -49,9 +49,3 @@ export function buildPollNoticeMutationFields(
 
   return {notice: normalizePollNotice(draft.notice), imageAssetIds: uniqueIds};
 }
-
-export function shouldShowPollNoticeBadge(
-  summary: {hasNotice?: boolean | undefined},
-) {
-  return summary.hasNotice === true;
-}

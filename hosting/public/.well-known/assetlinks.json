@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.faithlog.app",
+      "sha256_cert_fingerprints": [
+        "1E:82:E9:17:47:7E:DE:2C:C9:E1:47:19:82:6E:2B:A1:14:81:0C:03:30:7B:A3:A8:74:36:9E:BF:B6:95:69:5C"
+      ]
+    }
+  }
+]

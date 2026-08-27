@@ -65,6 +65,7 @@ import {
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import type {PollOpenTarget} from '../notifications/pushNavigation';
+import {ContentShareActions} from '../sharing/ContentShareActions';
 import {colors, radius, spacing} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {chunkForVirtualizedRows} from '../utils/listVirtualization';
@@ -85,7 +86,6 @@ import {
   getPollOptionAddLabel,
 } from './pollResponsePresentation';
 import {
-  PollNoticeBadge,
   PollNoticeBlock,
   PollNoticeMediaPanel,
 } from './notice/PollNoticeComponents';
@@ -737,6 +737,7 @@ export function PollScreen({
               <>
                 <PollDetailHeader
                   canOpenAdminMode={canOpenAdminMode}
+                  campusId={campusId}
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
@@ -783,6 +784,7 @@ export function PollScreen({
               <>
                 <PollDetailHeader
                   canOpenAdminMode={canOpenAdminMode}
+                  campusId={campusId}
                   campusLabel={state.selectedCampus.campusName}
                   contextLabel={`${state.user.name}님`}
                   detail={detailState.detail}
@@ -814,6 +816,7 @@ export function PollScreen({
           showsVerticalScrollIndicator={false}>
         <PollDetailHeader
           canOpenAdminMode={canOpenAdminMode}
+          campusId={campusId}
           campusLabel={state.selectedCampus.campusName}
           contextLabel={`${state.user.name}님`}
           detail={detailState.detail}
@@ -963,7 +966,6 @@ export function PollScreen({
             pollGroups.activePolls.slice(0, 4).map((poll) => (
               <PollListCard
                 key={poll.id}
-                noticeEnabled={pollNoticeCapabilities.canReadNotice}
                 onPress={() => openDetail(poll)}
                 poll={poll}
               />
@@ -975,7 +977,6 @@ export function PollScreen({
               {pollGroups.scheduledPolls.slice(0, 2).map((poll) => (
                 <PollListCard
                   key={poll.id}
-                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
                   onPress={() => openDetail(poll)}
                   poll={poll}
                 />
@@ -989,7 +990,6 @@ export function PollScreen({
             pollGroups.respondedPolls.slice(0, 2).map((poll) => (
               <PollListCard
                 key={poll.id}
-                noticeEnabled={pollNoticeCapabilities.canReadNotice}
                 onPress={() => openDetail(poll)}
                 poll={poll}
               />
@@ -1005,7 +1005,6 @@ export function PollScreen({
             pollGroups.recentlyClosedPolls.slice(0, 6).map((poll) => (
               <PollListCard
                 key={poll.id}
-                noticeEnabled={pollNoticeCapabilities.canReadNotice}
                 onPress={() => openDetail(poll)}
                 poll={poll}
               />
@@ -1089,6 +1088,7 @@ function FigmaScreenHeader({
 
 function PollDetailHeader({
   canOpenAdminMode,
+  campusId,
   campusLabel,
   contextLabel,
   detail,
@@ -1097,6 +1097,7 @@ function PollDetailHeader({
   onOpenNotifications,
 }: {
   canOpenAdminMode: boolean;
+  campusId: number;
   campusLabel: string;
   contextLabel: string;
   detail: PollDetail;
@@ -1115,8 +1116,8 @@ function PollDetailHeader({
         title={getPollDetailTitle(detail)}
       />
       <View style={styles.figmaHeroCard}>
-        <View style={styles.figmaHeroHeaderRow}>
-          <Text style={styles.figmaHeroTitle}>{detail.title}</Text>
+        <Text style={styles.figmaHeroTitle}>{detail.title}</Text>
+        <View style={styles.pollDetailActions}>
           <Pressable
             accessibilityLabel="투표 목록으로 돌아가기"
             accessibilityRole="button"
@@ -1124,6 +1125,7 @@ function PollDetailHeader({
             style={styles.figmaBackButton}>
             <Text style={styles.figmaBackButtonText}>목록</Text>
           </Pressable>
+          <ContentShareActions campusId={campusId} kind="poll" pollId={detail.id} title={detail.title} />
         </View>
         <Text style={styles.figmaHeroMeta}>
           {getPollTypeLabel(detail.pollType)} · {detail.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {detail.isAnonymous ? '익명' : '응답자 공개'}
@@ -1743,11 +1745,9 @@ const MemoizedPollRespondent = memo(function MemoizedPollRespondent({
 });
 
 function PollListCard({
-  noticeEnabled,
   onPress,
   poll,
 }: {
-  noticeEnabled: boolean;
   onPress: () => void;
   poll: PollSummary;
 }) {
@@ -1771,10 +1771,6 @@ function PollListCard({
         <Text style={styles.figmaPollMeta}>
           {getPollTypeLabel(poll.pollType)} · {poll.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {poll.isAnonymous ? '익명' : '공개'}
         </Text>
-        <PollNoticeBadge
-          enabled={noticeEnabled}
-          hasNotice={poll.hasNotice}
-        />
       </View>
       <View style={styles.figmaPollButton}>
         <Text style={styles.figmaPollButtonText}>
@@ -2647,11 +2643,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 18,
   },
-  figmaHeroHeaderRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 12,
-  },
   figmaHeroMeta: {
     color: pollColors.muted,
     fontSize: 15,
@@ -2659,7 +2650,6 @@ const styles = StyleSheet.create({
   },
   figmaHeroTitle: {
     color: pollColors.text,
-    flex: 1,
     fontSize: 19,
     fontWeight: '700',
     lineHeight: 26,
@@ -2784,6 +2774,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 28,
   },
+  pollDetailActions: {alignItems: 'center', alignSelf: 'flex-end', flexDirection: 'row', gap: 6},
   headerRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',

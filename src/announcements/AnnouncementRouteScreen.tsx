@@ -5,6 +5,7 @@ import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {ErrorState, Empty, Loading, ScreenHeader} from '../components/ui';
+import {RichLinkBookmarks} from '../components/RichLinkBookmarks';
 import {colors, radius, spacing, typography} from '../theme';
 import {documentMediaApi, type DocumentMediaApi} from '../media/documentMediaApi';
 import type {DocumentAccessUrl} from '../media/documentMediaTypes';
@@ -15,6 +16,7 @@ import {AnnouncementDocumentList} from './AnnouncementDocumentAttachments';
 import {openAnnouncementPdf} from './announcementDocumentNativeRuntime';
 import {isAnnouncementPdfCapabilityEnabled} from './announcementEnvironment';
 import type {AnnouncementDetail, AnnouncementSummary, MediaAccessUrl} from './announcementTypes';
+import {ContentShareActions} from '../sharing/ContentShareActions';
 
 type ViewState =
   | {status: 'loading'; target: ViewTarget}
@@ -382,9 +384,16 @@ export function AnnouncementDetailScreen({
               <Text style={styles.date}>{formatDate(detail.publishedAt ?? detail.publishAt)}</Text>
             </View>
             <Text accessibilityRole="header" style={styles.detailTitle}>{detail.title}</Text>
+            <ContentShareActions
+              announcementId={detail.id}
+              campusId={campusId}
+              categoryName={detail.category.name}
+              kind="announcement"
+              title={detail.title}
+            />
           </View>
           <View style={styles.bodyCard}>
-            <Text style={styles.body}>{detail.body}</Text>
+            <RichLinkBookmarks text={detail.body} />
           </View>
           {detail.imageAssetIds.length > 0 ? (
             <View style={styles.mediaSection}>

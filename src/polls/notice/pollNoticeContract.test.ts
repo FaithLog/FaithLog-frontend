@@ -5,7 +5,6 @@ import {
   buildPollNoticeMutationFields,
   getPollNoticeValidationMessage,
   normalizePollNotice,
-  shouldShowPollNoticeBadge,
 } from './pollNoticeContract';
 
 describe('poll notice provisional contract', () => {
@@ -38,9 +37,4 @@ describe('poll notice provisional contract', () => {
     ).toThrow('Invalid image asset id');
   });
 
-  it('uses only the summary capability to show the list badge', () => {
-    expect(shouldShowPollNoticeBadge({hasNotice: true})).toBe(true);
-    expect(shouldShowPollNoticeBadge({hasNotice: false})).toBe(false);
-    expect(shouldShowPollNoticeBadge({})).toBe(false);
-  });
 });

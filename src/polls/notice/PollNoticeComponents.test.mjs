@@ -21,7 +21,6 @@ vi.mock('react-native', async () => {
 });
 
 import {
-  PollNoticeBadge,
   PollNoticeBlock,
   PollNoticeEditorSection,
   PollNoticeGallery,
@@ -31,17 +30,6 @@ import {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('poll notice components', () => {
-  it('renders an accessible list badge only when hasNotice is explicitly true', async () => {
-    let visible;
-    let hidden;
-    await act(async () => {
-      visible = create(React.createElement(PollNoticeBadge, {enabled: true, hasNotice: true}));
-      hidden = create(React.createElement(PollNoticeBadge, {enabled: true, hasNotice: false}));
-    });
-    expect(rendered(visible)).toContain('공지 있음');
-    expect(hidden.toJSON()).toBeNull();
-  });
-
   it('renders notice below the title region and renders no empty container for blank notice', async () => {
     let visible;
     let blank;
@@ -54,12 +42,24 @@ describe('poll notice components', () => {
     expect(blank.toJSON()).toBeNull();
   });
 
-  it('renders no badge, detail, or media subtree when the capability is pending', async () => {
-    let badge;
+  it('renders safe web addresses in a poll notice as accessible links', async () => {
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollNoticeBlock, {
+        enabled: true,
+        notice: '메뉴 확인 https://faithlog.app/menu',
+      }));
+    });
+
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityRole === 'link'
+      && String(node.props.accessibilityLabel).startsWith('링크 열기 '))).not.toHaveLength(0);
+  });
+
+  it('renders no detail or media subtree when the capability is pending', async () => {
     let detail;
     let media;
     await act(async () => {
-      badge = create(React.createElement(PollNoticeBadge, {enabled: false, hasNotice: true}));
       detail = create(React.createElement(PollNoticeBlock, {
         enabled: false,
         notice: 'production에서 숨길 공지',
@@ -81,7 +81,6 @@ describe('poll notice components', () => {
         userId: 7,
       }));
     });
-    expect(badge.toJSON()).toBeNull();
     expect(detail.toJSON()).toBeNull();
     expect(media.toJSON()).toBeNull();
   });
