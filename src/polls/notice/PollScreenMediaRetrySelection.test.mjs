@@ -247,7 +247,7 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       await settle();
     });
 
-    expect(findAllByLabel(renderer, '공지 있음')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '공지 있음')).toHaveLength(0);
     act(() => {
       findByLabel(renderer, `${detail.title} 상세 보기`).props.onPress();
     });

@@ -86,7 +86,6 @@ import {
   getPollOptionAddLabel,
 } from './pollResponsePresentation';
 import {
-  PollNoticeBadge,
   PollNoticeBlock,
   PollNoticeMediaPanel,
 } from './notice/PollNoticeComponents';
@@ -967,7 +966,6 @@ export function PollScreen({
             pollGroups.activePolls.slice(0, 4).map((poll) => (
               <PollListCard
                 key={poll.id}
-                noticeEnabled={pollNoticeCapabilities.canReadNotice}
                 onPress={() => openDetail(poll)}
                 poll={poll}
               />
@@ -979,7 +977,6 @@ export function PollScreen({
               {pollGroups.scheduledPolls.slice(0, 2).map((poll) => (
                 <PollListCard
                   key={poll.id}
-                  noticeEnabled={pollNoticeCapabilities.canReadNotice}
                   onPress={() => openDetail(poll)}
                   poll={poll}
                 />
@@ -993,7 +990,6 @@ export function PollScreen({
             pollGroups.respondedPolls.slice(0, 2).map((poll) => (
               <PollListCard
                 key={poll.id}
-                noticeEnabled={pollNoticeCapabilities.canReadNotice}
                 onPress={() => openDetail(poll)}
                 poll={poll}
               />
@@ -1009,7 +1005,6 @@ export function PollScreen({
             pollGroups.recentlyClosedPolls.slice(0, 6).map((poll) => (
               <PollListCard
                 key={poll.id}
-                noticeEnabled={pollNoticeCapabilities.canReadNotice}
                 onPress={() => openDetail(poll)}
                 poll={poll}
               />
@@ -1750,11 +1745,9 @@ const MemoizedPollRespondent = memo(function MemoizedPollRespondent({
 });
 
 function PollListCard({
-  noticeEnabled,
   onPress,
   poll,
 }: {
-  noticeEnabled: boolean;
   onPress: () => void;
   poll: PollSummary;
 }) {
@@ -1778,10 +1771,6 @@ function PollListCard({
         <Text style={styles.figmaPollMeta}>
           {getPollTypeLabel(poll.pollType)} · {poll.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {poll.isAnonymous ? '익명' : '공개'}
         </Text>
-        <PollNoticeBadge
-          enabled={noticeEnabled}
-          hasNotice={poll.hasNotice}
-        />
       </View>
       <View style={styles.figmaPollButton}>
         <Text style={styles.figmaPollButtonText}>
