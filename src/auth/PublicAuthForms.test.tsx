@@ -103,6 +103,27 @@ describe('public auth form lifecycle', () => {
     vi.useRealTimers();
   });
 
+  it('clears a pending deep-link intent when password login fails', async () => {
+    const onLoginFailed = vi.fn();
+    session.loginAndEstablishSession.mockRejectedValue(new Error('invalid credentials'));
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<LoginForm
+        clearNotice={vi.fn()}
+        onLoginComplete={vi.fn()}
+        onLoginFailed={onLoginFailed}
+        switchToSignup={vi.fn()}
+      />);
+    });
+
+    await changeText(renderer, '로그인 이메일 입력', 'user@example.test');
+    await changeText(renderer, '로그인 비밀번호 입력', 'password123');
+    await pressAndFlush(renderer, '로그인');
+
+    expect(onLoginFailed).toHaveBeenCalledOnce();
+    renderer.unmount();
+  });
+
   it('locks reset email and ignores a stale request response after a forced email change', async () => {
     let resolveRequest!: (value: {
       message: string; expiresInSeconds: number; resendAvailableInSeconds: number;

@@ -1,4 +1,10 @@
-import type {AnalyticsEvent, AnalyticsPollType, AnalyticsScreenName} from './analyticsContract';
+import type {
+  AnalyticsContentType,
+  AnalyticsDeepLinkFailureReason,
+  AnalyticsEvent,
+  AnalyticsPollType,
+  AnalyticsScreenName,
+} from './analyticsContract';
 import {logNativeAnalyticsEvent, logNativeAnalyticsScreen} from './nativeFirebaseAnalytics';
 
 let lastScreenName: AnalyticsScreenName | null = null;
@@ -44,6 +50,38 @@ export function trackPollCloseComplete(pollType: AnalyticsPollType) {
 
 export function trackChargeMarkPaidComplete() {
   trackEvent({name: 'charge_mark_paid_complete', parameters: {action_result: 'success'}});
+}
+
+export function trackContentShareStarted(contentType: AnalyticsContentType) {
+  trackEvent({name: 'content_share_started', parameters: {content_type: contentType}});
+}
+
+export function trackContentShareCompleted(
+  contentType: AnalyticsContentType,
+  channel: 'kakao' | 'link',
+) {
+  trackEvent({
+    name: 'content_share_completed',
+    parameters: {channel, content_type: contentType},
+  });
+}
+
+export function trackDeepLinkOpened(contentType: AnalyticsContentType) {
+  trackEvent({name: 'deep_link_opened', parameters: {content_type: contentType}});
+}
+
+export function trackDeepLinkLoginRequired(contentType: AnalyticsContentType) {
+  trackEvent({name: 'deep_link_login_required', parameters: {content_type: contentType}});
+}
+
+export function trackDeepLinkOpenFailed(
+  contentType: AnalyticsContentType,
+  reasonCategory: AnalyticsDeepLinkFailureReason,
+) {
+  trackEvent({
+    name: 'deep_link_open_failed',
+    parameters: {content_type: contentType, reason_category: reasonCategory},
+  });
 }
 
 function trackPollEvent(

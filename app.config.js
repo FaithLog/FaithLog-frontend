@@ -99,6 +99,7 @@ module.exports = ({config}) => {
       ...(config.plugins || []),
       './plugins/withAndroidNavigationMode',
       './plugins/withTossRemittance',
+      './plugins/withFaithLogKakaoShare',
       './plugins/withFirebaseAnalyticsScreenReporting',
       buildPropertiesPlugin,
       announcementImagePickerPlugin,
@@ -108,6 +109,9 @@ module.exports = ({config}) => {
     ],
     ios: {
       ...config.ios,
+      associatedDomains: [
+        ...new Set([...(config.ios?.associatedDomains || []), 'applinks:app.faithlog.kr']),
+      ],
       infoPlist: {
         ...(config.ios?.infoPlist || {}),
         FirebaseAutomaticScreenReportingEnabled: false,
@@ -122,6 +126,18 @@ module.exports = ({config}) => {
     },
     android: {
       ...config.android,
+      intentFilters: [
+        ...(config.android?.intentFilters || []),
+        {
+          action: 'VIEW',
+          autoVerify: true,
+          category: ['BROWSABLE', 'DEFAULT'],
+          data: [
+            {scheme: 'https', host: 'app.faithlog.kr', pathPattern: '/campuses/.*/polls/.*'},
+            {scheme: 'https', host: 'app.faithlog.kr', pathPattern: '/campuses/.*/announcements/.*'},
+          ],
+        },
+      ],
       ...(androidGoogleServicesFile
         ? { googleServicesFile: androidGoogleServicesFile }
         : {}),

@@ -14,6 +14,10 @@ web-build/
 # EAS builds regenerate these from app.config.js.
 android/
 ios/
+!modules/faithlog-kakao-share/android/
+!modules/faithlog-kakao-share/android/**
+!modules/faithlog-kakao-share/ios/
+!modules/faithlog-kakao-share/ios/**
 .eas/firebase/
 
 # Local Codex/Git recovery artifacts
@@ -51,7 +55,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 firebase-debug.log*
+.firebase/
 *.log
+hosting/public/og-faithlog.png
 
 # environment
 .env
