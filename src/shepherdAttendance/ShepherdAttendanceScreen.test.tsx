@@ -1,10 +1,33 @@
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
+
+const nativeMocks = vi.hoisted(() => ({
+  dismissKeyboard: vi.fn(),
+  focusedInputs: [] as string[],
+  platform: {OS: 'ios'},
+}));
+
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const component = (name: string) => ({children, ...props}: Record<string, unknown> & {children?: React.ReactNode}) => ReactModule.createElement(name, props, children);
-  return {Pressable: component('Pressable'), ScrollView: component('ScrollView'), StyleSheet: {create: (value: unknown) => value}, Text: component('Text'), TextInput: component('TextInput'), View: component('View')};
+  const TextInput = ReactModule.forwardRef<{focus: () => void}, Record<string, unknown> & {children?: React.ReactNode}>(({children, ...props}, ref) => {
+    ReactModule.useImperativeHandle(ref, () => ({
+      focus: () => nativeMocks.focusedInputs.push(String(props.accessibilityLabel ?? '')),
+    }));
+    return ReactModule.createElement('TextInput', props, children as React.ReactNode);
+  });
+  return {
+    InputAccessoryView: component('InputAccessoryView'),
+    Keyboard: {dismiss: nativeMocks.dismissKeyboard},
+    Platform: nativeMocks.platform,
+    Pressable: component('Pressable'),
+    ScrollView: component('ScrollView'),
+    StyleSheet: {create: (value: unknown) => value},
+    Text: component('Text'),
+    TextInput,
+    View: component('View'),
+  };
 });
 vi.mock('../components/IconexIcon', () => ({IconexIcon: () => null}));
 import {ShepherdAttendanceScreen} from './ShepherdAttendanceScreen';
@@ -19,7 +42,11 @@ function api(): ShepherdAttendanceApi { return {getHome: vi.fn().mockResolvedVal
 function node(renderer: TestRenderer.ReactTestRenderer, label: string) { return renderer.root.find((item) => item.props.accessibilityLabel === label); }
 async function flush() { await TestRenderer.act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
 describe('ShepherdAttendanceScreen', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nativeMocks.focusedInputs.length = 0;
+    nativeMocks.platform.OS = 'ios';
+  });
   it('switches assigned groups and submits zero values exactly once', async () => {
     const client = api(); let renderer: TestRenderer.ReactTestRenderer;
     await TestRenderer.act(async () => { renderer = TestRenderer.create(<ShepherdAttendanceScreen api={client} campusId={1} getAccessToken={async () => 'token'} initialData={home as never} onBack={vi.fn()} />); });
@@ -45,26 +72,17 @@ describe('ShepherdAttendanceScreen', () => {
     expect(JSON.stringify(renderer!.toJSON())).toContain('다른 사용자가 먼저 수정했습니다. 최신 내용을 불러왔습니다.');
   });
 
-  it('opens group creation on a separate page and keeps the member list scoped to assigned groups', async () => {
+  it('keeps the member list scoped to assigned groups without exposing group creation', async () => {
     const client = api();
-    (client.createGroup as ReturnType<typeof vi.fn>).mockResolvedValue({});
     let renderer: TestRenderer.ReactTestRenderer;
     await TestRenderer.act(async () => { renderer = TestRenderer.create(<ShepherdAttendanceScreen api={client} campusId={1} getAccessToken={async () => 'token'} initialData={home as never} onBack={vi.fn()} />); });
 
-    expect(JSON.stringify(renderer!.toJSON())).not.toContain('새 목장 만들기');
     expect(JSON.stringify(renderer!.toJSON())).toContain('사랑목장');
     expect(JSON.stringify(renderer!.toJSON())).toContain('소망목장');
+    expect(renderer!.root.findAll((item) => item.props.accessibilityLabel === '내 목장 추가 화면 열기')).toHaveLength(0);
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain('새 목장 추가');
     expect(client.getAdminGroups).not.toHaveBeenCalled();
-
-    TestRenderer.act(() => node(renderer!, '내 목장 추가 화면 열기').props.onPress());
-    expect(JSON.stringify(renderer!.toJSON())).toContain('새 목장 추가');
-    expect(JSON.stringify(renderer!.toJSON())).not.toContain('사랑목장');
-    TestRenderer.act(() => node(renderer!, '새 목장 이름').props.onChangeText(' 은혜 목장 '));
-    await TestRenderer.act(async () => { node(renderer!, '내 목장 생성').props.onPress(); await Promise.resolve(); await Promise.resolve(); });
-
-    expect(client.createGroup).toHaveBeenCalledWith('token', 1, {name: '은혜 목장'});
-    expect(client.getHome).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(renderer!.toJSON())).toContain('사랑목장');
+    expect(client.createGroup).not.toHaveBeenCalled();
   });
 
   it('shows submitted values as read-only numbers until the user chooses to edit', async () => {
@@ -80,5 +98,42 @@ describe('ShepherdAttendanceScreen', () => {
     TestRenderer.act(() => node(renderer!, '제출한 목홀타 수정').props.onPress());
     expect(node(renderer!, '목장모임 참여 인원').props.value).toBe('0');
     expect(node(renderer!, '목홀타 제출 완료')).toBeTruthy();
+  });
+
+  it('moves through count inputs and provides an iOS numeric keyboard accessory', async () => {
+    let renderer: TestRenderer.ReactTestRenderer;
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(<ShepherdAttendanceScreen api={api()} campusId={1} getAccessToken={async () => 'token'} initialData={home as never} onBack={vi.fn()} />);
+    });
+
+    const meeting = node(renderer!, '목장모임 참여 인원');
+    const holyWave = node(renderer!, '홀리웨이브 참여 인원');
+    const otherWorship = node(renderer!, '타예배 참여 인원');
+    expect(meeting.props.returnKeyType).toBe('next');
+    expect(holyWave.props.returnKeyType).toBe('next');
+    expect(otherWorship.props.returnKeyType).toBe('done');
+
+    TestRenderer.act(() => meeting.props.onSubmitEditing());
+    TestRenderer.act(() => holyWave.props.onSubmitEditing());
+    expect(nativeMocks.focusedInputs).toEqual(['홀리웨이브 참여 인원', '타예배 참여 인원']);
+    TestRenderer.act(() => otherWorship.props.onSubmitEditing());
+    expect(nativeMocks.dismissKeyboard).toHaveBeenCalledTimes(1);
+
+    for (const label of ['홀리웨이브 입력으로 이동', '타예배 입력으로 이동', '숫자 키보드 닫기']) {
+      expect(renderer!.root.findAll((item) => String(item.type) === 'Pressable' && item.props.accessibilityLabel === label && item.props.accessibilityRole === 'button')).toHaveLength(1);
+    }
+  });
+
+  it('uses Android keyboard next actions without rendering the iOS accessory', async () => {
+    nativeMocks.platform.OS = 'android';
+    let renderer: TestRenderer.ReactTestRenderer;
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(<ShepherdAttendanceScreen api={api()} campusId={1} getAccessToken={async () => 'token'} initialData={home as never} onBack={vi.fn()} />);
+    });
+
+    expect(node(renderer!, '목장모임 참여 인원').props.returnKeyType).toBe('next');
+    expect(node(renderer!, '홀리웨이브 참여 인원').props.returnKeyType).toBe('next');
+    expect(node(renderer!, '타예배 참여 인원').props.returnKeyType).toBe('done');
+    expect(renderer!.root.findAllByType('InputAccessoryView' as never)).toHaveLength(0);
   });
 });
