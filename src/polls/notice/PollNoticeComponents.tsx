@@ -13,6 +13,7 @@ import type {MediaAccessUrl} from '../../media/mediaTypes';
 import type {MediaUploadItem} from '../../media/mediaUploadPolicy';
 import {useHorizontalDragAutoScroll} from '../../media/useHorizontalDragAutoScroll';
 import {AnnouncementCachedImage} from '../../announcements/AnnouncementCachedImage';
+import {LinkifiedText} from '../../components/LinkifiedText';
 import {colors, radius, spacing, typography} from '../../theme';
 import {
   getPollNoticeValidationMessage,
@@ -33,7 +34,7 @@ export const PollNoticeBlock = memo(function PollNoticeBlock({
   return (
     <View accessibilityLabel={`투표 공지 ${normalized}`} style={styles.noticeBlock}>
       <Text style={styles.noticeEyebrow}>투표 공지</Text>
-      <Text style={styles.noticeText}>{normalized}</Text>
+      <LinkifiedText style={styles.noticeText} text={normalized} />
     </View>
   );
 });

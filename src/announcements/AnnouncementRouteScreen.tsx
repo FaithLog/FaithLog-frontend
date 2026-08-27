@@ -4,6 +4,7 @@ import {FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, View, useWin
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {LinkifiedText} from '../components/LinkifiedText';
 import {ErrorState, Empty, Loading, ScreenHeader} from '../components/ui';
 import {colors, radius, spacing, typography} from '../theme';
 import {documentMediaApi, type DocumentMediaApi} from '../media/documentMediaApi';
@@ -384,7 +385,7 @@ export function AnnouncementDetailScreen({
             <Text accessibilityRole="header" style={styles.detailTitle}>{detail.title}</Text>
           </View>
           <View style={styles.bodyCard}>
-            <Text style={styles.body}>{detail.body}</Text>
+            <LinkifiedText style={styles.body} text={detail.body} />
           </View>
           {detail.imageAssetIds.length > 0 ? (
             <View style={styles.mediaSection}>

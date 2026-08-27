@@ -162,6 +162,21 @@ describe('AnnouncementRouteScreen rendered failure isolation', () => {
 
   });
 
+  it('renders safe web addresses in announcement detail as accessible links', async () => {
+    const renderer = await render(
+      <AnnouncementRouteScreen
+        api={createApi({getDetail: vi.fn(async () => detail(41, {body: '신청: https://faithlog.app/forms/41'}))})}
+        campusId={1}
+        initialAnnouncementId={41}
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '링크 열기 https://faithlog.app/forms/41'
+      && node.props.accessibilityRole === 'link')).not.toHaveLength(0);
+  });
+
   it('retries a failed initial deep link with the same detail id instead of loading the list', async () => {
     const getDetail = vi.fn()
       .mockRejectedValueOnce(new Error('offline'))

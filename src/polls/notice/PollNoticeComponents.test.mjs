@@ -42,6 +42,20 @@ describe('poll notice components', () => {
     expect(blank.toJSON()).toBeNull();
   });
 
+  it('renders safe web addresses in a poll notice as accessible links', async () => {
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollNoticeBlock, {
+        enabled: true,
+        notice: '메뉴 확인 https://faithlog.app/menu',
+      }));
+    });
+
+    expect(renderer.root.findAll((node) =>
+      node.props.accessibilityLabel === '링크 열기 https://faithlog.app/menu'
+      && node.props.accessibilityRole === 'link')).not.toHaveLength(0);
+  });
+
   it('renders no detail or media subtree when the capability is pending', async () => {
     let detail;
     let media;
