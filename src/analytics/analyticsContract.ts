@@ -26,6 +26,11 @@ export const ANALYTICS_EVENT_NAMES = [
   'poll_create_complete',
   'poll_close_complete',
   'charge_mark_paid_complete',
+  'content_share_started',
+  'content_share_completed',
+  'deep_link_opened',
+  'deep_link_login_required',
+  'deep_link_open_failed',
 ] as const;
 
 export const ANALYTICS_ENTRY_POINTS = ['home', 'notification', 'deep_link', 'list'] as const;
@@ -35,6 +40,12 @@ export type AnalyticsScreenName = typeof ANALYTICS_SCREEN_NAMES[number];
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];
 export type AnalyticsEntryPoint = typeof ANALYTICS_ENTRY_POINTS[number];
 export type AnalyticsPollType = typeof ANALYTICS_POLL_TYPES[number];
+export type AnalyticsContentType = 'announcement' | 'poll';
+export type AnalyticsDeepLinkFailureReason =
+  | 'invalid_link'
+  | 'not_found'
+  | 'permission_denied'
+  | 'request_failed';
 
 type EmailAuthEvent = {
   name: 'login' | 'sign_up';
@@ -55,10 +66,34 @@ type PollCompletionEvent = {
   parameters: {action_result: 'success'; poll_type: AnalyticsPollType};
 };
 
-export type AnalyticsEvent = EmailAuthEvent | CompletionEvent | PollCompletionEvent;
+type ContentNavigationEvent =
+  | {
+      name: 'content_share_started' | 'deep_link_login_required' | 'deep_link_opened';
+      parameters: {content_type: AnalyticsContentType};
+    }
+  | {
+      name: 'content_share_completed';
+      parameters: {channel: 'kakao' | 'link'; content_type: AnalyticsContentType};
+    }
+  | {
+      name: 'deep_link_open_failed';
+      parameters: {
+        content_type: AnalyticsContentType;
+        reason_category: AnalyticsDeepLinkFailureReason;
+      };
+    };
+
+export type AnalyticsEvent = EmailAuthEvent | CompletionEvent | PollCompletionEvent | ContentNavigationEvent;
 
 const screenNameSet = new Set<string>(ANALYTICS_SCREEN_NAMES);
 const pollTypeSet = new Set<string>(ANALYTICS_POLL_TYPES);
+const contentTypeSet = new Set<string>(['announcement', 'poll']);
+const failureReasonSet = new Set<string>([
+  'invalid_link',
+  'not_found',
+  'permission_denied',
+  'request_failed',
+]);
 
 export function isAnalyticsScreenName(value: unknown): value is AnalyticsScreenName {
   return typeof value === 'string' && screenNameSet.has(value);
@@ -83,6 +118,31 @@ export function isAllowedAnalyticsEvent(value: unknown): value is AnalyticsEvent
   ) {
     return sameKeys(parameterKeys, ['action_result']) &&
       value.parameters.action_result === 'success';
+  }
+
+  if (
+    value.name === 'content_share_started' ||
+    value.name === 'deep_link_login_required' ||
+    value.name === 'deep_link_opened'
+  ) {
+    return sameKeys(parameterKeys, ['content_type']) &&
+      typeof value.parameters.content_type === 'string' &&
+      contentTypeSet.has(value.parameters.content_type);
+  }
+
+  if (value.name === 'content_share_completed') {
+    return sameKeys(parameterKeys, ['channel', 'content_type']) &&
+      (value.parameters.channel === 'kakao' || value.parameters.channel === 'link') &&
+      typeof value.parameters.content_type === 'string' &&
+      contentTypeSet.has(value.parameters.content_type);
+  }
+
+  if (value.name === 'deep_link_open_failed') {
+    return sameKeys(parameterKeys, ['content_type', 'reason_category']) &&
+      typeof value.parameters.content_type === 'string' &&
+      contentTypeSet.has(value.parameters.content_type) &&
+      typeof value.parameters.reason_category === 'string' &&
+      failureReasonSet.has(value.parameters.reason_category);
   }
 
   if (

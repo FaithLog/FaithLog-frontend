@@ -55,10 +55,12 @@ const PASSWORD_RESET_COMPLETE_MESSAGE = '비밀번호가 변경되었습니다. 
 
 export function LoginForm({
   clearNotice,
+  onLoginFailed,
   onLoginComplete,
   switchToSignup,
 }: {
   clearNotice: () => void;
+  onLoginFailed?: () => void;
   onLoginComplete: (state: Extract<AuthGateState, {status: 'authenticated' | 'noCampus'}>) => void;
   switchToSignup: () => void;
 }) {
@@ -123,6 +125,7 @@ export function LoginForm({
       trackLoginComplete,
     ));
     void operation?.then(onLoginComplete).catch((error) => {
+      onLoginFailed?.();
       setFormError(getLoginAuthErrorMessage(error));
     }).finally(() => setBusy(null));
   };
