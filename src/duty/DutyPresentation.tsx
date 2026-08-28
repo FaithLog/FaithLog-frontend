@@ -244,6 +244,7 @@ export function DutyConfirmSheet({
   children,
   confirmAccessibilityLabel,
   confirmLabel,
+  confirmVariant = 'danger',
   message,
   onCancel,
   onConfirm,
@@ -255,6 +256,7 @@ export function DutyConfirmSheet({
   cancelLabel?: string;
   confirmAccessibilityLabel: string;
   confirmLabel: string;
+  confirmVariant?: 'danger' | 'primary';
   message: string;
   onCancel: () => void;
   onConfirm: () => void;
@@ -280,7 +282,7 @@ export function DutyConfirmSheet({
               busy={busy}
               label={busy ? '처리 중...' : confirmLabel}
               onPress={onConfirm}
-              variant="danger"
+              variant={confirmVariant}
             />
           </DutyActionRow>
         </View>
