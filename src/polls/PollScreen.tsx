@@ -14,6 +14,11 @@ import {
 } from 'react-native';
 
 import {
+  fetchAdminPollMissingMembers,
+  sendAdminPollMissingNotification,
+  type AdminPollMissingMember,
+} from '../api/adminPollApi';
+import {
   addUserPollOption,
   createPollComment,
   deletePollComment,
@@ -64,6 +69,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import {DutyConfirmSheet} from '../duty/DutyPresentation';
 import type {PollOpenTarget} from '../notifications/pushNavigation';
 import {ContentShareActions} from '../sharing/ContentShareActions';
 import {colors, radius, spacing} from '../theme';
@@ -139,6 +145,14 @@ type PollListTab = 'active' | 'closed';
 type ActionState =
   | {kind: 'response' | 'comment' | 'edit' | 'delete' | 'optionAdd'; id?: number}
   | null;
+type PollMissingReminderState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'ready'; members: AdminPollMissingMember[]}
+  | {status: 'sending'; members: AdminPollMissingMember[]}
+  | {status: 'sent'; queuedCount: number; skippedCount: number}
+  | {status: 'empty'}
+  | {status: 'error'; error: ApiError};
 type CoffeeCatalogState =
   | {status: 'notNeeded'}
   | {status: 'success'; brands: CoffeeBrand[]; menus: CoffeeMenu[]}
@@ -176,9 +190,14 @@ export function PollScreen({
   const [optionAddContent, setOptionAddContent] = useState('');
   const [actionState, setActionState] = useState<ActionState>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [missingReminderState, setMissingReminderState] = useState<PollMissingReminderState>({
+    status: 'idle',
+  });
+  const [missingReminderConfirmVisible, setMissingReminderConfirmVisible] = useState(false);
   const currentPollId = useRef<number | null>(selectedPollId);
   const detailEpoch = useRef(0);
   const optionAddOperation = useRef({id: 0, inFlight: false});
+  const missingReminderOperation = useRef({id: 0, inFlight: false});
   const screenMounted = useRef(true);
   const commentDraftStore = useRef(new PollCommentDraftStore()).current;
   const pollNoticeCapabilities = getPollNoticeCapabilities();
@@ -207,6 +226,10 @@ export function PollScreen({
       screenMounted.current = false;
       detailEpoch.current += 1;
       currentPollId.current = null;
+      missingReminderOperation.current = {
+        id: missingReminderOperation.current.id + 1,
+        inFlight: false,
+      };
       noticeMediaCoordinator.invalidate();
     };
   }, []);
@@ -350,6 +373,24 @@ export function PollScreen({
   }, [campusId]);
 
   useEffect(() => {
+    if (currentPollId.current !== null) commentDraftStore.close(currentPollId.current);
+    detailEpoch.current += 1;
+    optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
+    missingReminderOperation.current = {
+      id: missingReminderOperation.current.id + 1,
+      inFlight: false,
+    };
+    currentPollId.current = null;
+    setSelectedPollId(null);
+    setDetailState({status: 'idle'});
+    setActionState(null);
+    setActionError(null);
+    setMissingReminderState({status: 'idle'});
+    setMissingReminderConfirmVisible(false);
+    setEditingComment(null);
+  }, [campusId]);
+
+  useEffect(() => {
     if (notificationCampusId === null || notificationPollId === null) return;
 
     onNotificationPollHandled();
@@ -360,11 +401,17 @@ export function PollScreen({
     const epoch = detailEpoch.current;
     const generation = getAuthSessionGeneration();
     optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
+    missingReminderOperation.current = {
+      id: missingReminderOperation.current.id + 1,
+      inFlight: false,
+    };
     currentPollId.current = notificationPollId;
     commentDraftStore.open(notificationPollId);
     setEditingComment(null);
     setActionState(null);
     setActionError(null);
+    setMissingReminderState({status: 'idle'});
+    setMissingReminderConfirmVisible(false);
     setSelectedPollId(notificationPollId);
     // A notification only targets the poll detail today. Prefer its notice when
     // one exists; loadDetail safely falls back to the response tab for older
@@ -384,11 +431,17 @@ export function PollScreen({
       : poll.responded || !isPollActionable(poll) ? 'results' : 'response';
     detailEpoch.current += 1;
     optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
+    missingReminderOperation.current = {
+      id: missingReminderOperation.current.id + 1,
+      inFlight: false,
+    };
     currentPollId.current = poll.id;
     commentDraftStore.open(poll.id);
     setEditingComment(null);
     setActionState(null);
     setActionError(null);
+    setMissingReminderState({status: 'idle'});
+    setMissingReminderConfirmVisible(false);
     setSelectedPollId(poll.id);
     setDetailTab(initialTab);
     void loadDetail(poll.id, initialTab);
@@ -402,12 +455,138 @@ export function PollScreen({
     setSelectedPollId(null);
     setDetailState({status: 'idle'});
     setActionError(null);
+    missingReminderOperation.current = {
+      id: missingReminderOperation.current.id + 1,
+      inFlight: false,
+    };
+    setMissingReminderState({status: 'idle'});
+    setMissingReminderConfirmVisible(false);
     setEditingComment(null);
     setActionState(null);
     void loadPolls();
   };
 
   const activeDetail = detailState.status === 'success' ? detailState.detail : null;
+
+  const canSendMissingReminder =
+    canOpenAdminMode &&
+    activeDetail?.manageableByMe === true &&
+    activeDetail.status === 'OPEN' &&
+    detailState.status === 'success' &&
+    (detailState.results?.notRespondedCount ?? 0) > 0;
+
+  const openMissingReminder = async () => {
+    if (!activeDetail || !canSendMissingReminder || missingReminderOperation.current.inFlight) {
+      return;
+    }
+
+    const pollId = activeDetail.id;
+    const epoch = detailEpoch.current;
+    const generation = getAuthSessionGeneration();
+    const operationId = missingReminderOperation.current.id + 1;
+    missingReminderOperation.current = {id: operationId, inFlight: true};
+    setMissingReminderState({status: 'loading'});
+    setActionError(null);
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken || !isCurrentDetailOperation(pollId, epoch, generation)) return;
+
+      const members = await fetchAdminPollMissingMembers(accessToken, campusId, pollId);
+      if (
+        missingReminderOperation.current.id !== operationId ||
+        !isCurrentDetailOperation(pollId, epoch, generation)
+      ) return;
+
+      if (members.length === 0) {
+        setMissingReminderState({status: 'empty'});
+        return;
+      }
+
+      setMissingReminderState({status: 'ready', members});
+      setMissingReminderConfirmVisible(true);
+    } catch (error) {
+      const apiError = toApiError(error, '투표 미응답자를 불러오지 못했습니다.');
+      if (
+        missingReminderOperation.current.id !== operationId ||
+        !shouldHandleDetailError(apiError, pollId, epoch, generation)
+      ) return;
+      setMissingReminderState({status: 'error', error: apiError});
+      handleAuthError(apiError, setAuthState);
+    } finally {
+      if (missingReminderOperation.current.id === operationId) {
+        missingReminderOperation.current.inFlight = false;
+      }
+    }
+  };
+
+  const confirmMissingReminder = async () => {
+    if (
+      !activeDetail ||
+      !canSendMissingReminder ||
+      missingReminderState.status !== 'ready' ||
+      missingReminderOperation.current.inFlight
+    ) return;
+
+    const pollId = activeDetail.id;
+    const pollTitle = activeDetail.title;
+    const members = missingReminderState.members;
+    const epoch = detailEpoch.current;
+    const generation = getAuthSessionGeneration();
+    const operationId = missingReminderOperation.current.id + 1;
+    missingReminderOperation.current = {id: operationId, inFlight: true};
+    setMissingReminderState({status: 'sending', members});
+
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken || !isCurrentDetailOperation(pollId, epoch, generation)) return;
+
+      const latestMembers = await fetchAdminPollMissingMembers(accessToken, campusId, pollId);
+      if (
+        missingReminderOperation.current.id !== operationId ||
+        !isCurrentDetailOperation(pollId, epoch, generation)
+      ) return;
+      if (latestMembers.length === 0) {
+        setMissingReminderConfirmVisible(false);
+        setMissingReminderState({status: 'empty'});
+        return;
+      }
+      setMissingReminderState({status: 'sending', members: latestMembers});
+
+      const result = await sendAdminPollMissingNotification(accessToken, campusId, {
+        notificationType: 'CUSTOM',
+        targetUserIds: latestMembers.map((member) => member.userId),
+        targetWeekStartDate: null,
+        targetId: pollId,
+        title: '투표 응답 알림',
+        body: `${pollTitle} 투표에 응답해 주세요.`,
+      });
+      if (
+        missingReminderOperation.current.id !== operationId ||
+        !isCurrentDetailOperation(pollId, epoch, generation)
+      ) return;
+
+      setMissingReminderConfirmVisible(false);
+      setMissingReminderState({
+        status: 'sent',
+        queuedCount: result.queuedCount,
+        skippedCount: result.skippedCount,
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '투표 미응답 알림을 발송하지 못했습니다.');
+      if (
+        missingReminderOperation.current.id !== operationId ||
+        !shouldHandleDetailError(apiError, pollId, epoch, generation)
+      ) return;
+      setMissingReminderConfirmVisible(false);
+      setMissingReminderState({status: 'error', error: apiError});
+      handleAuthError(apiError, setAuthState);
+    } finally {
+      if (missingReminderOperation.current.id === operationId) {
+        missingReminderOperation.current.inFlight = false;
+      }
+    }
+  };
 
   const toggleOption = (optionId: number) => {
     if (!activeDetail || !isPollActionable(activeDetail) || actionState) {
@@ -803,7 +982,14 @@ export function PollScreen({
               </>
             )}
             onRetry={() => loadDetail(detailState.detail.id, 'results')}
+            onSendMissingReminder={openMissingReminder}
+            reminderState={missingReminderState}
             results={detailState.results}
+            showMissingReminder={
+              canSendMissingReminder &&
+              missingReminderState.status !== 'sent' &&
+              missingReminderState.status !== 'empty'
+            }
           />
         ) : (
         <ScrollView
@@ -873,6 +1059,26 @@ export function PollScreen({
         />
         </ScrollView>
         )}
+        <DutyConfirmSheet
+          busy={missingReminderState.status === 'sending'}
+          cancelAccessibilityLabel="투표 미응답자 알림 취소"
+          confirmAccessibilityLabel="투표 미응답자 알림 보내기 확인"
+          confirmLabel="알림 보내기"
+          confirmVariant="primary"
+          message={
+            missingReminderState.status === 'ready' || missingReminderState.status === 'sending'
+              ? `아직 응답하지 않은 ${missingReminderState.members.length}명에게 투표 참여 알림을 보냅니다.`
+              : '아직 응답하지 않은 멤버에게 투표 참여 알림을 보냅니다.'
+          }
+          onCancel={() => {
+            if (missingReminderState.status !== 'sending') {
+              setMissingReminderConfirmVisible(false);
+            }
+          }}
+          onConfirm={confirmMissingReminder}
+          title="미응답자에게 알림을 보낼까요?"
+          visible={missingReminderConfirmVisible}
+        />
       </KeyboardAvoidingView>
     );
   }
@@ -1586,7 +1792,10 @@ function ResultsPanel({
   error,
   header,
   onRetry,
+  onSendMissingReminder,
+  reminderState,
   results,
+  showMissingReminder,
 }: {
   actionError: ApiError | null;
   androidContentBottomPadding: number;
@@ -1594,7 +1803,10 @@ function ResultsPanel({
   error: ApiError | null;
   header: React.ReactNode;
   onRetry: () => void;
+  onSendMissingReminder: () => void;
+  reminderState: PollMissingReminderState;
   results: PollResults | null;
+  showMissingReminder: boolean;
 }) {
   const sections = useMemo(() => results?.optionResults
     .slice()
@@ -1671,6 +1883,36 @@ function ResultsPanel({
               <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
               <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
             </View>
+            {showMissingReminder ? (
+              <Pressable
+                accessibilityLabel="투표 미응답자 알림 보내기"
+                accessibilityRole="button"
+                accessibilityState={{disabled: reminderState.status === 'loading'}}
+                disabled={reminderState.status === 'loading'}
+                hitSlop={4}
+                onPress={onSendMissingReminder}
+                style={({pressed}) => [
+                  styles.pollReminderButton,
+                  reminderState.status === 'loading' ? styles.addOptionButtonDisabled : null,
+                  pressed ? styles.pressed : null,
+                ]}>
+                <IconexIcon color={colors.primary} name="bell" size={16} strokeWidth={2.2} />
+                <Text style={styles.pollReminderButtonText}>
+                  {reminderState.status === 'loading' ? '대상 확인 중...' : '미응답자 알림'}
+                </Text>
+              </Pressable>
+            ) : null}
+            {reminderState.status === 'sent' ? (
+              <Text accessibilityRole="alert" style={styles.pollReminderSuccessText}>
+                {`${reminderState.queuedCount}명 알림 접수 · ${reminderState.skippedCount}명 제외`}
+              </Text>
+            ) : reminderState.status === 'empty' ? (
+              <Text accessibilityRole="alert" style={styles.pollReminderSuccessText}>
+                모든 멤버가 응답했습니다.
+              </Text>
+            ) : reminderState.status === 'error' ? (
+              <PollReminderErrorCard error={reminderState.error} />
+            ) : null}
             <Body>
               {detail.myResponse
                 ? `내 응답은 ${mySelectedLabels.join(', ') || '선택지 없음'}으로 저장됐어요.`
@@ -2042,6 +2284,38 @@ function ActionErrorCard({error}: {error: ApiError}) {
       <Body>{presentation.message}</Body>
     </Card>
   );
+}
+
+function PollReminderErrorCard({error}: {error: ApiError}) {
+  return (
+    <Card>
+      <Eyebrow>알림 요청 오류</Eyebrow>
+      <Title>알림을 보내지 못했습니다</Title>
+      <Body>{getPollReminderErrorMessage(error)}</Body>
+    </Card>
+  );
+}
+
+function getPollReminderErrorMessage(error: ApiError) {
+  if (error.kind === 'sessionExpired' || error.status === 401) {
+    return '세션이 만료되었습니다. 다시 로그인해 주세요.';
+  }
+  if (error.kind === 'permissionDenied' || error.status === 403) {
+    return '이 투표의 미응답자에게 알림을 보낼 권한이 없습니다.';
+  }
+  if (error.code === 'NOTIFICATION_LOCK_ALREADY_RUNNING') {
+    return '이미 알림 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  if (error.code === 'NOTIFICATION_REDIS_UNAVAILABLE' || error.status === 503) {
+    return '알림 서비스 연결이 원활하지 않습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  if (error.status === 404) {
+    return '투표 또는 알림 대상을 찾을 수 없습니다. 투표를 다시 불러와 주세요.';
+  }
+  if (error.kind === 'offline') {
+    return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+  }
+  return '잠시 후 다시 시도해 주세요.';
 }
 
 function InlineNotice({message, tone}: {message: string; tone: 'info' | 'warning'}) {
@@ -2523,6 +2797,29 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: spacing.gap,
+  },
+  pollReminderButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F3FF',
+    borderRadius: radius.pill,
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+  },
+  pollReminderButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  pollReminderSuccessText: {
+    color: colors.success,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   commentAuthor: {
     color: colors.text,
