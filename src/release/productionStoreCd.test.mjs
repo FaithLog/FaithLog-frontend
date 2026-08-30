@@ -23,6 +23,10 @@ describe('production store CD', () => {
   it('uses production without mocks and auto-submits to the test channels', () => {
     expect(workflow).toContain('EXPO_PUBLIC_APP_ENV: production');
     expect(workflow).toContain("EXPO_PUBLIC_MOCK_MODE: 'false'");
+    expect(workflow).toContain(
+      'EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY: ${{ vars.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY }}',
+    );
+    expect(workflow).toContain('test -n "$EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY"');
     expect(workflow).toContain('--auto-submit-with-profile production');
     expect(workflow).not.toMatch(/^\s+--auto-submit\s*$/m);
     expect(eas.submit.production.android).toEqual({track: 'internal', releaseStatus: 'completed'});
