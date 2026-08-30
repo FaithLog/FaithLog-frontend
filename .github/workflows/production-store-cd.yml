@@ -28,6 +28,7 @@ jobs:
       EXPO_PUBLIC_API_BASE_URL: https://faithlog-549871256004.asia-northeast3.run.app
       EXPO_PUBLIC_APP_ENV: production
       EXPO_PUBLIC_MOCK_MODE: 'false'
+      EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY: ${{ vars.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY }}
     steps:
       - name: Checkout verified main commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -59,6 +60,7 @@ jobs:
           test "$EXPO_PUBLIC_APP_ENV" = "production"
           test "$EXPO_PUBLIC_MOCK_MODE" = "false"
           test -n "$EXPO_PUBLIC_API_BASE_URL"
+          test -n "$EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY"
           node -e "const eas=require('./eas.json'); if(eas.submit?.production?.android?.track!=='internal') process.exit(1); if(!eas.submit?.production?.ios?.ascAppId) process.exit(1)"
 
       - name: Verify backend reachability
