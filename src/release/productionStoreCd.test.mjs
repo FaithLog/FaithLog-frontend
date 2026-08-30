@@ -7,6 +7,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/production-store-cd.yml'), 'utf8');
 const eas = JSON.parse(fs.readFileSync(path.join(root, 'eas.json'), 'utf8'));
 const app = JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'));
+const easIgnore = fs.readFileSync(path.join(root, '.easignore'), 'utf8');
 
 describe('production store CD', () => {
   it('deploys only a successful main push CI commit and serializes releases', () => {
@@ -32,5 +33,12 @@ describe('production store CD', () => {
     expect(eas.submit.production.android).toEqual({track: 'internal', releaseStatus: 'completed'});
     expect(eas.submit.production.ios.ascAppId).toBe('6784053598');
     expect(app.expo.version).toBe('1.2.3');
+  });
+
+  it('uploads the local Kakao native module sources required by Expo prebuild', () => {
+    expect(easIgnore).toContain('!modules/faithlog-kakao-share/android/');
+    expect(easIgnore).toContain('!modules/faithlog-kakao-share/android/**');
+    expect(easIgnore).toContain('!modules/faithlog-kakao-share/ios/');
+    expect(easIgnore).toContain('!modules/faithlog-kakao-share/ios/**');
   });
 });
