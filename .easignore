@@ -21,6 +21,10 @@ web-build/
 # EAS builds regenerate these from app.config.js.
 android/
 ios/
+!modules/faithlog-kakao-share/android/
+!modules/faithlog-kakao-share/android/**
+!modules/faithlog-kakao-share/ios/
+!modules/faithlog-kakao-share/ios/**
 
 # local Codex/Git recovery artifacts
 .codex
