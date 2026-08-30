@@ -38,6 +38,11 @@ describe('privacy-safe Analytics contract', () => {
       'poll_create_complete',
       'poll_close_complete',
       'charge_mark_paid_complete',
+      'content_share_started',
+      'content_share_completed',
+      'deep_link_opened',
+      'deep_link_login_required',
+      'deep_link_open_failed',
     ]);
     expect(ANALYTICS_ENTRY_POINTS).toEqual(['home', 'notification', 'deep_link', 'list']);
     expect(ANALYTICS_POLL_TYPES).toEqual(['coffee', 'meal', 'custom']);

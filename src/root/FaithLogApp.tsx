@@ -2,6 +2,7 @@ import {
   type Dispatch,
   type PropsWithChildren,
   type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -13,6 +14,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -69,10 +71,25 @@ import {
   getAuthenticatedAnalyticsScreen,
   getPublicAnalyticsScreen,
 } from '../analytics/analyticsScreenState';
-import {trackCampusJoinComplete} from '../analytics/appAnalytics';
+import {
+  trackCampusJoinComplete,
+  trackDeepLinkLoginRequired,
+  trackDeepLinkOpened,
+  trackDeepLinkOpenFailed,
+} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {isActiveDutyForRequest} from '../admin/adminMemberDutyFilter';
+import {
+  createContentDeepLinkDeduper,
+  parseContentDeepLink,
+  type ContentDeepLinkTarget,
+} from '../sharing/contentSharing';
+import {
+  clearPendingContentRoute,
+  consumePendingContentRoute,
+  setPendingContentRoute,
+} from '../sharing/pendingContentRoute';
 import {ServiceAdminScreen} from '../admin/ServiceAdminScreen';
 import {type AuthFieldErrors} from '../auth/authForms';
 import type {AuthGateState} from '../auth/authGate';
@@ -134,6 +151,7 @@ import {DevotionScreen} from '../devotion/DevotionScreen';
 import {MonthlyCalendarScreen} from '../devotion/MonthlyCalendarScreen';
 import {CoffeeDutyScreen} from '../coffee/CoffeeDutyScreen';
 import {MealDutyScreen} from '../meal/MealDutyScreen';
+import {HomeDutyManagementCards} from '../duty/HomeDutyManagementCards';
 import {
   HomeAnnouncementCapabilitySection,
   MemberAnnouncementCapabilityRoute,
@@ -366,6 +384,7 @@ export function beginProtectedLogoutUiTeardown(
   invalidate: () => void = invalidatePaymentContextCache,
 ) {
   clearCurrentUserCache();
+  clearPendingContentRoute();
   invalidate();
   transitionToSignedOut();
 }
@@ -404,6 +423,8 @@ export function FaithLogApp() {
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const notificationOpenSequenceRef = useRef(0);
+  const contentDeepLinkSequenceRef = useRef(0);
+  const contentDeepLinkDeduperRef = useRef(createContentDeepLinkDeduper());
   const campusNavigationIntentRef = useRef(createCampusNavigationIntentCoordinator());
   const announcementCacheSessionRef = useRef(initialAnnouncementCacheSession);
   const autoFcmRegistrationAttemptRef = useRef<string | null>(null);
@@ -429,6 +450,77 @@ export function FaithLogApp() {
       epoch, authTransitionEpoch.current, () => setAuthState(result),
     ));
   };
+
+  const openContentDeepLink = useCallback(async (target: ContentDeepLinkTarget) => {
+    const requestSequence = ++contentDeepLinkSequenceRef.current;
+    const current = authStateRef.current;
+    if (current.status !== 'authenticated') {
+      setPendingContentRoute(target);
+      trackDeepLinkLoginRequired(target.type);
+      setEntryTarget('login');
+      return;
+    }
+
+    const requestGeneration = getAuthSessionGeneration();
+    let navigationState = current;
+    if (current.selectedCampus.campusId !== target.campusId) {
+      try {
+        const accessToken = await resolveCurrentAccessToken(() => {
+          setAuthState({status: 'sessionExpired', message: '로그인이 만료되었습니다. 다시 로그인해 주세요.'});
+        });
+        if (!accessToken) return;
+        const refreshed = await refreshAuthenticatedCampusState(
+          accessToken,
+          current,
+          target.campusId,
+          requestGeneration,
+          false,
+        );
+        if (
+          requestSequence !== contentDeepLinkSequenceRef.current ||
+          requestGeneration !== getAuthSessionGeneration()
+        ) return;
+        if (refreshed.status !== 'authenticated' || refreshed.selectedCampus.campusId !== target.campusId) {
+          trackDeepLinkOpenFailed(target.type, 'permission_denied');
+          Alert.alert('콘텐츠를 열 수 없습니다', '현재 계정으로 접근할 수 있는 캠퍼스의 콘텐츠만 확인할 수 있습니다.');
+          return;
+        }
+        navigationState = refreshed;
+        setAuthState((latest) => applyRefreshedAuthState(
+          latest,
+          refreshed,
+          requestGeneration,
+          getAuthSessionGeneration(),
+          readCurrentUserCache(requestGeneration, refreshed.user.id),
+        ));
+        await saveSelectedCampusId(target.campusId);
+      } catch {
+        if (requestSequence !== contentDeepLinkSequenceRef.current) return;
+        trackDeepLinkOpenFailed(target.type, 'request_failed');
+        Alert.alert('콘텐츠를 열 수 없습니다', '잠시 후 다시 시도해 주세요.');
+        return;
+      }
+    }
+
+    if (requestSequence !== contentDeepLinkSequenceRef.current) return;
+    const availableRoutes = getAvailableRoutes(navigationState.user, navigationState.selectedCampus);
+    const nextRoute: ShellRoute = target.type === 'poll' ? 'polls' : 'announcements';
+    if (!availableRoutes.includes(nextRoute)) {
+      trackDeepLinkOpenFailed(target.type, 'permission_denied');
+      return;
+    }
+    if (target.type === 'poll') {
+      setAnnouncementInitialId(null);
+      setNotificationPollTarget({campusId: target.campusId, pollId: target.contentId});
+    } else {
+      setNotificationPollTarget(null);
+      setAnnouncementInitialId(target.contentId);
+      setAnnouncementOpenRequestKey((value) => value >= Number.MAX_SAFE_INTEGER ? 1 : value + 1);
+    }
+    setNotificationWeeklyMaterialTarget(null);
+    setRoute(nextRoute);
+    trackDeepLinkOpened(target.type);
+  }, []);
 
   useEffect(() => subscribeSessionExpiration(createSessionExpirationHandler(
     getAuthSessionGeneration,
@@ -839,6 +931,31 @@ export function FaithLogApp() {
     };
   }, [notificationSessionUserId]);
 
+  useEffect(() => {
+    let active = true;
+    const handleUrl = (rawUrl: string | null) => {
+      if (!active || !rawUrl) return;
+      const target = parseContentDeepLink(rawUrl);
+      if (!target) return;
+      if (!contentDeepLinkDeduperRef.current.shouldOpen(target)) return;
+      void openContentDeepLink(target);
+    };
+    const subscription = Linking.addEventListener('url', ({url}) => handleUrl(url));
+    void Linking.getInitialURL().then(handleUrl).catch(() => undefined);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [openContentDeepLink]);
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated') return;
+    const pending = consumePendingContentRoute();
+    if (!pending) return;
+    contentDeepLinkDeduperRef.current.clear();
+    void openContentDeepLink(pending);
+  }, [authState.status, openContentDeepLink]);
+
   return (
     <>
       <StatusBar
@@ -1106,6 +1223,7 @@ function renderPublicAuthEntry({
   return (
     <LoginWithPasswordResetForm
       clearNotice={clearNotice}
+      onLoginFailed={clearPendingContentRoute}
       onLoginComplete={(nextState) => {
         setAuthState(nextState);
         if (nextState.status === 'authenticated') {
@@ -1115,7 +1233,10 @@ function renderPublicAuthEntry({
           openEntryTarget(null);
         }
       }}
-      switchToSignup={() => openEntryTarget('signup')}
+      switchToSignup={() => {
+        clearPendingContentRoute();
+        openEntryTarget('signup');
+      }}
     />
   );
 }
@@ -2559,6 +2680,14 @@ function AuthenticatedShell({
                 setRoute('devotion');
               }}
               onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenCoffeeDuty={() => {
+                setProfileView('coffee');
+                setRoute('profile');
+              }}
+              onOpenMealDuty={() => {
+                setProfileView('meal');
+                setRoute('profile');
+              }}
               onOpenNotifications={openNotificationSettings}
               canOpenAdminMode={adminModeRoutes.length > 0}
               onOpenAdminMode={openAdminMode}
@@ -2915,6 +3044,8 @@ function UserHomeDashboard({
   onOpenAnnouncements,
   onOpenAnnouncement,
   onOpenDevotion,
+  onOpenCoffeeDuty,
+  onOpenMealDuty,
   onOpenMonthlyCalendar,
   onOpenNotifications,
   onOpenPayments,
@@ -2931,6 +3062,8 @@ function UserHomeDashboard({
   onOpenAnnouncements: () => void;
   onOpenAnnouncement: (announcementId: number) => void;
   onOpenDevotion: () => void;
+  onOpenCoffeeDuty: () => void;
+  onOpenMealDuty: () => void;
   onOpenMonthlyCalendar: () => void;
   onOpenNotifications: () => void;
   onOpenPayments: () => void;
@@ -3198,6 +3331,13 @@ function UserHomeDashboard({
       {campusReady && isWeeklyMaterialCapabilityEnabled() ? (
         <HomeWeeklyMaterialsEntryCard onPress={onOpenWeeklyMaterials} />
       ) : null}
+      <HomeDutyManagementCards
+        campusId={campusId}
+        onOpenCoffee={onOpenCoffeeDuty}
+        onOpenMeal={onOpenMealDuty}
+        setAuthState={setAuthState}
+        userId={state.user.id}
+      />
       <HomePrayerEntryCard
         entryMode="groups"
         onPress={() => onOpenPrayers('groups')}

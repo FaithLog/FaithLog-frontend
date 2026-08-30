@@ -3515,12 +3515,14 @@ export function AdminScreen({
         onConfirm={confirmDeleteMember}
       />
       <NotificationConfirmSheet
+        bottomInset={androidShellInsets.bottomNavInset}
         onCancel={cancelNotificationConfirm}
         onConfirm={confirmNotificationSend}
         state={notificationState}
         weekStartDate={weekStartDate}
       />
       <NotificationSentSheet
+        bottomInset={androidShellInsets.bottomNavInset}
         onClose={() => setNotificationState({status: 'idle'})}
         state={notificationState}
       />
@@ -11381,11 +11383,13 @@ function DeleteMemberSheet({
 }
 
 function NotificationConfirmSheet({
+  bottomInset,
   onCancel,
   onConfirm,
   state,
   weekStartDate,
 }: {
+  bottomInset: number;
   onCancel: () => void;
   onConfirm: () => void;
   state: NotificationSendState;
@@ -11398,7 +11402,7 @@ function NotificationConfirmSheet({
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, {paddingBottom: spacing.card + bottomInset}]}>
           <Eyebrow>알림 발송 확인</Eyebrow>
           <Title>{targets.length}명에게 알림을 보낼까요?</Title>
           <Body>
@@ -11454,9 +11458,11 @@ function NotificationConfirmSheet({
 }
 
 function NotificationSentSheet({
+  bottomInset,
   onClose,
   state,
 }: {
+  bottomInset: number;
   onClose: () => void;
   state: NotificationSendState;
 }) {
@@ -11469,7 +11475,7 @@ function NotificationSentSheet({
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <View style={styles.notificationSentSheet}>
+        <View style={[styles.notificationSentSheet, {marginBottom: bottomInset}]}>
           <View style={styles.notificationSentIcon}>
             <IconexIcon color={adminFigmaTokens.primary} name="bell" size={24} strokeWidth={1.8} />
           </View>

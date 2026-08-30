@@ -27,6 +27,7 @@ import type {ApiError} from '../api/types';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {Button, Card, Empty, ErrorState, Loading, ScreenHeader, TextField} from '../components/ui';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
+import {ContentShareActions} from '../sharing/ContentShareActions';
 import {colors, radius, spacing, typography} from '../theme';
 import {announcementApi, type AnnouncementApi} from './announcementApi';
 import {isAnnouncementMockModeEnabled, isAnnouncementPdfCapabilityEnabled} from './announcementEnvironment';
@@ -245,6 +246,7 @@ export function AdminAnnouncementScreen({
   return (
     <>
       <AdminAnnouncementListScreen
+        campusId={campusId}
         loadState={state}
         onArchive={(item) => requestConfirmation({item, kind: 'archive'})}
         onBack={onBack}
@@ -276,6 +278,7 @@ export function AdminAnnouncementScreen({
 }
 
 export function AdminAnnouncementListScreen({
+  campusId,
   loadState,
   onArchive,
   onBack,
@@ -287,6 +290,7 @@ export function AdminAnnouncementListScreen({
   onStatus,
   selectedStatus,
 }: {
+  campusId: number;
   loadState: LoadState;
   onArchive: (item: AnnouncementSummary) => void;
   onBack: () => void;
@@ -368,6 +372,15 @@ export function AdminAnnouncementListScreen({
           <View
             accessibilityLabel={`${item.title} 관리 작업`}
             style={styles.actionRow}>
+            {item.status === 'PUBLISHED' ? (
+              <ContentShareActions
+                announcementId={item.id}
+                campusId={campusId}
+                categoryName={item.category.name}
+                kind="announcement"
+                title={item.title}
+              />
+            ) : null}
             {item.status !== 'ARCHIVED' ? (
               <CompactButton
                 accessibilityLabel={`${item.title} 수정`}

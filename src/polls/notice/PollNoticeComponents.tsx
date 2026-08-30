@@ -13,27 +13,13 @@ import type {MediaAccessUrl} from '../../media/mediaTypes';
 import type {MediaUploadItem} from '../../media/mediaUploadPolicy';
 import {useHorizontalDragAutoScroll} from '../../media/useHorizontalDragAutoScroll';
 import {AnnouncementCachedImage} from '../../announcements/AnnouncementCachedImage';
+import {RichLinkBookmarks} from '../../components/RichLinkBookmarks';
 import {colors, radius, spacing, typography} from '../../theme';
 import {
   getPollNoticeValidationMessage,
   normalizePollNotice,
   POLL_NOTICE_MAX_LENGTH,
 } from './pollNoticeContract';
-
-export const PollNoticeBadge = memo(function PollNoticeBadge({
-  enabled,
-  hasNotice,
-}: {
-  enabled: boolean;
-  hasNotice?: boolean | undefined;
-}) {
-  if (!enabled || hasNotice !== true) return null;
-  return (
-    <View accessibilityLabel="공지 있음" accessibilityRole="text" style={styles.badge}>
-      <Text style={styles.badgeText}>공지 있음</Text>
-    </View>
-  );
-});
 
 export const PollNoticeBlock = memo(function PollNoticeBlock({
   enabled,
@@ -48,7 +34,7 @@ export const PollNoticeBlock = memo(function PollNoticeBlock({
   return (
     <View accessibilityLabel={`투표 공지 ${normalized}`} style={styles.noticeBlock}>
       <Text style={styles.noticeEyebrow}>투표 공지</Text>
-      <Text style={styles.noticeText}>{normalized}</Text>
+      <RichLinkBookmarks text={normalized} />
     </View>
   );
 });
@@ -439,8 +425,6 @@ function getMediaFailureIdentity(asset: MediaAccessUrl) {
 const styles = StyleSheet.create({
   addButton: {alignItems: 'center', backgroundColor: '#E8F3FF', borderRadius: radius.control, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12},
   addButtonText: {color: colors.primary, fontSize: 13, fontWeight: '800'},
-  badge: {alignSelf: 'flex-start', backgroundColor: '#E8F3FF', borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 5},
-  badgeText: {color: colors.primary, fontSize: 12, fontWeight: '800'},
   counter: {color: colors.textMuted, fontSize: 12, fontWeight: '600'},
   editorDescription: {color: colors.textSecondary, fontSize: 13, lineHeight: 18},
   editorHeading: {alignItems: 'flex-start', flexDirection: 'row', gap: spacing.gap},

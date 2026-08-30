@@ -1,5 +1,15 @@
-import {useEffect, useRef, useState} from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {useEffect, useRef, useState, type RefObject} from 'react';
+import {
+  InputAccessoryView,
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import {FaithLogApiError} from '../api/apiError';
 import {Button, Loading, ScreenHeader} from '../components/ui';
 import {colors, radius, spacing} from '../theme';
@@ -9,8 +19,12 @@ import {getRecentShepherdGroup, setRecentShepherdGroup} from './recentShepherdGr
 import type {AttendanceInput, ShepherdAttendanceHome, ShepherdAttendanceStatus} from './shepherdAttendanceTypes';
 
 type Props = {api: ShepherdAttendanceApi; campusId: number; getAccessToken: () => Promise<string>; initialData?: ShepherdAttendanceHome; onBack: () => void; onChanged?: (data: ShepherdAttendanceHome) => void};
-type Screen = 'LIST' | 'CREATE';
 const emptyInput: AttendanceInput = {smallGroupMeetingCount: '', holyWaveCount: '', otherWorshipCount: '', note: ''};
+const countInputAccessoryIds = {
+  holyWave: 'shepherd-attendance-holy-wave-accessory',
+  meeting: 'shepherd-attendance-meeting-accessory',
+  otherWorship: 'shepherd-attendance-other-worship-accessory',
+} as const;
 
 export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initialData, onBack, onChanged}: Props) {
   const [data, setData] = useState<ShepherdAttendanceHome | null>(initialData ?? null);
@@ -21,10 +35,10 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  const [createName, setCreateName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [screen, setScreen] = useState<Screen>('LIST');
   const mounted = useRef(true);
+  const meetingInputRef = useRef<TextInput>(null);
+  const holyWaveInputRef = useRef<TextInput>(null);
+  const otherWorshipInputRef = useRef<TextInput>(null);
 
   const load = async () => {
     setLoading(true); setError(null);
@@ -59,12 +73,8 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
       else setError('저장하지 못했습니다. 입력한 내용을 유지했습니다.');
     } finally { savingRef.current = false; if (mounted.current) setSaving(false); }
   };
-  const create = async () => { if (creating || !createName.trim()) return; setCreating(true); setError(null); try { await api.createGroup(await getAccessToken(), campusId, {name: createName.trim()}); setCreateName(''); await load(); if (mounted.current) setScreen('LIST'); } catch (reason) { setError(reason instanceof FaithLogApiError && reason.detail.status === 409 ? '이미 사용 중인 목장 이름입니다.' : '목장을 만들지 못했습니다.'); } finally { if (mounted.current) setCreating(false); } };
   if (loading && !data) return <Loading message="목홀타 입력란을 불러오고 있어요." />;
-  if (screen === 'CREATE') return <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled"><ScreenHeader eyebrow="주간 보고" title="새 목장 추가" subtitle="목장 이름을 입력하면 내가 담당자로 등록돼요." action={<Pressable accessibilityLabel="내 목장 추가 취소" onPress={() => { setCreateName(''); setError(null); setScreen('LIST'); }}><Text style={styles.back}>취소</Text></Pressable>} />
-    <View style={styles.create}><Text style={styles.label}>목장 이름</Text><TextInput accessibilityLabel="새 목장 이름" maxLength={100} onChangeText={setCreateName} placeholder="예: 사랑 목장" style={styles.input} value={createName} />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}<View style={styles.createActions}><Button accessibilityLabel="내 목장 생성 취소" onPress={() => { setCreateName(''); setError(null); setScreen('LIST'); }} variant="secondary">취소</Button><Button accessibilityLabel="내 목장 생성" disabled={creating || !createName.trim()} onPress={() => void create()}>{creating ? '추가 중...' : '목장 추가'}</Button></View></View>
-  </ScrollView>;
-  return <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled"><ScreenHeader eyebrow="주간 보고" title="목홀타 입력" subtitle={data ? `${data.serviceDate} 주일` : '담당 목장의 인원을 입력해 주세요.'} action={<View style={styles.headerActions}><Pressable accessibilityLabel="내 목장 추가 화면 열기" onPress={() => { setError(null); setScreen('CREATE'); }}><Text style={styles.back}>목장 추가</Text></Pressable><Pressable accessibilityLabel="목홀타 입력 닫기" onPress={onBack}><Text style={styles.close}>닫기</Text></Pressable></View>} />
+  return <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled"><ScreenHeader eyebrow="주간 보고" title="목홀타 입력" subtitle={data ? `${data.serviceDate} 주일` : '담당 목장의 인원을 입력해 주세요.'} action={<Pressable accessibilityLabel="목홀타 입력 닫기" onPress={onBack}><Text style={styles.close}>닫기</Text></Pressable>} />
     {data && data.groups.length > 1 ? <View accessibilityRole="tablist" style={styles.tabs}>{data.groups.map((group) => <Pressable accessibilityLabel={`${group.groupName} 선택`} accessibilityRole="tab" key={group.groupId} onPress={() => selectGroup(group.groupId)} style={[styles.tab, group.groupId === selectedGroupId ? styles.tabSelected : null]}><Text style={[styles.tabText, group.groupId === selectedGroupId ? styles.tabTextSelected : null]}>{group.groupName}</Text></Pressable>)}</View> : null}
     {selected ? <View style={styles.form}><Text style={styles.groupTitle}>{selected.groupName}</Text><Text style={styles.status}>{selected.report?.status === 'SUBMITTED' ? '제출 완료' : selected.report ? '임시 저장' : '미입력'}</Text>
       {selected.report?.status === 'SUBMITTED' && editingSubmittedGroupId !== selected.groupId ? <>
@@ -72,10 +82,42 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
         {selected.report.note ? <Text style={styles.submittedNote}>{selected.report.note}</Text> : null}
         <View style={styles.actions}><Button accessibilityLabel="제출한 목홀타 수정" onPress={() => setEditingSubmittedGroupId(selected.groupId)} variant="secondary">수정</Button></View>
       </> : <><View accessibilityLabel="목홀타 입력값" style={styles.countFields}>
-        <CountField label="목장모임" inputAccessibilityLabel="목장모임 참여 인원" value={input.smallGroupMeetingCount} onChange={(value) => setInput((current) => ({...current, smallGroupMeetingCount: value}))} />
-        <CountField label="홀리웨이브" inputAccessibilityLabel="홀리웨이브 참여 인원" value={input.holyWaveCount} onChange={(value) => setInput((current) => ({...current, holyWaveCount: value}))} />
-        <CountField label="타예배" inputAccessibilityLabel="타예배 참여 인원" value={input.otherWorshipCount} onChange={(value) => setInput((current) => ({...current, otherWorshipCount: value}))} />
+        <CountField
+          inputAccessibilityLabel="목장모임 참여 인원"
+          inputAccessoryViewID={countInputAccessoryIds.meeting}
+          inputRef={meetingInputRef}
+          label="목장모임"
+          onChange={(value) => setInput((current) => ({...current, smallGroupMeetingCount: value}))}
+          onSubmitEditing={() => holyWaveInputRef.current?.focus()}
+          returnKeyType="next"
+          value={input.smallGroupMeetingCount}
+        />
+        <CountField
+          inputAccessibilityLabel="홀리웨이브 참여 인원"
+          inputAccessoryViewID={countInputAccessoryIds.holyWave}
+          inputRef={holyWaveInputRef}
+          label="홀리웨이브"
+          onChange={(value) => setInput((current) => ({...current, holyWaveCount: value}))}
+          onSubmitEditing={() => otherWorshipInputRef.current?.focus()}
+          returnKeyType="next"
+          value={input.holyWaveCount}
+        />
+        <CountField
+          inputAccessibilityLabel="타예배 참여 인원"
+          inputAccessoryViewID={countInputAccessoryIds.otherWorship}
+          inputRef={otherWorshipInputRef}
+          label="타예배"
+          onChange={(value) => setInput((current) => ({...current, otherWorshipCount: value}))}
+          onSubmitEditing={Keyboard.dismiss}
+          returnKeyType="done"
+          value={input.otherWorshipCount}
+        />
       </View>
+      {Platform.OS === 'ios' ? <>
+        <CountKeyboardAccessory accessibilityLabel="홀리웨이브 입력으로 이동" label="다음" nativeID={countInputAccessoryIds.meeting} onPress={() => holyWaveInputRef.current?.focus()} />
+        <CountKeyboardAccessory accessibilityLabel="타예배 입력으로 이동" label="다음" nativeID={countInputAccessoryIds.holyWave} onPress={() => otherWorshipInputRef.current?.focus()} />
+        <CountKeyboardAccessory accessibilityLabel="숫자 키보드 닫기" label="완료" nativeID={countInputAccessoryIds.otherWorship} onPress={Keyboard.dismiss} />
+      </> : null}
       <Text style={styles.label}>메모 (선택)</Text><TextInput accessibilityLabel="목홀타 메모" multiline onChangeText={(note) => setInput((current) => ({...current, note}))} placeholder="특이사항이 있으면 입력해 주세요" style={[styles.input, styles.note]} value={input.note} />
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}<View accessibilityLabel="목홀타 저장 명령" style={styles.actions}><Button accessibilityLabel="목홀타 제출 완료" disabled={saving} onPress={() => void save('SUBMITTED')}>{saving ? '제출 중' : '제출 완료'}</Button></View>
       </>}
@@ -83,7 +125,8 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
   </ScrollView>;
 }
 
-function CountField({inputAccessibilityLabel, label, onChange, value}: {inputAccessibilityLabel: string; label: string; onChange: (value: string) => void; value: string}) { return <View style={styles.countField}><Text numberOfLines={1} style={styles.countLabel}>{label}</Text><TextInput accessibilityLabel={inputAccessibilityLabel} keyboardType="number-pad" maxLength={7} onChangeText={(text) => onChange(text.replace(/[^0-9]/g, ''))} selectTextOnFocus style={[styles.input, styles.countInput]} value={value} /></View>; }
+function CountField({inputAccessibilityLabel, inputAccessoryViewID, inputRef, label, onChange, onSubmitEditing, returnKeyType, value}: {inputAccessibilityLabel: string; inputAccessoryViewID: string; inputRef: RefObject<TextInput | null>; label: string; onChange: (value: string) => void; onSubmitEditing: () => void; returnKeyType: 'done' | 'next'; value: string}) { return <View style={styles.countField}><Text numberOfLines={1} style={styles.countLabel}>{label}</Text><TextInput accessibilityLabel={inputAccessibilityLabel} inputAccessoryViewID={Platform.OS === 'ios' ? inputAccessoryViewID : undefined} keyboardType="number-pad" maxLength={7} onChangeText={(text) => onChange(text.replace(/[^0-9]/g, ''))} onSubmitEditing={onSubmitEditing} ref={inputRef} returnKeyType={returnKeyType} selectTextOnFocus submitBehavior={returnKeyType === 'done' ? 'blurAndSubmit' : 'submit'} style={[styles.input, styles.countInput]} value={value} /></View>; }
+function CountKeyboardAccessory({accessibilityLabel, label, nativeID, onPress}: {accessibilityLabel: string; label: string; nativeID: string; onPress: () => void}) { return <InputAccessoryView nativeID={nativeID}><View style={styles.keyboardAccessory}><Pressable accessibilityLabel={accessibilityLabel} accessibilityRole="button" onPress={onPress} style={({pressed}) => [styles.keyboardAccessoryButton, pressed ? styles.keyboardAccessoryButtonPressed : null]}><Text style={styles.keyboardAccessoryText}>{label}</Text></Pressable></View></InputAccessoryView>; }
 function SubmittedValue({label, value}: {label: string; value: number}) { return <View style={styles.submittedValue}><Text style={styles.submittedValueLabel}>{label}</Text><Text style={styles.submittedValueNumber}>{value}명</Text></View>; }
 function fromReport(report: ShepherdAttendanceHome['groups'][number]['report']): AttendanceInput { return report ? {smallGroupMeetingCount: String(report.smallGroupMeetingCount), holyWaveCount: String(report.holyWaveCount), otherWorshipCount: String(report.otherWorshipCount), note: report.note ?? ''} : emptyInput; }
-const styles = StyleSheet.create({screen: {backgroundColor: colors.background, gap: spacing.gap, padding: spacing.card, paddingBottom: 60}, back: {color: colors.primary, fontWeight: '800'}, close: {color: colors.mutedText, fontWeight: '800'}, headerActions: {alignItems: 'center', flexDirection: 'row', gap: 12}, tabs: {flexDirection: 'row', flexWrap: 'wrap', gap: 8}, tab: {backgroundColor: colors.neutralSoft, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9}, tabSelected: {backgroundColor: colors.primary}, tabText: {color: colors.mutedText, fontWeight: '700'}, tabTextSelected: {color: '#fff'}, form: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: 10, padding: spacing.card}, groupTitle: {color: colors.text, fontSize: 19, fontWeight: '900'}, status: {alignSelf: 'flex-start', color: colors.primary, fontSize: 13, fontWeight: '800'}, label: {color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 4}, input: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.control, borderWidth: 1, color: colors.text, fontSize: 16, minHeight: 48, paddingHorizontal: 14}, note: {minHeight: 92, paddingTop: 12, textAlignVertical: 'top'}, countFields: {flexDirection: 'row', gap: 8}, countField: {flex: 1, minWidth: 0}, countLabel: {color: colors.mutedText, fontSize: 12, fontWeight: '700', marginBottom: 6, textAlign: 'center'}, countInput: {paddingHorizontal: 6, textAlign: 'center'}, submittedValues: {flexDirection: 'row', gap: 8}, submittedValue: {backgroundColor: colors.neutralSoft, borderRadius: radius.control, flex: 1, minWidth: 0, paddingHorizontal: 6, paddingVertical: 12}, submittedValueLabel: {color: colors.mutedText, fontSize: 12, fontWeight: '700', textAlign: 'center'}, submittedValueNumber: {color: colors.text, fontSize: 18, fontWeight: '900', marginTop: 5, textAlign: 'center'}, submittedNote: {color: colors.mutedText, fontSize: 14, lineHeight: 20}, actions: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'flex-end'}, createActions: {flexDirection: 'row', gap: 8}, error: {color: colors.danger, fontSize: 13}, empty: {color: colors.mutedText, paddingVertical: 30, textAlign: 'center'}, create: {backgroundColor: colors.surface, borderRadius: radius.card, gap: 10, padding: spacing.card}});
+const styles = StyleSheet.create({screen: {backgroundColor: colors.background, gap: spacing.gap, padding: spacing.card, paddingBottom: 60}, close: {color: colors.mutedText, fontWeight: '800'}, tabs: {flexDirection: 'row', flexWrap: 'wrap', gap: 8}, tab: {backgroundColor: colors.neutralSoft, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9}, tabSelected: {backgroundColor: colors.primary}, tabText: {color: colors.mutedText, fontWeight: '700'}, tabTextSelected: {color: '#fff'}, form: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: 10, padding: spacing.card}, groupTitle: {color: colors.text, fontSize: 19, fontWeight: '900'}, status: {alignSelf: 'flex-start', color: colors.primary, fontSize: 13, fontWeight: '800'}, label: {color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 4}, input: {backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.control, borderWidth: 1, color: colors.text, fontSize: 16, minHeight: 48, paddingHorizontal: 14}, note: {minHeight: 92, paddingTop: 12, textAlignVertical: 'top'}, countFields: {flexDirection: 'row', gap: 8}, countField: {flex: 1, minWidth: 0}, countLabel: {color: colors.mutedText, fontSize: 12, fontWeight: '700', marginBottom: 6, textAlign: 'center'}, countInput: {paddingHorizontal: 6, textAlign: 'center'}, keyboardAccessory: {alignItems: 'flex-end', backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: 1, paddingHorizontal: spacing.card, paddingVertical: 6}, keyboardAccessoryButton: {alignItems: 'center', borderRadius: radius.control, justifyContent: 'center', minHeight: 44, minWidth: 64, paddingHorizontal: 14}, keyboardAccessoryButtonPressed: {backgroundColor: colors.primarySoft}, keyboardAccessoryText: {color: colors.primary, fontSize: 16, fontWeight: '800'}, submittedValues: {flexDirection: 'row', gap: 8}, submittedValue: {backgroundColor: colors.neutralSoft, borderRadius: radius.control, flex: 1, minWidth: 0, paddingHorizontal: 6, paddingVertical: 12}, submittedValueLabel: {color: colors.mutedText, fontSize: 12, fontWeight: '700', textAlign: 'center'}, submittedValueNumber: {color: colors.text, fontSize: 18, fontWeight: '900', marginTop: 5, textAlign: 'center'}, submittedNote: {color: colors.mutedText, fontSize: 14, lineHeight: 20}, actions: {alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'flex-end'}, error: {color: colors.danger, fontSize: 13}, empty: {color: colors.mutedText, paddingVertical: 30, textAlign: 'center'}});

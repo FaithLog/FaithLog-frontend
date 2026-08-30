@@ -10,11 +10,13 @@ const mocks = vi.hoisted(() => ({
   fetchCoffeeMenus: vi.fn(),
   fetchPollComments: vi.fn(),
   fetchPollDetail: vi.fn(),
+  fetchAdminPollMissingMembers: vi.fn(),
   fetchPollResults: vi.fn(),
   fetchPolls: vi.fn(),
   getAccessUrls: vi.fn(),
   resolveCurrentAccessToken: vi.fn(),
   savePollResponse: vi.fn(),
+  sendAdminPollMissingNotification: vi.fn(),
   updatePollComment: vi.fn(),
 }));
 
@@ -113,6 +115,11 @@ vi.mock('../../api/client', () => {
   };
 });
 
+vi.mock('../../api/adminPollApi', () => ({
+  fetchAdminPollMissingMembers: mocks.fetchAdminPollMissingMembers,
+  sendAdminPollMissingNotification: mocks.sendAdminPollMissingNotification,
+}));
+
 vi.mock('../../media/mediaApi', () => ({
   mediaApi: {getAccessUrls: mocks.getAccessUrls},
 }));
@@ -125,6 +132,7 @@ vi.mock('../../analytics/appAnalytics', () => ({
   trackPollResponseComplete: vi.fn(),
 }));
 
+import {FaithLogApiError} from '../../api/client';
 import {PollScreen} from '../PollScreen';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -137,6 +145,12 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     mocks.resolveCurrentAccessToken.mockResolvedValue('A1');
     mocks.fetchPolls.mockResolvedValue([]);
     mocks.fetchPollComments.mockResolvedValue([]);
+    mocks.fetchAdminPollMissingMembers.mockReset().mockResolvedValue([]);
+    mocks.sendAdminPollMissingNotification.mockReset().mockResolvedValue({
+      notificationRequestId: 'poll-reminder-1',
+      queuedCount: 0,
+      skippedCount: 0,
+    });
     mocks.getAccessUrls.mockReset();
     mocks.getAccessUrls
       .mockRejectedValueOnce(new Error('initial media failure'))
@@ -247,7 +261,7 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       await settle();
     });
 
-    expect(findAllByLabel(renderer, '공지 있음')).toHaveLength(1);
+    expect(findAllByLabel(renderer, '공지 있음')).toHaveLength(0);
     act(() => {
       findByLabel(renderer, `${detail.title} 상세 보기`).props.onPress();
     });
@@ -354,12 +368,218 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     expect(mocks.fetchPollResults).not.toHaveBeenCalled();
     expect(mocks.getAccessUrls).not.toHaveBeenCalled();
   });
+
+  it('lets an authorized poll manager confirm one notification request for every missing member', async () => {
+    const detail = {...pollDetail('SINGLE'), manageableByMe: true};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    mocks.fetchAdminPollMissingMembers.mockResolvedValue([
+      {userId: 11, name: '미응답 한명', email: 'missing1@example.test'},
+      {userId: 12, name: '미응답 두명', email: 'missing2@example.test'},
+    ]);
+    mocks.sendAdminPollMissingNotification.mockResolvedValue({
+      notificationRequestId: 'poll-reminder-2',
+      queuedCount: 1,
+      skippedCount: 1,
+    });
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+    await act(async () => {
+      findByLabel(renderer, '결과 탭으로 이동').props.onPress();
+    });
+
+    expect(findByLabel(renderer, '투표 미응답자 알림 보내기')).toBeDefined();
+    await act(async () => {
+      await findByLabel(renderer, '투표 미응답자 알림 보내기').props.onPress();
+      await settle();
+    });
+    expect(mocks.fetchAdminPollMissingMembers).toHaveBeenCalledWith('A1', 1, detail.id);
+    const confirm = findByLabel(renderer, '투표 미응답자 알림 보내기 확인');
+    await act(async () => {
+      await Promise.all([confirm.props.onPress(), confirm.props.onPress()]);
+      await settle();
+    });
+
+    expect(mocks.sendAdminPollMissingNotification).toHaveBeenCalledTimes(1);
+    expect(mocks.sendAdminPollMissingNotification).toHaveBeenCalledWith('A1', 1, {
+      notificationType: 'CUSTOM',
+      targetUserIds: [11, 12],
+      targetWeekStartDate: null,
+      targetId: detail.id,
+      title: '투표 응답 알림',
+      body: `${detail.title} 투표에 응답해 주세요.`,
+    });
+    expect(rendered(renderer)).toContain('1명 알림 접수 · 1명 제외');
+    expect(findAllByLabel(renderer, '투표 미응답자 알림 보내기')).toHaveLength(0);
+  });
+
+  it('refreshes missing members at confirmation time and excludes a member who just responded', async () => {
+    const detail = {...pollDetail('SINGLE'), manageableByMe: true};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    mocks.fetchAdminPollMissingMembers
+      .mockResolvedValueOnce([
+        {userId: 11, name: '방금 응답할 멤버', email: 'responded@example.test'},
+        {userId: 12, name: '계속 미응답 멤버', email: 'missing@example.test'},
+      ])
+      .mockResolvedValueOnce([
+        {userId: 12, name: '계속 미응답 멤버', email: 'missing@example.test'},
+      ]);
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+    await act(async () => {
+      findByLabel(renderer, '결과 탭으로 이동').props.onPress();
+    });
+    await act(async () => {
+      await findByLabel(renderer, '투표 미응답자 알림 보내기').props.onPress();
+      await settle();
+    });
+    await act(async () => {
+      await findByLabel(renderer, '투표 미응답자 알림 보내기 확인').props.onPress();
+      await settle();
+    });
+
+    expect(mocks.fetchAdminPollMissingMembers).toHaveBeenCalledTimes(2);
+    expect(mocks.sendAdminPollMissingNotification).toHaveBeenCalledWith(
+      'A1',
+      1,
+      expect.objectContaining({targetUserIds: [12]}),
+    );
+  });
+
+  it('shows an alert-specific message when another notification request is already running', async () => {
+    const detail = {...pollDetail('SINGLE'), manageableByMe: true};
+    const members = [{userId: 11, name: '미응답 멤버', email: 'missing@example.test'}];
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    mocks.fetchAdminPollMissingMembers.mockResolvedValue(members);
+    mocks.sendAdminPollMissingNotification.mockRejectedValue(new FaithLogApiError({
+      kind: 'conflict',
+      status: 409,
+      code: 'NOTIFICATION_LOCK_ALREADY_RUNNING',
+      message: 'raw conflict',
+    }));
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+    await act(async () => {
+      findByLabel(renderer, '결과 탭으로 이동').props.onPress();
+    });
+    await act(async () => {
+      await findByLabel(renderer, '투표 미응답자 알림 보내기').props.onPress();
+      await settle();
+    });
+    await act(async () => {
+      await findByLabel(renderer, '투표 미응답자 알림 보내기 확인').props.onPress();
+      await settle();
+    });
+
+    expect(rendered(renderer)).toContain(
+      '이미 알림 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요.',
+    );
+    expect(rendered(renderer)).not.toContain('최신 상태와 충돌했습니다');
+  });
+
+  it('closes the previous campus detail before loading the next campus', async () => {
+    const detail = {...pollDetail('SINGLE'), manageableByMe: true};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+    await act(async () => {
+      findByLabel(renderer, '결과 탭으로 이동').props.onPress();
+      renderer.update(React.createElement(PollScreen, screenProps(null, 2, {
+        campusId: 2,
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+
+    expect(findAllByLabel(renderer, '투표 미응답자 알림 보내기')).toHaveLength(0);
+    expect(rendered(renderer)).not.toContain(detail.title);
+  });
+
+  it.each([
+    {canOpenAdminMode: false, manageableByMe: true},
+    {canOpenAdminMode: true, manageableByMe: false},
+  ])(
+    'hides the reminder action when admin=$canOpenAdminMode and manageable=$manageableByMe',
+    async ({canOpenAdminMode, manageableByMe}) => {
+      const detail = {...pollDetail('SINGLE'), manageableByMe};
+      mocks.fetchPollDetail.mockResolvedValue(detail);
+      mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+
+      let renderer;
+      await act(async () => {
+        renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+          canOpenAdminMode,
+        })));
+        await settle();
+      });
+      await act(async () => {
+        findByLabel(renderer, '결과 탭으로 이동').props.onPress();
+      });
+
+      expect(findAllByLabel(renderer, '투표 미응답자 알림 보내기')).toHaveLength(0);
+      expect(mocks.fetchAdminPollMissingMembers).not.toHaveBeenCalled();
+      expect(mocks.sendAdminPollMissingNotification).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not open confirmation or send when every member already responded', async () => {
+    const detail = {...pollDetail('SINGLE'), manageableByMe: true};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    mocks.fetchAdminPollMissingMembers.mockResolvedValue([]);
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+    await act(async () => {
+      findByLabel(renderer, '결과 탭으로 이동').props.onPress();
+    });
+    await act(async () => {
+      await findByLabel(renderer, '투표 미응답자 알림 보내기').props.onPress();
+      await settle();
+    });
+
+    expect(findAllByLabel(renderer, '투표 미응답자 알림 보내기 확인')).toHaveLength(0);
+    expect(mocks.sendAdminPollMissingNotification).not.toHaveBeenCalled();
+    expect(rendered(renderer)).toContain('모든 멤버가 응답했습니다.');
+  });
 });
 
-function screenProps(notificationPollId, notificationCampusId = 1) {
+function screenProps(notificationPollId, notificationCampusId = 1, patch = {}) {
   return {
     androidContentBottomPadding: 0,
-    canOpenAdminMode: false,
+    canOpenAdminMode: patch.canOpenAdminMode ?? false,
     notificationPollTarget: notificationPollId === null
       ? null
       : {campusId: notificationCampusId, pollId: notificationPollId},
@@ -373,7 +593,7 @@ function screenProps(notificationPollId, notificationCampusId = 1) {
       user: {id: 7, email: 'member@example.test', name: '테스트 사용자', role: 'USER'},
       activeCampuses: [],
       selectedCampus: {
-        campusId: 1,
+        campusId: patch.campusId ?? 1,
         campusName: '테스트 캠퍼스',
         campusRole: 'MEMBER',
         status: 'ACTIVE',

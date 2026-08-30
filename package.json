@@ -1,6 +1,6 @@
 {
   "name": "faithlog-frontend",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "main": "expo/AppEntry",
   "scripts": {
@@ -14,10 +14,12 @@
     "eas-build-pre-install": "node scripts/prepare-firebase-config.js",
     "hooks:install": "sh scripts/install-git-hooks.sh",
     "hooks:validate:branch": "node scripts/validate-branch-name.js",
-    "hooks:validate:commit": "node scripts/validate-commit-message.js"
+    "hooks:validate:commit": "node scripts/validate-commit-message.js",
+    "hosting:prepare": "node scripts/prepare-content-link-hosting.js"
   },
   "expo": {
     "autolinking": {
+      "nativeModulesDir": "./modules",
       "searchPaths": [
         "./node_modules"
       ]
