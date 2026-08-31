@@ -353,6 +353,62 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     ]);
   });
 
+  it('keeps the detail label and list/share actions in one compact header row', async () => {
+    const detail = pollDetail('SINGLE');
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id)));
+      await settle();
+    });
+
+    const title = renderer.root.findAll(
+      (node) => node.type === 'Text' && node.children.includes('투표 상세'),
+    );
+    expect(title).toHaveLength(1);
+    const headerRow = findHostAncestor(title[0], 'View');
+    expect(headerRow.children).toHaveLength(2);
+    expect(headerRow.findAll(
+      (node) => typeof node.type === 'string' &&
+        ['투표 목록으로 돌아가기', '공유 방법 열기'].includes(node.props.accessibilityLabel),
+    ).map((node) => node.props.accessibilityLabel)).toEqual([
+      '투표 목록으로 돌아가기',
+      '공유 방법 열기',
+    ]);
+  });
+
+  it('places the authorized missing-response reminder beside list and share', async () => {
+    const detail = {...pollDetail('SINGLE'), manageableByMe: true};
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id, 1, {
+        canOpenAdminMode: true,
+      })));
+      await settle();
+    });
+
+    const title = renderer.root.findAll(
+      (node) => node.type === 'Text' && node.children.includes('투표 상세'),
+    );
+    const headerRow = findHostAncestor(title[0], 'View');
+    expect(headerRow.findAll(
+      (node) => typeof node.type === 'string' && [
+        '투표 목록으로 돌아가기',
+        '투표 미응답자 알림 보내기',
+        '공유 방법 열기',
+      ].includes(node.props.accessibilityLabel),
+    ).map((node) => node.props.accessibilityLabel)).toEqual([
+      '투표 목록으로 돌아가기',
+      '투표 미응답자 알림 보내기',
+      '공유 방법 열기',
+    ]);
+  });
+
   it('consumes but never loads a notification poll target from another campus', async () => {
     mocks.getAccessUrls.mockReset();
     const props = screenProps(45, 2);
@@ -678,6 +734,13 @@ function findByLabel(renderer, label) {
     throw new Error(`Expected one ${label} label; found ${matches.length}. Available: ${availableLabels.join(', ')}. Hosts: ${hostSummary.join(', ')}`);
   }
   return matches[0];
+}
+
+function findHostAncestor(node, type) {
+  let current = node.parent;
+  while (current && current.type !== type) current = current.parent;
+  if (!current) throw new Error(`Expected ${type} ancestor`);
+  return current;
 }
 
 function tabLabels(renderer) {

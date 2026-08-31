@@ -2,7 +2,6 @@ import type {PropsWithChildren, ReactNode} from 'react';
 import {
   ActivityIndicator,
   type KeyboardTypeOptions,
-  Modal,
   Pressable,
   type ReturnKeyTypeOptions,
   ScrollView,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 
 import {colors, radius, spacing, typography} from '../theme';
+import {AppModal} from './AppModal';
 import {IconexIcon, type IconexIconName} from './IconexIcon';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -249,7 +249,7 @@ export function DangerConfirmSheet({
   const confirmText = loading ? (loadingLabel ?? '처리 중...') : confirmLabel;
 
   return (
-    <Modal
+    <AppModal
       animationType="slide"
       onRequestClose={loading ? undefined : onCancel}
       transparent
@@ -318,7 +318,7 @@ export function DangerConfirmSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

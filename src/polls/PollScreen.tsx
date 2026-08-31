@@ -2,7 +2,6 @@ import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -38,6 +37,7 @@ import {trackPollResponseComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
+import {AppModal} from '../components/AppModal';
 import type {
   ApiError,
   CoffeeBrand,
@@ -923,6 +923,11 @@ export function PollScreen({
                   onBack={closeDetail}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
+                  onSendMissingReminder={openMissingReminder}
+                  reminderLoading={missingReminderState.status === 'loading'}
+                  showMissingReminder={canSendMissingReminder &&
+                    missingReminderState.status !== 'sent' &&
+                    missingReminderState.status !== 'empty'}
                 />
                 <PollTabs
                   activeTab={detailTab}
@@ -970,6 +975,11 @@ export function PollScreen({
                   onBack={closeDetail}
                   onOpenAdminMode={onOpenAdminMode}
                   onOpenNotifications={onOpenNotifications}
+                  onSendMissingReminder={openMissingReminder}
+                  reminderLoading={missingReminderState.status === 'loading'}
+                  showMissingReminder={canSendMissingReminder &&
+                    missingReminderState.status !== 'sent' &&
+                    missingReminderState.status !== 'empty'}
                 />
                 <PollTabs
                   activeTab={detailTab}
@@ -982,14 +992,8 @@ export function PollScreen({
               </>
             )}
             onRetry={() => loadDetail(detailState.detail.id, 'results')}
-            onSendMissingReminder={openMissingReminder}
             reminderState={missingReminderState}
             results={detailState.results}
-            showMissingReminder={
-              canSendMissingReminder &&
-              missingReminderState.status !== 'sent' &&
-              missingReminderState.status !== 'empty'
-            }
           />
         ) : (
         <ScrollView
@@ -1009,6 +1013,11 @@ export function PollScreen({
           onBack={closeDetail}
           onOpenAdminMode={onOpenAdminMode}
           onOpenNotifications={onOpenNotifications}
+          onSendMissingReminder={openMissingReminder}
+          reminderLoading={missingReminderState.status === 'loading'}
+          showMissingReminder={canSendMissingReminder &&
+            missingReminderState.status !== 'sent' &&
+            missingReminderState.status !== 'empty'}
         />
         <PollTabs
           activeTab={detailTab}
@@ -1261,6 +1270,7 @@ function FigmaScreenHeader({
   onOpenAdminMode,
   onOpenNotifications,
   title,
+  titleActions,
 }: {
   canOpenAdminMode: boolean;
   chip: string;
@@ -1268,6 +1278,7 @@ function FigmaScreenHeader({
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
   title: string;
+  titleActions?: React.ReactNode;
 }) {
   return (
     <View style={styles.figmaHeader}>
@@ -1287,7 +1298,10 @@ function FigmaScreenHeader({
           />
         ) : null}
       </FaithLogHeaderTopRow>
-      <Text style={styles.figmaTitle}>{title}</Text>
+      <View style={styles.figmaTitleRow}>
+        <Text numberOfLines={1} style={styles.figmaTitle}>{title}</Text>
+        {titleActions ? <View style={styles.figmaTitleActions}>{titleActions}</View> : null}
+      </View>
     </View>
   );
 }
@@ -1301,6 +1315,9 @@ function PollDetailHeader({
   onBack,
   onOpenAdminMode,
   onOpenNotifications,
+  onSendMissingReminder,
+  reminderLoading,
+  showMissingReminder,
 }: {
   canOpenAdminMode: boolean;
   campusId: number;
@@ -1310,6 +1327,9 @@ function PollDetailHeader({
   onBack: () => void;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
+  onSendMissingReminder: () => void;
+  reminderLoading: boolean;
+  showMissingReminder: boolean;
 }) {
   return (
     <>
@@ -1320,19 +1340,44 @@ function PollDetailHeader({
         onOpenAdminMode={onOpenAdminMode}
         onOpenNotifications={onOpenNotifications}
         title={getPollDetailTitle(detail)}
+        titleActions={(
+          <>
+            <Pressable
+              accessibilityLabel="투표 목록으로 돌아가기"
+              accessibilityRole="button"
+              onPress={onBack}
+              style={styles.figmaBackButton}>
+              <Text style={styles.figmaBackButtonText}>목록</Text>
+            </Pressable>
+            {showMissingReminder ? (
+              <Pressable
+                accessibilityLabel="투표 미응답자 알림 보내기"
+                accessibilityRole="button"
+                accessibilityState={{busy: reminderLoading, disabled: reminderLoading}}
+                disabled={reminderLoading}
+                onPress={onSendMissingReminder}
+                style={({pressed}) => [
+                  styles.figmaReminderButton,
+                  reminderLoading ? styles.addOptionButtonDisabled : null,
+                  pressed ? styles.pressed : null,
+                ]}>
+                <IconexIcon color={colors.primary} name="bell" size={15} strokeWidth={2.2} />
+                <Text style={styles.figmaReminderButtonText}>
+                  {reminderLoading ? '확인 중' : '알림'}
+                </Text>
+              </Pressable>
+            ) : null}
+            <ContentShareActions
+              campusId={campusId}
+              kind="poll"
+              pollId={detail.id}
+              title={detail.title}
+            />
+          </>
+        )}
       />
       <View style={styles.figmaHeroCard}>
         <Text style={styles.figmaHeroTitle}>{detail.title}</Text>
-        <View style={styles.pollDetailActions}>
-          <Pressable
-            accessibilityLabel="투표 목록으로 돌아가기"
-            accessibilityRole="button"
-            onPress={onBack}
-            style={styles.figmaBackButton}>
-            <Text style={styles.figmaBackButtonText}>목록</Text>
-          </Pressable>
-          <ContentShareActions campusId={campusId} kind="poll" pollId={detail.id} title={detail.title} />
-        </View>
         <Text style={styles.figmaHeroMeta}>
           {getPollTypeLabel(detail.pollType)} · {detail.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {detail.isAnonymous ? '익명' : '응답자 공개'}
         </Text>
@@ -1792,10 +1837,8 @@ function ResultsPanel({
   error,
   header,
   onRetry,
-  onSendMissingReminder,
   reminderState,
   results,
-  showMissingReminder,
 }: {
   actionError: ApiError | null;
   androidContentBottomPadding: number;
@@ -1803,10 +1846,8 @@ function ResultsPanel({
   error: ApiError | null;
   header: React.ReactNode;
   onRetry: () => void;
-  onSendMissingReminder: () => void;
   reminderState: PollMissingReminderState;
   results: PollResults | null;
-  showMissingReminder: boolean;
 }) {
   const sections = useMemo(() => results?.optionResults
     .slice()
@@ -1883,25 +1924,6 @@ function ResultsPanel({
               <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
               <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
             </View>
-            {showMissingReminder ? (
-              <Pressable
-                accessibilityLabel="투표 미응답자 알림 보내기"
-                accessibilityRole="button"
-                accessibilityState={{disabled: reminderState.status === 'loading'}}
-                disabled={reminderState.status === 'loading'}
-                hitSlop={4}
-                onPress={onSendMissingReminder}
-                style={({pressed}) => [
-                  styles.pollReminderButton,
-                  reminderState.status === 'loading' ? styles.addOptionButtonDisabled : null,
-                  pressed ? styles.pressed : null,
-                ]}>
-                <IconexIcon color={colors.primary} name="bell" size={16} strokeWidth={2.2} />
-                <Text style={styles.pollReminderButtonText}>
-                  {reminderState.status === 'loading' ? '대상 확인 중...' : '미응답자 알림'}
-                </Text>
-              </Pressable>
-            ) : null}
             {reminderState.status === 'sent' ? (
               <Text accessibilityRole="alert" style={styles.pollReminderSuccessText}>
                 {`${reminderState.queuedCount}명 알림 접수 · ${reminderState.skippedCount}명 제외`}
@@ -2085,7 +2107,7 @@ function UserOptionAddSheet({
       : [];
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={16}
@@ -2202,7 +2224,7 @@ function UserOptionAddSheet({
         </View>
       </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -2882,6 +2904,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  figmaReminderButton: {
+    alignItems: 'center',
+    backgroundColor: '#E8F3FF',
+    borderRadius: 12,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+    height: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+  },
+  figmaReminderButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
   figmaCampusChip: {
     alignItems: 'center',
     backgroundColor: pollColors.chip,
@@ -2926,6 +2964,20 @@ const styles = StyleSheet.create({
   figmaHeader: {
     alignItems: 'flex-start',
     gap: 10,
+    width: '100%',
+  },
+  figmaTitleActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 6,
+  },
+  figmaTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+    width: '100%',
   },
   filterRow: {
     flexDirection: 'row',
@@ -3071,7 +3123,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 28,
   },
-  pollDetailActions: {alignItems: 'center', alignSelf: 'flex-end', flexDirection: 'row', gap: 6},
   headerRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',

@@ -14,7 +14,6 @@ import {
   Animated,
   BackHandler,
   FlatList,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -194,6 +193,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import {AppModal} from '../components/AppModal';
 import {getProgressiveItems, useProgressiveRendering} from '../components/progressiveRendering';
 import {
   ChargeStatusConfirmSheet,
@@ -6835,7 +6835,7 @@ function CoffeeMenuPickerSheet({
       : [];
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <AppModal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <View style={[styles.sheet, styles.coffeeMenuSheet]}>
           <View style={styles.coffeeMenuSheetHeader}>
@@ -6905,7 +6905,7 @@ function CoffeeMenuPickerSheet({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11351,7 +11351,7 @@ function DeleteMemberSheet({
   onConfirm: () => void;
 }) {
   return (
-    <Modal animationType="slide" transparent visible={member !== null} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={member !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Eyebrow>멤버 삭제 확인</Eyebrow>
@@ -11378,7 +11378,7 @@ function DeleteMemberSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11400,7 +11400,7 @@ function NotificationConfirmSheet({
   const loading = state.status === 'sending';
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={visible} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={[styles.sheet, {paddingBottom: spacing.card + bottomInset}]}>
           <Eyebrow>알림 발송 확인</Eyebrow>
@@ -11453,7 +11453,7 @@ function NotificationConfirmSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11473,7 +11473,7 @@ function NotificationSentSheet({
   const sourceLabel = state.status === 'sent' ? state.draft.sourceLabel : '알림';
 
   return (
-    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
+    <AppModal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <View style={[styles.notificationSentSheet, {marginBottom: bottomInset}]}>
           <View style={styles.notificationSentIcon}>
@@ -11501,7 +11501,7 @@ function NotificationSentSheet({
           </Button>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11519,7 +11519,7 @@ function PollCloseConfirmSheet({
   target: PollCloseTarget;
 }) {
   return (
-    <Modal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Eyebrow>투표 종료 확인</Eyebrow>
@@ -11552,7 +11552,7 @@ function PollCloseConfirmSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11576,7 +11576,7 @@ function DeactivatePaymentAccountSheet({
   onConfirm: () => void;
 }) {
   return (
-    <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Title>{account ? `${account.nickname} 계좌를 비활성화할까요?` : '계좌 비활성화'}</Title>
@@ -11636,7 +11636,7 @@ function DeactivatePaymentAccountSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11660,7 +11660,7 @@ function DeletePaymentAccountSheet({
   onConfirm: () => void;
 }) {
   return (
-    <Modal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={account !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Title>{account ? `${account.nickname} 계좌를 삭제할까요?` : '계좌 삭제'}</Title>
@@ -11721,7 +11721,7 @@ function DeletePaymentAccountSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -11739,7 +11739,7 @@ function PrayerSeasonCloseSheet({
   target: PrayerSeasonCloseTarget;
 }) {
   return (
-    <Modal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
+    <AppModal animationType="slide" transparent visible={target !== null} onRequestClose={onCancel}>
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <Eyebrow>운영 종료 확인</Eyebrow>
@@ -11766,7 +11766,7 @@ function PrayerSeasonCloseSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -2,7 +2,6 @@ import {useEffect, useRef} from 'react';
 import {
   AccessibilityInfo,
   findNodeHandle,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
 
 import {getAdminChargeContractCapabilities} from '../api/client';
 import type {AdminChargeStatusTarget, ApiError, ChargeItem, ChargeStatus} from '../api/types';
+import {AppModal} from '../components/AppModal';
 import {Body, Button, ListRow, Title} from '../components/ui';
 import {colors, spacing} from '../theme';
 import {formatWon} from '../utils/money';
@@ -59,7 +59,7 @@ export function ChargeStatusConfirmSheet({
   }, [visible]);
 
   return (
-    <Modal
+    <AppModal
       accessibilityViewIsModal
       animationType="slide"
       onRequestClose={loading ? undefined : onCancel}
@@ -100,7 +100,7 @@ export function ChargeStatusConfirmSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
