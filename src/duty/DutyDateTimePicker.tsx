@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
+import {AppModal} from '../components/AppModal';
 import {colors, radius, spacing} from '../theme';
 
 type DutyDateTimePickerModalProps = {
@@ -56,7 +57,7 @@ export function DutyDateTimePickerModal({
   };
 
   return (
-    <Modal
+    <AppModal
       animationType="slide"
       onRequestClose={onClose}
       transparent={true}
@@ -185,7 +186,7 @@ export function DutyDateTimePickerModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

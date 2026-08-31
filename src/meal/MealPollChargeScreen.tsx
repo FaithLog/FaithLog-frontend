@@ -1,9 +1,10 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {Modal, ScrollView, Text, View} from 'react-native';
+import {ScrollView, Text, View} from 'react-native';
 
 import type {ApiError} from '../api/types';
 import {getAuthSessionGeneration} from '../api/tokenStorage';
 import {Card, Chip, Empty, Eyebrow, TextField, Title} from '../components/ui';
+import {AppModal} from '../components/AppModal';
 import {DutyActionButton} from '../duty/DutyPresentation';
 import {formatWon} from '../utils/money';
 import {mealApi} from './mealApi';
@@ -355,7 +356,7 @@ export function MealPollChargeScreen({
         ) : null}
       </View>
 
-      <Modal animationType="slide" onRequestClose={() => setConfirmationVisible(false)} transparent visible={confirmationVisible}>
+      <AppModal animationType="slide" onRequestClose={() => setConfirmationVisible(false)} transparent visible={confirmationVisible}>
         <View style={mealStyles.sheetBackdrop}>
           <View style={mealStyles.sheet}>
             <View
@@ -378,7 +379,7 @@ export function MealPollChargeScreen({
             </View>
           </View>
         </View>
-      </Modal>
+      </AppModal>
     </View>
   );
 }

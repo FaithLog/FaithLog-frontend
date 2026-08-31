@@ -2,7 +2,6 @@ import type {PropsWithChildren, ReactNode} from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import {AppModal} from '../components/AppModal';
 import {colors, radius, spacing, typography} from '../theme';
 
 type DutyTone = 'default' | 'info' | 'success' | 'warning' | 'danger';
@@ -264,7 +264,7 @@ export function DutyConfirmSheet({
   visible: boolean;
 }>) {
   return (
-    <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
+    <AppModal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
       <View style={dutyStyles.sheetBackdrop}>
         <View style={dutyStyles.sheet}>
           <DutySectionHeader description={message} eyebrow="확인" title={title} />
@@ -287,7 +287,7 @@ export function DutyConfirmSheet({
           </DutyActionRow>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

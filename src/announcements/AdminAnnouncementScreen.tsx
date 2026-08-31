@@ -12,7 +12,6 @@ import {
 import {
   FlatList,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +24,7 @@ import {
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {AppModal} from '../components/AppModal';
 import {Button, Card, Empty, ErrorState, Loading, ScreenHeader, TextField} from '../components/ui';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {ContentShareActions} from '../sharing/ContentShareActions';
@@ -1966,7 +1966,7 @@ function AnnouncementConfirmationSheet({
   visible: boolean;
 }) {
   return (
-    <Modal
+    <AppModal
       accessibilityViewIsModal
       animationType="slide"
       onRequestClose={busy ? undefined : onCancel}
@@ -2017,7 +2017,7 @@ function AnnouncementConfirmationSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

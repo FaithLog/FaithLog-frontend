@@ -1,17 +1,19 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {Linking, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 
 import {
   FaithLogApiError,
+  fetchMyCharges,
   fetchPenaltyRules,
   fetchWeeklyDevotionSummary,
+  markMyChargePaid,
   saveWeeklyDevotion,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
-import {trackDevotionSubmitComplete} from '../analytics/appAnalytics';
+import {trackChargeMarkPaidComplete, trackDevotionSubmitComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {clearTokens} from '../api/tokenStorage';
-import type {ApiError, DevotionDailyCheck, PenaltyRule, WeeklyDevotionSummary} from '../api/types';
+import type {ApiError, ChargeItem, DevotionDailyCheck, PenaltyRule, WeeklyDevotionSummary} from '../api/types';
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {
@@ -25,8 +27,12 @@ import {
   PermissionDenied,
 } from '../components/ui';
 import {IconexIcon} from '../components/IconexIcon';
+import {AppModal} from '../components/AppModal';
 import {colors, typography} from '../theme';
 import {formatWon} from '../utils/money';
+import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
+import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
+import {createTossRemittanceOpener, runTossRemittanceWithCopyFallback} from '../payments/tossRemittance';
 import {
   canRequestWeeklySubmit,
   getWeeklyDevotionEntryState,
@@ -45,10 +51,8 @@ type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 type DevotionScreenProps = {
   canOpenAdminMode: boolean;
   initialSelectedDate: string | null;
-  onBackToHome: () => void;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
-  onOpenPayments: () => void;
   setAuthState: (state: AuthGateState) => void;
   state: AuthenticatedState;
 };
@@ -68,7 +72,11 @@ type DailyFormCheck = DevotionDailyCheck & {
 };
 
 type SavingAction = 'draft' | 'submit' | null;
-type ScreenMode = 'entry' | 'locked' | 'penalty';
+type ScreenMode = 'entry' | 'locked';
+type SubmittedChargeState =
+  | {status: 'idle' | 'loading'}
+  | {status: 'ready'; charge: ChargeItem | null}
+  | {status: 'marking'; charge: ChargeItem};
 
 const REQUIRED_DAYS = 5;
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
@@ -81,10 +89,8 @@ const DEVOTION_FIELD_LABELS: Array<[DevotionCheckField, string]> = [
 export function DevotionScreen({
   canOpenAdminMode,
   initialSelectedDate,
-  onBackToHome,
   onOpenAdminMode,
   onOpenNotifications,
-  onOpenPayments,
   setAuthState,
   state,
 }: DevotionScreenProps) {
@@ -100,14 +106,19 @@ export function DevotionScreen({
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const [paymentFeedback, setPaymentFeedback] = useState<string | null>(null);
   const [screenMode, setScreenMode] = useState<ScreenMode>('entry');
   const [submitConfirmVisible, setSubmitConfirmVisible] = useState(false);
   const [currentWeekStart, setCurrentWeekStart] = useState<string | null>(null);
   const [initialWeekReason, setInitialWeekReason] = useState<InitialDevotionWeekReason | null>(null);
   const [initializationVersion, setInitializationVersion] = useState(0);
+  const [submittedChargeState, setSubmittedChargeState] = useState<SubmittedChargeState>({status: 'idle'});
   const campusId = state.selectedCampus.campusId;
   const latestRequest = useRef(0);
+  const latestChargeRequest = useRef(0);
+  const paymentMutationInFlight = useRef(false);
   const preloadedWeekly = useRef<{scopeKey: string; weekly: WeeklyDevotionSummary} | null>(null);
+  const [tossRemittanceOpener] = useState(() => createTossRemittanceOpener(Linking));
   const selectedScopeKey = selectedWeekStart ? `${campusId}:${selectedWeekStart}` : null;
 
   useEffect(() => {
@@ -118,6 +129,7 @@ export function DevotionScreen({
     setInitialWeekReason(null);
     setLoadState({status: 'loading'});
     setActionError(null);
+    setPaymentFeedback(null);
 
     void (async () => {
       try {
@@ -174,6 +186,7 @@ export function DevotionScreen({
     setLoadState({status: 'loading'});
     setPenaltyRuleState({status: 'loading'});
     setActionError(null);
+    setPaymentFeedback(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
 
@@ -238,6 +251,54 @@ export function DevotionScreen({
     }
   }, [campusId, selectedWeekStart]);
 
+  useEffect(() => {
+    const requestId = ++latestChargeRequest.current;
+    if (
+      loadState.status !== 'success' ||
+      !loadState.weekly.submittedAt ||
+      loadState.weekly.weeklyRecordId === null
+    ) {
+      setSubmittedChargeState({status: 'idle'});
+      return;
+    }
+
+    const weeklyRecordId = loadState.weekly.weeklyRecordId;
+    setSubmittedChargeState({status: 'loading'});
+    void (async () => {
+      try {
+        const accessToken = await resolveAccessToken(setAuthState);
+        if (!accessToken || requestId !== latestChargeRequest.current) return;
+        const charges = await fetchMyCharges(accessToken, campusId, {
+          includeArchived: true,
+          page: 0,
+          paymentCategory: 'PENALTY',
+          size: 100,
+          status: 'ALL',
+        });
+        if (requestId !== latestChargeRequest.current) return;
+        const charge = charges.items.find((item) =>
+          item.source?.sourceType === 'DEVOTION_RECORD' &&
+          item.source.sourceId === weeklyRecordId,
+        ) ?? null;
+        setSubmittedChargeState({status: 'ready', charge});
+      } catch (error) {
+        if (requestId !== latestChargeRequest.current) return;
+        const apiError = toApiError(error, '경건생활 벌금 청구를 확인하지 못했습니다.');
+        setSubmittedChargeState({status: 'ready', charge: null});
+        setActionError(apiError);
+        handleAuthError(apiError, setAuthState);
+      }
+    })();
+
+    return () => {
+      if (requestId === latestChargeRequest.current) latestChargeRequest.current += 1;
+    };
+  }, [
+    campusId,
+    loadState.status === 'success' ? loadState.weekly.submittedAt : null,
+    loadState.status === 'success' ? loadState.weekly.weeklyRecordId : null,
+  ]);
+
   if (
     loadState.status !== 'success' ||
     !selectedWeekStart ||
@@ -261,7 +322,6 @@ export function DevotionScreen({
   );
   const counts = getCurrentCounts(formChecks);
   const locked = !isWeeklyDevotionEditable(weekly);
-  const title = screenMode === 'penalty' ? '벌금 결과' : '경건생활';
 
   const moveWeek = (direction: -1 | 1) => {
     const nextWeek = addDays(parseDate(selectedWeekStart), direction * 7);
@@ -366,6 +426,76 @@ export function DevotionScreen({
     setSubmitConfirmVisible(false);
   };
 
+  const copySubmittedPenaltyAccount = async () => {
+    const charge = submittedChargeState.status === 'ready' ? submittedChargeState.charge : null;
+    if (!charge || charge.status !== 'UNPAID' || !charge.account) return false;
+
+    setActionError(null);
+    const copied = await copyTextToClipboard(formatAccountClipboardText(charge.account));
+    if (copied.status === 'copied') {
+      setPaymentFeedback('은행명과 계좌번호를 복사했습니다.');
+      return true;
+    }
+
+    setActionError({kind: 'error', message: '계좌 정보를 복사하지 못했습니다.'});
+    return false;
+  };
+
+  const sendSubmittedPenaltyWithToss = async () => {
+    const charge = submittedChargeState.status === 'ready' ? submittedChargeState.charge : null;
+    if (!charge || charge.status !== 'UNPAID' || !charge.account) return;
+
+    setActionError(null);
+    const result = await runTossRemittanceWithCopyFallback({
+      copyFallback: copySubmittedPenaltyAccount,
+      input: {
+        accountNumber: charge.account.accountNumber,
+        amount: charge.amount,
+        bankName: charge.account.bankName,
+      },
+      opener: tossRemittanceOpener,
+    });
+    if (result.status === 'opened' || result.status === 'busy') return;
+    if (!result.copied) {
+      setActionError({kind: 'error', message: '토스를 열지 못했습니다. 잠시 후 다시 시도해 주세요.'});
+    }
+  };
+
+  const markSubmittedPenaltyPaid = async () => {
+    const charge = submittedChargeState.status === 'ready' ? submittedChargeState.charge : null;
+    if (
+      !charge ||
+      charge.status !== 'UNPAID' ||
+      !charge.account ||
+      paymentMutationInFlight.current
+    ) return;
+
+    paymentMutationInFlight.current = true;
+    setSubmittedChargeState({status: 'marking', charge});
+    setActionError(null);
+    try {
+      const accessToken = await resolveAccessToken(setAuthState);
+      if (!accessToken) return;
+      const paid = await runWithCompletionEvent(
+        () => markMyChargePaid(accessToken, campusId, charge.id),
+        trackChargeMarkPaidComplete,
+      );
+      invalidatePaymentContextCache(campusId);
+      setSubmittedChargeState({
+        status: 'ready',
+        charge: {...charge, ...paid, account: charge.account, source: charge.source ?? null},
+      });
+      setPaymentFeedback('입금 완료로 처리했습니다.');
+    } catch (error) {
+      const apiError = toApiError(error, '입금 완료 처리를 하지 못했습니다.');
+      setSubmittedChargeState({status: 'ready', charge});
+      setActionError(apiError);
+      handleAuthError(apiError, setAuthState);
+    } finally {
+      paymentMutationInFlight.current = false;
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -387,23 +517,20 @@ export function DevotionScreen({
             />
           ) : null}
         </FaithLogHeaderTopRow>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.title}>경건생활</Text>
       </View>
 
       {actionError ? <DevotionActionError error={actionError} onRetry={loadDevotion} /> : null}
 
-      {locked && screenMode === 'penalty' ? (
-        <PenaltyResultView
-          onBackToLocked={() => setScreenMode('locked')}
-          onOpenPayments={onOpenPayments}
-          penaltySummary={penaltySummary}
-        />
-      ) : locked ? (
+      {locked ? (
         <LockedView
+          chargeState={submittedChargeState}
           formChecks={formChecks}
           moveWeek={moveWeek}
-          onBackToHome={onBackToHome}
-          onOpenPenalty={() => setScreenMode('penalty')}
+          onCopyAccount={() => void copySubmittedPenaltyAccount()}
+          onMarkPaid={() => void markSubmittedPenaltyPaid()}
+          onSendWithToss={() => void sendSubmittedPenaltyWithToss()}
+          paymentFeedback={paymentFeedback}
           penaltySummary={penaltySummary}
           weekly={weekly}
         />
@@ -656,7 +783,7 @@ function SubmitConfirmModal({
   visible: boolean;
 }) {
   return (
-    <Modal
+    <AppModal
       animationType="fade"
       onRequestClose={submitting ? undefined : onCancel}
       transparent
@@ -703,25 +830,37 @@ function SubmitConfirmModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
 function LockedView({
+  chargeState,
   formChecks,
   moveWeek,
-  onBackToHome,
-  onOpenPenalty,
+  onCopyAccount,
+  onMarkPaid,
+  onSendWithToss,
+  paymentFeedback,
   penaltySummary,
   weekly,
 }: {
+  chargeState: SubmittedChargeState;
   formChecks: DailyFormCheck[];
   moveWeek: (direction: -1 | 1) => void;
-  onBackToHome: () => void;
-  onOpenPenalty: () => void;
+  onCopyAccount: () => void;
+  onMarkPaid: () => void;
+  onSendWithToss: () => void;
+  paymentFeedback: string | null;
   penaltySummary: DevotionPenaltySummary;
   weekly: WeeklyDevotionSummary;
 }) {
+  const charge = chargeState.status === 'ready' || chargeState.status === 'marking'
+    ? chargeState.charge
+    : null;
+  const canPay = charge?.status === 'UNPAID' && Boolean(charge.account);
+  const markingPaid = chargeState.status === 'marking';
+
   return (
     <>
       <View style={styles.weekCard}>
@@ -791,80 +930,57 @@ function LockedView({
         </View>
         <Text style={styles.captionText}>{getPenaltySummaryCaption(penaltySummary)}</Text>
         <PenaltyPreviewRows penaltySummary={penaltySummary} />
-        <View style={styles.actionRow}>
-          <Pressable
-            accessibilityLabel="홈으로 돌아가기"
-            accessibilityRole="button"
-            onPress={onBackToHome}
-            style={({pressed}) => [styles.secondaryButton, pressed ? styles.pressed : null]}>
-            <Text style={styles.secondaryButtonText}>홈으로</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="경건생활 벌금 결과 보기"
-            accessibilityRole="button"
-            onPress={onOpenPenalty}
-            style={({pressed}) => [styles.primaryButton, pressed ? styles.pressed : null]}>
-            <Text style={styles.primaryButtonText}>결과 보기</Text>
-          </Pressable>
-        </View>
-      </View>
-    </>
-  );
-}
-
-function PenaltyResultView({
-  onBackToLocked,
-  onOpenPayments,
-  penaltySummary,
-}: {
-  onBackToLocked: () => void;
-  onOpenPayments: () => void;
-  penaltySummary: DevotionPenaltySummary;
-}) {
-  return (
-    <>
-      <View style={styles.lockCard}>
-        <View style={styles.lockCardHeader}>
-          <Text style={styles.lockTitle}>
-            {penaltySummary.missingTypes > 0 ? '청구 확인 필요' : '이번 주 기준 충족'}
-          </Text>
-          <View style={styles.statusPill}>
-            <Text style={[styles.statusPillText, penaltySummary.missingTypes > 0 ? styles.dangerText : null]}>
-              결과
-            </Text>
+        {chargeState.status === 'loading' ? (
+          <Text style={styles.captionText}>청구 정보를 확인하고 있어요.</Text>
+        ) : canPay ? (
+          <View style={styles.actionRow}>
+            <Pressable
+              accessibilityLabel="경건생활 벌금 계좌 복사"
+              accessibilityRole="button"
+              disabled={markingPaid}
+              onPress={onCopyAccount}
+              style={({pressed}) => [
+                styles.secondaryButton,
+                markingPaid ? styles.disabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.secondaryButtonText}>계좌 복사</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="경건생활 벌금 토스로 송금"
+              accessibilityRole="button"
+              disabled={markingPaid}
+              onPress={onSendWithToss}
+              style={({pressed}) => [
+                styles.secondaryButton,
+                markingPaid ? styles.disabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.secondaryButtonText}>토스로 송금</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="경건생활 벌금 입금했어요 처리"
+              accessibilityRole="button"
+              accessibilityState={{busy: markingPaid, disabled: markingPaid}}
+              disabled={markingPaid}
+              onPress={onMarkPaid}
+              style={({pressed}) => [
+                styles.primaryButton,
+                markingPaid ? styles.disabled : null,
+                pressed ? styles.pressed : null,
+              ]}>
+              <Text style={styles.primaryButtonText}>{markingPaid ? '처리 중' : '입금했어요'}</Text>
+            </Pressable>
           </View>
-        </View>
-        <Text style={styles.bodyText}>
-          제출 기준 예상 벌금 {getPenaltyResultAmountText(penaltySummary)}
-        </Text>
+        ) : charge?.status === 'PAID' ? (
+          <Text accessibilityRole="alert" style={styles.successText}>입금 완료로 처리된 청구입니다.</Text>
+        ) : (
+          <Text style={styles.captionText}>납부할 경건생활 벌금 청구가 없습니다.</Text>
+        )}
+        {paymentFeedback ? (
+          <Text accessibilityRole="alert" style={styles.successText}>{paymentFeedback}</Text>
+        ) : null}
       </View>
-
-      <View style={styles.infoList}>
-        {penaltySummary.rows.map((row) => (
-          <InfoRow
-            key={row.key}
-            label={row.label}
-            supportingText={row.supportingText}
-            value={getPenaltyRowAmountText(penaltySummary, row)}
-            valueTone={row.amount && row.amount > 0 ? 'danger' : 'faith'}
-          />
-        ))}
-      </View>
-
-      <Pressable
-        accessibilityLabel="납부 탭에서 청구 상세 보기"
-        accessibilityRole="button"
-        onPress={onOpenPayments}
-        style={({pressed}) => [styles.fullButton, pressed ? styles.pressed : null]}>
-        <Text style={styles.primaryButtonText}>청구 상세 보기</Text>
-      </Pressable>
-      <Pressable
-        accessibilityLabel="경건생활 제출 상태로 돌아가기"
-        accessibilityRole="button"
-        onPress={onBackToLocked}
-        style={({pressed}) => [styles.linkButton, pressed ? styles.pressed : null]}>
-        <Text style={styles.linkButtonText}>제출 상태 보기</Text>
-      </Pressable>
     </>
   );
 }
@@ -988,14 +1104,6 @@ function getPenaltySummaryCaption(penaltySummary: DevotionPenaltySummary) {
   return penaltySummary.totalEstimatedAmount && penaltySummary.totalEstimatedAmount > 0
     ? '현재 입력값 기준 예상 금액이에요.'
     : '현재 입력값 기준 벌금 없음';
-}
-
-function getPenaltyResultAmountText(penaltySummary: DevotionPenaltySummary) {
-  if (penaltySummary.amountStatus !== 'ready') {
-    return '규칙 확인 필요';
-  }
-
-  return formatWon(penaltySummary.totalEstimatedAmount ?? 0);
 }
 
 function getPenaltyRowAmountText(
@@ -1349,14 +1457,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 18,
   },
-  fullButton: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    height: 48,
-    justifyContent: 'center',
-    marginTop: 116,
-  },
   header: {
     gap: 14,
   },
@@ -1439,17 +1539,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 0,
-  },
-  linkButton: {
-    alignItems: 'center',
-    height: 42,
-    justifyContent: 'center',
-  },
-  linkButtonText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
   },
   lockCard: {
     backgroundColor: colors.surface,
@@ -1727,6 +1816,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     lineHeight: 22,
+  },
+  successText: {
+    color: colors.success,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   title: {
     ...typography.screenTitle,

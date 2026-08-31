@@ -1,9 +1,10 @@
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
-import {FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
+import {FlatList, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
 
 import {FaithLogApiError} from '../api/client';
 import type {ApiError} from '../api/types';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
+import {AppModal} from '../components/AppModal';
 import {ErrorState, Empty, Loading, ScreenHeader} from '../components/ui';
 import {RichLinkBookmarks} from '../components/RichLinkBookmarks';
 import {colors, radius, spacing, typography} from '../theme';
@@ -496,7 +497,7 @@ function AnnouncementImageViewer({
   }, [initialIndex]);
 
   return (
-    <Modal
+    <AppModal
       animationType="fade"
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
@@ -555,7 +556,7 @@ function AnnouncementImageViewer({
           />
         ) : null}
       </SafeAreaView>
-    </Modal>
+    </AppModal>
   );
 }
 
