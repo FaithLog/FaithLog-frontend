@@ -1,7 +1,6 @@
 import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -42,6 +41,7 @@ import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {trackPollCloseComplete, trackPollCreateComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
 import {useAnalyticsScreen} from '../analytics/useAnalyticsScreen';
+import {AppModal} from '../components/AppModal';
 import {
   Body,
   Eyebrow,
@@ -1264,7 +1264,7 @@ function CoffeeMenuPickerModal({
   selectedMenuIds: number[];
 }) {
   return (
-    <Modal
+    <AppModal
       animationType="slide"
       onRequestClose={onClose}
       transparent={true}
@@ -1319,7 +1319,7 @@ function CoffeeMenuPickerModal({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

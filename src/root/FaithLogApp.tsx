@@ -15,7 +15,6 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Linking,
-  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -135,6 +134,7 @@ import {
   Title,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
+import {AppModal, AppModalInsetProvider} from '../components/AppModal';
 import {
   type AdminModeRoute,
   getAdminModeRoutes,
@@ -957,7 +957,7 @@ export function FaithLogApp() {
   }, [authState.status, openContentDeepLink]);
 
   return (
-    <>
+    <AppModalInsetProvider bottomInset={androidShellInsets.bottomNavInset}>
       <StatusBar
         backgroundColor={colors.background}
         barStyle="dark-content"
@@ -1041,7 +1041,7 @@ export function FaithLogApp() {
           )}
         </KeyboardAvoidingView>
       </RootContainer>
-    </>
+    </AppModalInsetProvider>
   );
 }
 
@@ -2705,13 +2705,8 @@ function AuthenticatedShell({
           <DevotionScreen
             canOpenAdminMode={adminModeRoutes.length > 0}
             initialSelectedDate={devotionInitialDate}
-            onBackToHome={() => {
-              setUserHomeView('dashboard');
-              setRoute('userHome');
-            }}
             onOpenAdminMode={openAdminMode}
             onOpenNotifications={openNotificationSettings}
-            onOpenPayments={() => setRoute('payments')}
             setAuthState={setAuthState}
             state={state}
           />
@@ -3373,7 +3368,7 @@ function AdminModeSelectorSheet({
   visible: boolean;
 }) {
   return (
-    <Modal
+    <AppModal
       animationType="fade"
       onRequestClose={onCancel}
       transparent
@@ -3429,7 +3424,7 @@ function AdminModeSelectorSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -4901,7 +4896,7 @@ function CampusSwitchSheet({
   visible: boolean;
 }) {
   return (
-    <Modal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
+    <AppModal animationType="slide" onRequestClose={onCancel} transparent visible={visible}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalSheet}>
           <View style={styles.sheetHandle} />
@@ -4955,7 +4950,7 @@ function CampusSwitchSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

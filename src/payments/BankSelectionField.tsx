@@ -1,6 +1,7 @@
 import {useState} from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
+import {AppModal} from '../components/AppModal';
 import {IconexIcon} from '../components/IconexIcon';
 import {TextField} from '../components/ui';
 import {colors, radius, spacing} from '../theme';
@@ -58,7 +59,7 @@ export function BankSelectionField({
         <Text accessibilityElementsHidden style={styles.chevron}>⌄</Text>
       </Pressable>
 
-      <Modal
+      <AppModal
         animationType="fade"
         onRequestClose={() => setPickerVisible(false)}
         transparent
@@ -102,7 +103,7 @@ export function BankSelectionField({
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </AppModal>
 
       {directInput ? (
         <TextField

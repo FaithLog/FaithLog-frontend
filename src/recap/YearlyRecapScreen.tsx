@@ -3,7 +3,6 @@ import {
   AccessibilityInfo,
   Animated,
   AppState,
-  Modal,
   PanResponder,
   Pressable,
   SafeAreaView,
@@ -13,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import {AppModal} from '../components/AppModal';
 import {colors, spacing} from '../theme';
 import {RecapChapterPage} from './components/RecapChapterPage';
 import {
@@ -193,7 +193,7 @@ export function YearlyRecapScreen({
 
   const currentChapter = chapters[index]!;
   return (
-    <Modal
+    <AppModal
       animationType={motionDisabled ? 'none' : 'fade'}
       onRequestClose={onClose}
       onShow={() => {
@@ -289,7 +289,7 @@ export function YearlyRecapScreen({
           </View>
         </View>
       </SafeAreaView>
-    </Modal>
+    </AppModal>
   );
 }
 
