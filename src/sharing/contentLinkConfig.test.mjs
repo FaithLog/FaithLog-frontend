@@ -46,6 +46,8 @@ describe('native content link configuration', () => {
     const assetLinks = fs.readFileSync(
       path.join(root, 'hosting/public/.well-known/assetlinks.json'), 'utf8');
     const firebase = fs.readFileSync(path.join(root, 'firebase.json'), 'utf8');
+    const prepareHosting = fs.readFileSync(
+      path.join(root, 'scripts/prepare-content-link-hosting.js'), 'utf8');
     const fallback = fs.readFileSync(path.join(root, 'hosting/public/index.html'), 'utf8');
     expect(aasa).toContain('966CYAR5L4.com.faithlog.app');
     expect(aasa).toContain('/campuses/*/polls/*');
@@ -56,5 +58,8 @@ describe('native content link configuration', () => {
     expect(fallback).toContain('FaithLog 앱에서 열기');
     expect(fallback).toContain('faithlog://');
     expect(fallback).toContain('location.pathname');
+    expect(fallback).toContain('src="/og-faithlog.png"');
+    expect(fallback).not.toContain('faithlog-share.svg');
+    expect(prepareHosting).toContain("'assets', 'icon-ios.png'");
   });
 });
