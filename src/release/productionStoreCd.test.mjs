@@ -32,7 +32,7 @@ describe('production store CD', () => {
     expect(workflow).not.toMatch(/^\s+--auto-submit\s*$/m);
     expect(eas.submit.production.android).toEqual({track: 'internal', releaseStatus: 'completed'});
     expect(eas.submit.production.ios.ascAppId).toBe('6784053598');
-    expect(app.expo.version).toBe('1.2.3');
+    expect(app.expo.version).toBe('1.2.4');
   });
 
   it('uploads the local Kakao native module sources required by Expo prebuild', () => {
