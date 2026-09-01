@@ -11,22 +11,25 @@
       body { margin: 0; background: #f7f8fa; color: #191f28; }
       main { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
       section { width: min(100%, 440px); background: white; border: 1px solid #eef1f4; border-radius: 28px; padding: 32px 24px; text-align: center; box-shadow: 0 16px 40px rgba(25,31,40,.08); }
-      img { width: 76px; height: 76px; }
+      img { width: 76px; height: 76px; border-radius: 18px; object-fit: cover; }
       h1 { margin: 20px 0 10px; font-size: 25px; }
       p { margin: 0 0 24px; color: #4e5968; line-height: 1.6; }
-      .stores { display: grid; gap: 10px; }
+      .actions { display: grid; gap: 10px; }
       a { display: block; border-radius: 14px; padding: 14px 16px; color: white; background: #3182f6; font-weight: 700; text-decoration: none; }
       a.secondary { color: #191f28; background: #eef1f4; }
+      .store-label { margin: 18px 0 10px; color: #8b95a1; font-size: 13px; font-weight: 700; }
     </style>
   </head>
   <body>
     <main>
       <section>
-        <img alt="FaithLog" src="/faithlog-share.svg" />
+        <img alt="FaithLog 앱 아이콘" src="/og-faithlog.png" />
         <h1 id="heading">FaithLog에서 확인하세요</h1>
         <p>앱을 설치한 뒤 로그인하면 권한이 있는 캠퍼스의 콘텐츠를 안전하게 확인할 수 있어요.</p>
-        <div class="stores">
-          <a href="https://play.google.com/store/apps/details?id=com.faithlog.app">Google Play에서 받기</a>
+        <div class="actions">
+          <a id="open-app" href="faithlog:///">설치된 FaithLog 앱에서 열기</a>
+          <div class="store-label">앱이 없다면</div>
+          <a class="secondary" href="https://play.google.com/store/apps/details?id=com.faithlog.app">Google Play에서 받기</a>
           <a class="secondary" href="https://apps.apple.com/kr/app/faithlog-jiguchon/id6784053598">App Store에서 받기</a>
         </div>
       </section>
@@ -34,6 +37,9 @@
     <script>
       const path = location.pathname;
       const heading = document.getElementById('heading');
+      const openApp = document.getElementById('open-app');
+      const isContentPath = /^\/campuses\/\d+\/(polls|announcements)\/\d+\/?$/.test(path);
+      if (isContentPath) openApp.href = `faithlog://${path}`;
       if (/^\/campuses\/\d+\/polls\/\d+\/?$/.test(path)) heading.textContent = 'FaithLog 투표를 확인하세요';
       if (/^\/campuses\/\d+\/announcements\/\d+\/?$/.test(path)) heading.textContent = 'FaithLog 공지를 확인하세요';
     </script>

@@ -31,11 +31,13 @@ vi.mock('./contentSharing', async (importOriginal) => {
 });
 
 import {ContentShareActions} from './ContentShareActions';
+import {contentShareCoordinator} from './contentSharing';
 
 describe('ContentShareActions', () => {
   beforeEach(() => {
     process.env.EXPO_PUBLIC_APP_ENV = 'development';
-    delete process.env.EXPO_PUBLIC_CONTENT_LINK_BASE_URL;
+    process.env.EXPO_PUBLIC_CONTENT_LINK_BASE_URL = 'https://preview.faithlog.example';
+    vi.mocked(contentShareCoordinator.share).mockReset().mockResolvedValue({status: 'completed'});
   });
 
   it.each([
@@ -53,17 +55,19 @@ describe('ContentShareActions', () => {
       'poll',
       <ContentShareActions campusId={7} kind="poll" pollId={31} title="점심 메뉴" />,
     ],
-  ])('opens both share choices from one compact command for %s', async (_kind, element) => {
+  ])('opens the system share sheet directly from one compact command for %s', async (_kind, element) => {
     let renderer!: ReactTestRenderer;
     await act(async () => {
       renderer = create(element);
     });
 
-    expect(renderer.root.findAllByProps({accessibilityLabel: '링크 공유'})).toHaveLength(0);
     await act(async () => {
-      renderer.root.findByProps({accessibilityLabel: '공유 방법 열기'}).props.onPress({stopPropagation: vi.fn()});
+      renderer.root.findByProps({accessibilityLabel: '링크 공유'}).props.onPress({stopPropagation: vi.fn()});
     });
-    expect(renderer.root.findByProps({accessibilityLabel: '링크 공유'})).toBeTruthy();
-    expect(renderer.root.findByProps({accessibilityLabel: '카카오톡으로 공유'})).toBeTruthy();
+    expect(contentShareCoordinator.share).toHaveBeenCalledOnce();
+    expect(contentShareCoordinator.share).toHaveBeenCalledWith('link', expect.objectContaining({
+      contentType: _kind,
+    }));
+    expect(renderer.root.findAllByProps({accessibilityLabel: '카카오톡으로 공유'})).toHaveLength(0);
   });
 });

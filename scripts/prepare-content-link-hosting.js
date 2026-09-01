@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const sourceIcon = path.join(root, 'assets', 'icon.png');
+const sourceIcon = path.join(root, 'assets', 'share-fallback-icon.png');
 const destinationIcon = path.join(root, 'hosting', 'public', 'og-faithlog.png');
 const assetLinks = path.join(root, 'hosting', 'public', '.well-known', 'assetlinks.json');
 

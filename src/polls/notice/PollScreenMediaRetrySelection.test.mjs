@@ -372,10 +372,10 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     expect(headerRow.children).toHaveLength(2);
     expect(headerRow.findAll(
       (node) => typeof node.type === 'string' &&
-        ['투표 목록으로 돌아가기', '공유 방법 열기'].includes(node.props.accessibilityLabel),
+        ['투표 목록으로 돌아가기', '링크 공유'].includes(node.props.accessibilityLabel),
     ).map((node) => node.props.accessibilityLabel)).toEqual([
       '투표 목록으로 돌아가기',
-      '공유 방법 열기',
+      '링크 공유',
     ]);
   });
 
@@ -400,12 +400,12 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
       (node) => typeof node.type === 'string' && [
         '투표 목록으로 돌아가기',
         '투표 미응답자 알림 보내기',
-        '공유 방법 열기',
+        '링크 공유',
       ].includes(node.props.accessibilityLabel),
     ).map((node) => node.props.accessibilityLabel)).toEqual([
       '투표 목록으로 돌아가기',
       '투표 미응답자 알림 보내기',
-      '공유 방법 열기',
+      '링크 공유',
     ]);
   });
 
