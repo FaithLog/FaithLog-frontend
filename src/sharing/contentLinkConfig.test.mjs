@@ -46,11 +46,15 @@ describe('native content link configuration', () => {
     const assetLinks = fs.readFileSync(
       path.join(root, 'hosting/public/.well-known/assetlinks.json'), 'utf8');
     const firebase = fs.readFileSync(path.join(root, 'firebase.json'), 'utf8');
+    const fallback = fs.readFileSync(path.join(root, 'hosting/public/index.html'), 'utf8');
     expect(aasa).toContain('966CYAR5L4.com.faithlog.app');
     expect(aasa).toContain('/campuses/*/polls/*');
     expect(aasa).toContain('/campuses/*/announcements/*');
     expect(assetLinks).toContain('com.faithlog.app');
     expect(assetLinks).not.toContain('REPLACE_WITH');
     expect(firebase).toContain('prepare-content-link-hosting.js');
+    expect(fallback).toContain('FaithLog 앱에서 열기');
+    expect(fallback).toContain('faithlog://');
+    expect(fallback).toContain('location.pathname');
   });
 });

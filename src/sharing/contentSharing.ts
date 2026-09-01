@@ -75,7 +75,9 @@ export function buildAnnouncementShareContent(input: {
 export function parseContentDeepLink(rawUrl: string): ContentDeepLinkTarget | null {
   try {
     const url = new URL(rawUrl);
-    if (url.origin !== PRODUCTION_CONTENT_LINK_BASE_URL || url.search || url.hash) return null;
+    const isProductionHttps = url.origin === PRODUCTION_CONTENT_LINK_BASE_URL;
+    const isFaithLogAppUrl = url.protocol === 'faithlog:' && url.hostname === '';
+    if ((!isProductionHttps && !isFaithLogAppUrl) || url.search || url.hash) return null;
     const match = /^\/campuses\/([1-9][0-9]*)\/(polls|announcements)\/([1-9][0-9]*)\/?$/.exec(
       url.pathname,
     );

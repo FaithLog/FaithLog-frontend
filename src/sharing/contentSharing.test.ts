@@ -74,6 +74,17 @@ describe('content sharing contract', () => {
       contentId: 4,
       type: 'announcement',
     });
+    expect(parseContentDeepLink('faithlog:///campuses/1/polls/2')).toEqual({
+      campusId: 1,
+      contentId: 2,
+      type: 'poll',
+    });
+    expect(parseContentDeepLink('faithlog:///campuses/3/announcements/4')).toEqual({
+      campusId: 3,
+      contentId: 4,
+      type: 'announcement',
+    });
+    expect(parseContentDeepLink('faithlog://attacker/campuses/1/polls/2')).toBeNull();
   });
 
   it('deduplicates one delivery burst without blocking a later explicit reopen', () => {
