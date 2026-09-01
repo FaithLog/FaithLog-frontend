@@ -60,6 +60,6 @@ describe('native content link configuration', () => {
     expect(fallback).toContain('location.pathname');
     expect(fallback).toContain('src="/og-faithlog.png"');
     expect(fallback).not.toContain('faithlog-share.svg');
-    expect(prepareHosting).toContain("'assets', 'icon-ios.png'");
+    expect(prepareHosting).toContain("'assets', 'share-fallback-icon.png'");
   });
 });
