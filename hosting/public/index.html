@@ -39,7 +39,11 @@
       const heading = document.getElementById('heading');
       const openApp = document.getElementById('open-app');
       const isContentPath = /^\/campuses\/\d+\/(polls|announcements)\/\d+\/?$/.test(path);
-      if (isContentPath) openApp.href = `faithlog://${path}`;
+      if (isContentPath) {
+        const appUrl = `faithlog://${path}`;
+        openApp.href = appUrl;
+        window.location.assign(appUrl);
+      }
       if (/^\/campuses\/\d+\/polls\/\d+\/?$/.test(path)) heading.textContent = 'FaithLog 투표를 확인하세요';
       if (/^\/campuses\/\d+\/announcements\/\d+\/?$/.test(path)) heading.textContent = 'FaithLog 공지를 확인하세요';
     </script>

@@ -58,6 +58,8 @@ describe('native content link configuration', () => {
     expect(fallback).toContain('FaithLog 앱에서 열기');
     expect(fallback).toContain('faithlog://');
     expect(fallback).toContain('location.pathname');
+    expect(fallback).toContain('window.location.assign(appUrl)');
+    expect(fallback).toContain('if (isContentPath)');
     expect(fallback).toContain('src="/og-faithlog.png"');
     expect(fallback).not.toContain('faithlog-share.svg');
     expect(prepareHosting).toContain("'assets', 'share-fallback-icon.png'");
