@@ -24,8 +24,10 @@ describe('meal and coffee duty layout parity', () => {
     expect(mealScreen).toContain('<DutyPageScaffold');
     expect(coffeeScreen).toContain('<DutyPageScaffold');
     expect(mealScreen).not.toContain('<KeyboardAvoidingView');
-    expect(coffeeScreen).not.toContain('<KeyboardAvoidingView');
-    expect(coffeeScreen).not.toContain('<ScrollView');
+    // The page uses the shared scaffold; the separate menu modal owns its keyboard and scroll area.
+    const coffeePage = coffeeScreen.split('function CoffeeMenuPickerModal(')[0];
+    expect(coffeePage).not.toContain('<KeyboardAvoidingView');
+    expect(coffeePage).not.toContain('<ScrollView');
     expect(mealScreen).toContain('domainLabel="밥"');
     expect(coffeeScreen).toContain('domainLabel="커피"');
   });

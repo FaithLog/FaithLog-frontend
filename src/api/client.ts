@@ -762,18 +762,23 @@ function toPaymentAccountCreateRequest(
 }
 
 function toPollOptionAddRequest(body: PollOptionAddRequest): PollOptionAddRequest {
-  if ('content' in body) {
-    const content = typeof body.content === 'string' ? body.content.trim() : '';
-    if (content) {
-      return {content};
+  if (body.menuId !== undefined) {
+    if (body.content !== undefined || body.priceAmount !== undefined) {
+      throw new FaithLogApiError({kind: 'error', message: '메뉴 선택과 직접 입력을 함께 보낼 수 없습니다.'});
     }
-    throw new FaithLogApiError({
-      kind: 'error',
-      message: '추가 항목을 선택해 주세요.',
-    });
+    return {menuId: Number(toPositiveIntegerPathSegment(body.menuId, 'menuId'))};
   }
-
-  return {menuId: Number(toPositiveIntegerPathSegment(body.menuId, 'menuId'))};
+  const content = typeof body.content === 'string' ? body.content.trim() : '';
+  if (!content || content.length > 200) {
+    throw new FaithLogApiError({kind: 'error', message: '항목 이름을 1~200자로 입력해 주세요.'});
+  }
+  if (body.priceAmount !== undefined) {
+    if (!Number.isSafeInteger(body.priceAmount) || body.priceAmount <= 0 || body.priceAmount > 2_147_483_647) {
+      throw new FaithLogApiError({kind: 'error', message: '올바른 커피 금액을 입력해 주세요.'});
+    }
+    return {content, priceAmount: body.priceAmount};
+  }
+  return {content};
 }
 
 function toPenaltyRuleCreateRequest(body: PenaltyRuleCreateRequest): PenaltyRuleCreateRequest {

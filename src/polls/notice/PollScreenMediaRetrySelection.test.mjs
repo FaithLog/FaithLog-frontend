@@ -161,6 +161,27 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
     vi.unstubAllEnvs();
   });
 
+  it('adds a manual coffee option when no catalog menu is available and selects the returned option', async () => {
+    const detail = {...pollDetail('SINGLE'), pollType: 'COFFEE', allowUserOptionAdd: true};
+    const added = {id: 104, content: '동네 카페 라떼', priceAmount: 4500, composeMenuCode: null, sortOrder: 4, userAdded: true};
+    mocks.fetchCoffeeBrands.mockResolvedValue([]);
+    mocks.fetchCoffeeMenus.mockResolvedValue([]);
+    mocks.fetchPollDetail.mockResolvedValueOnce(detail).mockResolvedValue({...detail, options: [...detail.options, added]});
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    mocks.addUserPollOption.mockResolvedValue(added);
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(PollScreen, screenProps(detail.id))); await settle(); });
+    await act(async () => { findByLabel(renderer, '응답 탭으로 이동').props.onPress(); });
+    await act(async () => { findByLabel(renderer, '투표 항목 추가').props.onPress(); });
+    await act(async () => { findByLabel(renderer, '커피 직접 입력 방식').props.onPress(); });
+    await act(async () => { findByLabel(renderer, '커피 메뉴명 직접 입력').props.onChangeText(' 동네 카페 라떼 '); });
+    await act(async () => { findByLabel(renderer, '커피 금액 직접 입력').props.onChangeText('4500'); });
+    await act(async () => { findByLabel(renderer, '직접 입력 커피 항목 추가').props.onPress(); await settle(); });
+    expect(mocks.addUserPollOption).toHaveBeenCalledWith('A1', 1, detail.id, {content: '동네 카페 라떼', priceAmount: 4500});
+    expect(findByLabel(renderer, '동네 카페 라떼 선택지 선택됨').props.accessibilityState).toMatchObject({checked: true});
+    expect(mocks.savePollResponse).not.toHaveBeenCalled();
+  });
+
   it.each([
     {selectionType: 'SINGLE', selectedOptions: ['첫 번째']},
     {selectionType: 'MULTIPLE', selectedOptions: ['첫 번째', '두 번째']},

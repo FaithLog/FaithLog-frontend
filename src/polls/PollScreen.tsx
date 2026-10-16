@@ -1,3 +1,5 @@
+import {ManualCoffeeOptionForm, CoffeeOptionModeSelector, type CoffeeOptionMode} from '../coffee/ManualCoffeeOptionForm';
+import type {ManualCoffeeOption} from '../coffee/manualCoffeeOption';
 import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
@@ -654,7 +656,7 @@ export function PollScreen({
     }
   };
 
-  const submitUserOption = async (option: string | CoffeeMenu) => {
+  const submitUserOption = async (option: string | CoffeeMenu | ManualCoffeeOption) => {
     if (
       !activeDetail ||
       actionState ||
@@ -665,8 +667,9 @@ export function PollScreen({
       return;
     }
 
-    const optionContent = typeof option === 'string' ? option : option.name;
-    const optionMenuId = typeof option === 'string' ? undefined : option.id;
+    const optionContent = typeof option === 'string' ? option : 'name' in option ? option.name : option.content;
+    const optionMenuId = typeof option === 'string' || !('id' in option) ? undefined : option.id;
+    const optionPriceAmount = typeof option !== 'string' && !('id' in option) ? option.priceAmount : undefined;
     const trimmed = optionContent.trim();
 
     if (!trimmed) {
@@ -706,6 +709,7 @@ export function PollScreen({
         createPollOptionAddRequest(activeDetail.pollType, {
           content: trimmed,
           ...(optionMenuId === undefined ? {} : {menuId: optionMenuId}),
+          ...(optionPriceAmount === undefined ? {} : {priceAmount: optionPriceAmount}),
         }),
       );
       if (!isCurrentDetailOperation(mutationPollId, mutationEpoch, mutationGeneration)) return;
@@ -1034,7 +1038,10 @@ export function PollScreen({
             coffeeCatalog={detailState.coffeeCatalog}
             detail={detailState.detail}
             onRetryCoffeeCatalog={() => loadDetail(detailState.detail.id, detailTab)}
-            onAddOption={() => setOptionAddVisible(true)}
+            onAddOption={() => {
+              setActionError(null);
+              setOptionAddVisible(true);
+            }}
             onSubmit={submitResponse}
             onToggleOption={toggleOption}
             results={detailState.results}
@@ -1052,6 +1059,8 @@ export function PollScreen({
           />
         ) : null}
         <UserOptionAddSheet
+          key={`${detailState.detail.id}:${optionAddVisible}`}
+          error={actionError}
           actionState={actionState}
           coffeeCatalog={detailState.coffeeCatalog}
           content={optionAddContent}
@@ -2068,6 +2077,7 @@ function PollSelectionIcon({
 }
 
 function UserOptionAddSheet({
+  error,
   actionState,
   coffeeCatalog,
   content,
@@ -2077,15 +2087,17 @@ function UserOptionAddSheet({
   onSubmit,
   visible,
 }: {
+  error: ApiError | null;
   actionState: ActionState;
   coffeeCatalog: CoffeeCatalogState;
   content: string;
   detail: PollDetail;
   onCancel: () => void;
   onChangeContent: (value: string) => void;
-  onSubmit: (option: string | CoffeeMenu) => void;
+  onSubmit: (option: string | CoffeeMenu | ManualCoffeeOption) => void;
   visible: boolean;
 }) {
+  const [mode, setMode] = useState<CoffeeOptionMode>('catalog');
   const submitting = actionState?.kind === 'optionAdd';
   const isCoffee = detail.pollType === 'COFFEE';
   const trimmedContent = content.trim();
@@ -2135,7 +2147,14 @@ function UserOptionAddSheet({
             </Pressable>
           </View>
 
-          {isCoffee ? (
+          {error ? <InlineNotice message={getErrorMessage(error)} tone="warning" /> : null}
+          {isCoffee ? <CoffeeOptionModeSelector mode={mode} onChange={setMode} disabled={submitting} /> : null}
+          {isCoffee && mode === 'manual' ? (
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.optionAddScroll}>
+              <ManualCoffeeOptionForm disabled={submitting}
+                existingNames={detail.options.map((option) => option.content)} onSubmit={onSubmit} />
+            </ScrollView>
+          ) : isCoffee ? (
             coffeeMenus.length > 0 ? (
               <ScrollView
                 contentContainerStyle={styles.optionAddMenuList}
@@ -2575,7 +2594,7 @@ function getCoffeeOptionMeta(
     )}${savedPollPrice}`;
   }
 
-  return `${option.composeMenuCode ? '메뉴 확인 중' : '메뉴 정보 없음'} · ${formatWon(option.priceAmount)}`;
+  return `${option.composeMenuCode ? '메뉴 확인 중' : '직접 입력'} · ${formatWon(option.priceAmount)}`;
 }
 
 function getPollDetailTitle(detail: PollDetail) {

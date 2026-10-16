@@ -65,4 +65,13 @@ describe('poll response presentation', () => {
       menuId: 123,
     });
   });
+  it('builds a manual coffee name and price request', () => {
+    expect(createPollOptionAddRequest('COFFEE', {content: ' 동네 카페 라떼 ', priceAmount: 4500}))
+      .toEqual({content: '동네 카페 라떼', priceAmount: 4500});
+  });
+
+  it.each([0, -1, 1.5, 2_147_483_648, undefined])('rejects invalid manual coffee price %s', (priceAmount) => {
+    expect(() => createPollOptionAddRequest('COFFEE', {content: '라떼', ...(priceAmount === undefined ? {} : {priceAmount})})).toThrow();
+  });
+
 });

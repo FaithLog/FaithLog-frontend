@@ -749,6 +749,7 @@ describe('FaithLog API client', () => {
     ['CUSTOM', {content: ' 새 항목 '}, {content: '새 항목'}],
     ['MEAL', {content: ' 제육볶음 '}, {content: '제육볶음'}],
     ['COFFEE', {menuId: 123}, {menuId: 123}],
+    ['COFFEE', {content: ' 동네 카페 라떼 ', priceAmount: 4500}, {content: '동네 카페 라떼', priceAmount: 4500}],
   ] as const)('posts the exact %s user-option payload', async (_pollType, input, expectedBody) => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(
