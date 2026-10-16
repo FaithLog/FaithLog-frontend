@@ -35,6 +35,14 @@
         "EXPO_PUBLIC_WEEKLY_MATERIALS_ENABLED": "true",
         "EXPO_PUBLIC_API_BASE_URL": "https://faithlog-549871256004.asia-northeast3.run.app",
         "EXPO_PUBLIC_MOCK_MODE": "false"
+      },
+      "distribution": "store",
+      "environment": "production",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false
       }
     }
   },

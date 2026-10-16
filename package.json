@@ -1,6 +1,6 @@
 {
   "name": "faithlog-frontend",
-  "version": "1.2.4",
+  "version": "1.2.6",
   "private": true,
   "main": "expo/AppEntry",
   "scripts": {
@@ -15,7 +15,10 @@
     "hooks:install": "sh scripts/install-git-hooks.sh",
     "hooks:validate:branch": "node scripts/validate-branch-name.js",
     "hooks:validate:commit": "node scripts/validate-commit-message.js",
-    "hosting:prepare": "node scripts/prepare-content-link-hosting.js"
+    "hosting:prepare": "node scripts/prepare-content-link-hosting.js",
+    "build:store": "eas build --platform all --profile production",
+    "submit:ios": "eas submit --platform ios --profile production",
+    "submit:android": "eas submit --platform android --profile production"
   },
   "expo": {
     "autolinking": {

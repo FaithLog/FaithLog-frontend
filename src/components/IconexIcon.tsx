@@ -25,6 +25,7 @@ export type IconexIconName =
   | 'lock-x'
   | 'message-circle'
   | 'message-square'
+  | 'meal'
   | 'plus'
   | 'receipt'
   | 'send'
@@ -67,6 +68,7 @@ export const iconexIconNodeIds: Record<IconexIconName, string> = {
   'lock-x': '191:754',
   'message-circle': '191:939',
   'message-square': '191:948',
+  meal: 'local:meal-duty',
   plus: '191:865',
   receipt: '191:653',
   send: '191:968',
@@ -189,6 +191,13 @@ const iconexIconSvgs: Record<IconexIconName, string> = {
 <path d="M3.5 21H18" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 <path d="M8 3C8 4.2 7 4.6 7 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 <path d="M12 3C12 4.2 11 4.6 11 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  meal: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M4.5 10.5C4.9701 6.8091 8.1412 4 12 4C15.8588 4 19.0299 6.8091 19.5 10.5H4.5Z" stroke="#4E4F53" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M4 11H20C19.5604 16.0634 16.2885 20 12 20C7.71146 20 4.43959 16.0634 4 11Z" stroke="#4E4F53" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M8 7.5L8.5 7" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M11.5 6.5L12 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M15 7.5L15.5 7" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 </svg>`,
   calendar: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect x="3" y="3.5" width="18" height="18" rx="5" stroke="#4E4F53" stroke-width="1.5"/>

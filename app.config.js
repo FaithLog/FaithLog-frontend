@@ -8,6 +8,7 @@ const buildPropertiesPlugin = [
     android: {
       enableMinifyInReleaseBuilds: true,
       enableShrinkResourcesInReleaseBuilds: true,
+      extraProguardRules: require('./plugins/androidExpoModulesV2KeepRules'),
     },
     ios: {
       useFrameworks: 'static',

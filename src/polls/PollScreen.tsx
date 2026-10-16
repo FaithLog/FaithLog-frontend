@@ -1,5 +1,6 @@
 import {ManualCoffeeOptionForm, CoffeeOptionModeSelector, type CoffeeOptionMode} from '../coffee/ManualCoffeeOptionForm';
 import type {ManualCoffeeOption} from '../coffee/manualCoffeeOption';
+import {MemberListModalButton} from '../components/MemberListModalButton';
 import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
@@ -964,6 +965,11 @@ export function PollScreen({
           />
         ) : detailScrollOwner === 'sectionList' ? (
           <ResultsPanel
+            loadMissingMembers={canOpenAdminMode ? async () => {
+              const token = await resolveAccessToken(setAuthState);
+              if (!token) throw new Error('인증이 필요합니다.');
+              return fetchAdminPollMissingMembers(token, campusId, detailState.detail.id);
+            } : undefined}
             actionError={actionError}
             androidContentBottomPadding={androidContentBottomPadding}
             detail={detailState.detail}
@@ -1840,6 +1846,7 @@ function CompactActionButton({
 }
 
 function ResultsPanel({
+  loadMissingMembers,
   actionError,
   androidContentBottomPadding,
   detail,
@@ -1849,6 +1856,7 @@ function ResultsPanel({
   reminderState,
   results,
 }: {
+  loadMissingMembers?: (() => Promise<AdminPollMissingMember[]>) | undefined;
   actionError: ApiError | null;
   androidContentBottomPadding: number;
   detail: PollDetail;
@@ -1931,7 +1939,7 @@ function ResultsPanel({
             <Text style={styles.figmaHeroTitle}>{`${results.targetMemberCount}명 중 ${results.respondedCount}명 응답`}</Text>
             <View style={styles.chipRow}>
               <Chip label={results.anonymous ? '익명 응답' : '명단 공개'} tone={results.anonymous ? 'default' : 'info'} />
-              <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />
+              {loadMissingMembers ? <MemberListModalButton key={detail.id} label={`미참여 ${results.notRespondedCount}명`} title="투표 미참여자" loadMembers={loadMissingMembers} /> : <Chip label={`${results.notRespondedCount}명 미응답`} tone={results.notRespondedCount > 0 ? 'warning' : 'success'} />}
             </View>
             {reminderState.status === 'sent' ? (
               <Text accessibilityRole="alert" style={styles.pollReminderSuccessText}>

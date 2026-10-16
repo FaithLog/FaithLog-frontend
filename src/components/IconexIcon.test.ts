@@ -35,10 +35,11 @@ describe('IconexIcon AST rendering', () => {
     expect(mocks.parse).toHaveBeenCalledOnce();
   });
 
-  it('provides a distinct coffee duty icon', () => {
+  it('provides distinct coffee and meal duty icons', () => {
     const coffee = getIconAstRenderProps('coffee', '#123456', 1.5, 24);
-    const coins = getIconAstRenderProps('coins', '#123456', 1.5, 24);
-    expect(coffee.ast).not.toBe(coins.ast);
+    const meal = getIconAstRenderProps('meal', '#123456', 1.5, 24);
+
+    expect(coffee.ast).not.toBe(meal.ast);
     expect(mocks.parse).toHaveBeenCalledTimes(2);
   });
 });

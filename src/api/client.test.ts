@@ -1,3 +1,5 @@
+import {closeAdminPoll} from './adminPollApi';
+import {createMealApi} from '../meal/mealApi';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('./tokenStorage', () => ({
@@ -861,6 +863,51 @@ describe('FaithLog API client', () => {
       });
       return true;
     });
+  });
+
+  const closeDutyPolls = [
+    {label: 'coffee', close: (token: string) => closeAdminPoll(token, 1, 10)},
+    {label: 'meal', close: (token: string) => createMealApi({isMockMode: () => false}).closePoll(token, 1, 10)},
+  ];
+
+  it.each(closeDutyPolls)('$label close keeps endpoint 401 inline after a successful token refresh', async ({close}) => {
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION, accessToken: 'expired-access-token', refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {success: false, code: 'AUTH_UNAUTHORIZED'})))
+      .mockResolvedValueOnce(jsonResponse(200, envelope({
+        accessToken: 'fresh-access-token', refreshToken: 'fresh-refresh-token',
+        accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 7200, tokenType: 'Bearer',
+      })))
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {success: false, code: 'AUTH_UNAUTHORIZED'})));
+    await expect(close('expired-access-token')).rejects.toSatisfy(error => {
+      expectApiError(error, {kind: 'permissionDenied', status: 401});
+      return true;
+    });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain('/auth/refresh');
+    expect(vi.mocked(fetch).mock.calls[2]?.[1]?.headers).toMatchObject({Authorization: 'Bearer fresh-access-token'});
+    expect(startAuthSessionClear).not.toHaveBeenCalled();
+    expect(clearTokens).not.toHaveBeenCalled();
+  });
+
+  it.each(closeDutyPolls)('$label close still expires a genuinely rejected refresh', async ({close}) => {
+    vi.mocked(startAuthSessionClear).mockReturnValueOnce({
+      cleared: true, previousGeneration: FIRST_AUTH_GENERATION,
+      currentGeneration: 2 as AuthSessionGeneration, completion: Promise.resolve(),
+    });
+    vi.mocked(getStoredAuthSession).mockResolvedValue({
+      generation: FIRST_AUTH_GENERATION, accessToken: 'expired-access-token', refreshToken: 'refresh-token',
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {success: false, code: 'AUTH_UNAUTHORIZED'})))
+      .mockResolvedValueOnce(jsonResponse(401, envelope(null, {success: false, code: 'AUTH_REFRESH_REJECTED'})));
+    await expect(close('expired-access-token')).rejects.toSatisfy(error => {
+      expectApiError(error, {kind: 'sessionExpired', status: 401});
+      return true;
+    });
+    expect(startAuthSessionClear).toHaveBeenCalledWith(FIRST_AUTH_GENERATION);
   });
 
   it('refreshes once for coffee duty payment account create before keeping endpoint 401 inline', async () => {
