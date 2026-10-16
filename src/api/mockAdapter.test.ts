@@ -188,6 +188,17 @@ describe('FaithLog mock API adapter', () => {
     );
   });
 
+  it('adds a manual coffee option with its price and no catalog code', async () => {
+    const added = await addUserPollOption('mock-access-token', 1, 701, {content: ' 동네 카페 라떼 ', priceAmount: 4500});
+    expect(added).toMatchObject({content: '동네 카페 라떼', priceAmount: 4500, composeMenuCode: null, userAdded: true});
+    const detail = await fetchPollDetail('mock-access-token', 1, 701);
+    expect(detail.options).toContainEqual(expect.objectContaining({id: added.id, priceAmount: 4500}));
+    await expect(addUserPollOption('mock-access-token', 1, 701, {content: '동네 카페 라떼', priceAmount: 4500})).rejects.toSatisfy((error) => {
+      expectApiError(error, {code: 'POLL_OPTION_DUPLICATE_CONTENT'});
+      return true;
+    });
+  });
+
   it('keeps disabled and closed user-option errors distinct', async () => {
     await expect(
       addUserPollOption('mock-access-token', 1, 704, {content: '추가 항목'}),

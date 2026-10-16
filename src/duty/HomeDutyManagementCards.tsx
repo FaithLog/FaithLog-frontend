@@ -163,7 +163,7 @@ export function HomeDutyManagementCards({
           <DutyManagementCard
             accessibilityLabel="커피 정산 관리 열기"
             body="커피 투표·계좌·정산"
-            icon="coins"
+            icon="coffee"
             onPress={onOpenCoffee}
             title="커피 정산 관리"
           />

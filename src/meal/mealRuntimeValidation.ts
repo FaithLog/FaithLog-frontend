@@ -168,7 +168,7 @@ export function parseMealPollListForContext(
 
 export function parseMealPollDetail(value: unknown): MealPollDetail {
   return parseSafely(() => {
-    const record = requireRecord(value);
+    const record = withoutPollPresentationFields(requireRecord(value));
     requireExactKeys(record, [
       'allowUserOptionAdd', 'campusId', 'endsAt', 'id', 'isAnonymous', 'options',
       'pollType', 'selectionType', 'startsAt', 'status', 'title',
@@ -392,7 +392,7 @@ function isOwnedAccount(
 }
 
 function parseMealPollSummary(value: unknown): MealPollSummary {
-  const record = requireRecord(value);
+  const record = withoutPollPresentationFields(requireRecord(value), true);
   requireExactKeys(record, [
     'endsAt', 'id', 'settlementStatus', 'startsAt', 'status', 'title',
     ...(record.hasNotice === undefined ? [] : ['hasNotice']),
@@ -463,7 +463,7 @@ function parseMealPollOption(value: unknown): MealPollOptionDetail {
 }
 
 function parseMealPollMutationResponse(value: unknown): MealPollMutationResponse {
-  const record = requireRecord(value);
+  const record = withoutPollPresentationFields(requireRecord(value));
   requireExactKeys(record, [
     'allowUserOptionAdd', 'campusId', 'chargeGenerationType', 'endsAt', 'id',
     'isAnonymous', 'options', 'paymentAccountId', 'paymentCategory', 'pollType',
@@ -750,6 +750,18 @@ function invalidResponse(): never {
 function requireRecord(value: unknown): UnknownRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalidResponse();
   return value as UnknownRecord;
+}
+
+// Poll presentation metadata is additive and is not used by meal settlement.
+function withoutPollPresentationFields(record: UnknownRecord, preserveHasNotice = false): UnknownRecord {
+  const result = {...record};
+  for (const key of [
+    'notice', ...(preserveHasNotice ? [] : ['hasNotice']), 'hasImages', 'thumbnailAssetId', 'hasAttachments',
+    'attachmentCount', 'imageAssetIds', 'documentAssetIds',
+  ]) {
+    delete result[key];
+  }
+  return result;
 }
 
 function requireExactKeys(record: UnknownRecord, keys: readonly string[]) {

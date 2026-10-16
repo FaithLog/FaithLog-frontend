@@ -12,6 +12,7 @@ export type IconexIconName =
   | 'check'
   | 'close'
   | 'coins'
+  | 'coffee'
   | 'credit-card'
   | 'danger'
   | 'document'
@@ -24,6 +25,7 @@ export type IconexIconName =
   | 'lock-x'
   | 'message-circle'
   | 'message-square'
+  | 'meal'
   | 'plus'
   | 'receipt'
   | 'send'
@@ -53,6 +55,7 @@ export const iconexIconNodeIds: Record<IconexIconName, string> = {
   check: '191:880',
   close: '191:874',
   coins: '191:661',
+  coffee: 'local:coffee-duty',
   'credit-card': '191:648',
   danger: '191:903',
   document: '191:664',
@@ -65,6 +68,7 @@ export const iconexIconNodeIds: Record<IconexIconName, string> = {
   'lock-x': '191:754',
   'message-circle': '191:939',
   'message-square': '191:948',
+  meal: 'local:meal-duty',
   plus: '191:865',
   receipt: '191:653',
   send: '191:968',
@@ -180,6 +184,20 @@ const iconexIconSvgs: Record<IconexIconName, string> = {
 </svg>`,
   coins: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M19 6.5C19 7.88071 15.866 9 12 9C8.13401 9 5 7.88071 5 6.5M19 6.5C19 5.11929 15.866 4 12 4C8.13401 4 5 5.11929 5 6.5M19 6.5V18.5C19 19.8807 15.866 21 12 21C8.13401 21 5 19.8807 5 18.5V6.5M19 10.5C19 11.8807 15.866 13 12 13C8.13401 13 5 11.8807 5 10.5M19 14.5C19 15.8807 15.866 17 12 17C8.13401 17 5 15.8807 5 14.5" stroke="#4E4F53" stroke-width="1.5"/>
+</svg>`,
+  coffee: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M5 9H16V14C16 17.0376 13.5376 19.5 10.5 19.5C7.46243 19.5 5 17.0376 5 14V9Z" stroke="#4E4F53" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M16 10.5H18C19.6569 10.5 21 11.8431 21 13.5C21 15.1569 19.6569 16.5 18 16.5H15.4" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M3.5 21H18" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M8 3C8 4.2 7 4.6 7 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M12 3C12 4.2 11 4.6 11 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  meal: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M4.5 10.5C4.9701 6.8091 8.1412 4 12 4C15.8588 4 19.0299 6.8091 19.5 10.5H4.5Z" stroke="#4E4F53" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M4 11H20C19.5604 16.0634 16.2885 20 12 20C7.71146 20 4.43959 16.0634 4 11Z" stroke="#4E4F53" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M8 7.5L8.5 7" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M11.5 6.5L12 6" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M15 7.5L15.5 7" stroke="#4E4F53" stroke-width="1.5" stroke-linecap="round"/>
 </svg>`,
   calendar: String.raw`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect x="3" y="3.5" width="18" height="18" rx="5" stroke="#4E4F53" stroke-width="1.5"/>

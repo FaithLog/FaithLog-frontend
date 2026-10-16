@@ -139,6 +139,26 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     mocks.fetchAdminPolls.mockResolvedValue([]);
   });
 
+  it('creates a coffee poll with only a manual option even if the catalog is empty', async () => {
+    mocks.fetchCoffeeMenus.mockResolvedValue([]);
+    mocks.createAdminPoll.mockResolvedValue(coffeePoll());
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(CoffeeDutyScreen, screenProps())); await settle(); });
+    await press(renderer, '커피 투표 생성 페이지 열기');
+    await press(renderer, '커피 메뉴 추가 모달 열기');
+    await press(renderer, '커피 직접 입력 방식');
+    await change(renderer, '커피 메뉴명 직접 입력', '  동네 카페 라떼  ');
+    await change(renderer, '커피 금액 직접 입력', '0');
+    expect(findByLabel(renderer, '직접 입력 커피 항목 추가').props.disabled).toBe(true);
+    await change(renderer, '커피 금액 직접 입력', '4500');
+    await press(renderer, '직접 입력 커피 항목 추가');
+    expect(rendered(renderer)).toContain('동네 카페 라떼');
+    await press(renderer, '커피 주문 투표 생성');
+    expect(mocks.createAdminPoll).toHaveBeenCalledWith('A1', 1, expect.objectContaining({
+      options: [{content: '동네 카페 라떼', priceAmount: 4500, menuId: null, sortOrder: 1}],
+    }));
+  });
+
   it('opens the canonical first poll tab only after duty verification and preserves loaded account and settlement data', async () => {
     let renderer;
     await act(async () => {

@@ -71,5 +71,5 @@ export function AnnouncementCachedImage({
     };
   }, [assetId, campusId, resolutionKey, signedUrl, userId, variant]);
 
-  return uri ? <Image {...imageProps} source={{uri}} /> : null;
+  return uri ? <Image resizeMethod="resize" {...imageProps} source={{uri}} /> : null;
 }

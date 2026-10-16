@@ -590,6 +590,7 @@ export type PollDetail = PollSummary & {
 export type PollOptionAddRequest = {
   content?: string;
   menuId?: number;
+  priceAmount?: number;
 };
 
 export type PollResponseSaveRequest = {

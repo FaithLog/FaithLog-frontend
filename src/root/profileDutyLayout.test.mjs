@@ -20,6 +20,8 @@ describe('profile duty management entries', () => {
   it('keeps distinct long-text accessible labels for both management entries', () => {
     expect(source).toContain('title="커피 정산 관리"');
     expect(source).toContain('title="밥 정산 관리"');
+    expect(source).toMatch(/icon="coffee"[\s\S]*?title="커피 정산 관리"/);
+    expect(source).toMatch(/icon="meal"[\s\S]*?title="밥 정산 관리"/);
     expect(source).toContain('subtitle="커피 주문 투표 생성과 커피 정산 확인"');
     expect(source).toContain('subtitle="밥 투표, 내 계좌와 정산 관리"');
   });

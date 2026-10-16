@@ -117,3 +117,9 @@ scripts/* 2.*
 .idea/
 .vscode/
 !.vscode/extensions.json
+
+# Local QA and store media artifacts
+artifacts/
+
+# Local QA tooling and reports
+.gstack/

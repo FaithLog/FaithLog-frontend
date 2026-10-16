@@ -13,6 +13,18 @@ import {
 } from './mealRuntimeValidation';
 
 describe('MEAL runtime validation', () => {
+  it('accepts deployed poll presentation metadata while still validating meal fields', () => {
+    const metadata = {notice: null, hasNotice: false, hasImages: false,
+      thumbnailAssetId: null, hasAttachments: false, attachmentCount: 0,
+      imageAssetIds: [], documentAssetIds: []};
+    expect(parseMealPollDetail({...mealDetail(notCharged()), ...metadata}).id).toBe(101);
+    expect(parseCreatedMealPollDetail({...mealMutation(), ...metadata}).status).toBe('OPEN');
+    expect(parseClosedMealPollDetail({...mealMutation(), ...metadata, status: 'CLOSED'}).status).toBe('CLOSED');
+    expect(parseMealPollList({content: [mealPollSummary(metadata)], page: 0,
+      size: 10, totalElements: 1, totalPages: 1}).content).toHaveLength(1);
+    expect(() => parseCreatedMealPollDetail({...mealMutation(), ...metadata, campusId: 0})).toThrow();
+  });
+
   it('accepts active and inactive MEAL self duty responses without an assignment id', () => {
     expect(
       parseMyMealDutyAssignment({campusId: 1, dutyType: 'MEAL', isActive: true, userId: 7}),

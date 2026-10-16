@@ -1,3 +1,5 @@
+import {MemberListModalButton, type MemberListEntry} from '../components/MemberListModalButton';
+import {fetchNotificationExcludedMembers} from './notificationExcludedMembers';
 import {
   memo,
   useCallback,
@@ -3523,6 +3525,11 @@ export function AdminScreen({
       />
       <NotificationSentSheet
         bottomInset={androidShellInsets.bottomNavInset}
+        loadExcludedMembers={async (requestId) => {
+          const token = await resolveAccessToken(setAuthState);
+          if (!token) throw new Error('인증이 필요합니다.');
+          return fetchNotificationExcludedMembers(token, campusId, requestId);
+        }}
         onClose={() => setNotificationState({status: 'idle'})}
         state={notificationState}
       />
@@ -3960,6 +3967,7 @@ function AdminPollManagement({
   });
   const [resultState, setResultState] = useState<AdminPollResultState>({status: 'idle'});
   const [missingState, setMissingState] = useState<AdminPollMissingState>({status: 'idle'});
+  const [missingNotificationResult, setMissingNotificationResult] = useState<AdminNotificationResponse | null>(null);
   const [actionState, setActionState] = useState<AdminPollActionState>({status: 'idle'});
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [createStep, setCreateStep] = useState<AdminPollCreateStep>('type');
@@ -4460,6 +4468,7 @@ function AdminPollManagement({
     }
 
     const targets = missingState.members;
+    setMissingNotificationResult(null);
     setActionState({status: 'sendingMissingNotice'});
     setActionError(null);
 
@@ -4480,6 +4489,7 @@ function AdminPollManagement({
           ? `${selectedPoll.title} 투표에 응답해 주세요.`
           : '진행 중인 투표에 응답해 주세요.',
       });
+      setMissingNotificationResult(result);
       setActionError(
         result.skippedCount > 0
           ? {
@@ -4498,6 +4508,7 @@ function AdminPollManagement({
   };
 
   const selectPoll = (poll: PollSummary) => {
+    setMissingNotificationResult(null);
     setSelectedPollId(poll.id);
     setResultState({status: 'idle'});
     setMissingState({status: 'idle'});
@@ -4676,6 +4687,11 @@ function AdminPollManagement({
           ) : null}
           {section === 'results' ? (
             <AdminPollResultsPanel
+              loadMissingMembers={async () => {
+                const token = await resolveAccessToken(onSessionStateChange);
+                if (!token || !selectedPollId) throw new Error('인증이 필요합니다.');
+                return fetchAdminPollMissingMembers(token, campusId, selectedPollId);
+              }}
               onLoad={() => void loadResults()}
               onClosePoll={setPollCloseTarget}
               onSelectPoll={selectPoll}
@@ -4702,6 +4718,15 @@ function AdminPollManagement({
               polls={polls}
               selectedPoll={selectedPoll}
             />
+          ) : null}
+          {missingNotificationResult && missingNotificationResult.skippedCount > 0 ? (
+            <MemberListModalButton key={missingNotificationResult.notificationRequestId}
+              label={`알림 제외 ${missingNotificationResult.skippedCount}명 확인`} title="알림 제외 대상" emptyMessage="제외 대상 로그가 아직 조회되지 않습니다. 잠시 후 다시 확인해 주세요."
+              loadMembers={async () => {
+                const token = await resolveAccessToken(onSessionStateChange);
+                if (!token) throw new Error('인증이 필요합니다.');
+                return fetchNotificationExcludedMembers(token, campusId, missingNotificationResult.notificationRequestId);
+              }} />
           ) : null}
           <PollCloseConfirmSheet
             error={actionError}
@@ -6998,6 +7023,7 @@ function PaymentAccountPicker({
 }
 
 function AdminPollResultsPanel({
+  loadMissingMembers,
   onLoad,
   onClosePoll,
   onSelectPoll,
@@ -7005,6 +7031,7 @@ function AdminPollResultsPanel({
   selectedPoll,
   state,
 }: {
+  loadMissingMembers: () => Promise<AdminPollMissingMember[]>;
   onLoad: () => void;
   onClosePoll: (poll: PollSummary) => void;
   onSelectPoll: (poll: PollSummary) => void;
@@ -7041,16 +7068,18 @@ function AdminPollResultsPanel({
       ) : state.status === 'error' ? (
         <AdminErrorState error={state.error} onRetry={onLoad} />
       ) : (
-        <AdminPollResultsBody comments={state.comments} results={state.results} />
+        <AdminPollResultsBody comments={state.comments} results={state.results} loadMissingMembers={loadMissingMembers} />
       )}
     </>
   );
 }
 
 function AdminPollResultsBody({
+  loadMissingMembers,
   comments,
   results,
 }: {
+  loadMissingMembers: () => Promise<AdminPollMissingMember[]>;
   comments: PollComment[];
   results: PollResults;
 }) {
@@ -7061,7 +7090,7 @@ function AdminPollResultsBody({
         <View style={styles.metricGrid}>
           <Metric label="대상" value={`${results.targetMemberCount}명`} />
           <Metric label="응답" value={`${results.respondedCount}명`} />
-          <Metric label="미참여" value={`${results.notRespondedCount}명`} />
+          <MemberListModalButton key={results.pollId} label={`미참여 ${results.notRespondedCount}명`} title="투표 미참여자" loadMembers={loadMissingMembers} />
           <Metric label="상태" value={getPollStatusLabel(results.status)} />
         </View>
         <Body>{formatDateTime(results.endsAt)} 마감 기준 결과입니다.</Body>
@@ -11459,10 +11488,12 @@ function NotificationConfirmSheet({
 
 function NotificationSentSheet({
   bottomInset,
+  loadExcludedMembers,
   onClose,
   state,
 }: {
   bottomInset: number;
+  loadExcludedMembers: (requestId: string) => Promise<MemberListEntry[]>;
   onClose: () => void;
   state: NotificationSendState;
 }) {
@@ -11496,6 +11527,11 @@ function NotificationSentSheet({
             <Metric label="요청" value={`${queuedCount}명`} />
             <Metric label="제외" value={`${skippedCount}명`} />
           </View>
+          {state.status === 'sent' && skippedCount > 0 ? (
+            <MemberListModalButton key={state.result.notificationRequestId}
+              inline label="제외된 사람 확인" title="알림 제외 대상" emptyMessage="제외 대상 로그가 아직 조회되지 않습니다. 잠시 후 다시 확인해 주세요."
+              loadMembers={() => loadExcludedMembers(state.result.notificationRequestId)} />
+          ) : null}
           <Button accessibilityLabel="알림 발송 완료 모달 닫기" onPress={onClose}>
             확인
           </Button>

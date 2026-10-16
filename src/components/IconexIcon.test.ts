@@ -34,4 +34,12 @@ describe('IconexIcon AST rendering', () => {
     expect(second.override).toEqual({height: 34, width: 34});
     expect(mocks.parse).toHaveBeenCalledOnce();
   });
+
+  it('provides distinct coffee and meal duty icons', () => {
+    const coffee = getIconAstRenderProps('coffee', '#123456', 1.5, 24);
+    const meal = getIconAstRenderProps('meal', '#123456', 1.5, 24);
+
+    expect(coffee.ast).not.toBe(meal.ast);
+    expect(mocks.parse).toHaveBeenCalledTimes(2);
+  });
 });

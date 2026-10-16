@@ -242,6 +242,8 @@ export function closeAdminPoll(
     {
       accessToken,
       exposeServerErrorMessage: true,
+      // A duty authorization rejection must not invalidate a refreshed login.
+      treatUnauthorizedAsPermissionDenied: true,
       responseParser: parseAdminPoll,
       method: 'PATCH',
     },
