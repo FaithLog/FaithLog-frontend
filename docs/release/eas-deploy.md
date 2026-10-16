@@ -2,7 +2,7 @@
 
 Expo EAS 프로젝트: `josephuk77/faithlog-frontend`.
 앱 식별자(iOS/Android): `com.faithlog.app`.
-이번 앱 버전: `1.2.6`. 빌드 번호와 versionCode는 EAS가 자동 증가합니다.
+이번 앱 버전: `1.2.7`. 빌드 번호와 versionCode는 EAS가 자동 증가합니다.
 
 ## 빌드
 
