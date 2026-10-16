@@ -958,11 +958,7 @@ export function FaithLogApp() {
 
   return (
     <AppModalInsetProvider bottomInset={androidShellInsets.bottomNavInset}>
-      <StatusBar
-        backgroundColor={colors.background}
-        barStyle="dark-content"
-        translucent={false}
-      />
+      <StatusBar barStyle="dark-content" />
       <RootContainer
         style={[
           styles.safeArea,
@@ -4730,7 +4726,7 @@ function CoffeeDutyProfileRow({
   return (
     <ProfileActionRow
       actionLabel="관리"
-      icon="coins"
+      icon="coffee"
       onPress={onOpen}
       subtitle="커피 주문 투표 생성과 커피 정산 확인"
       title="커피 정산 관리"
@@ -4817,7 +4813,7 @@ function MealDutyProfileRow({
   return (
     <ProfileActionRow
       actionLabel="관리"
-      icon="coins"
+      icon="meal"
       onPress={onOpen}
       subtitle="밥 투표, 내 계좌와 정산 관리"
       title="밥 정산 관리"

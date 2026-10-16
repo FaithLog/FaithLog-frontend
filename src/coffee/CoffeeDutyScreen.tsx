@@ -1,6 +1,11 @@
+import {ManualCoffeeOptionForm, CoffeeOptionModeSelector, type CoffeeOptionMode} from './ManualCoffeeOptionForm';
+import type {ManualCoffeeOption} from './manualCoffeeOption';
 import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   Pressable,
   StyleSheet,
   Text,
@@ -194,6 +199,7 @@ export function CoffeeDutyScreen({
 }: CoffeeDutyScreenProps) {
   const [loadState, setLoadState] = useState<CoffeeDutyLoadState>({status: 'loading'});
   const [selectedMenuIds, setSelectedMenuIds] = useState<number[]>([]);
+  const [manualOptions, setManualOptions] = useState<ManualCoffeeOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [settlementPage, setSettlementPage] = useState(0);
   const [settlementIncludeArchived, setSettlementIncludeArchived] = useState(false);
@@ -380,8 +386,8 @@ export function CoffeeDutyScreen({
 
     const uniqueSelectedMenus = getUniqueCoffeeMenus(selectedMenus);
 
-    if (uniqueSelectedMenus.length === 0) {
-      setCreateState({status: 'error', message: '커피 메뉴를 하나 이상 선택해 주세요.'});
+    if (uniqueSelectedMenus.length + manualOptions.length === 0) {
+      setCreateState({status: 'error', message: '커피 메뉴를 선택하거나 직접 입력해 주세요.'});
       return;
     }
 
@@ -405,12 +411,14 @@ export function CoffeeDutyScreen({
         endsAt: endsAt.toISOString(),
         allowUserOptionAdd: true,
         isAnonymous: false,
-        options: uniqueSelectedMenus.map((menu, index) => ({
-          content: null,
-          menuId: menu.id,
-          priceAmount: null,
-          sortOrder: index + 1,
-        })),
+        options: [
+          ...uniqueSelectedMenus.map((menu, index) => ({
+            content: null, menuId: menu.id, priceAmount: null, sortOrder: index + 1,
+          })),
+          ...manualOptions.map((option, index) => ({
+            ...option, menuId: null, sortOrder: uniqueSelectedMenus.length + index + 1,
+          })),
+        ],
         paymentAccountId: selectedAccount.id,
         paymentCategory: 'COFFEE',
         pollType: 'COFFEE',
@@ -424,6 +432,7 @@ export function CoffeeDutyScreen({
       setCreateState({status: 'success', title: trimmedTitle});
       setTitle(DEFAULT_COFFEE_POLL_TITLE);
       setSelectedMenuIds([]);
+      setManualOptions([]);
       setPollNotice('');
       setPollNoticeImages([]);
       setCreatedPollId(created.id);
@@ -616,6 +625,9 @@ export function CoffeeDutyScreen({
           ) : null}
           {page === 'create' ? (
             <CoffeePollCreator
+              manualOptions={manualOptions}
+              onAddManualOption={(option) => setManualOptions((current) => [...current, option])}
+              onRemoveManualOption={(index) => setManualOptions((current) => current.filter((_, itemIndex) => itemIndex !== index))}
               campusId={campusId}
               createState={createState}
               deadlineText={deadlineText}
@@ -951,6 +963,9 @@ function CoffeeAccountManagement({
 }
 
 function CoffeePollCreator({
+  manualOptions,
+  onAddManualOption,
+  onRemoveManualOption,
   campusId,
   createState,
   deadlineText,
@@ -972,6 +987,9 @@ function CoffeePollCreator({
   state,
   title,
 }: {
+  manualOptions: ManualCoffeeOption[];
+  onAddManualOption: (option: ManualCoffeeOption) => void;
+  onRemoveManualOption: (index: number) => void;
   campusId: number;
   createState: CoffeePollCreateState;
   deadlineText: string;
@@ -996,7 +1014,7 @@ function CoffeePollCreator({
   const busy = createState.status === 'creating';
   const [menuPickerVisible, setMenuPickerVisible] = useState(false);
   const [deadlinePickerVisible, setDeadlinePickerVisible] = useState(false);
-  const selectedMenus = state.menus.filter((menu) => selectedMenuIds.includes(menu.id));
+  const selectedMenus = selectedMenuIds.map((id) => state.menus.find((menu) => menu.id === id)).filter((menu): menu is CoffeeMenu => Boolean(menu));
   const missingOwnedCoffeeAccount = state.accounts.length === 0;
   const noticeMediaUploads = usePollNoticeMediaUploads({
     campusId,
@@ -1098,14 +1116,11 @@ function CoffeePollCreator({
             <Text style={styles.pollCreateAddOptionText}>메뉴 추가</Text>
           </Pressable>
         </View>
-        {state.menus.length === 0 ? (
-          <CoffeeInlineError message="커피 메뉴를 불러오지 못했습니다." />
-        ) : (
-          <View style={styles.pollCreateOptionList}>
-            {selectedMenus.length === 0 ? (
-              <Text style={styles.summaryBody}>선택된 커피 메뉴가 없습니다.</Text>
-            ) : (
-              selectedMenus.map((menu, index) => (
+        <View style={styles.pollCreateOptionList}>
+          {selectedMenus.length + manualOptions.length === 0 ? (
+            <Text style={styles.summaryBody}>메뉴를 선택하거나 직접 입력해 주세요.</Text>
+          ) : null}
+          {selectedMenus.map((menu, index) => (
                 <View key={menu.id} style={styles.pollCreateOptionRow}>
                   <View style={styles.pollCreateOptionNumber}>
                     <Text style={styles.pollCreateOptionNumberText}>{index + 1}</Text>
@@ -1129,22 +1144,31 @@ function CoffeePollCreator({
                     <Text style={styles.pollCreateRemoveOptionText}>x</Text>
                   </Pressable>
                 </View>
-              ))
-            )}
-            {menuPickerVisible ? (
-              <CoffeeMenuPickerModal
-                menus={state.menus}
-                onClose={() => setMenuPickerVisible(false)}
-                onRefresh={onRefresh}
-                onSelectMenu={(menuId) => {
-                  onToggleMenu(menuId);
-                  setMenuPickerVisible(false);
-                }}
-                selectedMenuIds={selectedMenuIds}
-              />
-            ) : null}
-          </View>
-        )}
+              ))}
+          {manualOptions.map((option, index) => (
+            <View key={`manual-${index}`} style={styles.pollCreateOptionRow}>
+              <View style={styles.pollCreateOptionNumber}>
+                <Text style={styles.pollCreateOptionNumberText}>{selectedMenus.length + index + 1}</Text>
+              </View>
+              <View style={styles.pollCreateOptionField}>
+                <Text style={styles.selectTitle}>{option.content}</Text>
+                <Text style={styles.selectMeta}>{formatWon(option.priceAmount)} · 직접 입력</Text>
+              </View>
+              <Pressable accessibilityLabel={`${option.content} 메뉴 제거`} accessibilityRole="button"
+                accessibilityState={{disabled: busy}} disabled={busy} onPress={() => onRemoveManualOption(index)}
+                style={[styles.pollCreateRemoveOption, busy ? styles.pollCreateActionDisabled : null]}>
+                <Text style={styles.pollCreateRemoveOptionText}>x</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+        {menuPickerVisible ? (
+          <CoffeeMenuPickerModal menus={state.menus} selectedMenuIds={selectedMenuIds}
+            existingNames={[...selectedMenus.map((menu) => menu.name), ...manualOptions.map((option) => option.content)]}
+            onAddManualOption={(option) => { onAddManualOption(option); setMenuPickerVisible(false); }}
+            onClose={() => setMenuPickerVisible(false)} onRefresh={onRefresh}
+            onSelectMenu={(menuId) => { onToggleMenu(menuId); setMenuPickerVisible(false); }} />
+        ) : null}
       </DutyFormSection>
 
       <DutyFormSection>
@@ -1251,25 +1275,30 @@ function CoffeeAccountDeleteConfirmModal({
 }
 
 function CoffeeMenuPickerModal({
+  existingNames,
+  onAddManualOption,
   menus,
   onClose,
   onRefresh,
   onSelectMenu,
   selectedMenuIds,
 }: {
+  existingNames: string[];
+  onAddManualOption: (option: ManualCoffeeOption) => void;
   menus: CoffeeMenu[];
   onClose: () => void;
   onRefresh: () => void;
   onSelectMenu: (menuId: number) => void;
   selectedMenuIds: number[];
 }) {
+  const [mode, setMode] = useState<CoffeeOptionMode>('catalog');
   return (
     <AppModal
       animationType="slide"
       onRequestClose={onClose}
       transparent={true}
       visible>
-      <View style={styles.modalScrim}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalScrim}>
         <View style={styles.menuSheet}>
           <View style={styles.menuSheetHeader}>
             <View style={styles.headerText}>
@@ -1287,7 +1316,12 @@ function CoffeeMenuPickerModal({
               <Text style={styles.pollCreateRemoveOptionText}>x</Text>
             </Pressable>
           </View>
-          {menus.length === 0 ? (
+          <CoffeeOptionModeSelector mode={mode} onChange={setMode} />
+          {mode === 'manual' ? (
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <ManualCoffeeOptionForm existingNames={existingNames} onSubmit={onAddManualOption} />
+            </ScrollView>
+          ) : menus.length === 0 ? (
             <View style={styles.menuSheetEmpty}>
               <Text style={styles.summaryBody}>추가할 수 있는 메뉴가 없습니다.</Text>
               <Pressable
@@ -1308,7 +1342,7 @@ function CoffeeMenuPickerModal({
               maxToRenderPerBatch={12}
               renderItem={({item}) => (
                 <CoffeeMenuPickerRow
-                  added={selectedMenuIds.includes(item.id)}
+                  added={selectedMenuIds.includes(item.id) || existingNames.some((name) => name.trim().toLowerCase() === item.name.trim().toLowerCase())}
                   menu={item}
                   onSelect={onSelectMenu}
                 />
@@ -1318,7 +1352,7 @@ function CoffeeMenuPickerModal({
             />
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </AppModal>
   );
 }

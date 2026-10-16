@@ -958,19 +958,23 @@ function resolveMockData(
     let composeMenuCode: string | null = null;
     let priceAmount = 0;
     if (regularDetail.pollType === 'COFFEE') {
-      if (request.content !== undefined) {
-        return mockBadRequest('POLL_USER_OPTION_CONTENT_NOT_ALLOWED', '커피 투표에는 직접 내용을 입력할 수 없습니다.');
+      if (request.menuId === undefined || request.menuId === null) {
+        content = stringField(request.content, '').trim();
+        const price = request.priceAmount;
+        if (!content || content.length > 200 || typeof price !== 'number' || !Number.isSafeInteger(price) || price <= 0 || price > 2_147_483_647) {
+          return mockBadRequest('POLL_INVALID_OPTION', '메뉴 이름과 올바른 금액을 입력해 주세요.');
+        }
+        priceAmount = price;
+      } else {
+        if (request.content !== undefined || request.priceAmount !== undefined) {
+          return mockBadRequest('POLL_USER_OPTION_CONTENT_NOT_ALLOWED', '메뉴 선택과 직접 입력을 함께 보낼 수 없습니다.');
+        }
+        const menu = billing.coffeeMenus.find((item) => item.id === request.menuId);
+        if (!menu) return mockBadRequest('POLL_MENU_NOT_FOUND', '커피 메뉴를 찾을 수 없습니다.');
+        content = menu.name;
+        composeMenuCode = menu.menuCode;
+        priceAmount = menu.priceAmount;
       }
-      if (typeof request.menuId !== 'number' || !Number.isSafeInteger(request.menuId) || request.menuId <= 0) {
-        return mockBadRequest('POLL_USER_OPTION_MENU_REQUIRED', '추가할 커피 메뉴를 선택해 주세요.');
-      }
-      const menu = billing.coffeeMenus.find((item) => item.id === request.menuId);
-      if (!menu) {
-        return mockBadRequest('POLL_USER_OPTION_MENU_REQUIRED', '추가할 커피 메뉴를 선택해 주세요.');
-      }
-      content = menu.name;
-      composeMenuCode = menu.menuCode;
-      priceAmount = menu.priceAmount;
     } else {
       if (request.menuId !== undefined) {
         return mockBadRequest('POLL_USER_OPTION_MENU_NOT_ALLOWED', '이 투표에는 메뉴 ID를 보낼 수 없습니다.');

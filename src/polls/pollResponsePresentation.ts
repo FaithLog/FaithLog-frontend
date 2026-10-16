@@ -1,3 +1,4 @@
+import {createManualCoffeeOption} from '../coffee/manualCoffeeOption';
 import type {PollDetail, PollOptionAddRequest} from '../api/types';
 
 type PollOptionAddVisibility = Pick<PollDetail, 'pollType' | 'status'> & {
@@ -20,8 +21,11 @@ export function getPollOptionAddLabel(
 
 export function createPollOptionAddRequest(
   pollType: string,
-  option: {content: string; menuId?: number},
+  option: {content: string; menuId?: number; priceAmount?: number},
 ): PollOptionAddRequest {
+  if (pollType === 'COFFEE' && option.menuId === undefined) {
+    return createManualCoffeeOption(option.content, String(option.priceAmount ?? ''));
+  }
   if (pollType === 'COFFEE') {
     const menuId = option.menuId;
     if (typeof menuId !== 'number' || !Number.isSafeInteger(menuId) || menuId <= 0) {

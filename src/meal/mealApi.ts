@@ -33,6 +33,7 @@ type MealRequestOptions<T> = {
   accessToken: string;
   body?: unknown;
   exposeServerErrorMessage?: boolean;
+  treatUnauthorizedAsPermissionDenied?: boolean;
   method: 'DELETE' | 'GET' | 'PATCH' | 'POST';
   responseParser: (value: unknown) => T;
 };
@@ -255,7 +256,7 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
         requestOptions(accessToken, (value) => parseClosedMealPollDetailForContext(value, {
           campusId: expectedCampusId,
           pollId: expectedPollId,
-        }), 'PATCH'),
+        }), 'PATCH', {treatUnauthorizedAsPermissionDenied: true}),
       );
     },
     createCharges(accessToken, campusId, pollId, body) {
@@ -300,7 +301,7 @@ function requestOptions<T>(
   accessToken: string,
   responseParser: (value: unknown) => T,
   method: MealRequestOptions<T>['method'] = 'GET',
-  patch: Pick<MealRequestOptions<T>, 'body' | 'exposeServerErrorMessage'> = {},
+  patch: Pick<MealRequestOptions<T>, 'body' | 'exposeServerErrorMessage' | 'treatUnauthorizedAsPermissionDenied'> = {},
 ): MealRequestOptions<T> {
   return {accessToken, method, responseParser, ...patch};
 }

@@ -1763,6 +1763,7 @@ function AnnouncementImagePickerSection({
               {preview.kind === 'local' ? (
                 <Image
                   accessibilityLabel={`이미지 ${preview.index + 1} 미리보기`}
+                  resizeMethod="resize"
                   resizeMode="cover"
                   source={{uri: preview.uri}}
                   style={styles.uploadPreviewImage}

@@ -86,7 +86,7 @@ function BookmarkCard({preview, url}: {preview: LinkPreview | undefined; url: st
         </View>
       </View>
       {preview?.imageUrl ? (
-        <Image accessibilityIgnoresInvertColors source={{uri: preview.imageUrl}} style={styles.previewImage} />
+        <Image accessibilityIgnoresInvertColors resizeMethod="resize" source={{uri: preview.imageUrl}} style={styles.previewImage} />
       ) : (
         <View style={styles.previewFallback}><Text style={styles.previewFallbackText}>↗</Text></View>
       )}
