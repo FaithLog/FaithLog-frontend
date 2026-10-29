@@ -1,4 +1,6 @@
 import type {ApiError, ApiErrorKind} from './types';
+import {getDomainErrorPresentation} from './domainErrorCopy';
+import {FaithLogApiError} from './apiError';
 
 export type ApiErrorPresentation = {
   actionLabel: string;
@@ -55,6 +57,8 @@ export function getApiErrorPresentation(
   error: ApiError,
   options: ApiErrorPresentationOptions = {},
 ): ApiErrorPresentation {
+  const domain = getDomainErrorPresentation(error);
+  if (domain) return {...domain, actionLabel: options.actionLabel ?? domain.actionLabel};
   const base = getBasePresentation(error);
 
   if (
@@ -107,15 +111,19 @@ export function getSafeApiErrorMessage(error: ApiError) {
   return getBasePresentation(error).message;
 }
 
-function getBasePresentation(error: ApiError): ApiErrorPresentation {
-  if (error.code === 'CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT') {
-    return {
-      title: '담당 해제가 필요합니다',
-      message: '커피 또는 밥 담당 해제를 먼저 완료한 뒤 다시 시도해 주세요.',
-      actionLabel: '담당 관리 확인',
-      retryable: false,
-    };
+// Custom flows can retain their operation-specific fallback for unknown failures.
+export function getKnownApiErrorMessage(error: unknown): string | undefined {
+  if (!(error instanceof FaithLogApiError)) return undefined;
+  if (error.detail.kind === 'sessionExpired' || error.detail.kind === 'offline') {
+    return getSafeApiErrorMessage(error.detail);
   }
+  return getDomainErrorPresentation(error.detail)?.message;
+}
+
+function getBasePresentation(error: ApiError): ApiErrorPresentation {
+  if (error.kind === 'sessionExpired' || error.kind === 'offline') return ERROR_COPY[error.kind];
+  const domain = getDomainErrorPresentation(error);
+  if (domain) return domain;
   if (error.code === 'CONFIGURATION') {
     return {
       title: '앱 설정 확인이 필요합니다',

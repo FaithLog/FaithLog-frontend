@@ -90,6 +90,7 @@ vi.mock('../theme', () => ({
 }));
 
 import {DevotionScreen} from './DevotionScreen';
+import {FaithLogApiError} from '../api/client';
 
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -138,6 +139,43 @@ describe('DevotionScreen initial week', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('explains the missing penalty account, preserves input and allows resubmission after setup', async () => {
+    api.fetchWeeklyDevotionSummary.mockImplementation(
+      (_token: string, _campusId: number, weekStartDate: string) => Promise.resolve(weekly(weekStartDate, null)),
+    );
+    api.saveWeeklyDevotion.mockRejectedValueOnce(new FaithLogApiError({
+      kind: 'error', status: 400, code: 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING', message: '관리자에게 문의하세요',
+    }));
+    api.saveWeeklyDevotion.mockResolvedValueOnce(weekly('2026-08-03', '2026-08-11T03:00:00Z'));
+    const renderer = await renderScreen('2026-08-03');
+    await act(async () => {
+      renderer.root.findAll((node) => String(node.type) === 'Pressable' && node.props.accessibilityLabel === '큐티 체크')[0]!.props.onPress();
+      byLabel(renderer, '토요 목자 모임 지각 분 입력').props.onChangeText('7');
+    });
+    const submit = async () => {
+      await act(async () => { byLabel(renderer, '경건생활 주간 제출').props.onPress(); });
+      await act(async () => {
+        await byLabel(renderer, '주간 경건생활 제출 확정').props.onPress();
+        await flushPromises();
+      });
+    };
+    await submit();
+    const error = renderer.root.findByType('ErrorState' as never);
+    expect(error.props.title).toBe('경건생활을 제출하지 못했습니다');
+    expect(error.props.message).toContain('캠퍼스 관리자');
+    expect(error.props.message).toContain('벌금 계좌 등록 또는 활성화');
+    expect(error.props.onActionPress).toBeUndefined();
+    expect(byLabel(renderer, '토요 목자 모임 지각 분 입력').props.value).toBe('7');
+    expect(renderer.root.findAll((node) => String(node.type) === 'Pressable' && node.props.accessibilityLabel === '큐티 체크 해제')).toHaveLength(1);
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenCalledOnce();
+    const failedBody = api.saveWeeklyDevotion.mock.calls[0]![3];
+    expect(failedBody).toMatchObject({saturdayLateMinutes: 7, submit: true});
+    await submit();
+    expect(api.saveWeeklyDevotion.mock.calls[1]![3]).toEqual(failedBody);
+    expect(renderer.root.findAllByType('ErrorState' as never)).toHaveLength(0);
+    await act(async () => renderer.unmount());
   });
 
   it('shows only the immediately previous week when it is unsubmitted', async () => {

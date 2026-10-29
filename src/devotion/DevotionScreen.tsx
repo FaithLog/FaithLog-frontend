@@ -1182,6 +1182,14 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
 }
 
 function DevotionActionError({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+  if (error.code === 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING') {
+    return (
+      <ErrorState
+        title="경건생활을 제출하지 못했습니다"
+        message="벌금 청구에 필요한 활성 벌금 납부 계좌가 등록되지 않았습니다. 캠퍼스 관리자에게 벌금 계좌 등록 또는 활성화를 요청해 주세요. 입력한 체크와 지각 시간은 현재 화면에 남아 있습니다. 계좌 설정이 완료되면 아래 제출하기를 다시 눌러 주세요."
+      />
+    );
+  }
   if (error.code === 'DEVOTION_WEEKLY_ALREADY_SUBMITTED') {
     return (
       <Conflict
