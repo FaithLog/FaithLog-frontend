@@ -14,6 +14,7 @@ export type ApiErrorKind =
   | 'error';
 
 export type ApiError = {
+  fieldErrors?: Record<string, string>;
   kind: ApiErrorKind;
   status?: number;
   code?: string;

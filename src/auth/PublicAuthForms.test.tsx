@@ -67,10 +67,22 @@ vi.mock('../theme', () => ({
 vi.mock('./session', () => session);
 
 import {LoginForm, SignupForm} from './PublicAuthForms';
+import {FaithLogApiError as RealApiError} from '../api/apiError';
 
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('public auth form lifecycle', () => {
+  it('shows a server validation error beside its input and preserves entered text', async () => {
+    session.loginAndEstablishSession.mockRejectedValueOnce(new RealApiError({kind: 'error', status: 400,
+      code: 'GLOBAL_VALIDATION_FAILED', message: '이메일 형식을 확인해 주세요.', fieldErrors: {email: '이메일 형식을 확인해 주세요.'}}));
+    const renderer = await renderLogin();
+    await changeText(renderer, '로그인 이메일 입력', 'user@example.test');
+    await changeText(renderer, '로그인 비밀번호 입력', 'password123');
+    await pressAndFlush(renderer, '로그인');
+    expect(textOccurrences(renderer, '이메일 형식을 확인해 주세요.')).toBe(1);
+    expect(renderer.root.findAll((node) => String(node.type) === 'TextInput' && node.props.value === 'user@example.test')).toHaveLength(1);
+    await act(async () => renderer.unmount());
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     native.appStateListener = null;

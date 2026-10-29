@@ -1204,7 +1204,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="서비스 관리자 권한 오류 후 다시 확인"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -1214,7 +1214,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="서비스 관리자 충돌 오류 후 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -1224,7 +1224,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="서비스 관리자 네트워크 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'sessionExpired':
@@ -1234,7 +1234,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="서비스 관리자 세션 만료 후 다시 확인"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'error':
@@ -1244,7 +1244,7 @@ function ServiceAdminErrorState({error, onRetry}: {error: ApiError; onRetry: () 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="서비스 관리자 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:

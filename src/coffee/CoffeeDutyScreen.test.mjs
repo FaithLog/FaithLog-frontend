@@ -121,6 +121,60 @@ import {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('CoffeeDutyScreen canonical duty navigation', () => {
+  it('queries status on the server and preserves it through paging and refresh', async () => {
+    mocks.fetchAdminCampusChargesForMyAccounts.mockImplementation(async (_token, _campus, query) => ({
+      ...chargeSummary(), page: query.page, totalPages: 3, totalElements: 21,
+      summary: {totalAmount: 7000, unpaidAmount: query.status === 'UNPAID' ? 7000 : 0, paidAmount: query.status === 'PAID' ? 7000 : 0},
+      members: [{userId: 9, name: query.status === 'PAID' ? '납부 내역 멤버' : '미납 내역 멤버', unpaidAmount: query.status === 'UNPAID' ? 7000 : 0, paidAmount: query.status === 'PAID' ? 7000 : 0}],
+    }));
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(CoffeeDutyScreen, screenProps())); await settle(); });
+    await press(renderer, '커피 정산 페이지 열기');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'UNPAID', page: 0}));
+    await press(renderer, '커피 정산 납부 보기');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'PAID', page: 0}));
+    expect(rendered(renderer)).toContain('납부 내역 멤버');
+    expect(rendered(renderer)).not.toContain('미납 내역 멤버');
+    expect(renderer.root.findByType(DutyMetricSurface).props).toMatchObject({label: '납부 합계', value: '7,000원'});
+    await press(renderer, '다음 커피 정산 페이지');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'PAID', page: 1}));
+    await press(renderer, '커피 정산 새로고침');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'PAID', page: 1}));
+    await press(renderer, '커피 정산 미납 보기');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'UNPAID', page: 0}));
+    expect(mocks.fetchMyDutyAssignment).toHaveBeenCalledTimes(1);
+    await press(renderer, '커피 정산 이전 기록 보기');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'UNPAID', page: 0, includeArchived: true}));
+    await press(renderer, '커피 정산 전체 보기');
+    expect(mocks.fetchAdminCampusChargesForMyAccounts).toHaveBeenLastCalledWith('A1', 1, expect.objectContaining({status: 'ALL', page: 0, includeArchived: true}));
+    await act(async () => renderer.unmount());
+  });
+
+  it('shows all ten members returned in a server page', async () => {
+    mocks.fetchAdminCampusChargesForMyAccounts.mockResolvedValue({...chargeSummary(), totalElements: 10,
+      members: Array.from({length: 10}, (_, index) => ({userId: index + 1, name: `정산 대상 ${index + 1}`, unpaidAmount: 1000, paidAmount: 0})),
+    });
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(CoffeeDutyScreen, screenProps())); await settle(); });
+    await press(renderer, '커피 정산 페이지 열기');
+    expect(rendered(renderer)).toContain('정산 대상 10');
+    await act(async () => renderer.unmount());
+  });
+
+  it('ignores an older paid response after the user switches back to unpaid', async () => {
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(CoffeeDutyScreen, screenProps())); await settle(); });
+    await press(renderer, '커피 정산 페이지 열기');
+    let finishPaid;
+    mocks.fetchAdminCampusChargesForMyAccounts.mockImplementationOnce(() => new Promise((resolve) => {finishPaid = resolve;}));
+    await press(renderer, '커피 정산 납부 보기');
+    mocks.fetchAdminCampusChargesForMyAccounts.mockResolvedValueOnce(chargeSummary());
+    await press(renderer, '커피 정산 미납 보기');
+    await act(async () => { finishPaid({...chargeSummary(), members: [{userId: 9, name: '늦게 도착한 납부 내역', unpaidAmount: 0, paidAmount: 1000}]}); await settle(); });
+    expect(rendered(renderer)).toContain('미납 멤버');
+    expect(rendered(renderer)).not.toContain('늦게 도착한 납부 내역');
+    await act(async () => renderer.unmount());
+  });
   beforeEach(() => {
     auth.generation = 1;
     vi.clearAllMocks();
@@ -595,8 +649,9 @@ function coffeePoll() {
 
 function chargeSummary() {
   return {
-    summary: {unpaidAmount: 12000},
-    members: [{userId: 8, name: '미납 멤버', unpaidAmount: 12000}],
+    page: 0, size: 10, totalElements: 1, totalPages: 1,
+    summary: {totalAmount: 12000, unpaidAmount: 12000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0},
+    members: [{userId: 8, name: '미납 멤버', unpaidAmount: 12000, paidAmount: 0}],
   };
 }
 

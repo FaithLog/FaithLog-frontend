@@ -117,11 +117,15 @@ export function getKnownApiErrorMessage(error: unknown): string | undefined {
   if (error.detail.kind === 'sessionExpired' || error.detail.kind === 'offline') {
     return getSafeApiErrorMessage(error.detail);
   }
+  if (error.detail.code === 'GLOBAL_VALIDATION_FAILED' && error.detail.fieldErrors) return getSafeApiErrorMessage(error.detail);
   return getDomainErrorPresentation(error.detail)?.message;
 }
 
 function getBasePresentation(error: ApiError): ApiErrorPresentation {
   if (error.kind === 'sessionExpired' || error.kind === 'offline') return ERROR_COPY[error.kind];
+  if (error.code === 'GLOBAL_VALIDATION_FAILED' && error.fieldErrors && Object.keys(error.fieldErrors).length > 0) {
+    return {title: '표시된 입력 항목을 수정해 주세요', message: Object.values(error.fieldErrors).slice(0, 3).join('\n'), actionLabel: '입력 내용 수정', retryable: false};
+  }
   const domain = getDomainErrorPresentation(error);
   if (domain) return domain;
   if (error.code === 'CONFIGURATION') {

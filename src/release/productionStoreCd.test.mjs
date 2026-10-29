@@ -32,7 +32,7 @@ describe('production store CD', () => {
     expect(workflow).not.toMatch(/^\s+--auto-submit\s*$/m);
     expect(eas.submit.production.android).toEqual({track: 'internal', releaseStatus: 'completed'});
     expect(eas.submit.production.ios.ascAppId).toBe('6784053598');
-    expect(app.expo.version).toBe('1.2.8');
+    expect(app.expo.version).toBe('1.2.9');
     expect(eas.cli.appVersionSource).toBe('remote');
     expect(eas.build.production.autoIncrement).toBe(true);
   });

@@ -976,6 +976,30 @@ describe('MEAL component behavior', () => {
     expect(api.deactivatePaymentAccount).toHaveBeenCalledTimes(1);
   });
 
+  it('queries settlement status on the server even when unpaid results are empty', async () => {
+    const summary = {totalAmount: 5000, unpaidAmount: 0, paidAmount: 5000, waivedAmount: 0, canceledAmount: 0};
+    const api = createApi({getMySettlement: vi.fn(async (_token, _campus, _user, query) => ({
+      campusId: 1, campusName: '캠퍼스', region: '서울',
+      summary: query.status === 'UNPAID' ? {...summary, totalAmount: 0, paidAmount: 0} : summary,
+      members: query.status === 'UNPAID' ? [] : [{userId: 8, name: '납부 멤버', email: 'paid@example.test', ...summary}],
+      page: query.page, size: 10, totalElements: query.status === 'UNPAID' ? 0 : 12, totalPages: 2,
+    }))});
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(MealSettlementScreen, settlementProps(api))); await settle(); });
+    expect(api.getMySettlement.mock.lastCall[3]).toMatchObject({status: 'UNPAID', page: 0});
+    await press(renderer, '밥 정산 납부 보기');
+    expect(api.getMySettlement.mock.lastCall[3]).toMatchObject({status: 'PAID', page: 0});
+    expect(rendered(renderer)).toContain('납부 멤버');
+    await press(renderer, '다음 밥 정산 페이지');
+    expect(api.getMySettlement.mock.lastCall[3]).toMatchObject({status: 'PAID', page: 1});
+    await press(renderer, '밥 정산 새로고침');
+    expect(api.getMySettlement.mock.lastCall[3]).toMatchObject({status: 'PAID', page: 1});
+    await press(renderer, '밥 정산 이전 기록 보기');
+    expect(api.getMySettlement.mock.lastCall[3]).toMatchObject({status: 'PAID', page: 0, includeArchived: true});
+    await press(renderer, '밥 정산 전체 보기');
+    expect(api.getMySettlement.mock.lastCall[3]).toMatchObject({status: 'ALL', page: 0});
+  });
+
   it('renders the documented aggregate settlement summary and members', async () => {
     const summary = {totalAmount: 60000, unpaidAmount: 60000, paidAmount: 0, waivedAmount: 0, canceledAmount: 0};
     const api = createApi({

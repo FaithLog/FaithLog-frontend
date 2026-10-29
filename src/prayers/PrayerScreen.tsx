@@ -838,7 +838,7 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 기도제목 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'permissionDenied':
@@ -848,17 +848,17 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="권한 오류 후 기도제목 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
       return (
         <PrayerStatusPanel
-          title="먼저 수정된 내용이 있어요"
-          message="새로고침 후 최신 내용을 확인해 주세요"
+          title={presentation.title}
+          message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="충돌 후 기도제목 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -868,7 +868,7 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="오프라인 후 기도제목 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'error':
@@ -878,7 +878,7 @@ function PrayerErrorState({error, onRetry}: {error: ApiError; onRetry: () => voi
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="기도제목 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:
@@ -899,7 +899,7 @@ function PrayerStatusPanel({
   actionAccessibilityLabel: string;
   actionLabel: string;
   message: string;
-  onActionPress: () => void;
+  onActionPress?: () => void;
   onSecondaryActionPress?: () => void;
   secondaryActionAccessibilityLabel?: string;
   secondaryActionLabel?: string;
@@ -917,11 +917,11 @@ function PrayerStatusPanel({
       <Text style={styles.statusTitle}>{title}</Text>
       <Text style={styles.statusMessage}>{message}</Text>
       <View style={styles.statusActions}>
-        <Button
+        {onActionPress ? <Button
           accessibilityLabel={actionAccessibilityLabel}
           onPress={onActionPress}>
           {actionLabel}
-        </Button>
+        </Button> : null}
         {secondaryActionLabel && onSecondaryActionPress ? (
           <Button
             accessibilityLabel={secondaryActionAccessibilityLabel ?? secondaryActionLabel}

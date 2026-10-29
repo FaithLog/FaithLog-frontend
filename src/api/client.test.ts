@@ -800,6 +800,27 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('provides inline field errors for empty account inputs before sending a request', () => {
+    expect(() => createAdminPaymentAccount('token', 1, {
+      accountType: 'PENALTY', nickname: '벌금', bankName: ' ', accountNumber: '', accountHolder: '회계',
+    })).toThrowError(expect.objectContaining({detail: expect.objectContaining({
+      fieldErrors: {bankName: '은행명을 입력해 주세요.', accountNumber: '계좌번호를 입력해 주세요.'},
+    })}));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('normalizes structured validation details into safe field errors', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(400, envelope({fieldErrors: [
+      {field: 'accountNumber', code: 'NotBlank', rejectedValue: 'secret'},
+      {field: 'email', code: 'Email'},
+    ]}, {success: false, code: 'GLOBAL_VALIDATION_FAILED', message: 'private validation detail'})));
+    await expect(apiRequest('/example')).rejects.toMatchObject({detail: {
+      kind: 'error', status: 400, code: 'GLOBAL_VALIDATION_FAILED',
+      fieldErrors: {accountNumber: '계좌번호를 입력해 주세요.', email: '이메일 형식을 확인해 주세요.'},
+      message: '계좌번호를 입력해 주세요.\n이메일 형식을 확인해 주세요.',
+    }});
+  });
+
   it('normalizes missing-account errors with actionable copy instead of generic input validation', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(400, envelope(null, {
       success: false,

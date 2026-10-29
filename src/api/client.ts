@@ -99,6 +99,7 @@ import {FaithLogApiError} from './apiError';
 import {DEFAULT_PAGE_SIZE} from './pagination';
 import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import {getSafeApiErrorMessage} from './errorPolicy';
+import {parseValidationFieldErrors} from './validationErrors';
 import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
 import {
@@ -739,6 +740,17 @@ function toNullablePositiveInteger(value: unknown, label: string) {
 function toPaymentAccountCreateRequest(
   body: PaymentAccountCreateRequest,
 ): PaymentAccountCreateRequest {
+  const invalidFields: Array<{field: string; code: string}> = [];
+  for (const field of ['nickname', 'bankName', 'accountNumber', 'accountHolder'] as const) {
+    const value = body[field];
+    if (typeof value !== 'string' || !value.trim()) invalidFields.push({field, code: 'NotBlank'});
+    else if (value.trim().length > 100) invalidFields.push({field, code: 'Size'});
+  }
+  if (invalidFields.length > 0) {
+    const fieldErrors = parseValidationFieldErrors(400, 'GLOBAL_VALIDATION_FAILED', {fieldErrors: invalidFields}, '');
+    throw new FaithLogApiError({kind: 'error', status: 400, code: 'GLOBAL_VALIDATION_FAILED', fieldErrors,
+      message: Object.values(fieldErrors).slice(0, 3).join('\n')});
+  }
   if (!isPaymentAccountCategory(body.accountType)) {
     throw new FaithLogApiError({
       kind: 'error',
@@ -1180,6 +1192,8 @@ function normalizeApiError(
     code,
     message: '요청을 처리하지 못했습니다.',
   });
+  const fieldErrors = parseValidationFieldErrors(status, code, envelope?.data, typeof envelope?.message === 'string' ? envelope.message : '');
+  if (Object.keys(fieldErrors).length > 0) return {...unsafeError, fieldErrors, message: Object.values(fieldErrors).slice(0, 3).join('\n')};
   const exposedMessage = getExposedServerErrorMessage(status, envelope, options);
   const message = exposedMessage ?? getSafeApiErrorMessage(unsafeError);
 

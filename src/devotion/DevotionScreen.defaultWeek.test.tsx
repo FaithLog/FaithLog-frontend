@@ -95,6 +95,23 @@ import {FaithLogApiError} from '../api/client';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('DevotionScreen initial week', () => {
+  it('lets the user continue after a failed submission without reloading or losing input', async () => {
+    api.fetchWeeklyDevotionSummary.mockImplementation(
+      (_token: string, _campusId: number, week: string) => Promise.resolve(weekly(week, null)),
+    );
+    api.saveWeeklyDevotion.mockRejectedValueOnce(new FaithLogApiError({kind: 'offline', message: 'network'}));
+    const renderer = await renderScreen('2026-08-03');
+    await act(async () => { byLabel(renderer, '토요 목자 모임 지각 분 입력').props.onChangeText('9'); });
+    await act(async () => { byLabel(renderer, '경건생활 주간 제출').props.onPress(); });
+    await act(async () => { await byLabel(renderer, '주간 경건생활 제출 확정').props.onPress(); });
+    const error = renderer.root.findByType('ErrorState' as never);
+    expect(error.props.actionLabel).toBe('입력 계속하기');
+    await act(async () => { error.props.onActionPress(); });
+    expect(byLabel(renderer, '토요 목자 모임 지각 분 입력').props.value).toBe('9');
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenCalledOnce();
+    expect(api.saveWeeklyDevotion).toHaveBeenCalledOnce();
+    await act(async () => renderer.unmount());
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();

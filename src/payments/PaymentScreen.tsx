@@ -1122,7 +1122,7 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 납부 정보 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'permissionDenied':
@@ -1132,7 +1132,7 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="권한 오류 후 납부 정보 다시 확인"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -1142,7 +1142,7 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
           message={presentation.message}
           actionLabel="최신 정보 불러오기"
           actionAccessibilityLabel="청구 충돌 후 최신 정보 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -1152,7 +1152,7 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="오프라인 후 납부 정보 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'error':
@@ -1162,7 +1162,7 @@ function PaymentErrorState({error, onRetry}: {error: ApiError; onRetry: () => vo
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="납부 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:

@@ -3,6 +3,8 @@ import {act, create} from 'react-test-renderer';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  appStateListener: null,
+  appState: {currentState: 'active'},
   addUserPollOption: vi.fn(),
   createPollComment: vi.fn(),
   deletePollComment: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock('react-native', async () => {
   const host = (name) => ({children, ...props}) =>
     ReactModule.createElement(name, props, children);
   return {
+    AppState: {...mocks.appState, addEventListener: vi.fn((_event, listener) => {mocks.appStateListener = listener; return {remove: vi.fn()};})},
     FlatList: ({data = [], renderItem, ...props}) => ReactModule.createElement(
       'FlatList',
       props,
@@ -138,6 +141,78 @@ import {PollScreen} from '../PollScreen';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('PollScreen notice media retry preserves unsaved response selection', () => {
+  it('ignores a slow list response from the previous campus', async () => {
+    let finishOld;
+    mocks.fetchPolls.mockImplementationOnce(() => new Promise((resolve) => {finishOld = resolve;}));
+    mocks.fetchPolls.mockResolvedValueOnce([]);
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(PollScreen, screenProps(null))); await settle(); });
+    await act(async () => { renderer.update(React.createElement(PollScreen, screenProps(null, 1, {campusId: 2}))); await settle(); });
+    await act(async () => { finishOld([{...pollDetail('SINGLE'), title: '이전 캠퍼스의 투표'}]); await settle(); });
+    expect(rendered(renderer)).not.toContain('이전 캠퍼스의 투표');
+    await act(async () => renderer.unmount());
+  });
+  it('preserves the last counts on a transient refresh error and recovers automatically', async () => {
+    vi.useFakeTimers();
+    const detail = pollDetail('SINGLE');
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue({...pollResults(detail), respondedCount: 1, notRespondedCount: 2});
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(PollScreen, screenProps(detail.id))); await settle(); });
+    await act(async () => { findByLabel(renderer, '결과 탭으로 이동').props.onPress(); });
+    mocks.fetchPollResults.mockRejectedValueOnce(new Error('offline'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); await settle(); });
+    expect(rendered(renderer)).toContain('3명 중 1명 응답');
+    expect(rendered(renderer)).toContain('마지막으로 확인한 현황');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); await settle(); });
+    expect(rendered(renderer)).not.toContain('마지막으로 확인한 현황');
+    await act(async () => renderer.unmount());
+  });
+  it('updates live counts without losing an unsaved choice, pauses in background and stops on unmount', async () => {
+    vi.useFakeTimers();
+    const detail = pollDetail('SINGLE');
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id)));
+      await settle();
+    });
+    await act(async () => { findByLabel(renderer, '응답 탭으로 이동').props.onPress(); });
+    await act(async () => { findByLabel(renderer, '두 번째 선택지').props.onPress(); });
+    mocks.fetchPollResults.mockResolvedValue({...pollResults(detail), respondedCount: 2, notRespondedCount: 1});
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); await settle(); });
+    expect(mocks.fetchPollResults).toHaveBeenCalledTimes(2);
+    expect(findByLabel(renderer, '두 번째 선택지 선택됨').props.accessibilityState).toMatchObject({checked: true});
+    await act(async () => { findByLabel(renderer, '결과 탭으로 이동').props.onPress(); });
+    expect(rendered(renderer)).toContain('3명 중 2명 응답');
+    await act(async () => { mocks.appStateListener('background'); await vi.advanceTimersByTimeAsync(15000); });
+    expect(mocks.fetchPollResults).toHaveBeenCalledTimes(2);
+    await act(async () => { mocks.appStateListener('active'); await settle(); });
+    expect(mocks.fetchPollResults).toHaveBeenCalledTimes(3);
+    await act(async () => renderer.unmount());
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(mocks.fetchPollResults).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not overlap live refreshes or apply an old response after leaving the detail', async () => {
+    vi.useFakeTimers();
+    const detail = pollDetail('SINGLE');
+    mocks.fetchPollDetail.mockResolvedValue(detail);
+    mocks.fetchPollResults.mockResolvedValue(pollResults(detail));
+    let renderer;
+    await act(async () => {
+      renderer = create(React.createElement(PollScreen, screenProps(detail.id)));
+      await settle();
+    });
+    let finish;
+    mocks.fetchPollDetail.mockImplementationOnce(() => new Promise((resolve) => {finish = resolve;}));
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+    expect(mocks.fetchPollDetail).toHaveBeenCalledTimes(2);
+    await act(async () => renderer.unmount());
+    await act(async () => { finish(detail); await settle(); });
+    expect(mocks.fetchPollDetail).toHaveBeenCalledTimes(2);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('EXPO_PUBLIC_APP_ENV', 'development');
@@ -158,6 +233,7 @@ describe('PollScreen notice media retry preserves unsaved response selection', (
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
   });
 
