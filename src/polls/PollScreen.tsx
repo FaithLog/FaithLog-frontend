@@ -35,6 +35,7 @@ import {
   updatePollComment,
 } from '../api/client';
 import {getApiErrorPresentation} from '../api/errorPolicy';
+import {useForegroundPollRefresh} from './useForegroundPollRefresh';
 import {toAnalyticsPollType} from '../analytics/analyticsContract';
 import {trackPollResponseComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
@@ -193,6 +194,7 @@ export function PollScreen({
   const [optionAddContent, setOptionAddContent] = useState('');
   const [actionState, setActionState] = useState<ActionState>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [missingReminderState, setMissingReminderState] = useState<PollMissingReminderState>({
     status: 'idle',
   });
@@ -212,6 +214,74 @@ export function PollScreen({
     [],
   );
   currentPollId.current = selectedPollId;
+  const refreshRevision = useRef(0);
+  const liveSnapshot = useRef({listState, detailState, detailTab, actionState, selectedOptionIds});
+  liveSnapshot.current = {listState, detailState, detailTab, actionState, selectedOptionIds};
+
+  const beginPollMutation = (action: NonNullable<ActionState>) => {
+    refreshRevision.current += 1;
+    setActionState(action);
+  };
+
+  useForegroundPollRefresh(`${campusId}:${selectedPollId ?? 'list'}`, async (isCurrent) => {
+    const snapshot = liveSnapshot.current;
+    if (snapshot.actionState || optionAddOperation.current.inFlight) return;
+    const pollId = currentPollId.current;
+    if (pollId === null ? snapshot.listState.status !== 'success' : snapshot.detailState.status !== 'success') return;
+    const epoch = detailEpoch.current;
+    const revision = refreshRevision.current;
+    const generation = getAuthSessionGeneration();
+    const valid = () => isCurrent() && screenMounted.current && currentPollId.current === pollId &&
+      detailEpoch.current === epoch && refreshRevision.current === revision &&
+      generation === getAuthSessionGeneration() && !liveSnapshot.current.actionState;
+    try {
+      const token = await resolveAccessToken(setAuthState);
+      if (!token || !valid()) return;
+      if (pollId === null) {
+        const polls = await fetchPolls(token, campusId);
+        if (valid() && liveSnapshot.current.listState === snapshot.listState) {
+          setListState({status: 'success', polls}); setRefreshWarning(null);
+        }
+        return;
+      }
+      const [detail, result, comments] = await Promise.all([
+        fetchPollDetail(token, campusId, pollId),
+        fetchPollResultState(token, campusId, pollId),
+        snapshot.detailTab === 'comments' ? fetchPollComments(token, campusId, pollId) : Promise.resolve(null),
+      ]);
+      if (!valid() || liveSnapshot.current.detailState !== snapshot.detailState) return;
+      if (detail.id !== pollId || detail.campusId !== campusId) return;
+      if (result.error?.kind === 'permissionDenied') {
+        setDetailState({status: 'error', error: result.error});
+        return;
+      }
+      setRefreshWarning(result.error ? '자동 갱신에 실패했습니다. 마지막으로 확인한 현황을 표시하며 잠시 후 다시 갱신합니다.' : null);
+      setDetailState((current) => {
+        if (!valid() || current !== snapshot.detailState || current.status !== 'success') return current;
+        const visibilityChanged = current.detail.isAnonymous !== detail.isAnonymous;
+        const results = result.results && detail.isAnonymous
+          ? {...result.results, anonymous: true, optionResults: result.results.optionResults.map((option) => ({...option, respondents: []}))}
+          : result.results;
+        return {...current,
+          detail: {...current.detail, status: detail.status, responded: detail.responded,
+            myResponse: detail.myResponse, options: detail.options, startsAt: detail.startsAt, endsAt: detail.endsAt, isAnonymous: detail.isAnonymous},
+          // A transient refresh error must not erase the last successful counts.
+          results: results ?? (visibilityChanged ? null : current.results),
+          resultError: !visibilityChanged && current.results ? null : result.error,
+          comments: comments ?? current.comments,
+        };
+      });
+    } catch (error) {
+      const apiError = toApiError(error, '투표 현황을 자동 갱신하지 못했습니다.');
+      if (!valid()) return;
+      setRefreshWarning('자동 갱신에 실패했습니다. 마지막으로 확인한 현황을 표시하며 잠시 후 다시 갱신합니다.');
+      if (apiError.kind === 'sessionExpired') handleAuthError(apiError, setAuthState);
+      else if (apiError.kind === 'permissionDenied' || apiError.status === 404) {
+        if (pollId === null) setListState({status: 'error', error: apiError});
+        else setDetailState({status: 'error', error: apiError});
+      }
+    }
+  });
 
   const isCurrentDetailOperation = (pollId: number, epoch: number, generation: number) =>
     screenMounted.current && isCurrentDetailEpoch(
@@ -238,6 +308,7 @@ export function PollScreen({
   }, []);
 
   const loadPolls = async () => {
+    refreshRevision.current += 1;
     setListState({status: 'loading'});
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -260,6 +331,7 @@ export function PollScreen({
     tab: DetailTab = detailTab,
     expected?: {epoch: number; generation: number},
   ) => {
+    refreshRevision.current += 1;
     const epoch = expected?.epoch ?? detailEpoch.current;
     const generation = expected?.generation ?? getAuthSessionGeneration();
     if (!isCurrentDetailOperation(pollId, epoch, generation)) return;
@@ -429,6 +501,7 @@ export function PollScreen({
   ]);
 
   const openDetail = (poll: PollSummary) => {
+    setRefreshWarning(null);
     const initialTab = pollNoticeCapabilities.canReadNotice && poll.hasNotice === true
       ? 'notice'
       : poll.responded || !isPollActionable(poll) ? 'results' : 'response';
@@ -451,6 +524,7 @@ export function PollScreen({
   };
 
   const closeDetail = () => {
+    setRefreshWarning(null);
     if (currentPollId.current !== null) commentDraftStore.close(currentPollId.current);
     detailEpoch.current += 1;
     optionAddOperation.current = {id: optionAddOperation.current.id + 1, inFlight: false};
@@ -623,7 +697,7 @@ export function PollScreen({
     const mutationPollId = activeDetail.id;
     const mutationGeneration = getAuthSessionGeneration();
     const mutationEpoch = detailEpoch.current;
-    setActionState({kind: 'response'});
+    beginPollMutation({kind: 'response'});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -692,7 +766,7 @@ export function PollScreen({
     const mutationSelectionType = activeDetail.selectionType;
     const operationId = optionAddOperation.current.id + 1;
     optionAddOperation.current = {id: operationId, inFlight: true};
-    setActionState({kind: 'optionAdd'});
+    beginPollMutation({kind: 'optionAdd'});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -754,7 +828,7 @@ export function PollScreen({
     const mutationPollId = activeDetail.id;
     const mutationGeneration = getAuthSessionGeneration();
     const mutationEpoch = detailEpoch.current;
-    setActionState({kind: 'comment'});
+    beginPollMutation({kind: 'comment'});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -798,7 +872,7 @@ export function PollScreen({
     const mutationPollId = activeDetail.id;
     const mutationGeneration = getAuthSessionGeneration();
     const mutationEpoch = detailEpoch.current;
-    setActionState({kind: 'edit', id: editingComment.commentId});
+    beginPollMutation({kind: 'edit', id: editingComment.commentId});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -839,7 +913,7 @@ export function PollScreen({
     const mutationPollId = activeDetail.id;
     const mutationGeneration = getAuthSessionGeneration();
     const mutationEpoch = detailEpoch.current;
-    setActionState({kind: 'delete', id: comment.commentId});
+    beginPollMutation({kind: 'delete', id: comment.commentId});
     setActionError(null);
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -908,6 +982,7 @@ export function PollScreen({
         enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={16}
         style={styles.keyboardRoot}>
+        <InlineNotice message={refreshWarning ?? '투표 현황은 5초마다 자동으로 갱신됩니다.'} tone={refreshWarning ? 'warning' : 'info'} />
         {detailScrollOwner === 'flatList' ? (
           <CommentsPanel
             actionError={actionError}
@@ -1140,6 +1215,7 @@ export function PollScreen({
       enabled={Platform.OS === 'ios'}
       keyboardVerticalOffset={16}
       style={styles.keyboardRoot}>
+      <InlineNotice message={refreshWarning ?? '투표 현황은 5초마다 자동으로 갱신됩니다.'} tone={refreshWarning ? 'warning' : 'info'} />
       <ScrollView
         contentContainerStyle={[
           styles.figmaScreen,
@@ -2272,7 +2348,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 투표 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'permissionDenied':
@@ -2282,7 +2358,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="권한 오류 후 투표 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -2292,7 +2368,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="충돌 후 투표 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -2302,7 +2378,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="오프라인 후 투표 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'error':
@@ -2312,7 +2388,7 @@ function PollErrorState({error, onRetry}: {error: ApiError; onRetry: () => void}
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="투표 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:

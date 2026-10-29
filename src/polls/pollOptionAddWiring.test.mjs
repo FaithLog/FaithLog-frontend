@@ -16,7 +16,7 @@ describe('poll user-option screen wiring', () => {
     expect(submitSource).toContain('optionAddOperation.current.inFlight ||');
     expect(submitSource).toContain('optionAddOperation.current = {id: operationId, inFlight: true}');
     expect(submitSource).toContain('optionAddOperation.current.id === operationId');
-    expect(submitSource).toContain("setActionState({kind: 'optionAdd'})");
+    expect(submitSource).toContain("beginPollMutation({kind: 'optionAdd'})");
     expect(submitSource.match(/await addUserPollOption\(/g)).toHaveLength(1);
     expect(submitSource).not.toContain('runPollOptionFallback');
   });

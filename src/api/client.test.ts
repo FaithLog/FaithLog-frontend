@@ -800,6 +800,18 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('normalizes structured validation details into safe field errors', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(400, envelope({fieldErrors: [
+      {field: 'accountNumber', code: 'NotBlank', rejectedValue: 'secret'},
+      {field: 'email', code: 'Email'},
+    ]}, {success: false, code: 'GLOBAL_VALIDATION_FAILED', message: 'private validation detail'})));
+    await expect(apiRequest('/example')).rejects.toMatchObject({detail: {
+      kind: 'error', status: 400, code: 'GLOBAL_VALIDATION_FAILED',
+      fieldErrors: {accountNumber: '계좌번호를 입력해 주세요.', email: '이메일 형식을 확인해 주세요.'},
+      message: '계좌번호를 입력해 주세요.\n이메일 형식을 확인해 주세요.',
+    }});
+  });
+
   it('normalizes missing-account errors with actionable copy instead of generic input validation', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(400, envelope(null, {
       success: false,

@@ -1,5 +1,6 @@
 import {fetchAdminNotificationLogs} from '../api/client';
 import type {MemberListEntry} from '../components/MemberListModalButton';
+import {getNotificationFailureCopy} from './notificationFailureCopy';
 
 export async function fetchNotificationExcludedMembers(accessToken: string, campusId: number, requestId: string): Promise<MemberListEntry[]> {
   const members = new Map<number, MemberListEntry>();
@@ -12,7 +13,7 @@ export async function fetchNotificationExcludedMembers(accessToken: string, camp
     for (const log of logs.items) {
       if (log.requestId === requestId && log.sendStatus === 'SKIPPED') {
         members.set(log.userId, {userId: log.userId, name: log.name, email: log.email,
-          reason: log.failureReason ?? '제외 사유가 기록되지 않았습니다.'});
+          reason: getNotificationFailureCopy(log.failureReason, log.sendStatus)});
       }
     }
     totalPages = logs.totalPages;

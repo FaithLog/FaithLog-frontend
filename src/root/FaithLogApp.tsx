@@ -1,3 +1,4 @@
+import {pickValidationFieldErrors} from '../api/validationErrors';
 import {
   type Dispatch,
   type PropsWithChildren,
@@ -1634,6 +1635,7 @@ function CampusCreateForm({
       );
       onComplete(nextState, created.name);
     } catch (error) {
+      if (error instanceof FaithLogApiError) setFieldErrors((current) => ({...current, ...pickValidationFieldErrors(error.detail, ['name', 'region', 'description'])}));
       await applyCampusFormError(error, {
         fallback: '캠퍼스를 생성하지 못했습니다.',
         onSessionExpired,

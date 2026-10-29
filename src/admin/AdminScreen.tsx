@@ -1,3 +1,5 @@
+import {getNotificationFailureCopy} from './notificationFailureCopy';
+import {pickValidationFieldErrors} from '../api/validationErrors';
 import {MemberListModalButton, type MemberListEntry} from '../components/MemberListModalButton';
 import {fetchNotificationExcludedMembers} from './notificationExcludedMembers';
 import {
@@ -76,7 +78,7 @@ import {
   type AdminPollTemplateRequest,
   type AdminPollType,
 } from '../api/adminPollApi';
-import {getApiErrorPresentation} from '../api/errorPolicy';
+import {getApiErrorPresentation, getKnownApiErrorMessage} from '../api/errorPolicy';
 import {toAnalyticsPollType} from '../analytics/analyticsContract';
 import {trackPollCloseComplete, trackPollCreateComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
@@ -9259,6 +9261,7 @@ function AdminSettlement({
         />
       ) : section === 'accounts' ? (
         <AdminPaymentAccounts
+          validationError={penaltyRuleError}
           busy={busy}
           copyFeedback={paymentAccountCopyFeedback}
           copyOpacity={paymentAccountCopyOpacity}
@@ -9452,6 +9455,7 @@ function SettlementSectionHeader({
 }
 
 function AdminPaymentAccounts({
+  validationError,
   busy,
   copyFeedback,
   copyOpacity,
@@ -9470,6 +9474,7 @@ function AdminPaymentAccounts({
   state,
   view,
 }: {
+  validationError?: ApiError | null;
   busy: boolean;
   copyFeedback: AccountCopyFeedback;
   copyOpacity: Animated.Value;
@@ -9488,6 +9493,7 @@ function AdminPaymentAccounts({
   state: PaymentAccountState;
   view: PaymentAccountView;
 }) {
+  const fieldErrors = validationError ? pickValidationFieldErrors(validationError, ['nickname', 'bankName', 'accountNumber', 'accountHolder']) : {};
   const [accountPage, setAccountPage] = useState<'overview' | 'penaltyAccounts'>('overview');
 
   if (accountPage === 'penaltyAccounts') {
@@ -9544,6 +9550,7 @@ function AdminPaymentAccounts({
           <View style={styles.filterGrid}>
             <View style={styles.filterField}>
               <TextField
+                error={fieldErrors.nickname}
                 accessibilityLabel="납부 계좌 별칭"
                 label="별칭"
                 onChangeText={(nickname) => onChangeForm({nickname})}
@@ -9560,8 +9567,10 @@ function AdminPaymentAccounts({
               />
             </View>
           </View>
+          {fieldErrors.bankName ? <Text accessibilityRole="alert" style={styles.inlineErrorText}>{fieldErrors.bankName}</Text> : null}
           <TextField
-            accessibilityLabel="납부 계좌번호"
+            error={fieldErrors.accountNumber}
+                accessibilityLabel="납부 계좌번호"
             label="계좌번호"
             onChangeText={(accountNumber) => onChangeForm({accountNumber})}
             placeholder="3333-00-7777777"
@@ -9570,6 +9579,7 @@ function AdminPaymentAccounts({
           <View style={styles.filterGrid}>
             <View style={styles.filterField}>
               <TextField
+                error={fieldErrors.accountHolder}
                 accessibilityLabel="납부 계좌 예금주"
                 label="예금주"
                 onChangeText={(accountHolder) => onChangeForm({accountHolder})}
@@ -12054,7 +12064,7 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 권한 오류 후 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -12064,7 +12074,7 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 충돌 오류 후 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -12074,7 +12084,7 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 네트워크 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'sessionExpired':
@@ -12084,7 +12094,7 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="세션 만료 후 앱 상태 다시 확인"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'error':
@@ -12094,7 +12104,7 @@ function AdminErrorState({error, onRetry}: {error: ApiError; onRetry: () => void
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="관리자 정보 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:
@@ -12149,6 +12159,8 @@ function getAdminActionErrorMessage(
   if (error.code === 'CAMPUS_MEMBER_ACTIVE_DUTY_CONFLICT') {
     return '이 멤버의 커피 또는 밥 담당 해제를 먼저 완료한 뒤 다시 시도해 주세요.';
   }
+  const knownMessage = getKnownApiErrorMessage(new FaithLogApiError(error));
+  if (knownMessage) return knownMessage;
   switch (error.kind) {
     case 'permissionDenied':
       return error.message.trim() &&
@@ -13658,31 +13670,7 @@ function getNotificationFailureMessage(
   reason: string | null,
   status: AdminNotificationSendStatus,
 ) {
-  if (status === 'SENT') {
-    return '실패 또는 제외 사유가 없습니다.';
-  }
-
-  if (!reason) {
-    return status === 'SKIPPED'
-      ? '이미 처리된 대상은 자동으로 제외될 수 있습니다.'
-      : '발송 상태를 다시 확인해 주세요.';
-  }
-
-  const normalized = reason.toLowerCase();
-
-  if (normalized.includes('token')) {
-    return '알림 수신 정보가 없어 발송하지 못했습니다.';
-  }
-
-  if (normalized.includes('permission') || normalized.includes('403')) {
-    return '권한 확인이 필요해 발송하지 못했습니다.';
-  }
-
-  if (normalized.includes('duplicate') || normalized.includes('lock') || normalized.includes('already')) {
-    return '중복 발송 방지를 위해 제외되었습니다.';
-  }
-
-  return reason.length > 80 ? `${reason.slice(0, 80)}...` : reason;
+  return getNotificationFailureCopy(reason, status);
 }
 
 function getNotificationStatusCounts(logs: AdminNotificationLog[]) {

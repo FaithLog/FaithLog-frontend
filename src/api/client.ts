@@ -99,6 +99,7 @@ import {FaithLogApiError} from './apiError';
 import {DEFAULT_PAGE_SIZE} from './pagination';
 import {PROFILE_NAME_MAX_LENGTH} from './profileContract';
 import {getSafeApiErrorMessage} from './errorPolicy';
+import {parseValidationFieldErrors} from './validationErrors';
 import {expireAuthSession} from '../auth/sessionExpiration';
 import {executeMockRequest} from './mockAdapter';
 import {
@@ -1180,6 +1181,8 @@ function normalizeApiError(
     code,
     message: '요청을 처리하지 못했습니다.',
   });
+  const fieldErrors = parseValidationFieldErrors(status, code, envelope?.data, typeof envelope?.message === 'string' ? envelope.message : '');
+  if (Object.keys(fieldErrors).length > 0) return {...unsafeError, fieldErrors, message: Object.values(fieldErrors).slice(0, 3).join('\n')};
   const exposedMessage = getExposedServerErrorMessage(status, envelope, options);
   const message = exposedMessage ?? getSafeApiErrorMessage(unsafeError);
 
