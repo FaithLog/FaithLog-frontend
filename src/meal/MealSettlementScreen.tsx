@@ -25,7 +25,6 @@ import {
   syncDutyChargeReminderScope,
 } from '../duty/dutyChargeReminderFlow';
 import {
-  filterDutySettlementMembers,
   type DutySettlementFilter,
 } from '../duty/dutySettlementFilter';
 import {formatWon} from '../utils/money';
@@ -69,14 +68,14 @@ export function MealSettlementScreen({
   const reminderScope = `campus:${campusId}/user:${currentUserId}/meal-reminder`;
   const {scopeIsCommitted, tracker} = useMealRequestTracker(`campus:${campusId}/user:${currentUserId}/meal-settlement`);
   const [state, setState] = useState<MealLoadState<MealSettlement>>({status: 'loading'});
-  const [settlementFilter, setSettlementFilter] = useState<DutySettlementFilter>('ALL');
+  const [settlementFilter, setSettlementFilter] = useState<DutySettlementFilter>('UNPAID');
   const [includeArchived, setIncludeArchived] = useState(false);
   const [page, setPage] = useState(0);
   const [reminderConfirmVisible, setReminderConfirmVisible] = useState(false);
   const [reminderState, setReminderState] = useState<MealReminderState>({status: 'idle'});
   const reminderGate = useRef(createDutyChargeReminderGate(reminderScope)).current;
   const filteredMembers = state.status === 'success'
-    ? filterDutySettlementMembers(state.data.members, settlementFilter)
+    ? state.data.members
     : [];
   const memberCount = filteredMembers.length;
   const memberProgress = useProgressiveRendering(
@@ -98,7 +97,7 @@ export function MealSettlementScreen({
         access.request.accessToken,
         campusId,
         currentUserId,
-        {includeArchived, page, size: DEFAULT_PAGE_SIZE},
+        {includeArchived, page, size: DEFAULT_PAGE_SIZE, status: settlementFilter},
       );
       if (!tracker.isSuccessCurrent(access.request.identity)) return;
       setState(settlement.members.length === 0 ? {status: 'empty'} : {status: 'success', data: settlement});
@@ -106,7 +105,7 @@ export function MealSettlementScreen({
       const apiError = getCurrentMealRequestError({error, fallback: '내 밥 정산을 불러오지 못했습니다.', identity: access.request.identity, onSessionExpired, tracker});
       if (apiError) setState({status: 'error', error: apiError});
     }
-  }, [api, campusId, currentUserId, includeArchived, onSessionExpired, page, tracker]);
+  }, [api, campusId, currentUserId, includeArchived, onSessionExpired, page, settlementFilter, tracker]);
 
   useEffect(() => {
     void load();
@@ -198,7 +197,7 @@ export function MealSettlementScreen({
             <DutyActionButton
               accessibilityLabel="밥 전체 미납 알림 보내기 확인 열기"
               busy={reminderState.status === 'sending'}
-              disabled={state.status !== 'success' || state.data.summary.unpaidAmount <= 0}
+              disabled={state.status === 'loading' || state.status === 'error'}
               label={reminderState.status === 'sending' ? '알림 요청 중...' : '전체 미납 알림'}
               onPress={() => setReminderConfirmVisible(true)}
               variant="primary"
@@ -215,30 +214,38 @@ export function MealSettlementScreen({
         compact
         label={includeArchived ? '최근 기록 보기' : '이전 기록 보기'}
         onPress={() => {
+          tracker.begin('settlement-load');
+          setState({status: 'loading'});
           setPage(0);
           setIncludeArchived((current) => !current);
         }}
         variant="secondary"
       />
+      <DutyActionRow>
+        {settlementFilters.map((filter) => (
+          <DutyActionButton
+            accessibilityLabel={`밥 정산 ${filter.label} 보기`}
+            key={filter.value}
+            label={filter.label}
+            onPress={() => {
+              if (filter.value === settlementFilter && page === 0) return;
+              tracker.begin('settlement-load');
+              setState({status: 'loading'});
+              setPage(0);
+              setSettlementFilter(filter.value);
+            }}
+            variant={settlementFilter === filter.value ? 'primary' : 'secondary'}
+          />
+        ))}
+      </DutyActionRow>
       {state.status === 'error' ? <MealErrorState error={state.error} onRetry={load} /> : null}
-      {state.status === 'empty' ? <DutyAsyncState actionLabel="다시 불러오기" message="내 계좌로 청구한 내역이 이곳에 표시됩니다." onAction={load} status="empty" title="밥 정산 내역이 없습니다" /> : null}
+      {state.status === 'empty' ? <DutyAsyncState actionLabel="다시 불러오기" message={`${getSettlementFilterLabel(settlementFilter)} 내역이 없습니다.`} onAction={load} status="empty" title="밥 정산 내역이 없습니다" /> : null}
       {state.status === 'success' ? (
         <>
-          <DutyMetricSurface label="전체 합계" value={formatWon(state.data.summary.totalAmount)}>
+          <DutyMetricSurface label={`${getSettlementFilterLabel(settlementFilter)} 합계`} value={formatWon(state.data.summary.totalAmount)}>
             <Text style={mealStyles.meta}>미납 {formatWon(state.data.summary.unpaidAmount)} · 납부 {formatWon(state.data.summary.paidAmount)}</Text>
             <Text style={mealStyles.meta}>면제 {formatWon(state.data.summary.waivedAmount)} · 취소 {formatWon(state.data.summary.canceledAmount)}</Text>
           </DutyMetricSurface>
-          <DutyActionRow>
-            {settlementFilters.map((filter) => (
-              <DutyActionButton
-                accessibilityLabel={`밥 정산 ${filter.label} 보기`}
-                key={filter.value}
-                label={filter.label}
-                onPress={() => setSettlementFilter(filter.value)}
-                variant={settlementFilter === filter.value ? 'primary' : 'secondary'}
-              />
-            ))}
-          </DutyActionRow>
           {filteredMembers.length > 0 ? (
             <View style={mealStyles.list}>
               {getProgressiveItems(filteredMembers, memberProgress.limit).map((member) => (
@@ -254,19 +261,20 @@ export function MealSettlementScreen({
           {memberProgress.hasMore ? (
             <DutyActionButton accessibilityLabel="밥 정산 멤버 더 보기" label="멤버 더 보기" onPress={memberProgress.showMore} />
           ) : null}
+          <Text style={mealStyles.meta}>{`${state.data.page + 1} / ${Math.max(1, state.data.totalPages)} 페이지 · 총 ${state.data.totalElements}명`}</Text>
           <DutyActionRow>
             <DutyActionButton
               accessibilityLabel="이전 밥 정산 페이지"
               disabled={state.data.page === 0}
               label="이전"
-              onPress={() => setPage(Math.max(0, state.data.page - 1))}
+              onPress={() => { tracker.begin('settlement-load'); setState({status: 'loading'}); setPage(Math.max(0, state.data.page - 1)); }}
               variant="secondary"
             />
             <DutyActionButton
               accessibilityLabel="다음 밥 정산 페이지"
               disabled={!hasNextPage(state.data)}
               label="다음"
-              onPress={() => setPage(state.data.page + 1)}
+              onPress={() => { tracker.begin('settlement-load'); setState({status: 'loading'}); setPage(state.data.page + 1); }}
               variant="secondary"
             />
           </DutyActionRow>

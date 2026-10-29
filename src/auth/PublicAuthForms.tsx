@@ -1,3 +1,5 @@
+import {pickValidationFieldErrors} from '../api/validationErrors';
+import {FaithLogApiError} from '../api/apiError';
 import {useEffect, useRef, useState, type Dispatch, type SetStateAction} from 'react';
 import {
   AppState,
@@ -125,6 +127,7 @@ export function LoginForm({
       trackLoginComplete,
     ));
     void operation?.then(onLoginComplete).catch((error) => {
+      if (error instanceof FaithLogApiError) setFieldErrors((current) => ({...current, ...pickValidationFieldErrors(error.detail, ['email', 'password'])}));
       onLoginFailed?.();
       setFormError(getLoginAuthErrorMessage(error));
     }).finally(() => setBusy(null));
@@ -281,6 +284,7 @@ export function SignupForm({
       setDetails({name: '', password: '', passwordConfirm: ''});
       onSignupComplete(user.name);
     }).catch((error) => {
+      if (error instanceof FaithLogApiError) setFieldErrors((current) => ({...current, ...pickValidationFieldErrors(error.detail, ['name', 'password'])}));
       const message = getOneTimeAuthErrorMessage(error);
       if (isTerminalSignupVerificationError(error)) {
         setVerification(changeSignupEmail(verification, verification.email));

@@ -520,7 +520,7 @@ export function DevotionScreen({
         <Text style={styles.title}>경건생활</Text>
       </View>
 
-      {actionError ? <DevotionActionError error={actionError} onRetry={loadDevotion} /> : null}
+      {actionError ? <DevotionActionError error={actionError} onRetry={loadDevotion} onContinue={() => setActionError(null)} /> : null}
 
       {locked ? (
         <LockedView
@@ -1143,7 +1143,7 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'permissionDenied':
@@ -1153,7 +1153,7 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 권한 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -1163,7 +1163,7 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 충돌 후 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -1173,7 +1173,7 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="경건생활 오프라인 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:
@@ -1181,7 +1181,7 @@ function DevotionErrorState({error, onRetry}: {error: ApiError; onRetry: () => v
   }
 }
 
-function DevotionActionError({error, onRetry}: {error: ApiError; onRetry: () => void}) {
+function DevotionActionError({error, onRetry, onContinue}: {error: ApiError; onRetry: () => void; onContinue: () => void}) {
   if (error.code === 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING') {
     return (
       <ErrorState
@@ -1202,7 +1202,9 @@ function DevotionActionError({error, onRetry}: {error: ApiError; onRetry: () => 
     );
   }
 
-  return <DevotionErrorState error={error} onRetry={onRetry} />;
+  const presentation = getApiErrorPresentation(error);
+  return <ErrorState title={presentation.title} message={presentation.message}
+    actionLabel="입력 계속하기" actionAccessibilityLabel="입력한 경건 기록 유지하고 계속하기" onActionPress={onContinue} />;
 }
 
 async function resolveAccessToken(setAuthState: (state: AuthGateState) => void) {

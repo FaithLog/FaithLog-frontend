@@ -67,6 +67,19 @@ describe('typed confirmed MEAL API', () => {
     );
   });
 
+  it('sends settlement status before server pagination and omits ALL', async () => {
+    const empty = {campusId: 4, campusName: '캠퍼스', region: '서울', members: [], page: 0, size: 10, totalElements: 0, totalPages: 0, summary: {totalAmount: 0, unpaidAmount: 0, paidAmount: 0, waivedAmount: 0, canceledAmount: 0}};
+    const {request, spy} = createRequestHarness([empty, empty]);
+    const api = createMealApi({request});
+    await api.getMySettlement('token', 4, 7, {status: 'PAID', page: 1, includeArchived: true});
+    expect(spy.mock.calls[0]?.[0]).toContain('status=PAID');
+    expect(spy.mock.calls[0]?.[0]).toContain('page=1');
+    await api.getMySettlement('token', 4, 7, {status: 'ALL'});
+    expect(spy.mock.calls[1]?.[0]).not.toContain('status=');
+    expect(() => api.getMySettlement('token', 4, 7, {status: 'INVALID' as 'PAID'})).toThrow();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it('dispatches POST/DELETE duty operations without changing a campus role', async () => {
     const {request, spy} = createRequestHarness([
       {assignmentId: 20, campusId: 1, userId: 9, name: '밥담당', email: 'meal@example.test', dutyType: 'MEAL', isActive: true, assignedAt: '2026-07-13T03:00:00.000Z'},

@@ -466,7 +466,7 @@ function MonthlyCalendarErrorState({error, onRetry}: {error: ApiError; onRetry: 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="월간 캘린더 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'permissionDenied':
@@ -476,7 +476,7 @@ function MonthlyCalendarErrorState({error, onRetry}: {error: ApiError; onRetry: 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="월간 캘린더 권한 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -486,7 +486,7 @@ function MonthlyCalendarErrorState({error, onRetry}: {error: ApiError; onRetry: 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="월간 캘린더 충돌 후 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -496,7 +496,7 @@ function MonthlyCalendarErrorState({error, onRetry}: {error: ApiError; onRetry: 
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="월간 캘린더 오프라인 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:

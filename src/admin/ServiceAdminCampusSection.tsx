@@ -1040,7 +1040,7 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 권한 오류 후 다시 확인"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'conflict':
@@ -1050,7 +1050,7 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 충돌 오류 후 다시 불러오기"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'offline':
@@ -1060,7 +1060,7 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 네트워크 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'sessionExpired':
@@ -1070,7 +1070,7 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 세션 만료 후 다시 확인"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     case 'error':
@@ -1080,7 +1080,7 @@ function ServiceAdminCampusErrorState({error, onRetry}: {error: ApiError; onRetr
           message={presentation.message}
           actionLabel={presentation.actionLabel}
           actionAccessibilityLabel="Service ADMIN 캠퍼스 오류 후 다시 시도"
-          onActionPress={onRetry}
+          {...(presentation.retryable ? {onActionPress: onRetry} : {})}
         />
       );
     default:
