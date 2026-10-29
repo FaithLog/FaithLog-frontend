@@ -5,7 +5,7 @@ import {APP_VERSION} from './appInfo';
 
 describe('app info', () => {
   it('uses the native Expo app version for FCM metadata', () => {
-    expect(APP_VERSION).toBe('1.2.7');
+    expect(APP_VERSION).toBe('1.2.8');
     expect(APP_VERSION).toBe(appConfig.expo.version);
   });
 });
