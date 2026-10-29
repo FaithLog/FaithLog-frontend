@@ -3074,7 +3074,9 @@ function getMockMealSettlement(
     (item) => item.account.campusId === campusId && item.account.ownerUserId === userId,
   );
   const byMember = new Map<string, MealSettlementCharge[]>();
+  const status = searchParams.get('status');
   for (const charge of accounts.flatMap((item) => item.charges)) {
+    if (status && status !== 'ALL' && charge.status !== status) continue;
     byMember.set(charge.memberName, [...(byMember.get(charge.memberName) ?? []), charge]);
   }
   const members = [...byMember.entries()].map(([memberName, charges], index) => {

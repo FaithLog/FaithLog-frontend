@@ -1,4 +1,5 @@
 import {apiRequest, FaithLogApiError} from '../api/client';
+import type {ChargeStatus} from '../api/types';
 import {DEFAULT_PAGE_SIZE} from '../api/pagination';
 import {
   parseClosedMealPollDetailForContext,
@@ -57,6 +58,7 @@ export type MealPollListQuery = {
 };
 
 export type MealSettlementQuery = {
+  status?: ChargeStatus | 'ALL';
   includeArchived?: boolean;
   page?: number;
   size?: number;
@@ -284,6 +286,12 @@ export function createMealApi(dependencies: MealApiDependencies = {}): MealApi {
         page: String(page),
         size: String(size),
       });
+      if (query.status !== undefined && query.status !== 'ALL') {
+        if (!['UNPAID', 'PAID', 'WAIVED', 'CANCELED'].includes(query.status)) {
+          throw invalidMealRequest('정산 상태를 확인해 주세요.');
+        }
+        params.set('status', query.status);
+      }
       return dispatch(
         `${campusPath(expectedCampusId, 'meal', 'charges', 'my-accounts')}?${params}`,
         requestOptions(accessToken, (value) => parseMealSettlementForContext(value, {

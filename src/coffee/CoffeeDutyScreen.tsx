@@ -71,10 +71,7 @@ import {
   isDutyChargeReminderCurrent,
   syncDutyChargeReminderScope,
 } from '../duty/dutyChargeReminderFlow';
-import {
-  filterDutySettlementMembers,
-  type DutySettlementFilter,
-} from '../duty/dutySettlementFilter';
+import type {DutySettlementFilter} from '../duty/dutySettlementFilter';
 import {DutyDateTimePickerModal, formatDutyDateTimeLabel} from '../duty/DutyDateTimePicker';
 import {DutyPageNav} from '../duty/DutyPageNav';
 import {
@@ -202,6 +199,10 @@ export function CoffeeDutyScreen({
   const [manualOptions, setManualOptions] = useState<ManualCoffeeOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [settlementPage, setSettlementPage] = useState(0);
+  const [settlementFilter, setSettlementFilter] = useState<DutySettlementFilter>('UNPAID');
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementError, setSettlementError] = useState<string | null>(null);
+  const settlementRequest = useRef(0);
   const [settlementIncludeArchived, setSettlementIncludeArchived] = useState(false);
   const [title, setTitle] = useState(DEFAULT_COFFEE_POLL_TITLE);
   const [pollNotice, setPollNotice] = useState('');
@@ -229,6 +230,8 @@ export function CoffeeDutyScreen({
   const reminderScope = `campus:${campusId}/user:${state.user.id}/generation:${authGeneration}/coffee-reminder`;
   const reminderGate = useRef(createDutyChargeReminderGate(reminderScope)).current;
   const reminderMounted = useRef(true);
+  const currentScope = useRef(reminderScope);
+  currentScope.current = reminderScope;
 
   const isCoffeeReminderCurrent = (operationId: number) =>
     reminderMounted.current &&
@@ -237,11 +240,17 @@ export function CoffeeDutyScreen({
 
   const load = async (
     ownedCoffeeAccountIdsOverride?: Set<number>,
-    settlementQuery = {
+    settlementQuery: {includeArchived: boolean; page: number; status?: DutySettlementFilter} = {
       includeArchived: settlementIncludeArchived,
       page: settlementPage,
+      status: settlementFilter,
     },
   ) => {
+    const request = ++settlementRequest.current;
+    const isCurrent = () => request === settlementRequest.current && reminderMounted.current &&
+      currentScope.current === reminderScope && isAuthSessionRequestAllowed(authGeneration);
+    setSettlementLoading(false);
+    setSettlementError(null);
     setLoadState({status: 'loading'});
     setCreateState({status: 'idle'});
 
@@ -253,6 +262,7 @@ export function CoffeeDutyScreen({
       }
 
       const assignment = await resolveCoffeeDutyAssignment(accessToken, campusId, state);
+      if (!isCurrent()) return;
 
       if (!assignment) {
         setLoadState({status: 'notAssigned'});
@@ -306,6 +316,7 @@ export function CoffeeDutyScreen({
         ),
       ]);
 
+      if (!isCurrent()) return;
       setLoadState({
         status: 'ready',
         accounts: coffeeAccounts,
@@ -319,6 +330,7 @@ export function CoffeeDutyScreen({
       );
       setSelectedAccountId(nextSelectedAccountId);
     } catch (error) {
+      if (!isCurrent()) return;
       const message = getCoffeeDutyErrorMessage(error);
 
       if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
@@ -330,15 +342,39 @@ export function CoffeeDutyScreen({
     }
   };
 
+  const loadSettlement = async (status = settlementFilter, nextPage = settlementPage, includeArchived = settlementIncludeArchived) => {
+    if (loadState.status !== 'ready') return;
+    const request = ++settlementRequest.current;
+    const isCurrent = () => request === settlementRequest.current && reminderMounted.current &&
+      currentScope.current === reminderScope && isAuthSessionRequestAllowed(authGeneration);
+    setSettlementLoading(true);
+    setSettlementError(null);
+    try {
+      const token = await resolveAccessToken(setAuthState);
+      if (!token || !isCurrent()) return;
+      const charges = await fetchCoffeeChargeSummary(token, campusId, selectedAccountId, {includeArchived, page: nextPage, status});
+      if (!isCurrent()) return;
+      setLoadState((current) => current.status === 'ready' ? {...current, charges} : current);
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (error instanceof FaithLogApiError && error.detail.kind === 'sessionExpired') {
+        setAuthState({status: 'sessionExpired', message: error.detail.message});
+      } else setSettlementError(getCoffeeDutyErrorMessage(error));
+    } finally {
+      if (isCurrent()) setSettlementLoading(false);
+    }
+  };
+
   useEffect(() => {
     syncDutyChargeReminderScope(reminderGate, reminderScope);
     setReminderConfirmVisible(false);
     setReminderState({status: 'idle'});
     const emptyKnownOwnedCoffeeAccountIds = new Set<number>();
     setSettlementPage(0);
+    setSettlementFilter('UNPAID');
     setSettlementIncludeArchived(false);
     setKnownOwnedCoffeeAccountIds(emptyKnownOwnedCoffeeAccountIds);
-    void load(emptyKnownOwnedCoffeeAccountIds, {includeArchived: false, page: 0});
+    void load(emptyKnownOwnedCoffeeAccountIds, {includeArchived: false, page: 0, status: 'UNPAID'});
   }, [campusId, reminderGate, reminderScope, state.user.id]);
 
   useEffect(() => {
@@ -590,21 +626,26 @@ export function CoffeeDutyScreen({
         <>
           {page === 'summary' ? (
             <CoffeeSettlementSummary
+              settlementFilter={settlementFilter}
+              loading={settlementLoading}
+              error={settlementError}
+              onSetFilter={(status) => {
+                setSettlementFilter(status);
+                setSettlementPage(0);
+                void loadSettlement(status, 0);
+              }}
               onCancelReminder={() => setReminderConfirmVisible(false)}
               onConfirmReminder={() => void sendCoffeeReminder()}
               onOpenReminder={() => setReminderConfirmVisible(true)}
-              onRefresh={() => void load()}
+              onRefresh={() => void loadSettlement()}
               onSetIncludeArchived={(includeArchived) => {
                 setSettlementPage(0);
                 setSettlementIncludeArchived(includeArchived);
-                void load(undefined, {includeArchived, page: 0});
+                void loadSettlement(settlementFilter, 0, includeArchived);
               }}
               onSetPage={(nextPage) => {
                 setSettlementPage(nextPage);
-                void load(undefined, {
-                  includeArchived: settlementIncludeArchived,
-                  page: nextPage,
-                });
+                void loadSettlement(settlementFilter, nextPage);
               }}
               reminderConfirmVisible={reminderConfirmVisible}
               reminderState={reminderState}
@@ -672,6 +713,10 @@ export function CoffeeDutyScreen({
 }
 
 function CoffeeSettlementSummary({
+  settlementFilter,
+  loading,
+  error,
+  onSetFilter,
   includeArchived,
   onCancelReminder,
   onConfirmReminder,
@@ -683,6 +728,10 @@ function CoffeeSettlementSummary({
   reminderState,
   state,
 }: {
+  settlementFilter: DutySettlementFilter;
+  loading: boolean;
+  error: string | null;
+  onSetFilter: (status: DutySettlementFilter) => void;
   includeArchived: boolean;
   onCancelReminder: () => void;
   onConfirmReminder: () => void;
@@ -694,13 +743,11 @@ function CoffeeSettlementSummary({
   reminderState: CoffeeReminderState;
   state: Extract<CoffeeDutyLoadState, {status: 'ready'}>;
 }) {
-  const [settlementFilter, setSettlementFilter] = useState<DutySettlementFilter>('ALL');
-  const charges = state.charges;
-  const unpaidAmount = charges?.summary.unpaidAmount ?? 0;
-  const memberCount = charges?.members.filter((member) => member.unpaidAmount > 0).length ?? 0;
-  const filteredMembers = charges
-    ? filterDutySettlementMembers(charges.members, settlementFilter)
-    : [];
+  const charges = loading || error ? null : state.charges;
+  const amount = settlementFilter === 'PAID' ? charges?.summary.paidAmount ?? 0
+    : settlementFilter === 'UNPAID' ? charges?.summary.unpaidAmount ?? 0 : charges?.summary.totalAmount ?? 0;
+  const memberCount = charges?.totalElements ?? 0;
+  const filteredMembers = charges?.members ?? [];
 
   return (
     <DutyPageSection>
@@ -717,13 +764,13 @@ function CoffeeSettlementSummary({
             />
           </DutyActionRow>
         )}
-        description="내 커피 계좌에 연결된 청구와 미납 현황을 확인할 수 있어요."
+        description="내 커피 계좌의 미납과 납부 내역을 따로 확인해요. 납부 내역이 있어도 다른 미납이 남아 있을 수 있어요."
         eyebrow="내 정산"
         title="커피 정산 현황"
       />
-      <DutyMetricSurface label="미납 합계" value={formatWon(unpaidAmount)}>
+      <DutyMetricSurface label={`${getCoffeeSettlementFilterLabel(settlementFilter)} 합계`} value={loading ? '조회 중' : error ? '확인 필요' : formatWon(amount)}>
         <Text style={styles.summaryBody}>
-          미납 {memberCount}명 · 커피 계좌 {state.accounts.length}개 · 담당자 {state.assignment.name}
+          {getCoffeeSettlementFilterLabel(settlementFilter)} 내역 {memberCount}명 · 커피 계좌 {state.accounts.length}개 · 담당자 {state.assignment.name}
         </Text>
       </DutyMetricSurface>
       <DutyActionButton
@@ -739,20 +786,23 @@ function CoffeeSettlementSummary({
             accessibilityLabel={`커피 정산 ${filter.label} 보기`}
             key={filter.value}
             label={filter.label}
-            onPress={() => setSettlementFilter(filter.value)}
+            onPress={() => onSetFilter(filter.value)}
             variant={settlementFilter === filter.value ? 'primary' : 'secondary'}
           />
         ))}
       </DutyActionRow>
-      {filteredMembers.length ? (
+      {loading ? <DutyAsyncState status="loading" message="선택한 상태의 커피 정산을 불러오고 있어요." /> : error ? (
+        <DutyAsyncState status="error" title="커피 정산을 불러오지 못했습니다" message={error} actionLabel="다시 불러오기" onAction={onRefresh} />
+      ) : filteredMembers.length ? (
         <View style={styles.optionList}>
-          {filteredMembers.slice(0, 5).map((member) => (
+          {filteredMembers.map((member) => (
             <DutyEntityCard
               key={member.userId}
-              statusLabel={formatWon(
-                settlementFilter === 'PAID' ? member.paidAmount : member.unpaidAmount,
-              )}
-              statusTone={settlementFilter === 'PAID' ? 'success' : 'warning'}
+              statusLabel={settlementFilter === 'ALL'
+                ? member.unpaidAmount > 0 ? `미납 ${formatWon(member.unpaidAmount)}`
+                  : member.paidAmount > 0 ? `납부 ${formatWon(member.paidAmount)}` : '미납 없음'
+                : formatWon(settlementFilter === 'PAID' ? member.paidAmount : member.unpaidAmount)}
+              statusTone={settlementFilter === 'PAID' || member.unpaidAmount === 0 ? 'success' : 'warning'}
               title={member.name}>
               <Text style={styles.summaryBody}>
                 미납 {formatWon(member.unpaidAmount)} · 납부 {formatWon(member.paidAmount)}
@@ -782,6 +832,7 @@ function CoffeeSettlementSummary({
             onPress={() => onSetPage(charges.page + 1)}
             variant="secondary"
           />
+          <Text style={styles.summaryBody}>{charges.page + 1}/{Math.max(1, charges.totalPages)}페이지 · {charges.totalElements}명</Text>
         </DutyActionRow>
       ) : null}
       {reminderState.status === 'sent' ? (
@@ -1713,19 +1764,19 @@ async function fetchCoffeeChargeSummary(
   accessToken: string,
   campusId: number,
   paymentAccountId: number | null,
-  query: {includeArchived: boolean; page: number},
+  query: {includeArchived: boolean; page: number; status?: DutySettlementFilter},
 ) {
   if (paymentAccountId === null) {
     return null;
   }
 
   return fetchAdminCampusChargesForMyAccounts(accessToken, campusId, {
+    // This endpoint aggregates all of the current user's active coffee accounts.
     includeArchived: query.includeArchived,
     page: query.page,
-    paymentAccountId,
     paymentCategory: 'COFFEE',
     size: 10,
-    status: 'ALL',
+    status: query.status ?? 'UNPAID',
   });
 }
 
