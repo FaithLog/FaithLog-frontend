@@ -215,8 +215,9 @@ export function PollScreen({
   );
   currentPollId.current = selectedPollId;
   const refreshRevision = useRef(0);
-  const liveSnapshot = useRef({listState, detailState, detailTab, actionState, selectedOptionIds});
-  liveSnapshot.current = {listState, detailState, detailTab, actionState, selectedOptionIds};
+  const listLoadRevision = useRef(0);
+  const liveSnapshot = useRef({campusId, listState, detailState, detailTab, actionState});
+  liveSnapshot.current = {campusId, listState, detailState, detailTab, actionState};
 
   const beginPollMutation = (action: NonNullable<ActionState>) => {
     refreshRevision.current += 1;
@@ -232,6 +233,7 @@ export function PollScreen({
     const revision = refreshRevision.current;
     const generation = getAuthSessionGeneration();
     const valid = () => isCurrent() && screenMounted.current && currentPollId.current === pollId &&
+      liveSnapshot.current.campusId === campusId &&
       detailEpoch.current === epoch && refreshRevision.current === revision &&
       generation === getAuthSessionGeneration() && !liveSnapshot.current.actionState;
     try {
@@ -309,6 +311,10 @@ export function PollScreen({
 
   const loadPolls = async () => {
     refreshRevision.current += 1;
+    const revision = ++listLoadRevision.current;
+    const generation = getAuthSessionGeneration();
+    const valid = () => screenMounted.current && liveSnapshot.current.campusId === campusId &&
+      listLoadRevision.current === revision && generation === getAuthSessionGeneration();
     setListState({status: 'loading'});
     try {
       const accessToken = await resolveAccessToken(setAuthState);
@@ -318,9 +324,10 @@ export function PollScreen({
       }
 
       const polls = await fetchPolls(accessToken, campusId);
-      setListState({status: 'success', polls});
+      if (valid()) setListState({status: 'success', polls});
     } catch (error) {
       const apiError = toApiError(error, '투표 목록을 불러오지 못했습니다.');
+      if (!valid()) return;
       setListState({status: 'error', error: apiError});
       handleAuthError(apiError, setAuthState);
     }

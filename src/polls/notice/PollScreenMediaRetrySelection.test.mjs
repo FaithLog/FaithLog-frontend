@@ -141,6 +141,17 @@ import {PollScreen} from '../PollScreen';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('PollScreen notice media retry preserves unsaved response selection', () => {
+  it('ignores a slow list response from the previous campus', async () => {
+    let finishOld;
+    mocks.fetchPolls.mockImplementationOnce(() => new Promise((resolve) => {finishOld = resolve;}));
+    mocks.fetchPolls.mockResolvedValueOnce([]);
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(PollScreen, screenProps(null))); await settle(); });
+    await act(async () => { renderer.update(React.createElement(PollScreen, screenProps(null, 1, {campusId: 2}))); await settle(); });
+    await act(async () => { finishOld([{...pollDetail('SINGLE'), title: '이전 캠퍼스의 투표'}]); await settle(); });
+    expect(rendered(renderer)).not.toContain('이전 캠퍼스의 투표');
+    await act(async () => renderer.unmount());
+  });
   it('preserves the last counts on a transient refresh error and recovers automatically', async () => {
     vi.useFakeTimers();
     const detail = pollDetail('SINGLE');

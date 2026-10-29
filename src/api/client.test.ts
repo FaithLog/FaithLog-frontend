@@ -800,6 +800,15 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('provides inline field errors for empty account inputs before sending a request', () => {
+    expect(() => createAdminPaymentAccount('token', 1, {
+      accountType: 'PENALTY', nickname: '벌금', bankName: ' ', accountNumber: '', accountHolder: '회계',
+    })).toThrowError(expect.objectContaining({detail: expect.objectContaining({
+      fieldErrors: {bankName: '은행명을 입력해 주세요.', accountNumber: '계좌번호를 입력해 주세요.'},
+    })}));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('normalizes structured validation details into safe field errors', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(400, envelope({fieldErrors: [
       {field: 'accountNumber', code: 'NotBlank', rejectedValue: 'secret'},

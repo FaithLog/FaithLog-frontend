@@ -40,12 +40,16 @@ export function parseValidationFieldErrors(status: number | undefined, code: str
 }
 
 function fieldMessage(label: string, constraint: string) {
-  if (['NotBlank', 'NotEmpty', 'NotNull'].includes(constraint)) return `${label}를 입력해 주세요.`;
+  const last = label.charCodeAt(label.length - 1);
+  const finalConsonant = last >= 0xAC00 && last <= 0xD7A3 && (last - 0xAC00) % 28 !== 0;
+  const object = finalConsonant ? '을' : '를';
+  const topic = finalConsonant ? '은' : '는';
+  if (['NotBlank', 'NotEmpty', 'NotNull'].includes(constraint)) return `${label}${object} 입력해 주세요.`;
   if (constraint === 'Email') return '이메일 형식을 확인해 주세요.';
-  if (constraint === 'Positive') return `${label}은 0보다 큰 값으로 입력해 주세요.`;
-  if (constraint === 'PositiveOrZero') return `${label}은 0 이상으로 입력해 주세요.`;
+  if (constraint === 'Positive') return `${label}${topic} 0보다 큰 값으로 입력해 주세요.`;
+  if (constraint === 'PositiveOrZero') return `${label}${topic} 0 이상으로 입력해 주세요.`;
   if (constraint === 'Size' || constraint === 'Length') return `${label}의 길이 또는 선택 개수를 확인해 주세요.`;
-  if (['Min', 'Max', 'DecimalMin', 'DecimalMax', 'Range'].includes(constraint)) return `${label}을 안내된 범위 안으로 입력해 주세요.`;
+  if (['Min', 'Max', 'DecimalMin', 'DecimalMax', 'Range'].includes(constraint)) return `${label}${object} 안내된 범위 안으로 입력해 주세요.`;
   if (constraint === 'Pattern') return `${label}의 입력 형식을 확인해 주세요.`;
   return `${label} 항목을 확인해 주세요.`;
 }
