@@ -246,6 +246,10 @@ describe('MEAL product contract', () => {
   });
 
   it('shows only typed local validation detail and keeps raw failures sanitized', () => {
+    expect(getMealErrorPresentation({kind: 'error', status: 400, code: 'MEAL_SETTLEMENT_INVALID_AMOUNT', message: 'private backend'}).message)
+      .toContain('0원보다 큰');
+    expect(getMealErrorPresentation({kind: 'error', status: 400, code: 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING', message: 'private backend'}).message)
+      .toContain('캠퍼스 관리자');
     expect(getMealErrorPresentation({
       kind: 'error',
       status: 400,

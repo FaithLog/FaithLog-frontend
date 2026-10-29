@@ -1,3 +1,4 @@
+import {getApiErrorPresentation, getKnownApiErrorMessage} from '../api/errorPolicy';
 import {
   type Dispatch,
   type ReactNode,
@@ -185,8 +186,8 @@ export function AdminAnnouncementScreen({
         api.archiveAnnouncement(token, campusId, confirmationTarget.item.id));
       setConfirmationTarget(null);
       await load();
-    } catch {
-      setActionError('공지를 보관하지 못했습니다. 목록과 공지 내용은 그대로 유지됩니다.');
+    } catch (reason) {
+      setActionError(getKnownApiErrorMessage(reason) ?? '공지를 보관하지 못했습니다. 목록과 공지 내용은 그대로 유지됩니다.');
     } finally {
       archiveFlightRef.current = false;
       setActionBusy(null);
@@ -203,8 +204,8 @@ export function AdminAnnouncementScreen({
       await withToken((token) => api.publishAnnouncement(token, campusId, item.id));
       setConfirmationTarget(null);
       await load();
-    } catch {
-      setActionError('공지를 게시하지 못했습니다. 예약 공지 내용은 그대로 유지됩니다.');
+    } catch (reason) {
+      setActionError(getKnownApiErrorMessage(reason) ?? '공지를 게시하지 못했습니다. 예약 공지 내용은 그대로 유지됩니다.');
     } finally {
       publishFlightRef.current = false;
       setActionBusy(null);
@@ -345,7 +346,7 @@ export function AdminAnnouncementListScreen({
         <ErrorState
           actionAccessibilityLabel="관리자 공지 목록 다시 불러오기"
           actionLabel="다시 시도"
-          message="잠시 후 다시 시도해 주세요."
+          message={getApiErrorPresentation(loadState.error).message}
           onActionPress={onRetry}
           title="공지 목록을 불러오지 못했습니다"
         />
@@ -650,8 +651,8 @@ export function AnnouncementEditorScreen({
         }]);
         await uploadDocument(localId, candidate);
       }
-    } catch {
-      if (mounted.current) setError('PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
+    } catch (reason) {
+      if (mounted.current) setError(getKnownApiErrorMessage(reason) ?? 'PDF 파일을 선택하지 못했습니다. 다시 시도해 주세요.');
     } finally {
       pdfAddFlightRef.current = false;
       if (mounted.current) setMediaBusy(false);
@@ -742,9 +743,9 @@ export function AnnouncementEditorScreen({
         await api.createAnnouncement(token, campusId, request);
       }
       if (mounted.current) onBack();
-    } catch {
+    } catch (reason) {
       if (mounted.current) {
-        setError('공지를 저장하지 못했습니다. 입력 내용과 업로드된 이미지는 그대로 보존됩니다.');
+        setError(getKnownApiErrorMessage(reason) ?? '공지를 저장하지 못했습니다. 입력 내용과 업로드된 이미지는 그대로 보존됩니다.');
       }
     } finally {
       saveFlightRef.current = false;
@@ -962,10 +963,10 @@ export function AnnouncementCategoryScreen({
       setLoadedCampusId(campusId);
       setLoadStatus('ready');
       return true;
-    } catch {
+    } catch (reason) {
       if (mountedRef.current && request === loadRequestRef.current) {
         setLoadStatus('error');
-        setError('카테고리를 불러오지 못했습니다.');
+        setError(getKnownApiErrorMessage(reason) ?? '카테고리를 불러오지 못했습니다.');
       }
       return false;
     }
@@ -1016,8 +1017,8 @@ export function AnnouncementCategoryScreen({
         setItems((current) => [...current, created]);
         resetEditor();
       }
-    } catch {
-      if (mountedRef.current) setError('같은 이름이 있는지 확인하고 다시 시도해 주세요.');
+    } catch (reason) {
+      if (mountedRef.current) setError(getKnownApiErrorMessage(reason) ?? '같은 이름이 있는지 확인하고 다시 시도해 주세요.');
     } finally {
       categoryMutationFlightRef.current = false;
       createFlightRef.current = false;
@@ -1071,9 +1072,9 @@ export function AnnouncementCategoryScreen({
         setItems((current) => replaceCategory(current, updated));
         resetEditor();
       }
-    } catch {
+    } catch (reason) {
       if (mountedRef.current) {
-        setError('카테고리 수정 내용을 저장하지 못했습니다. 입력 내용은 그대로 유지됩니다.');
+        setError(getKnownApiErrorMessage(reason) ?? '카테고리 수정 내용을 저장하지 못했습니다. 입력 내용은 그대로 유지됩니다.');
       }
     } finally {
       categoryMutationFlightRef.current = false;
@@ -1102,8 +1103,8 @@ export function AnnouncementCategoryScreen({
         setSelectedCategoryId((current) => current === item.id ? null : current);
         setDeleteTarget(null);
       }
-    } catch {
-      if (mountedRef.current) setError('카테고리를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } catch (reason) {
+      if (mountedRef.current) setError(getKnownApiErrorMessage(reason) ?? '카테고리를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       categoryMutationFlightRef.current = false;
       deleteFlightRef.current.delete(item.id);
