@@ -1,3 +1,4 @@
+import {getKnownApiErrorMessage} from '../api/errorPolicy';
 import {useEffect, useRef, useState, type RefObject} from 'react';
 import {
   InputAccessoryView,
@@ -46,7 +47,7 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
       const next = await api.getHome(await getAccessToken(), campusId);
       if (!mounted.current) return;
       setData(next); onChanged?.(next);
-    } catch { if (mounted.current) setError('목홀타 내용을 불러오지 못했습니다.'); }
+    } catch (reason) { if (mounted.current) setError(getKnownApiErrorMessage(reason) ?? '목홀타 내용을 불러오지 못했습니다.'); }
     finally { if (mounted.current) setLoading(false); }
   };
   useEffect(() => { mounted.current = true; if (!initialData) void load(); return () => { mounted.current = false; }; }, [campusId]);
@@ -70,11 +71,13 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
       if (status === 'SUBMITTED') { const nextGroup = groups.find((group) => group.report?.status !== 'SUBMITTED'); if (nextGroup) selectGroup(nextGroup.groupId); }
     } catch (reason) {
       if (reason instanceof FaithLogApiError && reason.detail.code === 'SHEPHERD_ATTENDANCE_CONFLICT') { await load(); if (mounted.current) setError('다른 사용자가 먼저 수정했습니다. 최신 내용을 불러왔습니다.'); }
-      else setError('저장하지 못했습니다. 입력한 내용을 유지했습니다.');
+      else setError(getKnownApiErrorMessage(reason) ?? '저장하지 못했습니다. 입력한 내용을 유지했습니다.');
     } finally { savingRef.current = false; if (mounted.current) setSaving(false); }
   };
   if (loading && !data) return <Loading message="목홀타 입력란을 불러오고 있어요." />;
   return <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled"><ScreenHeader eyebrow="주간 보고" title="목홀타 입력" subtitle={data ? `${data.serviceDate} 주일` : '담당 목장의 인원을 입력해 주세요.'} action={<Pressable accessibilityLabel="목홀타 입력 닫기" onPress={onBack}><Text style={styles.close}>닫기</Text></Pressable>} />
+    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {!data && error ? <Button accessibilityLabel="목홀타 다시 불러오기" onPress={() => void load()}>다시 불러오기</Button> : null}
     {data && data.groups.length > 1 ? <View accessibilityRole="tablist" style={styles.tabs}>{data.groups.map((group) => <Pressable accessibilityLabel={`${group.groupName} 선택`} accessibilityRole="tab" key={group.groupId} onPress={() => selectGroup(group.groupId)} style={[styles.tab, group.groupId === selectedGroupId ? styles.tabSelected : null]}><Text style={[styles.tabText, group.groupId === selectedGroupId ? styles.tabTextSelected : null]}>{group.groupName}</Text></Pressable>)}</View> : null}
     {selected ? <View style={styles.form}><Text style={styles.groupTitle}>{selected.groupName}</Text><Text style={styles.status}>{selected.report?.status === 'SUBMITTED' ? '제출 완료' : selected.report ? '임시 저장' : '미입력'}</Text>
       {selected.report?.status === 'SUBMITTED' && editingSubmittedGroupId !== selected.groupId ? <>
@@ -119,9 +122,9 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
         <CountKeyboardAccessory accessibilityLabel="숫자 키보드 닫기" label="완료" nativeID={countInputAccessoryIds.otherWorship} onPress={Keyboard.dismiss} />
       </> : null}
       <Text style={styles.label}>메모 (선택)</Text><TextInput accessibilityLabel="목홀타 메모" multiline onChangeText={(note) => setInput((current) => ({...current, note}))} placeholder="특이사항이 있으면 입력해 주세요" style={[styles.input, styles.note]} value={input.note} />
-      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}<View accessibilityLabel="목홀타 저장 명령" style={styles.actions}><Button accessibilityLabel="목홀타 제출 완료" disabled={saving} onPress={() => void save('SUBMITTED')}>{saving ? '제출 중' : '제출 완료'}</Button></View>
+      <View accessibilityLabel="목홀타 저장 명령" style={styles.actions}><Button accessibilityLabel="목홀타 제출 완료" disabled={saving} onPress={() => void save('SUBMITTED')}>{saving ? '제출 중' : '제출 완료'}</Button></View>
       </>}
-    </View> : <Text style={styles.empty}>현재 담당하는 목장이 없습니다.</Text>}
+    </View> : !error ? <Text style={styles.empty}>현재 담당하는 목장이 없습니다.</Text> : null}
   </ScrollView>;
 }
 

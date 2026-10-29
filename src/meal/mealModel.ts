@@ -1,4 +1,5 @@
 import {getApiErrorPresentation, type ApiErrorPresentation} from '../api/errorPolicy';
+import {getDomainErrorPresentation} from '../api/domainErrorCopy';
 import type {ApiError} from '../api/types';
 import type {
   MealCalculationType,
@@ -274,6 +275,9 @@ export function getMealErrorPresentation(error: ApiError): ApiErrorPresentation 
       title: '세션이 만료되었습니다',
     };
   }
+
+  const domain = getDomainErrorPresentation(error);
+  if (domain) return domain;
 
   if (error.status === 400) {
     if (error.code === 'MEAL_LOCAL_VALIDATION') {

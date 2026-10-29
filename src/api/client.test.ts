@@ -800,6 +800,20 @@ describe('FaithLog API client', () => {
     });
   });
 
+  it('normalizes missing-account errors with actionable copy instead of generic input validation', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(400, envelope(null, {
+      success: false,
+      code: 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING',
+      message: '관리자에게 문의하세요',
+    })));
+    await expect(apiRequest('/campuses/2/devotions/me/weeks/2026-10-19')).rejects.toSatisfy((error) => {
+      expectApiError(error, {kind: 'error', status: 400, code: 'BILLING_REQUIRED_PAYMENT_ACCOUNT_MISSING'});
+      expect((error as FaithLogApiError).detail.message).toContain('캠퍼스 관리자');
+      expect((error as FaithLogApiError).detail.message).toContain('활성 납부 계좌');
+      return true;
+    });
+  });
+
   it('keeps validation response messages hidden unless the caller opts in', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(

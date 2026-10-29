@@ -18,6 +18,7 @@ vi.mock('react-native', async () => {
     return ReactModule.createElement('TextInput', props, children as React.ReactNode);
   });
   return {
+    ActivityIndicator: component('ActivityIndicator'),
     InputAccessoryView: component('InputAccessoryView'),
     Keyboard: {dismiss: nativeMocks.dismissKeyboard},
     Platform: nativeMocks.platform,
@@ -42,6 +43,25 @@ function api(): ShepherdAttendanceApi { return {getHome: vi.fn().mockResolvedVal
 function node(renderer: TestRenderer.ReactTestRenderer, label: string) { return renderer.root.find((item) => item.props.accessibilityLabel === label); }
 async function flush() { await TestRenderer.act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
 describe('ShepherdAttendanceScreen', () => {
+  it('explains the missing permission and who to contact on load failure', async () => {
+    const client = api();
+    vi.mocked(client.getHome).mockRejectedValueOnce(new FaithLogApiError({kind: 'permissionDenied', status: 403, code: 'SHEPHERD_GROUP_ACCESS_FORBIDDEN', message: 'private backend'}));
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(<ShepherdAttendanceScreen api={client} campusId={1} getAccessToken={async () => 'token'} onBack={vi.fn()} />);
+    });
+    await flush();
+    const output = JSON.stringify(renderer.toJSON());
+    expect(output).toContain('목장 조회 권한');
+    expect(output).toContain('캠퍼스 관리자');
+    expect(output).not.toContain('private backend');
+    expect(output).not.toContain('현재 담당하는 목장이 없습니다.');
+    await TestRenderer.act(async () => { await node(renderer, '목홀타 다시 불러오기').props.onPress(); });
+    await flush();
+    expect(client.getHome).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('목장 조회 권한');
+    await TestRenderer.act(async () => renderer.unmount());
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     nativeMocks.focusedInputs.length = 0;

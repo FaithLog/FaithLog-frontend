@@ -1,3 +1,4 @@
+import {getApiErrorPresentation} from '../api/errorPolicy';
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
 import {FlatList, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions} from 'react-native';
 
@@ -749,7 +750,7 @@ function CompactBackButton({onPress}: {onPress: () => void}) {
 
 function formatDate(value: string | null) { if (!value) return '게시 시각 미정'; return new Intl.DateTimeFormat('ko-KR', {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(value)); }
 function toApiError(error: unknown): ApiError { if (error instanceof FaithLogApiError) return error.detail; return {kind: 'error', message: '공지를 불러오지 못했습니다.'}; }
-function safeMessage(error: ApiError) { if (error.kind === 'permissionDenied') return '현재 계정으로는 이 공지를 볼 수 없습니다.'; if (error.code === 'API_CONTRACT_PENDING') return '공지 기능을 준비하고 있습니다.'; return '잠시 후 다시 시도해 주세요.'; }
+function safeMessage(error: ApiError) { if (error.code === 'API_CONTRACT_PENDING') return '공지 기능을 준비하고 있습니다.'; return getApiErrorPresentation(error).message; }
 
 const styles = StyleSheet.create({
   body: {...typography.body, color: colors.textSecondary, lineHeight: 24},
