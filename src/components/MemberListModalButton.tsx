@@ -1,3 +1,4 @@
+import {getNameInitial} from '../utils/nameInitial';
 import {useEffect, useRef, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 
@@ -51,7 +52,7 @@ export function MemberListModalButton({label, title, loadMembers, emptyMessage, 
           <Button accessibilityLabel={`${title} 다시 조회`} onPress={() => void load()}>다시 시도</Button>
         </> : members.length === 0 ? <Body>{emptyMessage ?? '현재 조회된 대상이 없습니다.'}</Body> : members.map((member, index) => (
           <View key={member.userId} style={[styles.member, index > 0 ? styles.separator : null]}>
-            <View style={styles.avatar}><Text style={styles.initial}>{member.name.trim().slice(0, 1)}</Text></View>
+            <View style={styles.avatar}><Text style={styles.initial}>{getNameInitial(member.name)}</Text></View>
             <View style={styles.memberInfo}>
               <Text style={styles.name}>{member.name}</Text>
               <Text style={styles.email}>{member.email}</Text>

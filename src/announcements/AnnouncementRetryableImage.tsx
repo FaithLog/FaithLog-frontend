@@ -151,6 +151,6 @@ const styles = StyleSheet.create({
   loadedOverlay: {bottom: 0, left: 0, position: 'absolute', right: 0, top: 0},
   pressed: {opacity: 0.7},
   retry: {alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 44},
-  retryText: {color: colors.primary, fontSize: 11, fontWeight: '800'},
-  statusText: {color: colors.textMuted, fontSize: 10, lineHeight: 12},
+  retryText: {color: colors.primary, fontSize: 13, fontWeight: '800'},
+  statusText: {color: colors.textSecondary, fontSize: 13, lineHeight: 18},
 });

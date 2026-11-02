@@ -84,9 +84,9 @@ vi.mock('../components/ui', async () => {
     PermissionDenied: host('PermissionDenied'),
   };
 });
-vi.mock('../theme', () => ({
+vi.mock('../theme', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../theme')>(),
   colors: new Proxy({}, {get: () => '#000000'}),
-  typography: {body: {}, cardTitle: {}, screenTitle: {}},
 }));
 
 import {DevotionScreen} from './DevotionScreen';

@@ -45,6 +45,7 @@ vi.mock('react-native', async () => {
       ? ReactModule.createElement('Modal', props, children)
       : null,
     Platform: {OS: 'ios'},
+    useWindowDimensions: () => ({width: 390, height: 844, scale: 1, fontScale: 1}),
     Pressable: host('Pressable'),
     ScrollView: host('ScrollView'),
     SectionList: ({ListHeaderComponent}) => ReactModule.createElement(

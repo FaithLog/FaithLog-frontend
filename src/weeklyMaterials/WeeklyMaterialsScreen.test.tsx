@@ -18,6 +18,7 @@ vi.mock('react-native', async () => {
   };
 });
 vi.mock('../theme', () => ({
+  control: {height: 48, compactHeight: 44, paddingX: 16},
   colors: new Proxy({}, {get: () => '#000000'}),
   radius: {control: 14, item: 18, pill: 999},
   spacing: {card: 20, control: 16, gap: 12, screenX: 24},

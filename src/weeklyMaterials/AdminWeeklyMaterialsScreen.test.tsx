@@ -24,6 +24,7 @@ vi.mock('../api/client', () => ({
 vi.mock('../auth/accessTokenResolver', () => ({resolveCurrentAccessToken: vi.fn(async () => 'access')}));
 vi.mock('../components/IconexIcon', () => ({IconexIcon: () => null}));
 vi.mock('../theme', () => ({
+  control: {height: 48, compactHeight: 44, paddingX: 16},
   colors: new Proxy({}, {get: () => '#000000'}),
   radius: {card: 24, control: 14, item: 18, pill: 999},
   spacing: {card: 20, control: 16, gap: 12, screenX: 24},

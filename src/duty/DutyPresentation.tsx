@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 
 import {AppModal} from '../components/AppModal';
-import {colors, radius, spacing, typography} from '../theme';
+import {colors, control, radius, spacing, typography} from '../theme';
 
 type DutyTone = 'default' | 'info' | 'success' | 'warning' | 'danger';
 type DutyActionVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -296,12 +296,12 @@ export const dutyStyles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: radius.control,
     justifyContent: 'center',
-    minHeight: 40,
+    minHeight: control.height,
     minWidth: 48,
     paddingHorizontal: 16,
     paddingVertical: 7,
   },
-  actionButtonText: {fontSize: 14, fontWeight: '800', lineHeight: 20, textAlign: 'center'},
+  actionButtonText: {...typography.label, textAlign: 'center'},
   actionRow: {flexDirection: 'row', flexWrap: 'wrap', gap: spacing.gap},
   asyncSurface: {
     alignItems: 'flex-start', backgroundColor: colors.surface, borderRadius: radius.card,
@@ -317,7 +317,7 @@ export const dutyStyles = StyleSheet.create({
   compactActionButton: {
     alignSelf: 'flex-start',
     flexShrink: 0,
-    minHeight: 32,
+    minHeight: control.compactHeight,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
@@ -365,8 +365,7 @@ export const dutyStyles = StyleSheet.create({
   },
   sheetBackdrop: {backgroundColor: 'rgba(25, 31, 40, 0.32)', flex: 1, justifyContent: 'flex-end'},
   statusChip: {
-    alignSelf: 'flex-start', borderRadius: radius.pill, fontSize: 13, fontWeight: '800',
-    lineHeight: 18, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 7,
+    ...typography.caption, alignSelf: 'flex-start', borderRadius: radius.pill, fontWeight: '600', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 7,
   },
   successChip: {backgroundColor: colors.successSoft, color: colors.success},
   surface: {

@@ -19,7 +19,7 @@ import {
 } from '../api/client';
 import {trackLoginComplete, trackSignUpComplete} from '../analytics/appAnalytics';
 import {runWithCompletionEvent} from '../analytics/trackedApiSuccess';
-import {colors} from '../theme';
+import {colors, control, radius, typography} from '../theme';
 import type {AuthGateState} from './authGate';
 import {validateLoginForm, validateSignupForm, type AuthFieldErrors} from './authForms';
 import {
@@ -731,13 +731,13 @@ const styles = StyleSheet.create({
     height: 30, justifyContent: 'center', width: 86,
   },
   brandText: {color: colors.primary, fontSize: 15, fontWeight: '600'},
-  title: {color: colors.textPrimary, fontSize: 24, fontWeight: '700', lineHeight: 34},
-  subtitle: {color: colors.textSecondary, fontSize: 15, lineHeight: 20},
+  title: {...typography.screenTitle, color: colors.textPrimary},
+  subtitle: {...typography.body, color: colors.textSecondary},
   field: {alignSelf: 'center', gap: 8, maxWidth: 318, width: '100%'},
-  fieldLabel: {color: colors.textSecondary, fontSize: 15, fontWeight: '600'},
+  fieldLabel: {...typography.label, color: colors.textSecondary},
   input: {
-    backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 16,
-    borderWidth: 1, color: colors.textPrimary, fontSize: 15, minHeight: 50,
+    backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.control,
+    borderWidth: 1, color: colors.textPrimary, ...typography.body, minHeight: control.height,
     paddingHorizontal: 16, paddingVertical: 13,
   },
   inputError: {borderColor: colors.danger},
@@ -747,13 +747,13 @@ const styles = StyleSheet.create({
     maxWidth: 318, width: '100%',
   },
   button: {
-    alignItems: 'center', alignSelf: 'center', borderRadius: 12, justifyContent: 'center',
-    minHeight: 44, paddingHorizontal: 14, width: '100%', maxWidth: 318,
+    alignItems: 'center', alignSelf: 'center', borderRadius: radius.control, justifyContent: 'center',
+    minHeight: control.height, paddingHorizontal: control.paddingX, paddingVertical: 12, width: '100%', maxWidth: 318,
   },
   rowButton: {flexBasis: 0, flexGrow: 1, minWidth: 0, width: 'auto'},
   primaryButton: {backgroundColor: colors.primary},
   secondaryButton: {backgroundColor: colors.borderSoft, borderColor: colors.border, borderWidth: 1},
-  buttonText: {fontSize: 15, fontWeight: '600', textAlign: 'center'},
+  buttonText: {...typography.label, flexShrink: 1, textAlign: 'center'},
   primaryButtonText: {color: colors.surface},
   secondaryButtonText: {color: colors.textSecondary},
   disabled: {opacity: 0.54},

@@ -573,7 +573,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
     ]) {
       const control = findByLabel(renderer, label);
       expectTouchTarget(control);
-      expectVisualHeightAtMost(control, 40);
+      expectVisualHeightAtMost(control, 48);
     }
     expect(findByLabel(renderer, '진행 중 커피 투표 보기').props.accessibilityState)
       .toEqual({selected: true});
@@ -592,7 +592,7 @@ describe('CoffeeDutyScreen canonical duty navigation', () => {
       '커피 메뉴 추가 모달 열기',
       '커피 주문 투표 생성',
     ]) {
-      expectVisualHeightAtMost(findByLabel(renderer, label), 40);
+      expectVisualHeightAtMost(findByLabel(renderer, label), 48);
     }
     expect(findByLabel(renderer, '커피 투표 사용자 항목 추가 허용').props.accessibilityState)
       .toEqual({checked: true, disabled: true});

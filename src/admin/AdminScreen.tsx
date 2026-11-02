@@ -1,3 +1,4 @@
+import {getNameInitial} from '../utils/nameInitial';
 import {getNotificationFailureCopy} from './notificationFailureCopy';
 import {pickValidationFieldErrors} from '../api/validationErrors';
 import {MemberListModalButton, type MemberListEntry} from '../components/MemberListModalButton';
@@ -22,6 +23,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   Text,
   View,
 } from 'react-native';
@@ -204,7 +206,7 @@ import {
   type ChargeStatusConfirmTarget,
 } from './ChargeStatusConfirmSheet';
 import {useAndroidShellLayoutInsets} from '../navigation/shellLayout';
-import {colors, radius, spacing} from '../theme';
+import {colors, control, radius, spacing, typography} from '../theme';
 import type {MediaUploadItem} from '../media/mediaUploadPolicy';
 import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
 import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
@@ -3687,6 +3689,8 @@ function AdminHome({
   prayerState: AdminPrayerState;
   summary: AdminDashboardSummary;
 }) {
+  const {width, fontScale} = useWindowDimensions();
+  const narrow = width <= 360 || fontScale > 1.2;
   return (
     <>
       <Card>
@@ -3695,13 +3699,14 @@ function AdminHome({
           {summary.campus.campusName}
         </Text>
         <View style={styles.adminDashboardMetricGrid}>
-          <Metric compact label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
-          <Metric compact label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
-          <Metric compact label="미제출" value={`${summary.devotion.missingCount}명`} />
-          <Metric compact label="제출률" value={`${summary.devotion.submitRate}%`} />
-          <Metric compact label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
+          <Metric compact narrow={narrow} label="ACTIVE 멤버" value={`${summary.members.activeCount}명`} />
+          <Metric compact narrow={narrow} label="캠퍼스 관리자" value={`${summary.members.adminCount}명`} />
+          <Metric compact narrow={narrow} label="미제출" value={`${summary.devotion.missingCount}명`} />
+          <Metric compact narrow={narrow} label="제출률" value={`${summary.devotion.submitRate}%`} />
+          <Metric compact narrow={narrow} label="기도 미제출" value={getPrayerMissingMetricValue(prayerState)} />
           <Metric
             compact
+            narrow={narrow}
             label="벌금 미납"
             value={formatCompactWon(getPenaltyUnpaidAmount(summary))}
           />
@@ -4865,45 +4870,52 @@ function AdminPollListItem({
       onPress={onPress}
       style={({pressed}) => [
         styles.pollListItem,
+        styles.pollListCard,
         selected ? styles.pollListItemSelected : null,
         pressed ? styles.pressed : null,
       ]}>
-      <View style={[styles.pollIconBox, poll.pollType === 'COFFEE' ? styles.pollIconBoxMint : null]}>
-        <Text style={[styles.pollIconText, poll.pollType === 'COFFEE' ? styles.pollIconTextMint : null]}>
-          {getAdminPollInitial(poll.pollType)}
-        </Text>
+      <View style={styles.pollListHeading}>
+        <View style={[styles.pollIconBox, poll.pollType === 'COFFEE' ? styles.pollIconBoxMint : null]}>
+          <Text style={[styles.pollIconText, poll.pollType === 'COFFEE' ? styles.pollIconTextMint : null]}>
+            {getAdminPollInitial(poll.pollType)}
+          </Text>
+        </View>
+        <View style={styles.pollItemText}>
+          <Text numberOfLines={2} style={styles.pollItemTitle}>
+            {poll.title}
+          </Text>
+          <Text style={styles.pollItemMeta}>
+            {getAdminPollListMeta(poll)}
+          </Text>
+        </View>
       </View>
-      <View style={styles.pollItemText}>
-        <Text numberOfLines={1} style={styles.pollItemTitle}>
-          {poll.title}
-        </Text>
-        <Text numberOfLines={1} style={styles.pollItemMeta}>
-          {getAdminPollListMeta(poll)}
-        </Text>
-      </View>
-      {onEditNoticePress ? (
-        <Pressable
-          accessibilityLabel={`${poll.title} 게시된 투표 공지 수정`}
-          accessibilityRole="button"
-          onPress={(event) => {
-            event.stopPropagation();
-            onEditNoticePress();
-          }}
-          style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
-          <Text style={styles.pollSoftPillText}>공지 수정</Text>
-        </Pressable>
-      ) : null}
-      {canClose ? (
-        <Pressable
-          accessibilityLabel={`${poll.title} 투표 종료`}
-          accessibilityRole="button"
-          onPress={(event) => {
-            event.stopPropagation();
-            onClosePress();
-          }}
-          style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
-          <Text style={styles.pollClosePillText}>종료</Text>
-        </Pressable>
+      {onEditNoticePress || canClose ? (
+        <View style={styles.pollQuickActions}>
+          {onEditNoticePress ? (
+            <Pressable
+              accessibilityLabel={`${poll.title} 게시된 투표 공지 수정`}
+              accessibilityRole="button"
+              onPress={(event) => {
+                event.stopPropagation();
+                onEditNoticePress();
+              }}
+              style={({pressed}) => [styles.pollSoftPill, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollSoftPillText}>공지 수정</Text>
+            </Pressable>
+          ) : null}
+          {canClose ? (
+            <Pressable
+              accessibilityLabel={`${poll.title} 투표 종료`}
+              accessibilityRole="button"
+              onPress={(event) => {
+                event.stopPropagation();
+                onClosePress();
+              }}
+              style={({pressed}) => [styles.pollClosePill, pressed ? styles.pressed : null]}>
+              <Text style={styles.pollClosePillText}>종료</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </Pressable>
   );
@@ -7151,9 +7163,9 @@ function AdminPollResultOptionCard({
           {option.respondents.map((respondent) => (
             <View key={`${option.id}-${respondent.userId}`} style={styles.adminRespondentChip}>
               <View style={styles.adminRespondentAvatar}>
-                <Text style={styles.adminRespondentAvatarText}>{respondent.name.slice(0, 1)}</Text>
+                <Text style={styles.adminRespondentAvatarText}>{getNameInitial(respondent.name)}</Text>
               </View>
-              <Text numberOfLines={1} style={styles.adminRespondentName}>
+              <Text numberOfLines={2} style={styles.adminRespondentName}>
                 {respondent.name}
               </Text>
             </View>
@@ -9973,10 +9985,10 @@ function PaymentAccountListItem({
             <Text style={styles.figmaBodyText}>
               {getPaymentCategoryLabel(account.accountType)} · {account.bankName}
             </Text>
-            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.accountListAccountNumber}>
+            <Text style={styles.accountListAccountNumber}>
               계좌번호 {account.accountNumber}
             </Text>
-            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.accountListAccountHolder}>
+            <Text style={styles.accountListAccountHolder}>
               예금주 {account.accountHolder}
             </Text>
           </View>
@@ -12018,15 +12030,17 @@ function FigmaSegmentedControl<T extends string>({
 
 function Metric({
   compact = false,
+  narrow = false,
   label,
   value,
 }: {
   compact?: boolean;
+  narrow?: boolean;
   label: string;
   value: string;
 }) {
   return (
-    <View style={[styles.metric, compact ? styles.adminDashboardMetric : null]}>
+    <View style={[styles.metric, compact ? styles.adminDashboardMetric : null, compact && narrow ? styles.adminDashboardMetricNarrow : null]}>
       <Text style={[styles.metricLabel, compact ? styles.adminDashboardMetricLabel : null]}>
         {label}
       </Text>
@@ -12041,7 +12055,7 @@ function Avatar({name, role}: {name: string; role: CampusRole}) {
   return (
     <View style={[styles.avatar, adminCampusRoles.has(role) ? styles.adminAvatar : null]}>
       <Text style={[styles.avatarText, adminCampusRoles.has(role) ? styles.adminAvatarText : null]}>
-        {name.slice(0, 1)}
+        {getNameInitial(name)}
       </Text>
     </View>
   );
@@ -13742,14 +13756,15 @@ const styles = StyleSheet.create({
     gap: spacing.gap,
   },
   adminAvatar: {
-    backgroundColor: colors.tealSoft,
+    backgroundColor: colors.faithSoft,
   },
   adminAvatarText: {
-    color: colors.teal,
+    color: colors.faith,
   },
   adminRespondentAvatar: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    flexShrink: 0,
+    backgroundColor: colors.primarySoft,
     borderRadius: 14,
     height: 28,
     justifyContent: 'center',
@@ -13763,7 +13778,7 @@ const styles = StyleSheet.create({
   },
   adminRespondentChip: {
     alignItems: 'center',
-    backgroundColor: '#F7F8FA',
+    backgroundColor: colors.background,
     borderColor: colors.borderSoft,
     borderRadius: 18,
     borderWidth: 1,
@@ -13789,9 +13804,9 @@ const styles = StyleSheet.create({
   },
   adminCompactButton: {
     alignItems: 'center',
-    borderRadius: 13,
+    borderRadius: radius.control,
     justifyContent: 'center',
-    minHeight: 36,
+    minHeight: control.compactHeight,
     minWidth: 66,
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -13816,11 +13831,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   adminCompactButtonText: {
+    ...typography.caption,
     flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
     textAlign: 'center',
+    fontWeight: '600',
   },
   adminCompactButtonTextDanger: {
     color: adminFigmaTokens.surface,
@@ -13859,8 +13873,8 @@ const styles = StyleSheet.create({
     height: 66,
     justifyContent: 'space-between',
     overflow: 'hidden',
-    paddingHorizontal: 1,
-    paddingVertical: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
     width: '100%',
   },
   adminBottomNavFrame: {
@@ -13868,7 +13882,7 @@ const styles = StyleSheet.create({
   },
   adminBottomNavItem: {
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: 13,
     flexBasis: 68,
     flexGrow: 1,
     flexShrink: 1,
@@ -13881,16 +13895,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   adminBottomNavItemActive: {
-    backgroundColor: '#F2F7FF',
+    backgroundColor: colors.primarySoft,
   },
   adminBottomNavItemPressed: {
     opacity: 0.72,
   },
   adminBottomNavLabel: {
-    color: adminFigmaTokens.textMuted,
     fontSize: 12,
-    fontWeight: '800',
     lineHeight: 16,
+    color: adminFigmaTokens.textMuted,
+    fontWeight: '600',
   },
   adminBottomNavLabelActive: {
     color: adminFigmaTokens.primary,
@@ -13912,7 +13926,7 @@ const styles = StyleSheet.create({
   },
   adminCampusChip: {
     alignItems: 'center',
-    backgroundColor: adminFigmaTokens.borderSoft,
+    backgroundColor: colors.faithSoft,
     borderRadius: 12,
     flexShrink: 1,
     height: 28,
@@ -13939,11 +13953,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   adminHomeCampusTitle: {
+    ...typography.sectionTitle,
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
-    fontSize: 20,
-    fontWeight: '800',
-    lineHeight: 26,
   },
   adminModeContent: {
     flexGrow: 1,
@@ -14034,11 +14046,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   adminScreenTitle: {
+    ...typography.screenTitle,
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
-    fontSize: 24,
-    fontWeight: '700',
-    lineHeight: 32,
     minWidth: 0,
     width: '100%',
   },
@@ -14088,12 +14098,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   adminSubpageTitle: {
+    ...typography.sectionTitle,
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 20,
-    fontWeight: '900',
-    lineHeight: 26,
   },
   accountMeta: {
     color: adminFigmaTokens.textMuted,
@@ -14160,17 +14168,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
     backgroundColor: adminFigmaTokens.primary,
-    borderRadius: 16,
+    borderRadius: radius.control,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: control.height,
     paddingHorizontal: 18,
     paddingVertical: 12,
   },
   paymentAccountSubmitButtonText: {
+    ...typography.label,
     color: adminFigmaTokens.surface,
-    fontSize: 15,
-    fontWeight: '800',
-    lineHeight: 20,
   },
   accountListContent: {
     flex: 1,
@@ -14179,13 +14185,13 @@ const styles = StyleSheet.create({
   },
   accountListHeader: {
     alignItems: 'flex-start',
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 10,
     justifyContent: 'space-between',
     width: '100%',
   },
   accountListText: {
-    flex: 1,
+    width: '100%',
     gap: 4,
     minWidth: 0,
   },
@@ -14214,15 +14220,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   accountStatusBadgeActive: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: colors.successSoft,
   },
   accountStatusBadgeInactive: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: colors.warningSoft,
   },
   accountStatusBadgeText: {
-    fontSize: 12,
-    fontWeight: '900',
-    lineHeight: 16,
+    ...typography.caption,
+    fontWeight: '600',
   },
   accountStatusBadgeTextActive: {
     color: adminFigmaTokens.success,
@@ -14240,14 +14245,15 @@ const styles = StyleSheet.create({
   },
   accountNumberButton: {
     alignSelf: 'flex-start',
-    borderRadius: 10,
-    minHeight: 44,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     maxWidth: '100%',
     paddingVertical: 4,
   },
   avatar: {
     alignItems: 'center',
+    flexShrink: 0,
     backgroundColor: colors.primarySoft,
     borderRadius: 18,
     height: 36,
@@ -14328,7 +14334,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   coffeeBrandChipActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   coffeeBrandChipText: {
     color: adminFigmaTokens.textSecondary,
@@ -14429,18 +14435,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   prayerMemberSelectRowActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderColor: adminFigmaTokens.primary,
   },
   prayerMemberSelectRowDisabled: {
     opacity: 0.55,
   },
   figmaActionPill: {
-    backgroundColor: adminFigmaTokens.borderSoft,
+    ...typography.caption,
+    fontWeight: '600',
+    backgroundColor: colors.primarySoft,
     borderRadius: 12,
     color: adminFigmaTokens.primary,
-    fontSize: 12,
-    fontWeight: '900',
     minWidth: 58,
     overflow: 'hidden',
     paddingHorizontal: 12,
@@ -14456,12 +14462,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   figmaCardTitle: {
+    ...typography.cardTitle,
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 22,
   },
   figmaChargeItem: {
     backgroundColor: adminFigmaTokens.surface,
@@ -14475,11 +14479,11 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
   },
   figmaDangerPill: {
-    backgroundColor: adminFigmaTokens.borderSoft,
+    ...typography.caption,
+    fontWeight: '600',
+    backgroundColor: colors.dangerSoft,
     borderRadius: 12,
     color: adminFigmaTokens.danger,
-    fontSize: 12,
-    fontWeight: '900',
     overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -14588,12 +14592,10 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   figmaScreenTitle: {
+    ...typography.screenTitle,
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 24,
-    fontWeight: '700',
-    lineHeight: 32,
   },
   figmaSegment: {
     alignItems: 'center',
@@ -14670,10 +14672,11 @@ const styles = StyleSheet.create({
   dateTimeMonthButton: {
     alignItems: 'center',
     backgroundColor: adminFigmaTokens.borderSoft,
-    borderRadius: 14,
-    height: 36,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
-    width: 36,
+    width: control.compactHeight,
+    paddingVertical: 10,
   },
   dateTimeMonthButtonText: {
     color: adminFigmaTokens.primary,
@@ -14770,10 +14773,11 @@ const styles = StyleSheet.create({
   dateTimeStepperButton: {
     alignItems: 'center',
     backgroundColor: adminFigmaTokens.surface,
-    borderRadius: 14,
-    height: 34,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
-    width: 34,
+    width: control.compactHeight,
+    paddingVertical: 10,
   },
   dateTimeStepperButtonText: {
     color: adminFigmaTokens.primary,
@@ -14842,15 +14846,16 @@ const styles = StyleSheet.create({
   modeReturnButton: {
     alignItems: 'center',
     backgroundColor: adminFigmaTokens.borderSoft,
-    borderRadius: 18,
+    borderRadius: radius.control,
     flexDirection: 'row',
     flexShrink: 0,
     gap: 4,
-    height: 36,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     maxWidth: 76,
     minWidth: 68,
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   modeReturnButtonPressed: {
     opacity: 0.72,
@@ -14880,11 +14885,12 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: colors.surface,
     borderColor: colors.danger,
-    borderRadius: 14,
+    borderRadius: radius.control,
     borderWidth: 1,
-    minHeight: 36,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   inlineErrorActionText: {
     color: colors.danger,
@@ -14919,17 +14925,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     flexDirection: 'row',
     gap: 6,
-    minHeight: 34,
+    minHeight: control.compactHeight,
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   inviteCodeCopyButtonCopied: {
     backgroundColor: colors.primary,
   },
   inviteCodeCopyButtonText: {
+    ...typography.caption,
     color: colors.primary,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
+    fontWeight: '600',
   },
   inviteCodeCopyButtonTextCopied: {
     color: colors.surface,
@@ -14970,6 +14976,7 @@ const styles = StyleSheet.create({
   },
   memberAction: {
     color: colors.primary,
+    flexShrink: 0,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -15033,6 +15040,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 12,
   },
+  adminDashboardMetricNarrow: {
+    flexBasis: '45%',
+  },
   adminDashboardMetricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -15070,14 +15080,14 @@ const styles = StyleSheet.create({
   },
   pollIconBox: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 15,
     height: 42,
     justifyContent: 'center',
     width: 42,
   },
   pollIconBoxMint: {
-    backgroundColor: '#E8F6F7',
+    backgroundColor: colors.faithSoft,
   },
   pollIconText: {
     color: colors.primary,
@@ -15092,7 +15102,7 @@ const styles = StyleSheet.create({
   },
   pollCreateAddOption: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 14,
     height: 40,
     justifyContent: 'center',
@@ -15125,7 +15135,7 @@ const styles = StyleSheet.create({
   },
   pollCreateOptionNumber: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
@@ -15144,19 +15154,19 @@ const styles = StyleSheet.create({
   pollCreatePrimaryAction: {
     alignItems: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 18,
+    borderRadius: radius.control,
     flex: 1,
-    minHeight: 54,
+    minHeight: control.height,
     justifyContent: 'center',
+    paddingVertical: 10,
   },
   pollCreatePrimaryActionText: {
+    ...typography.label,
     color: colors.surface,
-    fontSize: 16,
-    fontWeight: '800',
   },
   pollCreateRemoveOption: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
+    backgroundColor: colors.neutralSoft,
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
@@ -15173,25 +15183,26 @@ const styles = StyleSheet.create({
   },
   pollCreateSecondaryAction: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
-    borderRadius: 18,
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.control,
     flex: 1,
-    minHeight: 54,
+    minHeight: control.height,
     justifyContent: 'center',
+    paddingVertical: 10,
   },
   pollCreateSecondaryActionText: {
+    ...typography.label,
     color: colors.textSecondary,
-    fontSize: 16,
-    fontWeight: '800',
   },
   pollCreateSelectPill: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
-    borderRadius: 14,
-    height: 40,
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   pollCreateSelectPillText: {
     color: colors.textSecondary,
@@ -15203,14 +15214,12 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   pollCreateTitle: {
+    ...typography.screenTitle,
     color: colors.textPrimary,
-    fontSize: 22,
-    fontWeight: '800',
-    lineHeight: 30,
   },
   pollCreateToggle: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
+    backgroundColor: colors.neutralSoft,
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
@@ -15218,7 +15227,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   pollCreateToggleActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   pollCreateToggleRow: {
     alignItems: 'center',
@@ -15256,7 +15265,7 @@ const styles = StyleSheet.create({
   },
   pollCreateTypeIcon: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 18,
     height: 54,
     justifyContent: 'center',
@@ -15277,10 +15286,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   pollCreateTypeTitle: {
+    ...typography.cardTitle,
     color: colors.textPrimary,
-    fontSize: 17,
-    fontWeight: '800',
-    lineHeight: 24,
   },
   pollItemMeta: {
     color: colors.textMuted,
@@ -15293,10 +15300,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   pollItemTitle: {
+    ...typography.cardTitle,
     color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
   },
   pollListItem: {
     alignItems: 'center',
@@ -15331,25 +15336,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     backgroundColor: colors.primary,
-    borderRadius: 12,
-    height: 34,
+    borderRadius: radius.control,
+    minHeight: control.height,
     justifyContent: 'center',
     minWidth: 96,
     paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   pollPrimaryPillText: {
+    ...typography.label,
     color: colors.surface,
-    fontSize: 12,
-    fontWeight: '700',
+  },
+  pollListCard: {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+  },
+  pollListHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
   },
   pollQuickActions: {
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
   },
   pollResultPill: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 12,
     height: 34,
     justifyContent: 'center',
@@ -15363,17 +15379,18 @@ const styles = StyleSheet.create({
   },
   pollClosePill: {
     alignItems: 'center',
-    backgroundColor: '#FFF1F2',
-    borderRadius: 12,
-    height: 34,
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   pollClosePillText: {
+    ...typography.caption,
     color: colors.danger,
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   pollSectionShell: {
     gap: 16,
@@ -15381,34 +15398,36 @@ const styles = StyleSheet.create({
   pollSoftButton: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#F2F4F6',
-    borderRadius: 12,
-    minHeight: 34,
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   pollSoftButtonText: {
+    ...typography.caption,
     color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   pollSoftPill: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
-    borderRadius: 14,
-    height: 40,
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   pollSoftPillText: {
+    ...typography.caption,
     color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   pollStatusPill: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 14,
     height: 28,
     justifyContent: 'center',
@@ -15416,18 +15435,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   pollStatusPillDanger: {
-    backgroundColor: '#FFF1F2',
+    backgroundColor: colors.dangerSoft,
   },
   pollStatusPillInfo: {
     backgroundColor: '#E6F7F8',
   },
   pollStatusPillMuted: {
-    backgroundColor: '#F2F4F6',
+    backgroundColor: colors.neutralSoft,
   },
   pollStatusPillText: {
+    ...typography.caption,
     color: colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   pollStatusPillTextDanger: {
     color: colors.danger,
@@ -15462,10 +15481,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   repeatEditorSectionTitle: {
+    ...typography.cardTitle,
     color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 23,
   },
   repeatEditorShell: {
     gap: 14,
@@ -15512,7 +15529,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   repeatStepPillActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   repeatStepText: {
     color: colors.textMuted,
@@ -15537,11 +15554,12 @@ const styles = StyleSheet.create({
   },
   repeatTimeButton: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
-    borderRadius: 14,
-    height: 34,
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
-    width: 34,
+    width: control.compactHeight,
+    paddingVertical: 10,
   },
   repeatTimeButtonText: {
     color: colors.primary,
@@ -15580,13 +15598,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   repeatSummaryBox: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   repeatSummaryBoxError: {
-    backgroundColor: '#FFF1F2',
+    backgroundColor: colors.dangerSoft,
   },
   repeatSummaryText: {
     color: colors.primary,
@@ -15605,11 +15623,12 @@ const styles = StyleSheet.create({
   repeatWizardBackButton: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
-    borderRadius: 999,
+    borderRadius: radius.control,
     flexShrink: 0,
     justifyContent: 'center',
-    minHeight: 40,
+    minHeight: control.compactHeight,
     paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   repeatWizardBackText: {
     color: colors.primary,
@@ -15650,15 +15669,16 @@ const styles = StyleSheet.create({
   },
   repeatWeekdayPill: {
     alignItems: 'center',
-    backgroundColor: '#F2F4F6',
-    borderRadius: 14,
-    height: 36,
+    backgroundColor: colors.neutralSoft,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     minWidth: 38,
     paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   repeatWeekdayPillActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   repeatWeekdayText: {
     color: colors.textSecondary,
@@ -15713,10 +15733,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   pollTemplateSummaryTitle: {
+    ...typography.cardTitle,
     color: colors.textPrimary,
-    fontSize: 17,
-    fontWeight: '700',
-    lineHeight: 24,
   },
   pollTemplateTitleRow: {
     alignItems: 'center',
@@ -15913,12 +15931,10 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   sectionTitle: {
+    ...typography.sectionTitle,
     color: adminFigmaTokens.textPrimary,
     flexShrink: 1,
     flexWrap: 'wrap',
-    fontSize: 20,
-    fontWeight: '900',
-    lineHeight: 26,
   },
   settlementSectionDescription: {
     color: adminFigmaTokens.textMuted,
