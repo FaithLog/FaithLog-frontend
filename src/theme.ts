@@ -1,30 +1,31 @@
 export const colors = {
   background: '#F7F8FA',
   surface: '#FFFFFF',
-  primary: '#3182F6',
-  faith: '#5BA8B0',
+  primary: '#2368D3',
+  faith: '#2E7078',
   mint: '#92C7CF',
-  danger: '#EF4444',
-  success: '#22C55E',
-  warning: '#F59E0B',
+  // Mint identifies community/devotion content; blue identifies actions.
+  faithSoft: '#E8F6F7',
+  danger: '#BF2B2B',
+  success: '#147A3A',
+  warning: '#A65B00',
   textPrimary: '#191F28',
   textSecondary: '#4E5968',
   textMuted: '#8B95A1',
   borderSoft: '#EEF1F4',
 
-  // Backward-compatible semantic aliases. Values must remain mapped to the
-  // Foundations/Tokens swatches above.
-  primarySoft: '#EEF1F4',
-  teal: '#5BA8B0',
-  tealSoft: '#92C7CF',
+  // Semantic backgrounds pair with the matching foreground for readable status labels.
+  primarySoft: '#E8F3FF',
+  teal: '#2E7078',
+  tealSoft: '#E8F6F7',
   text: '#191F28',
   mutedText: '#4E5968',
   subtleText: '#8B95A1',
   border: '#EEF1F4',
   neutralSoft: '#F7F8FA',
-  dangerSoft: '#EEF1F4',
-  warningSoft: '#EEF1F4',
-  successSoft: '#EEF1F4',
+  dangerSoft: '#FEE2E2',
+  warningSoft: '#FFF4DB',
+  successSoft: '#E8F5EC',
   shadow: '#191F28',
 };
 
@@ -36,6 +37,11 @@ export const spacing = {
 };
 
 export const typography = {
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    lineHeight: 28,
+  },
   screenTitle: {
     fontSize: 24,
     fontWeight: '700' as const,
@@ -57,9 +63,9 @@ export const typography = {
     lineHeight: 20,
   },
   caption: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '400' as const,
-    lineHeight: 20,
+    lineHeight: 18,
   },
 };
 
@@ -68,4 +74,11 @@ export const radius = {
   control: 14,
   item: 18,
   pill: 999,
+};
+
+// Compact controls retain a full touch target even when their text is smaller.
+export const control = {
+  height: 48,
+  compactHeight: 44,
+  paddingX: 16,
 };

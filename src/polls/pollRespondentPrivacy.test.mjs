@@ -17,9 +17,10 @@ describe('poll respondent privacy', () => {
     expect(responsePanelSource).toContain('optionResult.responseCount');
   });
 
-  it('right-aligns the add-option and response-submit actions', () => {
+  it('keeps add-option secondary and gives response submission the available width', () => {
     expect(responsePanelSource).toContain('style={styles.responseSubmitRow}');
+    expect(responsePanelSource).toMatch(/accessibilityLabel="투표 응답 저장"\s+fullWidth/);
     expect(source).toMatch(/addOptionButton:\s*\{[\s\S]*?alignSelf: 'flex-end'/);
-    expect(source).toMatch(/responseSubmitRow:\s*\{[\s\S]*?alignItems: 'flex-end'/);
+    expect(source).toMatch(/responseSubmitRow:\s*\{[\s\S]*?alignItems: 'stretch'/);
   });
 });

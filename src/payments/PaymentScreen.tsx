@@ -48,7 +48,7 @@ import {
   PermissionDenied,
 } from '../components/ui';
 import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
-import {colors, radius, spacing} from '../theme';
+import {colors, control, radius, spacing, typography} from '../theme';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {getPaymentContext, invalidatePaymentContextCache} from './paymentContextCache';
 import {findFreshFallbackPage} from './paymentPagination';
@@ -632,6 +632,7 @@ export function PaymentScreen({
           <View style={styles.actionRow}>
             <Button
               accessibilityLabel="이전 납부 목록 페이지"
+              size="compact"
               disabled={page === 0 || isPaymentNavigationLocked(actionState.status)}
               onPress={() => loadPayments(Math.max(0, page - 1))}
               variant="secondary">
@@ -639,6 +640,7 @@ export function PaymentScreen({
             </Button>
             <Button
               accessibilityLabel="다음 납부 목록 페이지"
+              size="compact"
               disabled={!canLoadNextPage || isPaymentNavigationLocked(actionState.status)}
               onPress={() => loadPayments(page + 1)}
               variant="secondary">
@@ -685,6 +687,8 @@ function FilterRow<T extends string>({
   onSelect: (value: T) => void;
   selected: T;
 }) {
+  const {width, fontScale} = useWindowDimensions();
+  const compact = width <= 360 || fontScale > 1.2;
   return (
     <View style={styles.filterGroup}>
       <Text style={styles.filterGroupLabel}>{label}</Text>
@@ -702,6 +706,7 @@ function FilterRow<T extends string>({
               onPress={() => onSelect(item.value)}
               style={({pressed}) => [
                 styles.filterChip,
+                compact ? styles.filterChipCompact : null,
                 active ? styles.filterChipActive : null,
                 pressed ? styles.pressed : null,
               ]}>
@@ -985,6 +990,7 @@ function PaymentChargeDetail({
   onMarkPaid: () => void;
   onSendWithToss: () => void;
 }) {
+  const {width, fontScale} = useWindowDimensions();
   const canMarkPaid = charge.status === 'UNPAID' && Boolean(charge.account);
   const account = charge.account ?? null;
 
@@ -1043,6 +1049,7 @@ function PaymentChargeDetail({
           <View style={styles.accountCopyRow}>
             <ListRow
               accessibilityLabel={`${account.bankName} 계좌번호 복사`}
+              stacked={width <= 360 || fontScale > 1.2}
               label={`${account.bankName} · ${account.accountHolder}`}
               onPress={() => onCopyAccount(account)}
               supportingText="눌러서 계좌번호 복사"
@@ -1073,9 +1080,10 @@ function PaymentChargeDetail({
           <Pressable
             accessibilityLabel={`${charge.title} 토스로 송금`}
             accessibilityRole="button"
+            accessibilityState={{disabled}}
             disabled={disabled}
             onPress={onSendWithToss}
-            style={({pressed}) => [styles.detailTossButton, pressed ? styles.pressed : null]}>
+            style={({pressed}) => [styles.detailTossButton, disabled ? styles.disabled : null, pressed ? styles.pressed : null]}>
             <Text style={styles.detailTossButtonText}>
               {isPresetBankName(account?.bankName ?? '') ? '토스로 송금' : '계좌 복사'}
             </Text>
@@ -1090,6 +1098,7 @@ function PaymentChargeDetail({
           style={({pressed}) => [
             styles.detailPrimaryButton,
             !canMarkPaid ? styles.detailPrimaryButtonDisabled : null,
+            disabled && canMarkPaid ? styles.disabled : null,
             pressed ? styles.pressed : null,
           ]}>
           <Text
@@ -1292,12 +1301,15 @@ const paymentColors = {
   border: colors.borderSoft,
   dark: colors.primary,
   success: colors.success,
-  successSoft: colors.borderSoft,
+  successSoft: colors.successSoft,
   warning: colors.warning,
-  warningSoft: colors.borderSoft,
+  warningSoft: colors.warningSoft,
 };
 
 const styles = StyleSheet.create({
+  disabled: {
+    opacity: 0.5,
+  },
   accountMissingBody: {
     color: paymentColors.muted,
     flexShrink: 1,
@@ -1331,7 +1343,7 @@ const styles = StyleSheet.create({
   accountMissingIcon: {
     alignItems: 'center',
     backgroundColor: paymentColors.warningSoft,
-    borderRadius: 18,
+    borderRadius: radius.item,
     height: 42,
     justifyContent: 'center',
     width: 42,
@@ -1344,9 +1356,9 @@ const styles = StyleSheet.create({
   },
   accountPanel: {
     backgroundColor: paymentColors.card,
-    borderRadius: 18,
+    borderRadius: radius.item,
     gap: 12,
-    padding: 20,
+    padding: spacing.card,
   },
   accountCopyHint: {
     color: paymentColors.success,
@@ -1392,7 +1404,7 @@ const styles = StyleSheet.create({
   paymentAccountCardIcon: {
     alignItems: 'center',
     backgroundColor: colors.primarySoft,
-    borderRadius: 14,
+    borderRadius: radius.control,
     height: 42,
     justifyContent: 'center',
     width: 42,
@@ -1438,7 +1450,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     backgroundColor: paymentColors.card,
     borderColor: paymentColors.border,
-    borderRadius: 18,
+    borderRadius: radius.item,
     borderWidth: 1,
     gap: 14,
     padding: 18,
@@ -1572,9 +1584,9 @@ const styles = StyleSheet.create({
   },
   detailHeroCard: {
     backgroundColor: paymentColors.card,
-    borderRadius: 22,
+    borderRadius: radius.card,
     gap: 12,
-    padding: 22,
+    padding: spacing.card,
   },
   detailHeroTopRow: {
     alignItems: 'center',
@@ -1583,17 +1595,18 @@ const styles = StyleSheet.create({
   },
   detailInfoCard: {
     backgroundColor: paymentColors.card,
-    borderRadius: 18,
+    borderRadius: radius.item,
     gap: 10,
-    padding: 18,
+    padding: spacing.card,
   },
   detailPrimaryButton: {
     alignItems: 'center',
     backgroundColor: paymentColors.dark,
-    borderRadius: 16,
+    borderRadius: radius.control,
     justifyContent: 'center',
-    minHeight: 52,
-    paddingHorizontal: 18,
+    minHeight: control.height,
+    paddingHorizontal: control.paddingX,
+    paddingVertical: 12,
     flexGrow: 1,
     flexBasis: 140,
   },
@@ -1602,28 +1615,29 @@ const styles = StyleSheet.create({
   },
   detailPrimaryButtonText: {
     color: paymentColors.card,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
+    ...typography.label,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   detailPrimaryButtonTextDisabled: {
     color: colors.textMuted,
   },
   detailTossButton: {
     alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 16,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.control,
     flexBasis: 140,
     flexGrow: 1,
     justifyContent: 'center',
-    minHeight: 52,
-    paddingHorizontal: 18,
+    minHeight: control.height,
+    paddingHorizontal: control.paddingX,
+    paddingVertical: 12,
   },
   detailTossButtonText: {
-    color: colors.surface,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
+    color: colors.primary,
+    ...typography.label,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   detailSubtitle: {
     color: paymentColors.muted,
@@ -1653,17 +1667,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     flexGrow: 1,
-    minHeight: 34,
+    minHeight: control.compactHeight,
     minWidth: 64,
+    flexBasis: 64,
     justifyContent: 'center',
     paddingHorizontal: 10,
     paddingVertical: 7,
+  },
+  filterChipCompact: {
+    flexBasis: '45%',
+    minWidth: 0,
   },
   filterChipActive: {
     backgroundColor: colors.borderSoft,
     borderColor: colors.borderSoft,
   },
   filterChipText: {
+    textAlign: 'center',
+    flexShrink: 1,
     color: colors.mutedText,
     fontSize: 13,
     fontWeight: '700',
@@ -1694,6 +1715,7 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
   },
   figmaCampusChip: {
@@ -1803,14 +1825,13 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   figmaTitle: {
-    color: paymentColors.text,
-    fontSize: 24,
-    fontWeight: '600',
-    lineHeight: 34,
+    ...typography.screenTitle,
+    color: colors.textPrimary,
+    flexShrink: 1,
   },
   filterPanel: {
     backgroundColor: paymentColors.card,
-    borderRadius: 18,
+    borderRadius: radius.item,
     gap: 14,
     padding: 16,
   },
@@ -1845,10 +1866,9 @@ const styles = StyleSheet.create({
   paymentHeroCard: {
     alignItems: 'flex-start',
     backgroundColor: paymentColors.card,
-    borderRadius: 22,
+    borderRadius: radius.card,
     minHeight: 118,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    padding: spacing.card,
   },
   paymentHeroLabel: {
     color: paymentColors.text,
@@ -1876,7 +1896,7 @@ const styles = StyleSheet.create({
   paymentStatusIcon: {
     alignItems: 'center',
     backgroundColor: paymentColors.chip,
-    borderRadius: 18,
+    borderRadius: radius.item,
     height: 42,
     justifyContent: 'center',
     width: 42,
@@ -1894,7 +1914,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     backgroundColor: paymentColors.card,
     borderColor: paymentColors.border,
-    borderRadius: 18,
+    borderRadius: radius.item,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 14,

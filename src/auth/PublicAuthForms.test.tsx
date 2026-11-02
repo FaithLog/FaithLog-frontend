@@ -60,7 +60,8 @@ vi.mock('../analytics/trackedApiSuccess', () => ({
   },
 }));
 
-vi.mock('../theme', () => ({
+vi.mock('../theme', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../theme')>(),
   colors: new Proxy({}, {get: () => '#000000'}),
 }));
 

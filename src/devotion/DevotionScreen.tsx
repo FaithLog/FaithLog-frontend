@@ -28,7 +28,7 @@ import {
 } from '../components/ui';
 import {IconexIcon} from '../components/IconexIcon';
 import {AppModal} from '../components/AppModal';
-import {colors, typography} from '../theme';
+import {colors, control, radius, spacing, typography} from '../theme';
 import {formatWon} from '../utils/money';
 import {copyTextToClipboard, formatAccountClipboardText} from '../utils/clipboard';
 import {invalidatePaymentContextCache} from '../payments/paymentContextCache';
@@ -1346,7 +1346,7 @@ const styles = StyleSheet.create({
   campusChip: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.faithSoft,
     borderRadius: 12,
     justifyContent: 'center',
     maxWidth: '100%',
@@ -1354,11 +1354,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   campusChipText: {
+    ...typography.caption,
     color: colors.faith,
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 16,
     maxWidth: 220,
+    fontWeight: '600',
   },
   captionText: {
     color: colors.textMuted,
@@ -1370,11 +1369,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.primary,
-    borderRadius: 12,
+    borderRadius: radius.control,
     borderWidth: 1,
-    minHeight: 44,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   currentWeekButtonText: {
     color: colors.primary,
@@ -1392,9 +1392,11 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     borderRadius: 10,
     borderWidth: 1,
-    height: 30,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
-    width: 62,
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 8,
   },
   checkPillChecked: {
     backgroundColor: colors.primary,
@@ -1408,11 +1410,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   checkPillText: {
+    ...typography.caption,
     color: colors.textPrimary,
-    fontSize: 11,
-    fontWeight: '600',
-    lineHeight: 14,
     textAlign: 'center',
+    fontWeight: '600',
+    flexShrink: 1,
   },
   checkPillTextChecked: {
     color: colors.surface,
@@ -1481,17 +1483,16 @@ const styles = StyleSheet.create({
   },
   infoPill: {
     alignItems: 'center',
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.faithSoft,
     borderRadius: 14,
-    height: 28,
+    minHeight: 28,
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
   infoPillText: {
+    ...typography.caption,
     color: colors.faith,
-    fontSize: 12,
     fontWeight: '600',
-    lineHeight: 17,
   },
   infoRow: {
     alignItems: 'center',
@@ -1534,16 +1535,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   lateInput: {
+    ...typography.body,
     backgroundColor: colors.background,
     borderColor: colors.borderSoft,
-    borderRadius: 12,
+    borderRadius: radius.control,
     borderWidth: 1,
     color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-    height: 38,
+    minHeight: control.height,
     textAlign: 'center',
     width: 96,
+    paddingVertical: 10,
   },
   lateText: {
     flex: 1,
@@ -1565,11 +1566,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   lockTitle: {
+    ...typography.cardTitle,
     color: colors.textPrimary,
     flex: 1,
-    fontSize: 17,
-    fontWeight: '700',
-    lineHeight: 24,
   },
   lockedDay: {
     alignItems: 'center',
@@ -1656,11 +1655,11 @@ const styles = StyleSheet.create({
   modalCard: {
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
-    borderRadius: 16,
+    borderRadius: radius.card,
     borderWidth: 1,
     gap: 16,
     maxWidth: 342,
-    padding: 20,
+    padding: spacing.card,
     width: '100%',
   },
   modalDescription: {
@@ -1670,38 +1669,34 @@ const styles = StyleSheet.create({
   modalPrimaryButton: {
     alignItems: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 14,
+    borderRadius: radius.control,
     flex: 1,
-    height: 46,
+    minHeight: control.height,
     justifyContent: 'center',
+    paddingVertical: 10,
   },
   modalPrimaryButtonText: {
+    ...typography.label,
     color: colors.surface,
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
   },
   modalSecondaryButton: {
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
-    borderRadius: 14,
+    borderRadius: radius.control,
     borderWidth: 1,
     flex: 1,
-    height: 46,
+    minHeight: control.height,
     justifyContent: 'center',
+    paddingVertical: 10,
   },
   modalSecondaryButtonText: {
+    ...typography.label,
     color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
   },
   modalTitle: {
+    ...typography.cardTitle,
     color: colors.textPrimary,
-    fontSize: 17,
-    fontWeight: '700',
-    lineHeight: 24,
   },
   pillRow: {
     flex: 1,
@@ -1716,16 +1711,15 @@ const styles = StyleSheet.create({
   primaryButton: {
     alignItems: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 14,
+    borderRadius: radius.control,
     flex: 1,
-    height: 48,
+    minHeight: control.height,
     justifyContent: 'center',
+    paddingVertical: 10,
   },
   primaryButtonText: {
+    ...typography.label,
     color: colors.surface,
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
   },
   previousWeekNotice: {
     alignItems: 'center',
@@ -1767,17 +1761,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
-    borderRadius: 14,
+    borderRadius: radius.control,
     borderWidth: 1,
     flex: 1,
-    height: 48,
+    minHeight: control.height,
     justifyContent: 'center',
+    paddingVertical: 10,
   },
   secondaryButtonText: {
+    ...typography.label,
     color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
   },
   sectionDescription: {
     color: colors.textSecondary,
@@ -1789,24 +1782,23 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   sectionTitle: {
+    ...typography.sectionTitle,
     color: colors.textPrimary,
-    fontSize: 20,
-    fontWeight: '700',
-    lineHeight: 28,
   },
   statusPill: {
     alignItems: 'center',
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.faithSoft,
     borderRadius: 14,
-    height: 28,
+    minHeight: 28,
     justifyContent: 'center',
-    width: 72,
+    minWidth: 72,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   statusPillText: {
+    ...typography.caption,
     color: colors.faith,
-    fontSize: 12,
     fontWeight: '600',
-    lineHeight: 17,
   },
   submitCard: {
     backgroundColor: colors.surface,

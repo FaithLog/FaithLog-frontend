@@ -52,7 +52,7 @@ import {
   Eyebrow,
   TextField,
 } from '../components/ui';
-import {colors, spacing} from '../theme';
+import {colors, control, radius, spacing} from '../theme';
 import type {MediaUploadItem} from '../media/mediaUploadPolicy';
 import {PollNoticeEditorSection} from '../polls/notice/PollNoticeComponents';
 import {buildPollNoticeMutationFields} from '../polls/notice/pollNoticeContract';
@@ -2015,7 +2015,7 @@ function getPollStatusLabel(status: string) {
 const styles = StyleSheet.create({
   accountDeleteButton: {
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.dangerSoft,
     borderRadius: 12,
     flexShrink: 0,
     justifyContent: 'center',
@@ -2037,7 +2037,7 @@ const styles = StyleSheet.create({
   backButton: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
-    borderRadius: 18,
+    borderRadius: radius.item,
     height: 40,
     justifyContent: 'center',
     width: 40,
@@ -2071,7 +2071,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     backgroundColor: colors.borderSoft,
-    borderRadius: 14,
+    borderRadius: radius.control,
     maxWidth: 180,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -2138,7 +2138,7 @@ const styles = StyleSheet.create({
   coffeeMenuRow: {
     alignItems: 'center',
     borderColor: colors.borderSoft,
-    borderRadius: 18,
+    borderRadius: radius.item,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
@@ -2166,7 +2166,7 @@ const styles = StyleSheet.create({
   menuSheetClose: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
-    borderRadius: 18,
+    borderRadius: radius.item,
     height: 40,
     justifyContent: 'center',
     width: 40,
@@ -2202,7 +2202,7 @@ const styles = StyleSheet.create({
   },
   deletePreviewBox: {
     backgroundColor: colors.borderSoft,
-    borderRadius: 14,
+    borderRadius: radius.control,
     gap: 4,
     padding: space.md,
   },
@@ -2218,8 +2218,8 @@ const styles = StyleSheet.create({
   },
   pollCreateAddOption: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
-    borderRadius: 14,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.control,
     height: 40,
     justifyContent: 'center',
     minWidth: 58,
@@ -2247,8 +2247,8 @@ const styles = StyleSheet.create({
   },
   pollCreateOptionNumber: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
-    borderRadius: 18,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.item,
     height: 36,
     justifyContent: 'center',
     width: 36,
@@ -2266,7 +2266,7 @@ const styles = StyleSheet.create({
   pollCreateRemoveOption: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
-    borderRadius: 18,
+    borderRadius: radius.item,
     height: 40,
     justifyContent: 'center',
     width: 40,
@@ -2280,7 +2280,7 @@ const styles = StyleSheet.create({
   pollCreateSelectPill: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
-    borderRadius: 14,
+    borderRadius: radius.control,
     height: 40,
     justifyContent: 'center',
     minWidth: 58,
@@ -2310,14 +2310,14 @@ const styles = StyleSheet.create({
   pollCreateToggle: {
     alignItems: 'center',
     backgroundColor: colors.borderSoft,
-    borderRadius: 18,
+    borderRadius: radius.item,
     height: 36,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 12,
   },
   pollCreateToggleActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   pollCreateToggleRow: {
     alignItems: 'center',
@@ -2337,7 +2337,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.faith,
-    borderRadius: 22,
+    borderRadius: radius.card,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
@@ -2437,7 +2437,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   selectRowActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderColor: colors.primary,
   },
   selectTitle: {
@@ -2451,7 +2451,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
-    minHeight: 40,
+    minHeight: control.compactHeight,
     paddingVertical: 7,
   },
   segmentedButtonActive: {
