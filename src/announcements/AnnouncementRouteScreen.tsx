@@ -853,9 +853,9 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   thumbnailListContent: {gap: 10, paddingRight: 4},
-  thumbnailRetry: {alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.pill, justifyContent: 'center', minHeight: 28, paddingHorizontal: 8},
-  thumbnailRetryText: {color: colors.primary, fontSize: 11, fontWeight: '700'},
-  thumbnailStatus: {color: colors.textMuted, fontSize: 11, lineHeight: 14, textAlign: 'center'},
+  thumbnailRetry: {alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: radius.pill, justifyContent: 'center', minHeight: 44, paddingHorizontal: 8},
+  thumbnailRetryText: {color: colors.primary, fontSize: 13, fontWeight: '700'},
+  thumbnailStatus: {color: colors.textSecondary, fontSize: 13, lineHeight: 18, textAlign: 'center'},
   mediaError: {
     alignItems: 'flex-start',
     backgroundColor: colors.surface,

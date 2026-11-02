@@ -13,7 +13,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 
-import {colors, radius, spacing, typography} from '../theme';
+import {colors, control, radius, spacing, typography} from '../theme';
 import {AppModal} from './AppModal';
 import {IconexIcon, type IconexIconName} from './IconexIcon';
 
@@ -24,6 +24,8 @@ type ButtonProps = PropsWithChildren<{
   accessibilityLabel: string;
   disabled?: boolean;
   variant?: ButtonVariant;
+  size?: 'default' | 'compact';
+  fullWidth?: boolean;
   onPress: () => void;
 }>;
 
@@ -204,6 +206,8 @@ export function Button({
   disabled = false,
   onPress,
   variant = 'primary',
+  size = 'default',
+  fullWidth = false,
 }: ButtonProps) {
   return (
     <Pressable
@@ -214,14 +218,15 @@ export function Button({
       onPress={onPress}
       style={({pressed}) => [
         styles.button,
+        size === 'compact' ? styles.compactButton : null,
+        fullWidth ? styles.fullWidthButton : null,
         styles[`${variant}Button`],
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
       ]}>
       <Text
         ellipsizeMode="tail"
-        numberOfLines={1}
-        style={[styles.buttonText, styles[`${variant}ButtonText`]]}>
+        style={[styles.buttonText, size === 'compact' ? styles.compactButtonText : null, styles[`${variant}ButtonText`]]}>
         {children}
       </Text>
     </Pressable>
@@ -411,6 +416,7 @@ export function ListRow({
   label,
   onPress,
   supportingText,
+  stacked = false,
   value,
 }: {
   accessibilityLabel?: string;
@@ -418,11 +424,12 @@ export function ListRow({
   label: string;
   onPress?: () => void;
   supportingText?: string;
+  stacked?: boolean;
   value?: string;
 }) {
   const content = (
     <>
-      <View style={styles.listRowText}>
+      <View style={[styles.listRowText, stacked ? styles.stackedListRowText : null]}>
         <Text style={styles.listRowLabel}>{label}</Text>
         {supportingText ? <Text style={styles.listRowSupporting}>{supportingText}</Text> : null}
       </View>
@@ -437,13 +444,13 @@ export function ListRow({
         accessibilityLabel={accessibilityLabel ?? label}
         accessibilityRole="button"
         onPress={onPress}
-        style={({pressed}) => [styles.listRow, pressed ? styles.pressed : null]}>
+        style={({pressed}) => [styles.listRow, stacked ? styles.stackedListRow : null, pressed ? styles.pressed : null]}>
         {content}
       </Pressable>
     );
   }
 
-  return <View style={styles.listRow}>{content}</View>;
+  return <View style={[styles.listRow, stacked ? styles.stackedListRow : null]}>{content}</View>;
 }
 
 export function BottomNav<T extends string>({
@@ -633,7 +640,7 @@ const styles = StyleSheet.create({
   },
   faithLogHeaderCampusChip: {
     alignItems: 'center',
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.faithSoft,
     borderRadius: 12,
     flexShrink: 1,
     height: 28,
@@ -675,14 +682,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: 18,
     flexShrink: 0,
-    height: 36,
+    height: control.compactHeight,
     justifyContent: 'center',
     position: 'relative',
     shadowColor: colors.textPrimary,
     shadowOffset: {width: 0, height: 8},
     shadowOpacity: 0.04,
     shadowRadius: 12,
-    width: 36,
+    width: control.compactHeight,
   },
   faithLogHeaderLeft: {
     alignItems: 'center',
@@ -698,7 +705,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexShrink: 0,
     gap: 4,
-    height: 34,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     maxWidth: 104,
     paddingHorizontal: 13,
@@ -722,7 +729,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'space-between',
-    minHeight: 36,
+    minHeight: control.compactHeight,
     width: '100%',
   },
   screenHeader: {
@@ -782,8 +789,11 @@ const styles = StyleSheet.create({
   },
   chip: {
     alignSelf: 'flex-start',
+    flexShrink: 1,
+    maxWidth: '100%',
     borderRadius: radius.pill,
-    ...typography.label,
+    ...typography.caption,
+    fontWeight: '600',
     overflow: 'hidden',
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -816,46 +826,55 @@ const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    borderRadius: 12,
+    borderRadius: radius.control,
     borderWidth: 1,
-    minHeight: 34,
+    minHeight: control.height,
     minWidth: 58,
     justifyContent: 'center',
     maxWidth: '100%',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: control.paddingX,
+    paddingVertical: 10,
+  },
+  compactButton: {
+    minHeight: control.compactHeight,
+  },
+  fullWidthButton: {
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  compactButtonText: {
+    ...typography.caption,
+    fontWeight: '600',
   },
   primaryButton: {
-    backgroundColor: colors.borderSoft,
-    borderColor: colors.borderSoft,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   secondaryButton: {
     backgroundColor: colors.borderSoft,
     borderColor: colors.borderSoft,
   },
   dangerButton: {
-    backgroundColor: colors.borderSoft,
-    borderColor: colors.borderSoft,
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
   },
   ghostButton: {
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
   },
   buttonText: {
+    ...typography.label,
     flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
     textAlign: 'center',
   },
   primaryButtonText: {
-    color: colors.primary,
+    color: colors.surface,
   },
   secondaryButtonText: {
     color: colors.textSecondary,
   },
   dangerButtonText: {
-    color: colors.danger,
+    color: colors.surface,
   },
   ghostButtonText: {
     color: colors.textSecondary,
@@ -940,17 +959,19 @@ const styles = StyleSheet.create({
   },
   dangerSheetActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.gap,
   },
   dangerCancelButton: {
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.borderSoft,
-    borderRadius: 12,
+    borderRadius: radius.control,
     borderWidth: 1,
-    flex: 1,
+    flexBasis: 120,
+    flexGrow: 1,
     justifyContent: 'center',
-    minHeight: 36,
+    minHeight: control.height,
     minWidth: 0,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -958,32 +979,29 @@ const styles = StyleSheet.create({
   dangerCancelButtonText: {
     color: colors.textSecondary,
     flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
+    ...typography.label,
     textAlign: 'center',
   },
   dangerConfirmButton: {
     alignItems: 'center',
-    backgroundColor: colors.borderSoft,
-    borderColor: colors.borderSoft,
-    borderRadius: 12,
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+    borderRadius: radius.control,
     borderWidth: 1,
-    flex: 1.08,
+    flexBasis: 120,
+    flexGrow: 1,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    minHeight: 36,
+    minHeight: control.height,
     minWidth: 0,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   dangerConfirmButtonText: {
-    color: colors.danger,
+    color: colors.surface,
     flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
+    ...typography.label,
     textAlign: 'center',
   },
   disabled: {
@@ -1042,6 +1060,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  stackedListRow: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  stackedListRowText: {
+    flex: 0,
+    width: '100%',
+  },
   listRowText: {
     flex: 1,
     gap: 3,
@@ -1076,13 +1103,13 @@ const styles = StyleSheet.create({
     height: 66,
     justifyContent: 'space-between',
     overflow: 'hidden',
-    paddingHorizontal: 1,
-    paddingVertical: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
     width: '100%',
   },
   bottomNavItem: {
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: 13,
     flexBasis: 68,
     flexGrow: 1,
     flexShrink: 1,
@@ -1095,7 +1122,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   bottomNavItemActive: {
-    backgroundColor: '#F2F7FF',
+    backgroundColor: colors.primarySoft,
   },
   navIcon: {
     color: colors.mutedText,
@@ -1140,16 +1167,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.borderSoft,
   },
   infoStateIcon: {
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.primarySoft,
   },
   successStateIcon: {
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.successSoft,
   },
   warningStateIcon: {
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.warningSoft,
   },
   dangerStateIcon: {
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.dangerSoft,
   },
   stateTitle: {
     color: colors.text,

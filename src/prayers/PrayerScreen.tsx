@@ -1,3 +1,4 @@
+import {getNameInitial} from '../utils/nameInitial';
 import {useEffect, useMemo, useState} from 'react';
 import {
   KeyboardAvoidingView,
@@ -719,7 +720,7 @@ function PrayerEntryPanel({
         <Card key={draft.userId}>
           <View style={styles.memberHeader}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{draft.name.slice(0, 1)}</Text>
+              <Text style={styles.avatarText}>{getNameInitial(draft.name)}</Text>
             </View>
             <View style={styles.memberText}>
               <Text style={styles.memberName}>{draft.name}</Text>
@@ -1238,7 +1239,7 @@ const styles = StyleSheet.create({
   },
   campusChip: {
     alignItems: 'center',
-    backgroundColor: colors.borderSoft,
+    backgroundColor: colors.faithSoft,
     borderRadius: 12,
     flexShrink: 1,
     height: 28,

@@ -1,3 +1,4 @@
+import {getNameInitial} from '../utils/nameInitial';
 import {ManualCoffeeOptionForm, CoffeeOptionModeSelector, type CoffeeOptionMode} from '../coffee/ManualCoffeeOptionForm';
 import type {ManualCoffeeOption} from '../coffee/manualCoffeeOption';
 import {MemberListModalButton} from '../components/MemberListModalButton';
@@ -10,6 +11,7 @@ import {
   ScrollView,
   SectionList,
   StyleSheet,
+  useWindowDimensions,
   Text,
   TextInput,
   View,
@@ -76,7 +78,7 @@ import {IconexIcon, type IconexIconName} from '../components/IconexIcon';
 import {DutyConfirmSheet} from '../duty/DutyPresentation';
 import type {PollOpenTarget} from '../notifications/pushNavigation';
 import {ContentShareActions} from '../sharing/ContentShareActions';
-import {colors, radius, spacing} from '../theme';
+import {colors, control, radius, spacing, typography} from '../theme';
 import {isCurrentDetailEpoch} from '../utils/requestIdentity';
 import {chunkForVirtualizedRows} from '../utils/listVirtualization';
 import {getPollActionErrorPresentation, toDeletedCommentRefreshError} from './pollMutationSafety';
@@ -989,7 +991,7 @@ export function PollScreen({
         enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={16}
         style={styles.keyboardRoot}>
-        <InlineNotice message={refreshWarning ?? '투표 현황은 5초마다 자동으로 갱신됩니다.'} tone={refreshWarning ? 'warning' : 'info'} />
+        <InlineNotice message={refreshWarning ?? '투표 현황을 5초마다 갱신해요.'} tone={refreshWarning ? 'warning' : 'info'} />
         {detailScrollOwner === 'flatList' ? (
           <CommentsPanel
             actionError={actionError}
@@ -1222,7 +1224,7 @@ export function PollScreen({
       enabled={Platform.OS === 'ios'}
       keyboardVerticalOffset={16}
       style={styles.keyboardRoot}>
-      <InlineNotice message={refreshWarning ?? '투표 현황은 5초마다 자동으로 갱신됩니다.'} tone={refreshWarning ? 'warning' : 'info'} />
+      <InlineNotice message={refreshWarning ?? '투표 현황을 5초마다 갱신해요.'} tone={refreshWarning ? 'warning' : 'info'} />
       <ScrollView
         contentContainerStyle={[
           styles.figmaScreen,
@@ -1678,6 +1680,7 @@ function ResponsePanel({
       <View style={styles.responseSubmitRow}>
         <Button
           accessibilityLabel="투표 응답 저장"
+          fullWidth
           disabled={!isOpen || responding}
           onPress={onSubmit}>
           {responding ? '저장 중...' : hasResponse ? '응답 수정' : getPollSubmitLabel(detail)}
@@ -2096,12 +2099,14 @@ const MemoizedPollRespondent = memo(function MemoizedPollRespondent({
 }: {
   respondent: PollRespondent;
 }) {
+  const {width, fontScale} = useWindowDimensions();
+  const singleColumn = width <= 360 || fontScale > 1.2;
   return (
-    <View style={styles.respondent}>
+    <View style={[styles.respondent, singleColumn ? styles.respondentFullWidth : null]}>
       <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{respondent.name.slice(0, 1)}</Text>
+        <Text style={styles.avatarText}>{getNameInitial(respondent.name)}</Text>
       </View>
-      <Text numberOfLines={1} style={styles.respondentName}>
+      <Text numberOfLines={2} style={styles.respondentName}>
         {respondent.name}
       </Text>
     </View>
@@ -2115,6 +2120,8 @@ function PollListCard({
   onPress: () => void;
   poll: PollSummary;
 }) {
+  const {width} = useWindowDimensions();
+  const compact = width <= 360;
   const respondedOrClosed = poll.responded || poll.status !== 'OPEN';
 
   return (
@@ -2122,8 +2129,8 @@ function PollListCard({
       accessibilityLabel={`${poll.title} 상세 보기`}
       accessibilityRole="button"
       onPress={onPress}
-      style={({pressed}) => [styles.figmaPollRow, pressed ? styles.pressed : null]}>
-      <View style={styles.figmaPollIcon}>
+      style={({pressed}) => [styles.figmaPollRow, compact ? styles.figmaPollRowCompact : null, pressed ? styles.pressed : null]}>
+      <View style={[styles.figmaPollIcon, compact ? styles.figmaPollIconCompact : null]}>
         {respondedOrClosed ? (
           <Text style={styles.figmaPollIconText}>{poll.responded ? '✓' : getPollInitial(poll.pollType)}</Text>
         ) : (
@@ -2132,9 +2139,11 @@ function PollListCard({
       </View>
       <View style={styles.figmaPollText}>
         <Text style={styles.figmaPollTitle}>{poll.title}</Text>
-        <Text style={styles.figmaPollMeta}>
-          {getPollTypeLabel(poll.pollType)} · {poll.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'} · {poll.isAnonymous ? '익명' : '공개'}
-        </Text>
+        <View style={styles.figmaPollMetaRow}>
+          <Text style={styles.figmaPollMeta}>{getPollTypeLabel(poll.pollType)}</Text>
+          <Text style={styles.figmaPollMeta}>{poll.selectionType === 'SINGLE' ? '단일 선택' : '다중 선택'}</Text>
+          <Text style={styles.figmaPollMeta}>{poll.isAnonymous ? '익명' : '공개'}</Text>
+        </View>
       </View>
       <View style={styles.figmaPollButton}>
         <Text style={styles.figmaPollButtonText}>
@@ -2884,7 +2893,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   responseSubmitRow: {
-    alignItems: 'flex-end',
+    alignItems: 'stretch',
   },
   responseSectionHeaderRow: {
     alignItems: 'center',
@@ -2894,6 +2903,7 @@ const styles = StyleSheet.create({
   },
   avatar: {
     alignItems: 'center',
+    flexShrink: 0,
     backgroundColor: colors.primarySoft,
     borderRadius: 12,
     height: 24,
@@ -2913,7 +2923,7 @@ const styles = StyleSheet.create({
   catalogBox: {
     backgroundColor: pollColors.card,
     borderColor: pollColors.border,
-    borderRadius: 18,
+    borderRadius: radius.item,
     borderWidth: 1,
     gap: 8,
     marginTop: spacing.gap,
@@ -2933,7 +2943,7 @@ const styles = StyleSheet.create({
   pollReminderButton: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: radius.pill,
     flexDirection: 'row',
     gap: 6,
@@ -2972,11 +2982,12 @@ const styles = StyleSheet.create({
   },
   commentCompactButton: {
     alignItems: 'center',
-    borderRadius: radius.pill,
-    minHeight: 34,
+    borderRadius: radius.control,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
     minWidth: 58,
     paddingHorizontal: 13,
+    paddingVertical: 8,
   },
   commentCompactButtonText: {
     fontSize: 14,
@@ -3005,9 +3016,11 @@ const styles = StyleSheet.create({
     backgroundColor: pollColors.chip,
     borderRadius: 12,
     flexShrink: 0,
-    height: 34,
+    minHeight: control.compactHeight,
     justifyContent: 'center',
-    width: 58,
+    minWidth: 52,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   figmaBackButtonText: {
     color: pollColors.text,
@@ -3016,7 +3029,7 @@ const styles = StyleSheet.create({
   },
   figmaReminderButton: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 12,
     flexDirection: 'row',
     flexShrink: 0,
@@ -3047,9 +3060,9 @@ const styles = StyleSheet.create({
   },
   figmaCommentCard: {
     backgroundColor: pollColors.card,
-    borderRadius: 18,
+    borderRadius: radius.item,
     gap: 12,
-    padding: 20,
+    padding: spacing.card,
   },
   figmaFilterChip: {
     alignItems: 'center',
@@ -3061,7 +3074,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   figmaFilterChipActive: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   figmaFilterText: {
     color: pollColors.text,
@@ -3096,11 +3109,11 @@ const styles = StyleSheet.create({
   },
   figmaHeroCard: {
     backgroundColor: pollColors.card,
-    borderRadius: 24,
+    borderRadius: radius.card,
     gap: 10,
     minHeight: 120,
-    paddingHorizontal: 22,
-    paddingVertical: 18,
+    paddingHorizontal: spacing.card,
+    paddingVertical: spacing.card,
   },
   figmaHeroMeta: {
     color: pollColors.muted,
@@ -3149,11 +3162,14 @@ const styles = StyleSheet.create({
   },
   figmaPollButton: {
     alignItems: 'center',
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 12,
-    height: 34,
+    minHeight: 32,
     justifyContent: 'center',
-    width: 58,
+    minWidth: 52,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flexShrink: 0,
   },
   figmaPollButtonText: {
     color: colors.primary,
@@ -3173,15 +3189,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  figmaPollMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   figmaPollMeta: {
+    ...typography.caption,
     color: pollColors.muted,
-    fontSize: 15,
-    lineHeight: 20,
+  },
+  figmaPollRowCompact: {
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  figmaPollIconCompact: {
+    height: 36,
+    width: 36,
   },
   figmaPollRow: {
     alignItems: 'center',
     backgroundColor: pollColors.card,
-    borderRadius: 18,
+    borderRadius: radius.item,
     flexDirection: 'row',
     gap: 12,
     minHeight: 82,
@@ -3228,10 +3256,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   figmaTitle: {
-    color: pollColors.text,
-    fontSize: 21,
-    fontWeight: '600',
-    lineHeight: 28,
+    ...typography.screenTitle,
+    color: colors.textPrimary,
+    flexShrink: 1,
   },
   headerRow: {
     alignItems: 'flex-start',
@@ -3306,7 +3333,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   optionCountPillSelected: {
-    backgroundColor: '#E8F3FF',
+    backgroundColor: colors.primarySoft,
   },
   optionCountText: {
     color: colors.textSecondary,
@@ -3469,7 +3496,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: pollColors.card,
     borderColor: pollColors.border,
-    borderRadius: 18,
+    borderRadius: radius.item,
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.gap,
@@ -3511,6 +3538,10 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 130,
     width: '46%',
+  },
+  respondentFullWidth: {
+    width: '100%',
+    minWidth: 0,
   },
   respondentGrid: {
     flexDirection: 'row',

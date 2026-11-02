@@ -3024,6 +3024,7 @@ function CampusDetailScreen({
       <View style={styles.userActionSpacer} />
       <Button
         accessibilityLabel="캠퍼스 상세 확인 후 앱 홈으로 이동"
+        fullWidth
         onPress={onContinue}>
         앱 시작하기
       </Button>
@@ -4853,7 +4854,7 @@ function ProfileActionRow({
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileActionTitle}>
           {title}
         </Text>
-        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.profileActionSubtitle}>
+        <Text ellipsizeMode="tail" numberOfLines={2} style={styles.profileActionSubtitle}>
           {subtitle}
         </Text>
       </View>
@@ -6108,9 +6109,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.borderSoft,
     borderRadius: 12,
     flexShrink: 0,
-    height: 32,
+    minHeight: 32,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     justifyContent: 'center',
-    width: 54,
+    minWidth: 54,
   },
   profileActionButtonText: {
     color: colors.primary,
@@ -6146,9 +6149,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   profileActionSubtitle: {
-    color: colors.textMuted,
+    color: colors.textSecondary,
     flexShrink: 1,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '400',
     lineHeight: 18,
   },

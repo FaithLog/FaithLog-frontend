@@ -41,6 +41,7 @@ vi.mock('../payments/paymentContextCache', () => ({invalidatePaymentContextCache
 vi.mock('../polls/PollScreen', () => ({}));
 vi.mock('../prayers/PrayerScreen', () => ({}));
 vi.mock('../theme', () => ({
+  control: {height: 48, compactHeight: 44, paddingX: 16},
   colors: new Proxy({}, {get: () => '#000000'}),
   radius: new Proxy({}, {get: () => 12}),
   spacing: new Proxy({}, {get: () => 8}),

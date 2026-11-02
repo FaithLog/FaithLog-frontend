@@ -635,6 +635,7 @@ function WeeklySuccess({
           <Text style={styles.sectionEmpty}>선택한 주차의 제출자가 없습니다.</Text>
         ) : (
           <>
+            <Text style={styles.tableHint}>좌우로 밀면 경건 횟수와 벌금을 모두 볼 수 있어요.</Text>
             <ScrollView
               accessibilityLabel="제출자 표 가로 스크롤"
               horizontal
@@ -1084,6 +1085,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   sectionTitle: {color: colors.textPrimary, fontSize: 16, fontWeight: '700'},
+  tableHint: {color: colors.textSecondary, fontSize: 13, lineHeight: 18},
   sectionEmpty: {color: colors.textMuted, fontSize: 14, lineHeight: 20},
   moreButton: {
     alignItems: 'center',
