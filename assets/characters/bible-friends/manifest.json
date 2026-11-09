@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "state": "idle",
+  "format": "rgba-png",
+  "characters": [
+    {
+      "id": "daniel-lion",
+      "file": "daniel-lion-idle.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 630550
+    },
+    {
+      "id": "david-lamb",
+      "file": "david-lamb-idle.png",
+      "width": 1312,
+      "height": 1199,
+      "bytes": 773880
+    },
+    {
+      "id": "jonah-whale",
+      "file": "jonah-whale-idle.png",
+      "width": 1312,
+      "height": 1199,
+      "bytes": 854965
+    },
+    {
+      "id": "noah-bear",
+      "file": "noah-bear-idle.png",
+      "width": 1312,
+      "height": 1199,
+      "bytes": 718526
+    },
+    {
+      "id": "peace-dove",
+      "file": "peace-dove-idle.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 608483
+    }
+  ]
+}
