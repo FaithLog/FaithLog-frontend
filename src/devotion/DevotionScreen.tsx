@@ -689,7 +689,7 @@ function EntryView({
         </View>
         <View style={styles.weekRuleRow}>
           <Text style={styles.weekRuleText}>{penaltySummary.amountStatus === 'rulesUnavailable' ? '경건 기준 확인 중' : penaltySummary.rows.filter(row => row.key !== 'late').map(row => `${row.label} ${row.requiredCount}회`).join(' · ')}</Text>
-          <Text style={styles.weekRuleText}>지각 벌금 별도 · 최대 5,000원</Text>
+          <Text style={styles.weekRuleText}>지각 벌금은 별도로 계산돼요</Text>
         </View>
         <Text style={styles.weekSummaryText}>
           현재 큐티 {counts.quietTime}/{penaltySummary.rows[0]!.requiredCount} · 기도 {counts.prayer}/{penaltySummary.rows[1]!.requiredCount} · 말씀{' '}

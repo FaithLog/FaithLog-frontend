@@ -215,7 +215,7 @@ function buildLatePenaltyRow(activeRules: PenaltyRule[], lateMinutes: number) {
   return {
     key: 'late' as const,
     label: '토요 지각',
-    amount: Math.min(5000, amount),
+    amount,
     missingUnits: safeLateMinutes,
     recordedCount: safeLateMinutes,
     requiredCount: 0,

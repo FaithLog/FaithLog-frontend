@@ -116,12 +116,12 @@ describe('devotion utilities', () => {
     );
 
     expect(summary.amountStatus).toBe('ready');
-    expect(summary.totalEstimatedAmount).toBe(23000);
+    expect(summary.totalEstimatedAmount).toBe(26000);
     expect(summary.rows.map((row) => [row.label, row.missingUnits, row.amount])).toEqual([
       ['큐티', 2, 5000],
       ['기도', 3, 6000],
       ['말씀', 4, 7000],
-      ['토요 지각', 10, 5000],
+      ['토요 지각', 10, 8000],
     ]);
   });
 
