@@ -1,0 +1,485 @@
+{
+  "version": 1,
+  "frameSize": 192,
+  "anchor": {
+    "x": 96,
+    "y": 176
+  },
+  "characters": [
+    {
+      "id": "david-lamb",
+      "sourceSheet": "exec-4f57704f-074b-4471-9bae-45d277038686.png",
+      "animations": {
+        "idle": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "david-lamb/idle-0.png",
+              "durationMs": 1800
+            },
+            {
+              "file": "david-lamb/idle-1.png",
+              "durationMs": 100
+            },
+            {
+              "file": "david-lamb/idle-2.png",
+              "durationMs": 130
+            },
+            {
+              "file": "david-lamb/idle-3.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "walk": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "david-lamb/walk-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "david-lamb/walk-1.png",
+              "durationMs": 150
+            },
+            {
+              "file": "david-lamb/walk-2.png",
+              "durationMs": 150
+            },
+            {
+              "file": "david-lamb/walk-3.png",
+              "durationMs": 150
+            }
+          ]
+        },
+        "happy": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "david-lamb/happy-0.png",
+              "durationMs": 120
+            },
+            {
+              "file": "david-lamb/happy-1.png",
+              "durationMs": 180
+            },
+            {
+              "file": "david-lamb/happy-2.png",
+              "durationMs": 240
+            },
+            {
+              "file": "david-lamb/happy-3.png",
+              "durationMs": 240
+            }
+          ]
+        },
+        "held": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "david-lamb/held-0.png",
+              "durationMs": 220
+            },
+            {
+              "file": "david-lamb/held-1.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "land": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "david-lamb/land-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "david-lamb/land-1.png",
+              "durationMs": 200
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "noah-bear",
+      "sourceSheet": "exec-d14765fc-c175-44f1-a93e-4c33ed130c59.png",
+      "animations": {
+        "idle": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "noah-bear/idle-0.png",
+              "durationMs": 1800
+            },
+            {
+              "file": "noah-bear/idle-1.png",
+              "durationMs": 100
+            },
+            {
+              "file": "noah-bear/idle-2.png",
+              "durationMs": 130
+            },
+            {
+              "file": "noah-bear/idle-3.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "walk": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "noah-bear/walk-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "noah-bear/walk-1.png",
+              "durationMs": 150
+            },
+            {
+              "file": "noah-bear/walk-2.png",
+              "durationMs": 150
+            },
+            {
+              "file": "noah-bear/walk-3.png",
+              "durationMs": 150
+            }
+          ]
+        },
+        "happy": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "noah-bear/happy-0.png",
+              "durationMs": 120
+            },
+            {
+              "file": "noah-bear/happy-1.png",
+              "durationMs": 180
+            },
+            {
+              "file": "noah-bear/happy-2.png",
+              "durationMs": 240
+            },
+            {
+              "file": "noah-bear/happy-3.png",
+              "durationMs": 240
+            }
+          ]
+        },
+        "held": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "noah-bear/held-0.png",
+              "durationMs": 220
+            },
+            {
+              "file": "noah-bear/held-1.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "land": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "noah-bear/land-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "noah-bear/land-1.png",
+              "durationMs": 200
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "jonah-whale",
+      "sourceSheet": "exec-5591add3-3df6-485e-b979-d2086930b717.png",
+      "animations": {
+        "idle": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "jonah-whale/idle-0.png",
+              "durationMs": 1800
+            },
+            {
+              "file": "jonah-whale/idle-1.png",
+              "durationMs": 100
+            },
+            {
+              "file": "jonah-whale/idle-2.png",
+              "durationMs": 130
+            },
+            {
+              "file": "jonah-whale/idle-3.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "walk": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "jonah-whale/walk-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "jonah-whale/walk-1.png",
+              "durationMs": 150
+            },
+            {
+              "file": "jonah-whale/walk-2.png",
+              "durationMs": 150
+            },
+            {
+              "file": "jonah-whale/walk-3.png",
+              "durationMs": 150
+            }
+          ]
+        },
+        "happy": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "jonah-whale/happy-0.png",
+              "durationMs": 120
+            },
+            {
+              "file": "jonah-whale/happy-1.png",
+              "durationMs": 180
+            },
+            {
+              "file": "jonah-whale/happy-2.png",
+              "durationMs": 240
+            },
+            {
+              "file": "jonah-whale/happy-3.png",
+              "durationMs": 240
+            }
+          ]
+        },
+        "held": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "jonah-whale/held-0.png",
+              "durationMs": 220
+            },
+            {
+              "file": "jonah-whale/held-1.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "land": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "jonah-whale/land-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "jonah-whale/land-1.png",
+              "durationMs": 200
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "daniel-lion",
+      "sourceSheet": "exec-e6b06bbc-268d-4296-b73a-410a560febf8.png",
+      "animations": {
+        "idle": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "daniel-lion/idle-0.png",
+              "durationMs": 1800
+            },
+            {
+              "file": "daniel-lion/idle-1.png",
+              "durationMs": 100
+            },
+            {
+              "file": "daniel-lion/idle-2.png",
+              "durationMs": 130
+            },
+            {
+              "file": "daniel-lion/idle-3.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "walk": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "daniel-lion/walk-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "daniel-lion/walk-1.png",
+              "durationMs": 150
+            },
+            {
+              "file": "daniel-lion/walk-2.png",
+              "durationMs": 150
+            },
+            {
+              "file": "daniel-lion/walk-3.png",
+              "durationMs": 150
+            }
+          ]
+        },
+        "happy": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "daniel-lion/happy-0.png",
+              "durationMs": 120
+            },
+            {
+              "file": "daniel-lion/happy-1.png",
+              "durationMs": 180
+            },
+            {
+              "file": "daniel-lion/happy-2.png",
+              "durationMs": 240
+            },
+            {
+              "file": "daniel-lion/happy-3.png",
+              "durationMs": 240
+            }
+          ]
+        },
+        "held": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "daniel-lion/held-0.png",
+              "durationMs": 220
+            },
+            {
+              "file": "daniel-lion/held-1.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "land": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "daniel-lion/land-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "daniel-lion/land-1.png",
+              "durationMs": 200
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "peace-dove",
+      "sourceSheet": "exec-225fdfc7-454c-47ff-99ae-52310d2d4722.png",
+      "animations": {
+        "idle": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "peace-dove/idle-0.png",
+              "durationMs": 1800
+            },
+            {
+              "file": "peace-dove/idle-1.png",
+              "durationMs": 100
+            },
+            {
+              "file": "peace-dove/idle-2.png",
+              "durationMs": 130
+            },
+            {
+              "file": "peace-dove/idle-3.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "walk": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "peace-dove/walk-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "peace-dove/walk-1.png",
+              "durationMs": 150
+            },
+            {
+              "file": "peace-dove/walk-2.png",
+              "durationMs": 150
+            },
+            {
+              "file": "peace-dove/walk-3.png",
+              "durationMs": 150
+            }
+          ]
+        },
+        "happy": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "peace-dove/happy-0.png",
+              "durationMs": 120
+            },
+            {
+              "file": "peace-dove/happy-1.png",
+              "durationMs": 180
+            },
+            {
+              "file": "peace-dove/happy-2.png",
+              "durationMs": 240
+            },
+            {
+              "file": "peace-dove/happy-3.png",
+              "durationMs": 240
+            }
+          ]
+        },
+        "held": {
+          "loop": true,
+          "frames": [
+            {
+              "file": "peace-dove/held-0.png",
+              "durationMs": 220
+            },
+            {
+              "file": "peace-dove/held-1.png",
+              "durationMs": 220
+            }
+          ]
+        },
+        "land": {
+          "loop": false,
+          "frames": [
+            {
+              "file": "peace-dove/land-0.png",
+              "durationMs": 150
+            },
+            {
+              "file": "peace-dove/land-1.png",
+              "durationMs": 200
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
