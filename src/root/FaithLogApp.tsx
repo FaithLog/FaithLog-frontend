@@ -1,3 +1,4 @@
+import {createDailyMissionApi} from '../companions/dailyMissionApi';
 import {pickValidationFieldErrors} from '../api/validationErrors';
 import {
   type Dispatch,
@@ -70,7 +71,7 @@ import type {
 import {CompanionProvider, isCompanionPreviewEnabled} from '../companions/CompanionProvider';
 import {CompanionGarden} from '../companions/CompanionGarden';
 import {CompanionPages} from '../companions/CompanionPages';
-import type {CompanionPage} from '../companions/companionModel';
+import {getMissionPeriodKeys, type CompanionPage} from '../companions/companionModel';
 import {AdminScreen} from '../admin/AdminScreen';
 import {
   getAuthenticatedAnalyticsScreen,
@@ -1965,7 +1966,9 @@ function StatusCard({
 }
 
 function AuthenticatedShell(props: ComponentProps<typeof AuthenticatedShellContent>) {
-  return <CompanionProvider key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
+  const campusId = props.state.selectedCampus.campusId;
+  const dailyApi = useMemo(() => createDailyMissionApi(campusId, () => resolveCurrentAccessToken(() => undefined)), [campusId]);
+  return <CompanionProvider dailyApi={dailyApi} key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
     <AuthenticatedShellContent {...props} />
   </CompanionProvider>;
 }
@@ -2006,6 +2009,7 @@ function AuthenticatedShellContent({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance' | 'companions'>('dashboard');
   const [companionPage, setCompanionPage] = useState<CompanionPage>('manage');
+  const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
   const companionScrollRef = useRef<ScrollView>(null);
   const [companionDragging, setCompanionDragging] = useState(false);
   const [shepherdAttendanceHome, setShepherdAttendanceHome] = useState<{campusId: number; data: ShepherdAttendanceHome} | null>(null);
@@ -2648,10 +2652,12 @@ function AuthenticatedShellContent({
               initialPage={companionPage}
               onScrollTop={() => companionScrollRef.current?.scrollTo({y: 0, animated: true})}
               onBack={() => setUserHomeView('dashboard')}
-              onActivity={(target) => {setUserHomeView('dashboard'); setRoute(target);}}
+              onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {setUserHomeView('dashboard'); setRoute(target);}}}
             />
           ) : userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
+              {...(isCompanionPreviewEnabled() ? {onBackToMissions: () => {setCompanionPage('missions'); setUserHomeView('companions');}} : {})}
+              {...(calendarInitialDate ? {initialDate: calendarInitialDate} : {})}
               canOpenAdminMode={adminModeRoutes.length > 0}
               onOpenWeeklyDevotion={(selectedDate) => {
                 setDevotionInitialDate(selectedDate);
@@ -2702,7 +2708,7 @@ function AuthenticatedShellContent({
                 setDevotionInitialDate(null);
                 setRoute('devotion');
               }}
-              onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenMonthlyCalendar={() => {setCalendarInitialDate(null); setUserHomeView('monthlyCalendar');}}
               onOpenCoffeeDuty={() => {
                 setProfileView('coffee');
                 setRoute('profile');

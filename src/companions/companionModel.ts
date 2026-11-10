@@ -1,3 +1,4 @@
+import {isDailyMission, DAILY_MISSION_SERVER_IDS, type DailyMissionSnapshot} from './dailyMissionContract';
 import {isGardenBackgroundId, type GardenBackgroundId} from './gardenBackgrounds';
 import {BIBLE_FRIEND_DESIGN_CATALOG, type BibleFriendDesignId, type BibleFriendRarity} from '../characters/bibleFriendDesignCatalog';
 
@@ -6,7 +7,7 @@ export type MissionPeriod = 'daily' | 'weekly' | 'monthly';
 export type MissionStatus = 'incomplete' | 'ready' | 'settling';
 export type MissionDefinition = Readonly<{
   id: string; period: MissionPeriod; label: string; points: number;
-  destination: 'devotion' | 'polls' | null;
+  destination: 'calendar' | 'devotion' | 'polls' | null;
 }>;
 export const DRAW_COST = 100;
 export const MAX_GARDEN_FRIENDS = 5;
@@ -16,9 +17,9 @@ export const DEMO_SELL_PRICES: Readonly<Record<BibleFriendRarity, number>> = {
 };
 export const MISSIONS: readonly MissionDefinition[] = [
   {id: 'attendance', period: 'daily', label: '출석', points: 10, destination: null},
-  {id: 'quiet-time', period: 'daily', label: '큐티', points: 30, destination: 'devotion'},
-  {id: 'prayer', period: 'daily', label: '기도', points: 30, destination: 'devotion'},
-  {id: 'bible', period: 'daily', label: '말씀 읽기', points: 30, destination: 'devotion'},
+  {id: 'quiet-time', period: 'daily', label: '큐티', points: 30, destination: 'calendar'},
+  {id: 'prayer', period: 'daily', label: '기도', points: 30, destination: 'calendar'},
+  {id: 'bible', period: 'daily', label: '말씀 읽기', points: 30, destination: 'calendar'},
   {id: 'submission', period: 'weekly', label: '경건 체크 제출', points: 100, destination: 'devotion'},
   {id: 'vote', period: 'weekly', label: '투표 참여', points: 50, destination: 'polls'},
   {id: 'weekly-no-penalty', period: 'weekly', label: '전주 벌금 없음', points: 50, destination: null},
@@ -30,6 +31,7 @@ export const RARITY_LABELS: Readonly<Record<BibleFriendRarity, string>> = {
 };
 export type CompanionState = Readonly<{
   points: number;
+  dailyAwardedPoints: number;
   backgroundId: GardenBackgroundId;
   inventory: Readonly<Partial<Record<BibleFriendDesignId, number>>>;
   equipped: readonly BibleFriendDesignId[];
@@ -38,6 +40,7 @@ export type CompanionState = Readonly<{
   transactions: readonly string[];
 }>;
 export type CompanionAction =
+  | {type: 'daily-sync'; snapshot: DailyMissionSnapshot}
   | {type: 'replace'; outgoingId: BibleFriendDesignId; incomingId: BibleFriendDesignId}
   | {type: 'background'; backgroundId: GardenBackgroundId}
   | {type: 'move'; designId: BibleFriendDesignId; position: Readonly<{x:number; y:number}>}
@@ -48,7 +51,7 @@ export type CompanionAction =
 const catalog = new Map(BIBLE_FRIEND_DESIGN_CATALOG.map(item => [item.id, item]));
 export function createCompanionDemoState(): CompanionState {
   return {
-    points: 1200, backgroundId: 'meadow',
+    points: 1200, dailyAwardedPoints: 0, backgroundId: 'meadow',
     inventory: {'david-lamb:base': 3, 'hope-rabbit:base': 2, 'noah-bear:base': 1,
       'joy-chick:base': 1, 'peace-penguin:base': 1, 'love-otter:starlight': 2, 'daniel-lion:unique': 1},
     equipped: ['david-lamb:base', 'hope-rabbit:base', 'noah-bear:base', 'joy-chick:base', 'peace-penguin:base'],
@@ -63,6 +66,18 @@ export function getSellQuote(state: CompanionState, id: BibleFriendDesignId, qua
 /** Session-only preview reducer. Never call this to settle real points or inventory. */
 export function companionReducer(state: CompanionState, action: CompanionAction): CompanionState {
   switch (action.type) {
+    case 'daily-sync': {
+      const {snapshot} = action;
+      const total = Math.max(state.dailyAwardedPoints, snapshot.totalAwardedPoints);
+      const claimed = [...state.claimed];
+      for (const id of ['quiet-time', 'prayer', 'bible'] as const) {
+        const item = snapshot.missions.find(mission => mission.mission === DAILY_MISSION_SERVER_IDS[id]);
+        const key = `${snapshot.recordDate}:${id}`;
+        if (item?.status === 'CLAIMED' && !claimed.includes(key)) claimed.push(key);
+      }
+      // The surrounding draw/inventory economy remains a development preview.
+      return {...state, points: state.points + total - state.dailyAwardedPoints, dailyAwardedPoints: total, claimed};
+    }
     case 'background':
       return isGardenBackgroundId(action.backgroundId) ? {...state, backgroundId: action.backgroundId} : state;
     case 'move': {
@@ -87,7 +102,7 @@ export function companionReducer(state: CompanionState, action: CompanionAction)
     case 'claim': {
       const mission = MISSIONS.find(m => m.id === action.missionId);
       const key = `${action.periodKey}:${action.missionId}`;
-      if (!mission || action.status !== 'ready' || !action.periodKey || state.claimed.includes(key)) return state;
+      if (!mission || isDailyMission(action.missionId) || action.status !== 'ready' || !action.periodKey || state.claimed.includes(key)) return state;
       return {...state, points: state.points + mission.points, claimed: [...state.claimed, key]};
     }
     case 'draw': {
@@ -117,7 +132,7 @@ export function getMissionPeriodKeys(now: Date) {
   return {daily, weekly: monday.toISOString().slice(0, 10), monthly: daily.slice(0, 7)};
 }
 export function getDemoMissionStatus(id: string): MissionStatus {
-  if (['attendance', 'quiet-time', 'bible', 'submission'].includes(id)) return 'ready';
+  if (['attendance', 'submission'].includes(id)) return 'ready';
   if (['weekly-no-penalty', 'monthly-no-penalty', 'all-submissions'].includes(id)) return 'settling';
   return 'incomplete';
 }

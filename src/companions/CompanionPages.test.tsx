@@ -19,19 +19,53 @@ vi.mock('../characters/BibleFriendDesignSprite', async () => ({BibleFriendDesign
 vi.mock('./GardenBackground', () => ({GardenBackground: (props: Record<string, unknown>) => React.createElement('GardenBackground', props)}));
 vi.mock('./CompanionDrawScene', () => ({CompanionDrawScene: (props: {onComplete: () => void}) => React.createElement('DrawScene', props)}));
 
+import type {DailyMissionApi, DailyMissionSnapshot} from './dailyMissionContract';
+import {getMissionPeriodKeys} from './companionModel';
 import {CompanionProvider} from './CompanionProvider';
 import {CompanionPages} from './CompanionPages';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 let tree: ReactTestRenderer | undefined;
 afterEach(async () => {if (tree) await act(async () => tree!.unmount()); tree = undefined; vi.restoreAllMocks();});
-async function render(page: 'manage' | 'missions' | 'draw', onActivity = vi.fn()) {
-  await act(async () => {tree = create(<CompanionProvider><CompanionPages initialPage={page} onBack={vi.fn()} onActivity={onActivity} /></CompanionProvider>);});
+async function render(page: 'manage' | 'missions' | 'draw', onActivity = vi.fn(), dailyApi?: DailyMissionApi) {
+  await act(async () => {tree = create(<CompanionProvider {...(dailyApi ? {dailyApi} : {})}><CompanionPages initialPage={page} onBack={vi.fn()} onActivity={onActivity} /></CompanionProvider>);});
   return tree!;
 }
 function button(label: string) {return tree!.root.findAllByType('Button' as React.ElementType).find(n => n.props.accessibilityLabel === label)!;}
 async function press(label: string) {const target = button(label); expect(target).toBeDefined(); expect(target.props.disabled).not.toBe(true); await act(async () => target.props.onPress());}
 function text() {return JSON.stringify(tree!.toJSON()) + tree!.root.findAllByType('Text' as React.ElementType).map(node => node.children.filter(child => typeof child === 'string').join('')).join('\n');}
 describe('companion page flows', () => {
+  it('only enables daily rewards after server confirms calendar save and credits confirmed claims once', async () => {
+    let snapshot: DailyMissionSnapshot = {recordDate:getMissionPeriodKeys(new Date()).daily,serverNow:new Date().toISOString(),totalAwardedPoints:0,missions:[{mission:'QUIET_TIME',status:'INCOMPLETE',points:30},{mission:'PRAYER',status:'INCOMPLETE',points:30},{mission:'BIBLE',status:'INCOMPLETE',points:30}]};
+    const api: DailyMissionApi = {load:vi.fn(async () => snapshot),claim:vi.fn(async () => ({...snapshot,totalAwardedPoints:30,missions:snapshot.missions.map(item => item.mission === 'PRAYER' ? {...item,status:'CLAIMED' as const} : item)}))};
+    await render('missions',vi.fn(),api);
+    expect(button('기도 하러 가기')).toBeDefined();
+    expect(button('기도 보상 받기')).toBeUndefined();
+    snapshot={...snapshot,missions:snapshot.missions.map(item => item.mission === 'PRAYER' ? {...item,status:'READY'} : item)};
+    await press('일간 미션 저장 기록 새로 확인');
+    const target=button('기도 보상 받기');
+    await act(async () => {target.props.onPress();target.props.onPress();});
+    expect(api.claim).toHaveBeenCalledTimes(1);
+    expect(api.claim).toHaveBeenCalledWith('prayer');
+    expect(text()).toContain('1,230');
+    expect(button('기도 수령 완료').props.disabled).toBe(true);
+  });
+  it('opens the server mission date even when it differs from the device clock', async () => {
+    const snapshot: DailyMissionSnapshot = {recordDate:'2026-02-01',serverNow:'2026-02-01T00:00:00Z',totalAwardedPoints:0,missions:[{mission:'QUIET_TIME',status:'INCOMPLETE',points:30},{mission:'PRAYER',status:'INCOMPLETE',points:30},{mission:'BIBLE',status:'INCOMPLETE',points:30}]};
+    const activity=vi.fn();
+    await render('missions',activity,{load:async () => snapshot,claim:vi.fn()});
+    await press('큐티 하러 가기');
+    expect(activity).toHaveBeenCalledWith('calendar','2026-02-01');
+  });
+  it('does not award points when a calendar reward claim fails', async () => {
+    const snapshot: DailyMissionSnapshot = {recordDate:getMissionPeriodKeys(new Date()).daily,serverNow:new Date().toISOString(),totalAwardedPoints:0,missions:[{mission:'QUIET_TIME',status:'READY',points:30},{mission:'PRAYER',status:'INCOMPLETE',points:30},{mission:'BIBLE',status:'INCOMPLETE',points:30}]};
+    const api={load:vi.fn(async () => snapshot),claim:vi.fn(async () => {throw new Error('network');})};
+    await render('missions',vi.fn(),api);
+    await press('큐티 보상 받기');
+    expect(text()).toContain('1,200');
+    expect(button('큐티 보상 받기')).toBeUndefined();
+    expect(text()).toContain('보상 수령을 확인하지 못했어요');
+  });
+
   it('searches costumes by species and restores results after clearing a query', async () => {
     await render('manage');
     const search = () => tree!.root.findByType('TextField' as React.ElementType);
@@ -50,10 +84,10 @@ describe('companion page flows', () => {
     await render('missions');
     const collect = button('완료한 미션 보상 모두 받기');
     await act(async () => {collect.props.onPress(); collect.props.onPress();});
-    expect(text()).toContain('1,270');
+    expect(text()).toContain('1,210');
     expect(button('출석 수령 완료').props.disabled).toBe(true);
-    expect(button('큐티 수령 완료').props.disabled).toBe(true);
-    expect(button('말씀 읽기 수령 완료').props.disabled).toBe(true);
+    expect(button('큐티 하러 가기')).toBeDefined();
+    expect(button('말씀 읽기 하러 가기')).toBeDefined();
     expect(button('완료한 미션 보상 모두 받기').props.disabled).toBe(true);
     expect(button('기도 하러 가기').props.disabled).not.toBe(true);
   });
@@ -64,7 +98,7 @@ describe('companion page flows', () => {
     await press('출석 보상 받기');
     expect(text()).toContain('1,210');
     expect(button('출석 수령 완료').props.disabled).toBe(true);
-    await press('기도 하러 가기'); expect(activity).toHaveBeenCalledWith('devotion');
+    await press('기도 하러 가기'); expect(activity).toHaveBeenCalledWith('calendar',expect.any(String));
     await press('뽑기 화면 이동'); expect(text()).toContain('1,210');
     await press('미션 화면 이동'); expect(button('출석 수령 완료').props.disabled).toBe(true);
     await press('월간 미션 보기');

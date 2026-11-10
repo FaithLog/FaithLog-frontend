@@ -4,6 +4,13 @@ import {companionReducer, createCompanionDemoState, getMissionPeriodKeys, getSel
 import {drawTimings, getDrawFrame} from './companionDrawMotion';
 
 describe('companion preview economy', () => {
+  it('never settles daily calendar rewards through the demo claim action', () => {
+    const state=createCompanionDemoState();
+    for (const missionId of ['quiet-time','prayer','bible']) {
+      expect(companionReducer(state,{type:'claim',missionId,periodKey:'2026-11-11',status:'ready'})).toBe(state);
+    }
+  });
+
   it('replaces a garden slot without deleting inventory or spending points', () => {
     const initial = createCompanionDemoState();
     const placed = companionReducer(initial, {type:'move',designId:'david-lamb:base',position:{x:.4,y:.6}});
