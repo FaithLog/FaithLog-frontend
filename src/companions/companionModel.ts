@@ -47,7 +47,7 @@ export type CompanionAction =
 const catalog = new Map(BIBLE_FRIEND_DESIGN_CATALOG.map(item => [item.id, item]));
 export function createCompanionDemoState(): CompanionState {
   return {
-    points: 1200, backgroundId: 'default',
+    points: 1200, backgroundId: 'meadow',
     inventory: {'david-lamb:base': 3, 'hope-rabbit:base': 2, 'noah-bear:base': 1,
       'joy-chick:base': 1, 'peace-penguin:base': 1, 'love-otter:starlight': 2, 'daniel-lion:unique': 1},
     equipped: ['david-lamb:base', 'hope-rabbit:base', 'noah-bear:base', 'joy-chick:base', 'peace-penguin:base'],

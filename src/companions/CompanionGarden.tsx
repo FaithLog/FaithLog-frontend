@@ -74,16 +74,17 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     </View>
     <View style={styles.menu}>
       <Text style={styles.balance}>{state.points.toLocaleString()} P</Text>
-      <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <Button key={page} size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button>)}</View>
+      <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <View key={page} style={styles.action}><Button fullWidth size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button></View>)}</View>
     </View>
     <Text style={styles.helper}>끌어서 옮겨보세요 · 체험 모드</Text>
   </View>;
 }
 const styles = StyleSheet.create({
-  section:{gap:0},
-  space:{height:GARDEN_HEIGHT,overflow:'hidden'},
-  menu:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',alignItems:'center',gap:4},
-  actions:{flexDirection:'row',flexWrap:'wrap',gap:0},
+  section:{gap:8},
+  space:{height:GARDEN_HEIGHT,overflow:'hidden',borderRadius:12},
+  menu:{gap:8},
+  actions:{flexDirection:'row',flexWrap:'wrap',gap:8},
+  action:{flexGrow:1,flexBasis:80,minWidth:80},
   helper:{...typography.caption,color:colors.textSecondary},
   balance:{...typography.caption,color:colors.primary,fontWeight:'600'},
   empty:{flex:1,alignItems:'center',justifyContent:'center',padding:12},
