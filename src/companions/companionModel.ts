@@ -31,10 +31,12 @@ export type CompanionState = Readonly<{
   points: number;
   inventory: Readonly<Partial<Record<BibleFriendDesignId, number>>>;
   equipped: readonly BibleFriendDesignId[];
+  gardenPositions: Readonly<Partial<Record<BibleFriendDesignId, Readonly<{x: number; y: number}>>>>;
   claimed: readonly string[];
   transactions: readonly string[];
 }>;
 export type CompanionAction =
+  | {type: 'move'; designId: BibleFriendDesignId; position: Readonly<{x:number; y:number}>}
   | {type: 'equip'; designId: BibleFriendDesignId}
   | {type: 'claim'; missionId: string; periodKey: string; status: MissionStatus}
   | {type: 'draw'; results: readonly BibleFriendDesignId[]; transactionId: string}
@@ -46,7 +48,7 @@ export function createCompanionDemoState(): CompanionState {
     inventory: {'david-lamb:base': 3, 'hope-rabbit:base': 2, 'noah-bear:base': 1,
       'joy-chick:base': 1, 'peace-penguin:base': 1, 'love-otter:starlight': 2, 'daniel-lion:unique': 1},
     equipped: ['david-lamb:base', 'hope-rabbit:base', 'noah-bear:base', 'joy-chick:base', 'peace-penguin:base'],
-    claimed: [], transactions: [],
+    gardenPositions: {}, claimed: [], transactions: [],
   };
 }
 export function getSellQuote(state: CompanionState, id: BibleFriendDesignId, quantity: number) {
@@ -57,6 +59,11 @@ export function getSellQuote(state: CompanionState, id: BibleFriendDesignId, qua
 /** Session-only preview reducer. Never call this to settle real points or inventory. */
 export function companionReducer(state: CompanionState, action: CompanionAction): CompanionState {
   switch (action.type) {
+    case 'move': {
+      if (!state.equipped.includes(action.designId) || !Number.isFinite(action.position.x) || !Number.isFinite(action.position.y)) return state;
+      const position = {x:Math.max(0,Math.min(1,action.position.x)),y:Math.max(0,Math.min(1,action.position.y))};
+      return {...state,gardenPositions:{...state.gardenPositions,[action.designId]:position}};
+    }
     case 'equip': {
       if (state.equipped.includes(action.designId)) return {...state, equipped: state.equipped.filter(id => id !== action.designId)};
       if (!catalog.has(action.designId) || !(state.inventory[action.designId] ?? 0) || state.equipped.length >= MAX_GARDEN_FRIENDS) return state;

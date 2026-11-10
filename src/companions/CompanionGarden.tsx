@@ -1,54 +1,88 @@
-import {useState} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
-import Svg, {Ellipse, Path} from 'react-native-svg';
-import {BibleFriendDesignSprite} from '../characters/BibleFriendDesignSprite';
-import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
-import {Button, Chip} from '../components/ui';
-import {colors, radius, typography} from '../theme';
+import {useEffect, useRef, useState} from 'react';
+import {StyleSheet, Text, View} from 'react-native';
+import {BIBLE_FRIEND_DESIGN_CATALOG, type BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
+import {Button} from '../components/ui';
+import {colors, typography} from '../theme';
 import {type CompanionPage} from './companionModel';
 import {useCompanions} from './CompanionProvider';
-import {companionStyles as s} from './companionStyles';
+import {GardenAnimal} from './GardenAnimal';
+import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 
-export function CompanionGarden({onOpen}: {onOpen: (page: CompanionPage) => void}) {
-  const {state} = useCompanions();
-  const {elapsed, reduceMotion} = useCompanionMotion();
-  const [width, setWidth] = useState(260);
-  const [reaction, setReaction] = useState<{id: string; started: number} | null>(null);
-  return <View style={s.card}>
-    <View style={s.between}><Text style={s.name}>함께 걷는 친구들</Text><Chip label={`${state.equipped.length}/5마리`} tone="info" /></View>
-    <View onLayout={e => setWidth(e.nativeEvent.layout.width)} style={styles.garden}>
-      <Svg pointerEvents="none" width="100%" height="100%" viewBox="0 0 300 200" preserveAspectRatio="none" style={StyleSheet.absoluteFill}>
-        <Path d="M0 110 Q70 65 150 110 T300 100 L300 200 L0 200Z" fill={colors.faithSoft} />
-        <Path d="M0 155 Q100 95 200 146 T300 140 L300 200 L0 200Z" fill={colors.mint} opacity={0.16} />
-        <Ellipse cx={150} cy={189} rx={120} ry={8} fill={colors.mint} opacity={0.12} />
-      </Svg>
-      {state.equipped.map((id, index) => {
-        const phase = (elapsed + index * 1300) % 6400;
-        const walking = !reduceMotion && phase < 4000;
-        const reacting = !reduceMotion && reaction?.id === id && elapsed - reaction.started < 780;
-        const column = index < 3 ? index : index - 2.5;
-        const base = column * Math.max(0, width - 72) / 2;
-        const left = Math.max(0, Math.min(width - 72, base + (walking ? Math.sin(phase / 4000 * Math.PI * 2) * 10 : 0)));
-        const design = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === id);
-        return <Pressable key={id} accessibilityRole="button" accessibilityLabel={`${design?.name ?? '동물'} 인사하기`}
-          onPress={() => setReaction({id, started: elapsed})}
-          style={[styles.friend, {left, top: index < 3 ? 15 : 102, transform: [{scaleX: walking && Math.cos(phase / 4000 * Math.PI * 2) < 0 ? -1 : 1}]}]}>
-          <BibleFriendDesignSprite designId={id} motion={reacting ? 'happy' : walking ? 'walk' : 'idle'} elapsedMs={reduceMotion ? 0 : reacting ? elapsed - (reaction?.started ?? 0) : phase} size={72} />
-        </Pressable>;
+export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
+  const {state, dispatch} = useCompanions();
+  const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
+  const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
+  const agents = useRef(new Map<BibleFriendDesignId,GardenAgent>());
+  const previous = useRef(elapsed);
+  const dragCallback = useRef(onDragStateChange); dragCallback.current = onDragStateChange;
+  const [, repaint] = useState(0);
+  const refresh = () => repaint(value => value + 1);
+  useEffect(() => () => {dragCallback.current?.(false);}, []);
+  const delta = elapsed - previous.current; previous.current = elapsed;
+  for (const id of [...agents.current.keys()]) if (!state.equipped.includes(id)) agents.current.delete(id);
+  for (const id of state.equipped) {
+    if (!agents.current.has(id)) {
+      const saved = state.gardenPositions[id];
+      const position = saved ? restoreGardenPoint(saved,bounds) : chooseGardenTarget(bounds,[...agents.current.values()].map(a=>a.position));
+      agents.current.set(id,createGardenAgent(position,elapsed,bounds));
+    }
+  }
+  if (!reduceMotion && delta > 0) {
+    const snapshot = [...agents.current.entries()];
+    for (const [id,agent] of snapshot) agents.current.set(id,advanceGardenAgent(agent,elapsed,delta,bounds,snapshot.filter(([other])=>other!==id).map(([,a])=>a.position)));
+  }
+  const update = (id: BibleFriendDesignId, next: (agent: GardenAgent) => GardenAgent) => {
+    const current = agents.current.get(id); if (!current) return;
+    agents.current.set(id,next(current)); refresh();
+  };
+  useEffect(() => {
+    if (foreground) return;
+    for (const [id,agent] of agents.current) if (agent.motion === 'held') agents.current.set(id,releaseGardenAgent(agent,previous.current,true));
+    dragCallback.current?.(false);
+  }, [foreground]);
+  return <View style={styles.section}>
+    <View onLayout={event => {
+      const width = event.nativeEvent.layout.width;
+      if (width <= 0 || width === bounds.width) return;
+      const next = {...bounds,width};
+      for (const [id,agent] of agents.current) {
+        const position = restoreGardenPoint(normalizeGardenPoint(agent.position,bounds),next);
+        agents.current.set(id,{...agent,position,target:constrainGardenPoint(agent.target,next)});
+      }
+      setBounds(next);
+    }} style={styles.space} testID="companion-garden-space">
+      {state.equipped.map(id => {
+        const agent = agents.current.get(id)!;
+        const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';
+        return <GardenAnimal key={id} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
+          onGrab={() => {dragCallback.current?.(true);update(id,a=>({...a,motion:'held',motionSince:elapsed}));}}
+          onMove={(point:GardenPoint) => update(id,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
+          onRelease={dragged => {
+            dragCallback.current?.(false);
+            if (dragged) {
+              const current = agents.current.get(id);
+              if (current) dispatch({type:'move',designId:id,position:normalizeGardenPoint(current.position,bounds)});
+              update(id,a=>releaseGardenAgent(a,elapsed,reduceMotion));
+            } else update(id,a=>reactGardenAgent(a,elapsed,reduceMotion));
+          }}
+          onReact={() => update(id,a=>reactGardenAgent(a,elapsed,reduceMotion))} />;
       })}
-      {state.equipped.length === 0 ? <View style={styles.empty}><Text style={s.body}>정원에서 함께할 친구를 골라주세요</Text></View> : null}
+      {state.equipped.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
-    <View style={s.between}><Text style={s.caption}>친구를 누르면 인사해요</Text><Text style={styles.balance}>{state.points.toLocaleString()} P</Text></View>
-    <View style={s.row}>
-      {([['manage', '동물 관리'], ['missions', '미션'], ['draw', '뽑기']] as const).map(([page, label]) => <View style={s.action} key={page}><Button accessibilityLabel={`${label} 페이지 열기`} onPress={() => onOpen(page)} variant={page === 'draw' ? 'primary' : 'secondary'} fullWidth>{label}</Button></View>)}
+    <View style={styles.menu}>
+      <Text style={styles.balance}>{state.points.toLocaleString()} P</Text>
+      <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <Button key={page} size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button>)}</View>
     </View>
-    <Text style={s.caption}>체험 모드 · 포인트와 보유 동물은 실제 계정에 반영되지 않아요</Text>
+    <Text style={styles.helper}>끌어서 옮겨보세요 · 체험 모드</Text>
   </View>;
 }
 const styles = StyleSheet.create({
-  garden: {height: 208, borderRadius: radius.item, backgroundColor: colors.neutralSoft, overflow: 'hidden'},
-  friend: {position: 'absolute', width: 72, height: 72},
-  empty: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16},
-  balance: {...typography.cardTitle, color: colors.primary},
+  section:{gap:0},
+  space:{height:GARDEN_HEIGHT,overflow:'hidden'},
+  menu:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',alignItems:'center',gap:4},
+  actions:{flexDirection:'row',flexWrap:'wrap',gap:0},
+  helper:{...typography.caption,color:colors.textSecondary},
+  balance:{...typography.caption,color:colors.primary,fontWeight:'600'},
+  empty:{flex:1,alignItems:'center',justifyContent:'center',padding:12},
 });

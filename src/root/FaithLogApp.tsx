@@ -2007,6 +2007,7 @@ function AuthenticatedShellContent({
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance' | 'companions'>('dashboard');
   const [companionPage, setCompanionPage] = useState<CompanionPage>('manage');
   const companionScrollRef = useRef<ScrollView>(null);
+  const [companionDragging, setCompanionDragging] = useState(false);
   const [shepherdAttendanceHome, setShepherdAttendanceHome] = useState<{campusId: number; data: ShepherdAttendanceHome} | null>(null);
   const [profileView, setProfileView] = useState<
     'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password'
@@ -2571,6 +2572,7 @@ function AuthenticatedShellContent({
       ) : (
         <ScrollView
           ref={companionScrollRef}
+          scrollEnabled={!companionDragging}
           contentContainerStyle={[
             styles.shellContent,
             Platform.OS === 'android'
@@ -2678,6 +2680,7 @@ function AuthenticatedShellContent({
             />
           ) : (
             <UserHomeDashboard
+              onCompanionDragChange={setCompanionDragging}
               onOpenCompanions={(page) => {setCompanionPage(page); setUserHomeView('companions');}}
               onOpenAnnouncements={() => {
                 setAnnouncementInitialId(null);
@@ -3055,6 +3058,7 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
+  onCompanionDragChange,
   onOpenCompanions,
   canOpenAdminMode,
   onOpenAdminMode,
@@ -3074,6 +3078,7 @@ function UserHomeDashboard({
   state,
   yearlyRecap,
 }: {
+  onCompanionDragChange: (dragging: boolean) => void;
   onOpenCompanions: (page: CompanionPage) => void;
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
@@ -3321,7 +3326,7 @@ function UserHomeDashboard({
         </Text>
       </View>
 
-      {isCompanionPreviewEnabled() ? <CompanionGarden onOpen={onOpenCompanions} /> : null}
+      {isCompanionPreviewEnabled() ? <CompanionGarden onOpen={onOpenCompanions} onDragStateChange={onCompanionDragChange} /> : null}
 
       {yearlyRecap ? (
         <YearlyRecapHomeCard

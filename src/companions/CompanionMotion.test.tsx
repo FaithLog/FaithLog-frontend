@@ -10,7 +10,7 @@ const native = vi.hoisted(() => ({
 vi.mock('react-native', async () => {
   const {createElement} = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(name, props, children);
-  return {View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s},
+  return {Platform:{OS:'ios'}, PanResponder:{create:(config: Record<string, unknown>)=>({panHandlers:{onResponderGrant:config.onPanResponderGrant,onResponderMove:config.onPanResponderMove,onResponderRelease:config.onPanResponderRelease,onResponderTerminate:config.onPanResponderTerminate}})}, View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s},
     AppState: {currentState: 'active', addEventListener: (_key: string, cb: (v: string) => void) => {native.appListener = cb; return {remove: () => {native.removals++;}};}},
     AccessibilityInfo: {isReduceMotionEnabled: async () => native.reduce, addEventListener: (_key: string, cb: (v: boolean) => void) => {native.motionListener = cb; return {remove: () => {native.removals++;}};}}};
 });
@@ -23,13 +23,14 @@ vi.mock('../components/ui', () => ({Button: (props: Record<string, unknown>) => 
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
 import {CompanionDrawScene} from './CompanionDrawScene';
 import {CompanionGarden} from './CompanionGarden';
-import {CompanionProvider} from './CompanionProvider';
+import {CompanionProvider,useCompanions} from './CompanionProvider';
 import {useCompanionMotion} from './useCompanionMotion';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 let tree: ReactTestRenderer | undefined;
 beforeEach(() => {vi.useFakeTimers(); native.reduce = false; native.removals = 0;});
 afterEach(async () => {if (tree) await act(async () => tree!.unmount()); tree = undefined; vi.useRealTimers();});
 async function advance(ms: number) {await act(async () => {vi.advanceTimersByTime(ms);});}
+function Probe(){const {state}=useCompanions();return React.createElement('probe',{positions:state.gardenPositions});}
 function Clock() {const {elapsed} = useCompanionMotion(true, 80); return React.createElement('clock', {elapsed});}
 describe('companion motion lifecycle', () => {
   it('excludes background time and disposes timers and listeners on unmount', async () => {
@@ -65,4 +66,30 @@ describe('companion motion lifecycle', () => {
     await advance(900);
     expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).not.toBe('happy');
   });
+  it('captures a drag, clamps it, releases scrolling and remembers the dropped position',async()=>{
+    const drag=vi.fn();
+    await act(async()=>{tree=create(<CompanionProvider><CompanionGarden onOpen={vi.fn()} onDragStateChange={drag}/><Probe/></CompanionProvider>);});
+    const animal=()=>tree!.root.findAllByType('View' as React.ElementType).find(n=>n.props.testID==='garden-animal-david-lamb:base')!;
+    await act(async()=>animal().props.onResponderGrant());expect(drag).toHaveBeenLastCalledWith(true);
+    await act(async()=>animal().props.onResponderMove({}, {dx:9999,dy:-9999}));
+    expect(animal().props.style[1]).toMatchObject({left:236,top:0});
+    await act(async()=>animal().props.onResponderRelease());expect(drag).toHaveBeenLastCalledWith(false);
+    expect(tree!.root.findByType('probe' as React.ElementType).props.positions['david-lamb:base']).toEqual({x:1,y:0});
+    expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('land');
+    await advance(1000);expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('idle');
+    await act(async()=>tree!.unmount());tree=undefined;expect(vi.getTimerCount()).toBe(0);
+  });
+  it('allows manual dragging with reduced motion and cancels a held state in the background',async()=>{
+    native.reduce=true;const drag=vi.fn();
+    await act(async()=>{tree=create(<CompanionProvider><CompanionGarden onOpen={vi.fn()} onDragStateChange={drag}/><Probe/></CompanionProvider>);});
+    const animal=()=>tree!.root.findAllByType('View' as React.ElementType).find(n=>n.props.testID==='garden-animal-david-lamb:base')!;
+    await act(async()=>animal().props.onResponderGrant());
+    await act(async()=>animal().props.onResponderMove({}, {dx:9999,dy:9999}));
+    await act(async()=>animal().props.onResponderRelease());
+    expect(tree!.root.findByType('probe' as React.ElementType).props.positions['david-lamb:base']).toEqual({x:1,y:1});
+    expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('idle');
+    await act(async()=>animal().props.onResponderGrant());
+    await act(async()=>native.appListener?.('background'));expect(drag).toHaveBeenLastCalledWith(false);
+  });
+
 });
