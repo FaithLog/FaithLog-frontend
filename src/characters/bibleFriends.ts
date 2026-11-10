@@ -5,7 +5,15 @@ export type BibleFriendId =
   | 'noah-bear'
   | 'jonah-whale'
   | 'daniel-lion'
-  | 'peace-dove';
+  | 'peace-dove'
+  | 'hope-rabbit'
+  | 'word-fox'
+  | 'gentle-deer'
+  | 'companion-donkey'
+  | 'joy-chick'
+  | 'peace-penguin'
+  | 'love-otter'
+  | 'patience-turtle';
 
 export type BibleFriend = Readonly<{
   id: BibleFriendId;
@@ -45,5 +53,53 @@ export const BIBLE_FRIENDS = [
     name: '평화의 비둘기',
     inspiration: '올리브 잎을 물고 돌아온 비둘기 이야기에서 영감을 받은 친구',
     source: require('../../assets/characters/bible-friends/peace-dove-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'hope-rabbit',
+    name: '소망 토끼',
+    inspiration: '긴 귀와 당근 장식을 가진 소망의 창작 친구',
+    source: require('../../assets/characters/bible-friends/hope-rabbit-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'word-fox',
+    name: '말씀 여우',
+    inspiration: '책을 품은 말씀의 창작 친구',
+    source: require('../../assets/characters/bible-friends/word-fox-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'gentle-deer',
+    name: '온유 사슴',
+    inspiration: '잎 목걸이를 단 온유한 창작 친구',
+    source: require('../../assets/characters/bible-friends/gentle-deer-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'companion-donkey',
+    name: '동행 당나귀',
+    inspiration: '작은 안장 담요를 두른 동행의 창작 친구',
+    source: require('../../assets/characters/bible-friends/companion-donkey-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'joy-chick',
+    name: '기쁨 병아리',
+    inspiration: '밀 이삭 장식을 단 기쁨의 창작 친구',
+    source: require('../../assets/characters/bible-friends/joy-chick-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'peace-penguin',
+    name: '평안 펭귄',
+    inspiration: '목도리와 가방을 멘 평안의 창작 친구',
+    source: require('../../assets/characters/bible-friends/peace-penguin-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'love-otter',
+    name: '사랑 수달',
+    inspiration: '하트 모양 돌을 품은 사랑의 창작 친구',
+    source: require('../../assets/characters/bible-friends/love-otter-idle.png') as ImageSourcePropType,
+  },
+  {
+    id: 'patience-turtle',
+    name: '인내 거북이',
+    inspiration: '십자가 장식을 단 인내의 창작 친구',
+    source: require('../../assets/characters/bible-friends/patience-turtle-idle.png') as ImageSourcePropType,
   },
 ] as const satisfies readonly BibleFriend[];

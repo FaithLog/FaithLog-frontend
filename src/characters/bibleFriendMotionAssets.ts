@@ -148,4 +148,228 @@ export const BIBLE_FRIEND_MOTION_FRAMES = {
       require('../../assets/characters/bible-friends/motions/peace-dove/land-1.png') as ImageSourcePropType,
     ],
   },
+  'hope-rabbit': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/hope-rabbit/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'word-fox': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/word-fox/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/word-fox/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/word-fox/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/word-fox/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/word-fox/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/word-fox/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'gentle-deer': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/gentle-deer/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/gentle-deer/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/gentle-deer/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/gentle-deer/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/gentle-deer/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/gentle-deer/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'companion-donkey': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/companion-donkey/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/companion-donkey/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/companion-donkey/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/companion-donkey/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/companion-donkey/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/companion-donkey/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'joy-chick': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/joy-chick/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/joy-chick/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/joy-chick/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/joy-chick/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/joy-chick/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/joy-chick/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'peace-penguin': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/peace-penguin/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/peace-penguin/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/peace-penguin/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/peace-penguin/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/peace-penguin/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/peace-penguin/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'love-otter': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/love-otter/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/love-otter/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/love-otter/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/love-otter/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/love-otter/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/love-otter/land-1.png') as ImageSourcePropType,
+    ],
+  },
+  'patience-turtle': {
+    idle: [
+      require('../../assets/characters/bible-friends/motions/patience-turtle/idle-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/idle-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/idle-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/idle-3.png') as ImageSourcePropType,
+    ],
+    walk: [
+      require('../../assets/characters/bible-friends/motions/patience-turtle/walk-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/walk-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/walk-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/walk-3.png') as ImageSourcePropType,
+    ],
+    happy: [
+      require('../../assets/characters/bible-friends/motions/patience-turtle/happy-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/happy-1.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/happy-2.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/happy-3.png') as ImageSourcePropType,
+    ],
+    held: [
+      require('../../assets/characters/bible-friends/motions/patience-turtle/held-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/held-1.png') as ImageSourcePropType,
+    ],
+    land: [
+      require('../../assets/characters/bible-friends/motions/patience-turtle/land-0.png') as ImageSourcePropType,
+      require('../../assets/characters/bible-friends/motions/patience-turtle/land-1.png') as ImageSourcePropType,
+    ],
+  },
 } as const satisfies Record<BibleFriendId, Record<BibleFriendMotion, readonly ImageSourcePropType[]>>;

@@ -8,9 +8,25 @@ const root = resolve('assets/characters/bible-friends/motions');
 const manifest = JSON.parse(readFileSync(resolve(root, 'manifest.json'), 'utf8'));
 
 describe('bundled Bible friend animation assets', () => {
-  it('ships all 80 equally sized PNG frames with literal Metro references', () => {
+  it('provides one basic PNG and a full motion set for every registered friend', () => {
+    const basicRoot = resolve('assets/characters/bible-friends');
+    const basic = JSON.parse(readFileSync(resolve(basicRoot, 'manifest.json'), 'utf8'));
+    const registry = readFileSync(resolve('src/characters/bibleFriends.ts'), 'utf8');
+    const registeredIds = [...registry.matchAll(/id: '([^']+)'/g)].map(match => match[1]);
+    expect(new Set(registeredIds).size).toBe(13);
+    expect(basic.characters.map(friend => friend.id).sort()).toEqual([...registeredIds].sort());
+    expect(manifest.characters.map(friend => friend.id).sort()).toEqual([...registeredIds].sort());
+    for (const friend of basic.characters) {
+      const png = readFileSync(resolve(basicRoot, friend.file));
+      expect(png.readUInt32BE(16)).toBe(friend.width);
+      expect(png.readUInt32BE(20)).toBe(friend.height);
+      expect(registry).toContain(`require('../../assets/characters/bible-friends/${friend.file}')`);
+    }
+  });
+
+  it('ships all 208 equally sized PNG frames with literal Metro references', () => {
     const source = readFileSync(resolve('src/characters/bibleFriendMotionAssets.ts'), 'utf8');
-    expect(manifest.characters).toHaveLength(5);
+    expect(manifest.characters).toHaveLength(13);
     let count = 0;
     for (const character of manifest.characters) {
       expect(readdirSync(resolve(root, character.id)).filter(file => file.endsWith('.png'))).toHaveLength(16);
@@ -28,6 +44,6 @@ describe('bundled Bible friend animation assets', () => {
         }
       }
     }
-    expect(count).toBe(80);
+    expect(count).toBe(208);
   });
 });

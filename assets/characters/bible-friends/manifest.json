@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "state": "idle",
-  "format": "rgba-png",
+  "format": "transparent-png",
   "characters": [
     {
       "id": "daniel-lion",
@@ -37,6 +37,62 @@
       "width": 1254,
       "height": 1254,
       "bytes": 608483
+    },
+    {
+      "id": "hope-rabbit",
+      "file": "hope-rabbit-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14572
+    },
+    {
+      "id": "word-fox",
+      "file": "word-fox-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 16372
+    },
+    {
+      "id": "gentle-deer",
+      "file": "gentle-deer-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14018
+    },
+    {
+      "id": "companion-donkey",
+      "file": "companion-donkey-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 12729
+    },
+    {
+      "id": "joy-chick",
+      "file": "joy-chick-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14120
+    },
+    {
+      "id": "peace-penguin",
+      "file": "peace-penguin-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14465
+    },
+    {
+      "id": "love-otter",
+      "file": "love-otter-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 13730
+    },
+    {
+      "id": "patience-turtle",
+      "file": "patience-turtle-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 15462
     }
   ]
 }
