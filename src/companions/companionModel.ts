@@ -1,3 +1,4 @@
+import {isGardenBackgroundId, type GardenBackgroundId} from './gardenBackgrounds';
 import {BIBLE_FRIEND_DESIGN_CATALOG, type BibleFriendDesignId, type BibleFriendRarity} from '../characters/bibleFriendDesignCatalog';
 
 export type CompanionPage = 'manage' | 'missions' | 'draw';
@@ -29,6 +30,7 @@ export const RARITY_LABELS: Readonly<Record<BibleFriendRarity, string>> = {
 };
 export type CompanionState = Readonly<{
   points: number;
+  backgroundId: GardenBackgroundId;
   inventory: Readonly<Partial<Record<BibleFriendDesignId, number>>>;
   equipped: readonly BibleFriendDesignId[];
   gardenPositions: Readonly<Partial<Record<BibleFriendDesignId, Readonly<{x: number; y: number}>>>>;
@@ -36,6 +38,7 @@ export type CompanionState = Readonly<{
   transactions: readonly string[];
 }>;
 export type CompanionAction =
+  | {type: 'background'; backgroundId: GardenBackgroundId}
   | {type: 'move'; designId: BibleFriendDesignId; position: Readonly<{x:number; y:number}>}
   | {type: 'equip'; designId: BibleFriendDesignId}
   | {type: 'claim'; missionId: string; periodKey: string; status: MissionStatus}
@@ -44,7 +47,7 @@ export type CompanionAction =
 const catalog = new Map(BIBLE_FRIEND_DESIGN_CATALOG.map(item => [item.id, item]));
 export function createCompanionDemoState(): CompanionState {
   return {
-    points: 1200,
+    points: 1200, backgroundId: 'default',
     inventory: {'david-lamb:base': 3, 'hope-rabbit:base': 2, 'noah-bear:base': 1,
       'joy-chick:base': 1, 'peace-penguin:base': 1, 'love-otter:starlight': 2, 'daniel-lion:unique': 1},
     equipped: ['david-lamb:base', 'hope-rabbit:base', 'noah-bear:base', 'joy-chick:base', 'peace-penguin:base'],
@@ -59,6 +62,8 @@ export function getSellQuote(state: CompanionState, id: BibleFriendDesignId, qua
 /** Session-only preview reducer. Never call this to settle real points or inventory. */
 export function companionReducer(state: CompanionState, action: CompanionAction): CompanionState {
   switch (action.type) {
+    case 'background':
+      return isGardenBackgroundId(action.backgroundId) ? {...state, backgroundId: action.backgroundId} : state;
     case 'move': {
       if (!state.equipped.includes(action.designId) || !Number.isFinite(action.position.x) || !Number.isFinite(action.position.y)) return state;
       const position = {x:Math.max(0,Math.min(1,action.position.x)),y:Math.max(0,Math.min(1,action.position.y))};

@@ -1,3 +1,4 @@
+import {GardenBackground} from './GardenBackground';
 import {useEffect, useRef, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {BIBLE_FRIEND_DESIGN_CATALOG, type BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
@@ -52,6 +53,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       }
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
+      <GardenBackground id={state.backgroundId} />
       {state.equipped.map(id => {
         const agent = agents.current.get(id)!;
         const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';

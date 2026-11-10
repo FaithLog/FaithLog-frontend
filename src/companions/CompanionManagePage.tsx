@@ -1,3 +1,5 @@
+import {GardenBackground} from './GardenBackground';
+import {GARDEN_BACKGROUNDS} from './gardenBackgrounds';
 import {useMemo, useRef, useState} from 'react';
 import {Pressable, Text, View} from 'react-native';
 import {BibleFriendDesignSprite} from '../characters/BibleFriendDesignSprite';
@@ -25,6 +27,18 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
       <View style={s.between}><Text style={s.name}>정원에 배치한 친구</Text><Chip label={`${state.equipped.length}/${MAX_GARDEN_FRIENDS}`} tone="info" /></View>
       <View style={s.row}>{state.equipped.map(id => <Pressable key={id} accessibilityRole="button" accessibilityLabel={`${BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === id)?.name} 배치 해제`} onPress={() => dispatch({type: 'equip', designId: id})}><BibleFriendDesignSprite designId={id} size={48} /></Pressable>)}</View>
       <Text style={s.caption}>위 친구를 누르면 배치를 해제해요. 최대 5마리까지 함께할 수 있어요.</Text>
+    </View>
+    <View style={s.card}>
+      <Text style={s.name}>정원 배경</Text>
+      <Text style={s.caption}>배경은 캐릭터 공간에만 적용돼요. 지금은 모두 체험할 수 있어요.</Text>
+      <View style={s.grid}>{GARDEN_BACKGROUNDS.map(background => <Pressable key={background.id}
+        accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
+        onPress={() => dispatch({type: 'background', backgroundId: background.id})}
+        style={[s.tile, state.backgroundId === background.id ? s.selected : null]}>
+        <View style={{width: '100%', height: 72, overflow: 'hidden', borderRadius: 8}}><GardenBackground id={background.id} /></View>
+        <Text style={s.name}>{background.name}{state.backgroundId === background.id ? ' · 적용 중' : ''}</Text>
+        <Text style={s.caption}>{background.description}</Text>
+      </Pressable>)}</View>
     </View>
     <View style={s.tabs}>{([['owned', '보유'], ['duplicates', '중복'], ['all', '전체 도감']] as const).map(([key, text]) => <Button key={key} accessibilityLabel={`${text} 보기`} onPress={() => {setFilter(key); setPage(0);}} variant={key === filter ? 'primary' : 'secondary'} size="compact">{text}</Button>)}</View>
     <Text style={s.caption}>보유 {Object.values(state.inventory).filter(n => n && n > 0).length} / {BIBLE_FRIEND_DESIGN_CATALOG.length}종 · 중복은 개수로 표시해요</Text>
