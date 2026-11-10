@@ -32,6 +32,18 @@ function button(label: string) {return tree!.root.findAllByType('Button' as Reac
 async function press(label: string) {const target = button(label); expect(target).toBeDefined(); expect(target.props.disabled).not.toBe(true); await act(async () => target.props.onPress());}
 function text() {return JSON.stringify(tree!.toJSON()) + tree!.root.findAllByType('Text' as React.ElementType).map(node => node.children.filter(child => typeof child === 'string').join('')).join('\n');}
 describe('companion page flows', () => {
+  it('collects all ready rewards once and leaves incomplete missions untouched', async () => {
+    await render('missions');
+    const collect = button('완료한 미션 보상 모두 받기');
+    await act(async () => {collect.props.onPress(); collect.props.onPress();});
+    expect(text()).toContain('1,270');
+    expect(button('출석 수령 완료').props.disabled).toBe(true);
+    expect(button('큐티 수령 완료').props.disabled).toBe(true);
+    expect(button('말씀 읽기 수령 완료').props.disabled).toBe(true);
+    expect(button('완료한 미션 보상 모두 받기').props.disabled).toBe(true);
+    expect(button('기도 하러 가기').props.disabled).not.toBe(true);
+  });
+
   it('collects a ready reward once, keeps the wallet between pages and opens existing activity routes', async () => {
     const activity = vi.fn();
     await render('missions', activity);
