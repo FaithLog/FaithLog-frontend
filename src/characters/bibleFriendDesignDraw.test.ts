@@ -18,7 +18,7 @@ describe('collectible design weights', () => {
       const designs = BIBLE_FRIEND_DESIGN_CATALOG.filter(design => design.friendId === friendId);
       expect(designs).toHaveLength(10);
       expect(designs.filter(design => design.rarity === 'UNIQUE')).toHaveLength(1);
-      expect(designs.filter(design => design.animationReady)).toHaveLength(1);
+      expect(designs.filter(design => design.animationReady)).toHaveLength(10);
     }
   });
 

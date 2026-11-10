@@ -65,4 +65,6 @@ const friend = BIBLE_FRIENDS[0];
 
 [designs/README.md](designs/README.md)에 각 동물의 기본형 포함 10개 디자인, 총 130종과 확률 초안을 정리했습니다.
 신규 의상 117장은 별도 투명 PNG이며, 전용 유니크는 동물마다 1개씩 총 13종입니다.
-의상별 모션은 아직 없으므로 해당 카탈로그의 `animationReady`를 확인합니다.
+전체 디자인은 `animationReady: true`이며 전용 의상 모션을 지원합니다.
+
+전체 130종(기본형·의상·유니크)의 5종 모션과 React Native 렌더러는 [전체 디자인 모션](design-motions/README.md)을 참고하세요. 총 2,080개 재생 프레임을 제공합니다.

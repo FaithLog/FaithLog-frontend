@@ -53,5 +53,5 @@ export const BIBLE_FRIEND_DESIGN_CATALOG: readonly BibleFriendDesign[] =
     name: style.id === 'unique' ? friend.uniqueName : `${friend.name} · ${style.name}`,
     rarity: style.rarity,
     weight: style.weight,
-    animationReady: style.id === 'base',
+    animationReady: true,
   })));

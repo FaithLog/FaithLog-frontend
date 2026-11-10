@@ -38,7 +38,7 @@ describe('collectible design files', () => {
       if (design.styleId !== 'base') {
         expect(design.width).toBe(288);
         expect(design.height).toBe(288);
-        expect(design.animationReady).toBe(false);
+        expect(design.animationReady).toBe(true);
         costumes += 1;
       }
     }

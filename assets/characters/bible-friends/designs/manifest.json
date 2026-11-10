@@ -186,7 +186,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21067,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:scholar",
@@ -199,7 +199,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21910,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:gardener",
@@ -212,7 +212,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21878,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:sailor",
@@ -225,7 +225,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22467,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:explorer",
@@ -238,7 +238,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23321,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:festival",
@@ -251,7 +251,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22215,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:starlight",
@@ -264,7 +264,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23837,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:royal",
@@ -277,7 +277,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24413,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:unique",
@@ -290,7 +290,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25814,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:base",
@@ -316,7 +316,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22155,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:scholar",
@@ -329,7 +329,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22666,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:gardener",
@@ -342,7 +342,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23656,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:sailor",
@@ -355,7 +355,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22977,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:explorer",
@@ -368,7 +368,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24558,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:festival",
@@ -381,7 +381,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24822,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:starlight",
@@ -394,7 +394,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23596,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:royal",
@@ -407,7 +407,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24953,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:unique",
@@ -420,7 +420,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25509,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:base",
@@ -446,7 +446,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23287,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:scholar",
@@ -459,7 +459,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23841,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:gardener",
@@ -472,7 +472,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23997,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:sailor",
@@ -485,7 +485,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23657,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:explorer",
@@ -498,7 +498,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24439,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:festival",
@@ -511,7 +511,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24049,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:starlight",
@@ -524,7 +524,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24411,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:royal",
@@ -537,7 +537,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24977,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:unique",
@@ -550,7 +550,7 @@
       "width": 288,
       "height": 288,
       "bytes": 27171,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:base",
@@ -576,7 +576,7 @@
       "width": 288,
       "height": 288,
       "bytes": 20155,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:scholar",
@@ -589,7 +589,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21602,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:gardener",
@@ -602,7 +602,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22834,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:sailor",
@@ -615,7 +615,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21009,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:explorer",
@@ -628,7 +628,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21476,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:festival",
@@ -641,7 +641,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22201,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:starlight",
@@ -654,7 +654,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23354,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:royal",
@@ -667,7 +667,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23635,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:unique",
@@ -680,7 +680,7 @@
       "width": 288,
       "height": 288,
       "bytes": 28284,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:base",
@@ -706,7 +706,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21296,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:scholar",
@@ -719,7 +719,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22016,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:gardener",
@@ -732,7 +732,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23116,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:sailor",
@@ -745,7 +745,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22444,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:explorer",
@@ -758,7 +758,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22646,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:festival",
@@ -771,7 +771,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23684,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:starlight",
@@ -784,7 +784,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24288,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:royal",
@@ -797,7 +797,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23532,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:unique",
@@ -810,7 +810,7 @@
       "width": 288,
       "height": 288,
       "bytes": 29874,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:base",
@@ -836,7 +836,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24703,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:scholar",
@@ -849,7 +849,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25589,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:gardener",
@@ -862,7 +862,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25415,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:sailor",
@@ -875,7 +875,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22848,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:explorer",
@@ -888,7 +888,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24776,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:festival",
@@ -901,7 +901,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23066,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:starlight",
@@ -914,7 +914,7 @@
       "width": 288,
       "height": 288,
       "bytes": 26001,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:royal",
@@ -927,7 +927,7 @@
       "width": 288,
       "height": 288,
       "bytes": 26691,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:unique",
@@ -940,7 +940,7 @@
       "width": 288,
       "height": 288,
       "bytes": 27685,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:base",
@@ -966,7 +966,7 @@
       "width": 288,
       "height": 288,
       "bytes": 27510,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:scholar",
@@ -979,7 +979,7 @@
       "width": 288,
       "height": 288,
       "bytes": 28519,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:gardener",
@@ -992,7 +992,7 @@
       "width": 288,
       "height": 288,
       "bytes": 29512,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:sailor",
@@ -1005,7 +1005,7 @@
       "width": 288,
       "height": 288,
       "bytes": 28240,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:explorer",
@@ -1018,7 +1018,7 @@
       "width": 288,
       "height": 288,
       "bytes": 28984,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:festival",
@@ -1031,7 +1031,7 @@
       "width": 288,
       "height": 288,
       "bytes": 28921,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:starlight",
@@ -1044,7 +1044,7 @@
       "width": 288,
       "height": 288,
       "bytes": 29248,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:royal",
@@ -1057,7 +1057,7 @@
       "width": 288,
       "height": 288,
       "bytes": 29814,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:unique",
@@ -1070,7 +1070,7 @@
       "width": 288,
       "height": 288,
       "bytes": 32821,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:base",
@@ -1096,7 +1096,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22600,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:scholar",
@@ -1109,7 +1109,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22723,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:gardener",
@@ -1122,7 +1122,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22869,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:sailor",
@@ -1135,7 +1135,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22603,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:explorer",
@@ -1148,7 +1148,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24157,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:festival",
@@ -1161,7 +1161,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25075,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:starlight",
@@ -1174,7 +1174,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23835,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:royal",
@@ -1187,7 +1187,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24302,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:unique",
@@ -1200,7 +1200,7 @@
       "width": 288,
       "height": 288,
       "bytes": 27544,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:base",
@@ -1226,7 +1226,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21949,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:scholar",
@@ -1239,7 +1239,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21969,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:gardener",
@@ -1252,7 +1252,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23053,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:sailor",
@@ -1265,7 +1265,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22532,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:explorer",
@@ -1278,7 +1278,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23197,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:festival",
@@ -1291,7 +1291,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23523,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:starlight",
@@ -1304,7 +1304,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22901,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:royal",
@@ -1317,7 +1317,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22525,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:unique",
@@ -1330,7 +1330,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25483,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:base",
@@ -1356,7 +1356,7 @@
       "width": 288,
       "height": 288,
       "bytes": 19898,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:scholar",
@@ -1369,7 +1369,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22126,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:gardener",
@@ -1382,7 +1382,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23876,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:sailor",
@@ -1395,7 +1395,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22130,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:explorer",
@@ -1408,7 +1408,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24345,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:festival",
@@ -1421,7 +1421,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23940,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:starlight",
@@ -1434,7 +1434,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24181,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:royal",
@@ -1447,7 +1447,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24471,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:unique",
@@ -1460,7 +1460,7 @@
       "width": 288,
       "height": 288,
       "bytes": 30374,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:base",
@@ -1486,7 +1486,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21864,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:scholar",
@@ -1499,7 +1499,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24285,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:gardener",
@@ -1512,7 +1512,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23769,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:sailor",
@@ -1525,7 +1525,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23456,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:explorer",
@@ -1538,7 +1538,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24586,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:festival",
@@ -1551,7 +1551,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23352,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:starlight",
@@ -1564,7 +1564,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25852,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:royal",
@@ -1577,7 +1577,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25713,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:unique",
@@ -1590,7 +1590,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24977,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:base",
@@ -1616,7 +1616,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22671,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:scholar",
@@ -1629,7 +1629,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23284,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:gardener",
@@ -1642,7 +1642,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23341,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:sailor",
@@ -1655,7 +1655,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23256,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:explorer",
@@ -1668,7 +1668,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23876,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:festival",
@@ -1681,7 +1681,7 @@
       "width": 288,
       "height": 288,
       "bytes": 23680,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:starlight",
@@ -1694,7 +1694,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25315,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:royal",
@@ -1707,7 +1707,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25815,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:unique",
@@ -1720,7 +1720,7 @@
       "width": 288,
       "height": 288,
       "bytes": 26973,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:base",
@@ -1746,7 +1746,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21280,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:scholar",
@@ -1759,7 +1759,7 @@
       "width": 288,
       "height": 288,
       "bytes": 21951,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:gardener",
@@ -1772,7 +1772,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25175,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:sailor",
@@ -1785,7 +1785,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22864,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:explorer",
@@ -1798,7 +1798,7 @@
       "width": 288,
       "height": 288,
       "bytes": 24190,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:festival",
@@ -1811,7 +1811,7 @@
       "width": 288,
       "height": 288,
       "bytes": 22508,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:starlight",
@@ -1824,7 +1824,7 @@
       "width": 288,
       "height": 288,
       "bytes": 25620,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:royal",
@@ -1837,7 +1837,7 @@
       "width": 288,
       "height": 288,
       "bytes": 26007,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:unique",
@@ -1850,7 +1850,7 @@
       "width": 288,
       "height": 288,
       "bytes": 29279,
-      "animationReady": false
+      "animationReady": true
     }
   ]
 }

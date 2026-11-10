@@ -3,7 +3,7 @@
 <style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f5f2e8;color:#34412e;max-width:1160px;margin:28px auto;padding:22px}h1{font-size:28px;letter-spacing:-1px}p{color:#738068;line-height:1.7;font-size:13px}.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:22px 0}select,button{font:inherit;border:1px solid #bec7b3;border-radius:12px;padding:12px;background:white;color:inherit}button{background:#506b3d;color:white;cursor:pointer}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(156px,1fr));gap:13px}.card{background:#fff;border:1px solid #e0e5d6;border-radius:18px;text-align:center;padding:14px 8px}.card img{width:128px;height:128px;object-fit:contain;image-rendering:pixelated}.card strong{font-size:12px;display:block;margin:8px 0;min-height:32px}.card small{font-size:11px;color:#7c8870}.badge{border-radius:12px;padding:4px 9px;background:#e9eedf;font-size:10px;font-weight:700;display:inline-block}.UNIQUE{background:#f4e3b7;color:#936728;border-color:#d2ad58}.EPIC{background:#e7def0;color:#7c5194}.RARE{background:#dce9ef;color:#48788b}#result{display:none;background:white;border:1px solid #d5dfc8;border-radius:18px;padding:18px;margin:18px 0;align-items:center;gap:24px}#result img{width:144px;height:144px;object-fit:contain;image-rendering:pixelated}.stats{font-size:12px;color:#7d876f;margin-bottom:16px}label{font-size:13px}.notice{font-size:11px;margin-top:25px}@media(max-width:550px){body{padding:12px;margin:16px auto}.cards{grid-template-columns:repeat(2,1fr)}#result{gap:8px}#result img{width:110px;height:110px}}</style>
 <h1>FaithLog · 모으고 싶은 작은 친구들</h1><p>13종 × 기본 포함 10개 = 130종 · 동물별 전용 유니크 13종<br>개발용 디자인·확률 확인 페이지입니다. 실제 포인트와 소유권은 연결하지 않았습니다.</p>
 <div class="controls"><label>캐릭터 <select id="friend"></select></label><label>등급 <select id="rarity"><option value="ALL">전체</option><option value="COMMON">일반</option><option value="UNCOMMON">고급</option><option value="RARE">희귀</option><option value="EPIC">에픽</option><option value="UNIQUE">유니크</option></select></label><button id="draw">전체 130종 체험 뽑기</button></div>
-<div class="stats" id="stats"></div><section id="result" aria-live="polite"></section><main class="cards" id="cards"></main><p class="notice">추가 의상 디자인은 정지 PNG입니다. 기본형만 기존 모션을 사용할 수 있습니다. 카드의 확률은 현재 필터와 관계없이 전체 130종 풀 기준입니다.</p>
+<div class="stats" id="stats"></div><section id="result" aria-live="polite"></section><main class="cards" id="cards"></main><p class="notice">전체 130종의 모션은 <a href="../design-motions/preview.html">전체 모션 뷰어</a>에서 확인할 수 있습니다. 카드의 확률은 현재 필터와 관계없이 전체 130종 풀 기준입니다.</p>
 <script>
 const data={
   "version": 1,
@@ -193,7 +193,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21067,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:scholar",
@@ -206,7 +206,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21910,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:gardener",
@@ -219,7 +219,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21878,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:sailor",
@@ -232,7 +232,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22467,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:explorer",
@@ -245,7 +245,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23321,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:festival",
@@ -258,7 +258,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22215,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:starlight",
@@ -271,7 +271,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23837,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:royal",
@@ -284,7 +284,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24413,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "david-lamb:unique",
@@ -297,7 +297,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25814,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:base",
@@ -323,7 +323,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22155,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:scholar",
@@ -336,7 +336,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22666,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:gardener",
@@ -349,7 +349,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23656,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:sailor",
@@ -362,7 +362,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22977,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:explorer",
@@ -375,7 +375,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24558,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:festival",
@@ -388,7 +388,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24822,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:starlight",
@@ -401,7 +401,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23596,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:royal",
@@ -414,7 +414,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24953,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "noah-bear:unique",
@@ -427,7 +427,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25509,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:base",
@@ -453,7 +453,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23287,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:scholar",
@@ -466,7 +466,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23841,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:gardener",
@@ -479,7 +479,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23997,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:sailor",
@@ -492,7 +492,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23657,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:explorer",
@@ -505,7 +505,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24439,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:festival",
@@ -518,7 +518,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24049,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:starlight",
@@ -531,7 +531,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24411,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:royal",
@@ -544,7 +544,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24977,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "jonah-whale:unique",
@@ -557,7 +557,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 27171,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:base",
@@ -583,7 +583,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 20155,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:scholar",
@@ -596,7 +596,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21602,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:gardener",
@@ -609,7 +609,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22834,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:sailor",
@@ -622,7 +622,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21009,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:explorer",
@@ -635,7 +635,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21476,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:festival",
@@ -648,7 +648,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22201,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:starlight",
@@ -661,7 +661,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23354,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:royal",
@@ -674,7 +674,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23635,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "daniel-lion:unique",
@@ -687,7 +687,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 28284,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:base",
@@ -713,7 +713,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21296,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:scholar",
@@ -726,7 +726,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22016,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:gardener",
@@ -739,7 +739,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23116,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:sailor",
@@ -752,7 +752,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22444,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:explorer",
@@ -765,7 +765,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22646,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:festival",
@@ -778,7 +778,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23684,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:starlight",
@@ -791,7 +791,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24288,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:royal",
@@ -804,7 +804,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23532,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-dove:unique",
@@ -817,7 +817,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 29874,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:base",
@@ -843,7 +843,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24703,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:scholar",
@@ -856,7 +856,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25589,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:gardener",
@@ -869,7 +869,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25415,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:sailor",
@@ -882,7 +882,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22848,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:explorer",
@@ -895,7 +895,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24776,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:festival",
@@ -908,7 +908,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23066,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:starlight",
@@ -921,7 +921,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 26001,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:royal",
@@ -934,7 +934,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 26691,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "hope-rabbit:unique",
@@ -947,7 +947,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 27685,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:base",
@@ -973,7 +973,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 27510,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:scholar",
@@ -986,7 +986,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 28519,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:gardener",
@@ -999,7 +999,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 29512,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:sailor",
@@ -1012,7 +1012,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 28240,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:explorer",
@@ -1025,7 +1025,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 28984,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:festival",
@@ -1038,7 +1038,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 28921,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:starlight",
@@ -1051,7 +1051,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 29248,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:royal",
@@ -1064,7 +1064,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 29814,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "word-fox:unique",
@@ -1077,7 +1077,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 32821,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:base",
@@ -1103,7 +1103,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22600,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:scholar",
@@ -1116,7 +1116,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22723,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:gardener",
@@ -1129,7 +1129,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22869,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:sailor",
@@ -1142,7 +1142,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22603,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:explorer",
@@ -1155,7 +1155,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24157,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:festival",
@@ -1168,7 +1168,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25075,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:starlight",
@@ -1181,7 +1181,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23835,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:royal",
@@ -1194,7 +1194,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24302,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "gentle-deer:unique",
@@ -1207,7 +1207,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 27544,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:base",
@@ -1233,7 +1233,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21949,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:scholar",
@@ -1246,7 +1246,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21969,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:gardener",
@@ -1259,7 +1259,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23053,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:sailor",
@@ -1272,7 +1272,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22532,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:explorer",
@@ -1285,7 +1285,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23197,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:festival",
@@ -1298,7 +1298,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23523,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:starlight",
@@ -1311,7 +1311,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22901,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:royal",
@@ -1324,7 +1324,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22525,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "companion-donkey:unique",
@@ -1337,7 +1337,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25483,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:base",
@@ -1363,7 +1363,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 19898,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:scholar",
@@ -1376,7 +1376,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22126,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:gardener",
@@ -1389,7 +1389,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23876,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:sailor",
@@ -1402,7 +1402,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22130,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:explorer",
@@ -1415,7 +1415,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24345,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:festival",
@@ -1428,7 +1428,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23940,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:starlight",
@@ -1441,7 +1441,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24181,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:royal",
@@ -1454,7 +1454,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24471,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "joy-chick:unique",
@@ -1467,7 +1467,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 30374,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:base",
@@ -1493,7 +1493,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21864,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:scholar",
@@ -1506,7 +1506,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24285,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:gardener",
@@ -1519,7 +1519,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23769,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:sailor",
@@ -1532,7 +1532,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23456,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:explorer",
@@ -1545,7 +1545,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24586,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:festival",
@@ -1558,7 +1558,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23352,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:starlight",
@@ -1571,7 +1571,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25852,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:royal",
@@ -1584,7 +1584,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25713,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "peace-penguin:unique",
@@ -1597,7 +1597,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24977,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:base",
@@ -1623,7 +1623,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22671,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:scholar",
@@ -1636,7 +1636,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23284,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:gardener",
@@ -1649,7 +1649,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23341,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:sailor",
@@ -1662,7 +1662,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23256,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:explorer",
@@ -1675,7 +1675,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23876,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:festival",
@@ -1688,7 +1688,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 23680,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:starlight",
@@ -1701,7 +1701,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25315,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:royal",
@@ -1714,7 +1714,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25815,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "love-otter:unique",
@@ -1727,7 +1727,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 26973,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:base",
@@ -1753,7 +1753,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21280,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:scholar",
@@ -1766,7 +1766,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 21951,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:gardener",
@@ -1779,7 +1779,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25175,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:sailor",
@@ -1792,7 +1792,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22864,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:explorer",
@@ -1805,7 +1805,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 24190,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:festival",
@@ -1818,7 +1818,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 22508,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:starlight",
@@ -1831,7 +1831,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 25620,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:royal",
@@ -1844,7 +1844,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 26007,
-      "animationReady": false
+      "animationReady": true
     },
     {
       "id": "patience-turtle:unique",
@@ -1857,7 +1857,7 @@ const data={
       "width": 288,
       "height": 288,
       "bytes": 29279,
-      "animationReady": false
+      "animationReady": true
     }
   ]
 }
