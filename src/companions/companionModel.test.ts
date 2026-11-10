@@ -4,6 +4,20 @@ import {companionReducer, createCompanionDemoState, getMissionPeriodKeys, getSel
 import {drawTimings, getDrawFrame} from './companionDrawMotion';
 
 describe('companion preview economy', () => {
+  it('replaces a garden slot without deleting inventory or spending points', () => {
+    const initial = createCompanionDemoState();
+    const placed = companionReducer(initial, {type:'move',designId:'david-lamb:base',position:{x:.4,y:.6}});
+    const replaced = companionReducer(placed, {type:'replace',outgoingId:'david-lamb:base',incomingId:'daniel-lion:unique'});
+    expect(replaced.equipped).toHaveLength(5);
+    expect(replaced.equipped[0]).toBe('daniel-lion:unique');
+    expect(replaced.gardenPositions['daniel-lion:unique']).toEqual({x:.4,y:.6});
+    expect(replaced.gardenPositions['david-lamb:base']).toBeUndefined();
+    expect(replaced.inventory).toBe(initial.inventory);
+    expect(replaced.points).toBe(initial.points);
+    expect(companionReducer(replaced, {type:'replace',outgoingId:'hope-rabbit:base',incomingId:'daniel-lion:unique'})).toBe(replaced);
+    expect(companionReducer(replaced, {type:'replace',outgoingId:'hope-rabbit:base',incomingId:'jonah-whale:unique'})).toBe(replaced);
+  });
+
   it('keeps agreed mission rewards at 100/200/500 and 100 points per draw', () => {
     for (const [period, total] of [['daily', 100], ['weekly', 200], ['monthly', 500]] as const) {
       expect(MISSIONS.filter(m => m.period === period).reduce((sum, m) => sum + m.points, 0)).toBe(total);

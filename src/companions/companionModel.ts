@@ -38,6 +38,7 @@ export type CompanionState = Readonly<{
   transactions: readonly string[];
 }>;
 export type CompanionAction =
+  | {type: 'replace'; outgoingId: BibleFriendDesignId; incomingId: BibleFriendDesignId}
   | {type: 'background'; backgroundId: GardenBackgroundId}
   | {type: 'move'; designId: BibleFriendDesignId; position: Readonly<{x:number; y:number}>}
   | {type: 'equip'; designId: BibleFriendDesignId}
@@ -68,6 +69,15 @@ export function companionReducer(state: CompanionState, action: CompanionAction)
       if (!state.equipped.includes(action.designId) || !Number.isFinite(action.position.x) || !Number.isFinite(action.position.y)) return state;
       const position = {x:Math.max(0,Math.min(1,action.position.x)),y:Math.max(0,Math.min(1,action.position.y))};
       return {...state,gardenPositions:{...state.gardenPositions,[action.designId]:position}};
+    }
+    case 'replace': {
+      if (!state.equipped.includes(action.outgoingId) || state.equipped.includes(action.incomingId) || !catalog.has(action.incomingId) || !(state.inventory[action.incomingId] ?? 0)) return state;
+      const gardenPositions = {...state.gardenPositions};
+      const outgoingPosition = gardenPositions[action.outgoingId];
+      if (outgoingPosition) gardenPositions[action.incomingId] = outgoingPosition;
+      else delete gardenPositions[action.incomingId];
+      delete gardenPositions[action.outgoingId];
+      return {...state, equipped: state.equipped.map(id => id === action.outgoingId ? action.incomingId : id), gardenPositions};
     }
     case 'equip': {
       if (state.equipped.includes(action.designId)) return {...state, equipped: state.equipped.filter(id => id !== action.designId)};

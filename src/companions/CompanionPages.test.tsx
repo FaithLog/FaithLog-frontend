@@ -13,7 +13,7 @@ vi.mock('../components/ui', async () => {
   const {createElement} = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(name, props, children);
   const Button = host('Button');
-  return {Button, Chip: host('Chip'), DangerConfirmSheet: (props: {visible: boolean; onConfirm: () => void; onCancel: () => void}) => props.visible ? createElement('ConfirmSheet', props) : null};
+  return {Button, TextField: host('TextField'), Chip: host('Chip'), DangerConfirmSheet: (props: {visible: boolean; onConfirm: () => void; onCancel: () => void}) => props.visible ? createElement('ConfirmSheet', props) : null};
 });
 vi.mock('../characters/BibleFriendDesignSprite', async () => ({BibleFriendDesignSprite: (props: Record<string, unknown>) => React.createElement('Sprite', props)}));
 vi.mock('./GardenBackground', () => ({GardenBackground: (props: Record<string, unknown>) => React.createElement('GardenBackground', props)}));
@@ -32,6 +32,20 @@ function button(label: string) {return tree!.root.findAllByType('Button' as Reac
 async function press(label: string) {const target = button(label); expect(target).toBeDefined(); expect(target.props.disabled).not.toBe(true); await act(async () => target.props.onPress());}
 function text() {return JSON.stringify(tree!.toJSON()) + tree!.root.findAllByType('Text' as React.ElementType).map(node => node.children.filter(child => typeof child === 'string').join('')).join('\n');}
 describe('companion page flows', () => {
+  it('searches costumes by species and restores results after clearing a query', async () => {
+    await render('manage');
+    const search = () => tree!.root.findByType('TextField' as React.ElementType);
+    await act(async () => search().props.onChangeText('사자'));
+    const cards = () => tree!.root.findAllByType('Pressable' as React.ElementType).filter(node => node.props.accessibilityLabel?.includes('상세 보기'));
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0]!.props.accessibilityLabel).toContain('새벽의 수호자');
+    await act(async () => search().props.onChangeText('없는친구'));
+    expect(cards()).toHaveLength(0);
+    expect(text()).toContain('조건에 맞는 친구가 없어요');
+    await press('동물 검색과 등급 필터 초기화');
+    expect(cards()).toHaveLength(7);
+  });
+
   it('collects all ready rewards once and leaves incomplete missions untouched', async () => {
     await render('missions');
     const collect = button('완료한 미션 보상 모두 받기');
