@@ -1,7 +1,8 @@
+import {AppModal} from '../components/AppModal';
 import {GardenBackground} from './GardenBackground';
 import {GARDEN_BACKGROUNDS} from './gardenBackgrounds';
 import {useMemo, useRef, useState} from 'react';
-import {Modal, Pressable, ScrollView, Text, View} from 'react-native';
+import {Pressable, ScrollView, Text, View} from 'react-native';
 import {BibleFriendDesignSprite} from '../characters/BibleFriendDesignSprite';
 import {BIBLE_FRIEND_DESIGN_CATALOG, BIBLE_FRIEND_DESIGN_SPECIES, BIBLE_FRIEND_RARITIES, type BibleFriendRarity, type BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
 import {Button, Chip, DangerConfirmSheet, TextField} from '../components/ui';
@@ -120,7 +121,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     })}</View>
     {entries.length > 12 ? <View style={s.between}><Button accessibilityLabel="이전 동물 목록" variant="secondary" disabled={visiblePage === 0} onPress={() => setPage(visiblePage - 1)}>이전</Button><Text style={s.caption}>{visiblePage + 1} / {pageCount}</Text><Button accessibilityLabel="다음 동물 목록" variant="secondary" disabled={visiblePage + 1 >= pageCount} onPress={() => setPage(visiblePage + 1)}>다음</Button></View> : null}
     </>}
-    <Modal visible={Boolean(replacement)} transparent animationType="fade" onRequestClose={() => setReplacementId(null)}>
+    <AppModal visible={Boolean(replacement)} transparent animationType="fade" onRequestClose={() => setReplacementId(null)}>
       <View style={s.replacementOverlay}>
         <View style={s.replacementSheet} accessibilityViewIsModal>
           <Text accessibilityRole="header" style={s.title}>누구와 교체할까요?</Text>
@@ -138,7 +139,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
           <Button fullWidth variant="secondary" accessibilityLabel="친구 교체 취소" onPress={() => setReplacementId(null)}>취소</Button>
         </View>
       </View>
-    </Modal>
+    </AppModal>
     <DangerConfirmSheet visible={confirming && Boolean(design)} title="중복 친구를 판매할까요?" message={`${design?.name ?? ''} ${quantity}마리를 판매하고 체험 포인트 ${quote?.points ?? 0}P를 받아요.`}
       dangerSummary="판매한 수량은 되돌릴 수 없어요. 마지막 한 마리는 유지돼요." confirmLabel="판매하기" onCancel={() => setConfirming(false)}
       onConfirm={() => {
