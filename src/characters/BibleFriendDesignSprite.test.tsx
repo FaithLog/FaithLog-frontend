@@ -6,7 +6,7 @@ vi.mock('react-native', async () => {
   const { createElement } = await import('react');
   const host = (name: string) => ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
     createElement(name, props, children);
-  return { Image: host('Image'), View: host('View') };
+  return { Image: host('Image'), View: host('View'), Platform: {OS: 'ios'} };
 });
 vi.mock('./bibleFriendDesignMotionAssets', () => ({
   BIBLE_FRIEND_DESIGN_MOTION_ATLASES: { 'hope-rabbit:unique': 'rabbit-unique-atlas' },
@@ -17,11 +17,27 @@ vi.mock('./bibleFriendMotionAssets', () => ({
   },
 }));
 
+import {Platform} from 'react-native';
 import { BibleFriendDesignSprite } from './BibleFriendDesignSprite';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('BibleFriendDesignSprite', () => {
+  it('keeps web frame sources mounted across animation ticks', async () => {
+    const original = Platform.OS;
+    Platform.OS = 'web';
+    let renderer: ReturnType<typeof create>;
+    try {
+      await act(async () => {renderer = create(<BibleFriendDesignSprite designId="hope-rabbit:base" motion="walk" elapsedMs={0} size={64} />);});
+      const images = () => renderer!.root.findAllByType('Image' as React.ElementType);
+      const sources = images().map(image => image.props.source);
+      expect(sources).toEqual(['walk-0', 'walk-1', 'walk-2', 'walk-3']);
+      await act(async () => {renderer!.update(<BibleFriendDesignSprite designId="hope-rabbit:base" motion="walk" elapsedMs={300} size={64} />);});
+      expect(images().map(image => image.props.source)).toEqual(sources);
+      expect(images().filter(image => image.props.style.opacity === 1).map(image => image.props.source)).toEqual(['walk-2']);
+      await act(async () => renderer!.unmount());
+    } finally {Platform.OS = original;}
+  });
   it('keeps the costume atlas loaded while changing its visible frame and motion', async () => {
     let renderer: ReturnType<typeof create>;
     await act(async () => { renderer = create(

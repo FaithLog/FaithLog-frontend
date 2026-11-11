@@ -12,6 +12,8 @@ vi.mock('../api/errorPolicy', () => ({}));
 vi.mock('../api/tokenStorage', () => ({
   StaleAuthSessionReadError: class StaleAuthSessionReadError extends Error {},
 }));
+vi.mock('../companions/CompanionGarden', () => ({}));
+vi.mock('../companions/CompanionPages', () => ({}));
 vi.mock('../admin/AdminScreen', () => ({}));
 vi.mock('../admin/ServiceAdminScreen', () => ({}));
 vi.mock('../auth/authForms', () => ({}));

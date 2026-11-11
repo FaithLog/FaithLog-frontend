@@ -18,6 +18,7 @@ import type {
 import type {AuthGateState} from '../auth/authGate';
 import {resolveCurrentAccessToken} from '../auth/accessTokenResolver';
 import {
+  Button,
   Conflict,
   ErrorState,
   FaithLogHeaderIconButton,
@@ -41,6 +42,8 @@ import {
 type AuthenticatedState = Extract<AuthGateState, {status: 'authenticated'}>;
 
 type MonthlyCalendarScreenProps = {
+  onBackToMissions?: () => void;
+  initialDate?: string;
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
   onOpenNotifications: () => void;
@@ -72,6 +75,8 @@ const DEVOTION_FIELD_LABELS = [
 const REQUIRED_DAYS = 5;
 
 export function MonthlyCalendarScreen({
+  onBackToMissions,
+  initialDate,
   canOpenAdminMode,
   onOpenAdminMode,
   onOpenNotifications,
@@ -79,9 +84,9 @@ export function MonthlyCalendarScreen({
   setAuthState,
   state,
 }: MonthlyCalendarScreenProps) {
-  const [today] = useState(() => new Date());
+  const [today] = useState(() => initialDate ? parseDate(initialDate) : new Date());
   const [visibleMonth, setVisibleMonth] = useState(() => getYearMonth(today));
-  const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(today));
+  const [selectedDate, setSelectedDate] = useState(() => initialDate ?? formatLocalDate(today));
   const selectedWeekStart = useMemo(() => getWeekStartDate(parseDate(selectedDate)), [selectedDate]);
   const [loadState, setLoadState] = useState<MonthlyCalendarLoadState>({status: 'idle'});
   const [formChecks, setFormChecks] = useState<DailyFormCheck[]>([]);
@@ -250,6 +255,7 @@ export function MonthlyCalendarScreen({
         <Text style={styles.title}>월간 캘린더</Text>
       </View>
 
+      {onBackToMissions ? <Button accessibilityLabel="캘린더에서 미션으로 돌아가기" size="compact" variant="ghost" onPress={onBackToMissions}>‹ 미션으로 돌아가기</Button> : null}
       <View style={styles.monthCard}>
         <Pressable
           accessibilityLabel="이전 달 경건생활 캘린더 보기"

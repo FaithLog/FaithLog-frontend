@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, View } from 'react-native';
+import { Image, Platform, View } from 'react-native';
 
 import type { BibleFriendDesignId } from './bibleFriendDesignCatalog';
 import { BIBLE_FRIEND_DESIGN_CATALOG } from './bibleFriendDesignCatalog';
@@ -29,6 +29,19 @@ export function BibleFriendDesignSprite({
   if (!design) return null;
   const layout = getBibleFriendDesignMotionLayout(motion, elapsedMs, size);
   const label = accessibilityLabel ?? design.name;
+
+  if (design.styleId === 'base' && Platform.OS === 'web') {
+    // Keep every decoded frame mounted: changing Image.source on each tick
+    // causes react-native-web to briefly hide the image while resolving it.
+    const frames = BIBLE_FRIEND_MOTION_FRAMES[design.friendId];
+    return <View accessible accessibilityRole="image" accessibilityLabel={label}
+      style={{width: layout.size, height: layout.size}}>
+      {(Object.keys(frames) as BibleFriendMotion[]).flatMap(frameMotion => frames[frameMotion].map((source, index) =>
+        <Image key={`${frameMotion}-${index}`} accessible={false} source={source} resizeMode="contain" fadeDuration={0}
+          style={{position: 'absolute', width: layout.size, height: layout.size,
+            opacity: frameMotion === motion && index === layout.frameIndex ? 1 : 0}} />))}
+    </View>;
+  }
 
   if (design.styleId === 'base') {
     return <Image
