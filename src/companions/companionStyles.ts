@@ -19,6 +19,11 @@ export const companionStyles = StyleSheet.create({
   missionAction: {minWidth: 90, maxWidth: '100%'},
   miniScene: {height: 90, borderRadius: radius.item, overflow: 'hidden', justifyContent: 'center'},
   collectionTile: {flexBasis: '46%', flexGrow: 1, minWidth: 0, backgroundColor: colors.surface, borderRadius: radius.item, padding: 12, gap: 6, alignItems: 'center', borderWidth: 1, borderColor: colors.borderSoft},
+  rosterGrid: {flexDirection:'row', gap:8, paddingVertical:2},
+  rosterTile: {width:88, padding:8, gap:8, borderRadius:radius.item, backgroundColor:colors.primarySoft},
+  rosterName: {...typography.caption, color:colors.textPrimary, textAlign:'center', fontWeight:'600'},
+  emptySlot: {minHeight:128, alignItems:'center', justifyContent:'center', backgroundColor:colors.surface, borderWidth:1, borderStyle:'dashed', borderColor:colors.borderSoft},
+  filterPanel: {gap:10},
   selectedBorder: {borderColor: colors.primary, backgroundColor: colors.primarySoft},
 
   title: {...typography.sectionTitle, color: colors.textPrimary},

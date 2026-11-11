@@ -5,7 +5,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 vi.mock('react-native', async () => {
   const {createElement} = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(name, props, children);
-  return {View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s, absoluteFill: {}},
+  return {ScrollView: host('ScrollView'), View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s, absoluteFill: {}},
     AppState: {currentState: 'active', addEventListener: () => ({remove: vi.fn()})},
     BackHandler: {addEventListener: () => ({remove: vi.fn()})}};
 });
@@ -143,6 +143,28 @@ describe('companion page flows', () => {
     expect(text()).toContain('1,220');
     expect(button('중복 동물 판매 확인').props.disabled).toBe(true);
     expect(button('정원에서 빼기').props.disabled).toBe(false);
+  });
+  it('keeps equipped friends first and filters undeployed friends without unequipping on detail press', async () => {
+    await render('manage');
+    const cards = () => tree!.root.findAllByType('Pressable' as React.ElementType).filter(n => n.props.accessibilityLabel?.includes('상세 보기'));
+    expect(cards().slice(0,5).every(n => n.props.accessibilityLabel.includes('배치 중'))).toBe(true);
+    const roster = tree!.root.findAllByType('Pressable' as React.ElementType).find(n => n.props.accessibilityLabel?.includes('배치 친구 상세'))!;
+    await act(async () => roster.props.onPress());
+    expect(button('정원에서 빼기')).toBeDefined();
+    await press('선택한 동물 상세 닫기');
+    await press('미배치 보기');
+    expect(cards()).toHaveLength(2);
+    expect(cards().every(n => !n.props.accessibilityLabel.includes('배치 중'))).toBe(true);
+  });
+  it('filters rarities without opening a separate filter menu and resets the result', async () => {
+    await render('manage');
+    await press('유니크 필터');
+    const cards = () => tree!.root.findAllByType('Pressable' as React.ElementType).filter(n => n.props.accessibilityLabel?.includes('상세 보기'));
+    expect(cards()).toHaveLength(1);
+    await press('동물 검색과 등급 필터 초기화');
+    expect(cards()).toHaveLength(7);
+    await press('동물 보유 많은 순 정렬');
+    expect(button('동물 보유 많은 순 정렬').props.variant).toBe('primary');
   });
   it('pages the catalog instead of mounting all 130 sprite atlases', async () => {
     await render('manage'); await press('전체 도감 보기');
