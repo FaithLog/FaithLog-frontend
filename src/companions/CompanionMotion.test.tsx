@@ -14,6 +14,7 @@ vi.mock('react-native', async () => {
     AppState: {currentState: 'active', addEventListener: (_key: string, cb: (v: string) => void) => {native.appListener = cb; return {remove: () => {native.removals++;}};}},
     AccessibilityInfo: {isReduceMotionEnabled: async () => native.reduce, addEventListener: (_key: string, cb: (v: boolean) => void) => {native.motionListener = cb; return {remove: () => {native.removals++;}};}}};
 });
+vi.mock('./GardenBackground', () => ({GardenBackground: () => React.createElement('GardenBackground')}));
 vi.mock('react-native-svg', async () => {
   const {createElement} = await import('react');
   return Object.fromEntries(['default', 'Circle', 'Defs', 'Ellipse', 'G', 'LinearGradient', 'Path', 'RadialGradient', 'Rect', 'Stop'].map(name => [name, ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(`svg-${name}`, props, children)]));
