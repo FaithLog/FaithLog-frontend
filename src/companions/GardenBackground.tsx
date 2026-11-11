@@ -1,10 +1,11 @@
-import {StyleSheet, View} from 'react-native';
+import {Image, StyleSheet, View} from 'react-native';
 import Svg, {Circle, Ellipse, G, Path, Rect} from 'react-native-svg';
 import type {GardenBackgroundId} from './gardenBackgrounds';
 
 /** Quiet, static scenery behind the animals; never intercepts their gestures. */
 export function GardenBackground({id}: {id: GardenBackgroundId}) {
   if (id === 'default') return null;
+  if (id === 'meadow') return <View pointerEvents="none" accessible={false} style={StyleSheet.absoluteFill}><Image source={require('../../assets/gardens/meadow-painted-v2.png')} resizeMode="cover" accessible={false} style={StyleSheet.absoluteFill} /></View>;
   const night = id === 'starlight';
   const sky = night ? '#DDE2F1' : id === 'shore' ? '#E9F3F6' : '#EDF4EC';
   const ground = night ? '#CEDBD9' : id === 'shore' ? '#F2E9D6' : '#DFEBD8';

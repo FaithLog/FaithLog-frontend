@@ -1,7 +1,7 @@
 import type {BibleFriendMotion} from '../characters/bibleFriendMotionTimeline';
 
 export const GARDEN_ANIMAL_SIZE = 64;
-export const GARDEN_HEIGHT = 144;
+export const GARDEN_HEIGHT = 208;
 export const DRAG_THRESHOLD = 5;
 export type GardenPoint = Readonly<{x: number; y: number}>;
 export type GardenBounds = Readonly<{width: number; height: number}>;
