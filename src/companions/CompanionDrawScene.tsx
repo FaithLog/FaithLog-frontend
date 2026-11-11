@@ -43,9 +43,11 @@ export function CompanionDrawScene({designs, onComplete}: {designs: readonly Bib
   const v = clamp((p - .17) / .48), land = clamp((v - .72) / .28);
   const charY = 205 - Math.sin(v * Math.PI) * 52 - Math.sin(land * Math.PI) * 6;
   const squash = 1 - Math.sin(land * Math.PI) * .1;
-  return <View style={styles.scene} onLayout={event => setSceneWidth(event.nativeEvent.layout.width)}>
+  const characterVisible = reveal && p > .17;
+  return <View style={styles.scene} onLayout={event => {const width = event.nativeEvent.layout.width; if (width > 0) setSceneWidth(width);}}>
     <View style={styles.label} accessibilityLiveRegion="polite"><Text style={[styles.eyebrow, {color: tone.deep}]}>{reveal ? RARITY_LABELS[design.rarity] : frame.phase === 'collection' ? '열 번의 설레는 만남' : gather && special ? '조금 특별한 빛이 보여요' : '두근두근, 누가 있을까요?'}</Text><Text style={styles.name}>{reveal ? design.name : '작은 알에 담긴 설렘'}</Text></View>
-    <Svg width="100%" height={300 * scale} viewBox="0 0 350 300">
+    <View style={[styles.stage, {height: 300 * scale}]}>
+    <Svg style={styles.effects} width="100%" height={300 * scale} viewBox="0 0 350 300">
       <Defs><LinearGradient id="companion-shell" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={colors.surface} /><Stop offset="0.5" stopColor="#FFFDF8" /><Stop offset="1" stopColor="#DCEBED" /></LinearGradient><RadialGradient id="companion-aura"><Stop offset="0" stopColor={tone.soft} /><Stop offset="1" stopColor={colors.surface} stopOpacity={0} /></RadialGradient></Defs>
       <Rect width={350} height={300} fill="url(#companion-aura)" />
       <Ellipse cx={175} cy={242} rx={78} ry={14} fill={tone.ink} opacity={.08} /><Ellipse cx={175} cy={242} rx={78} ry={14} fill="none" stroke={tone.ink} opacity={.25} />
@@ -58,7 +60,9 @@ export function CompanionDrawScene({designs, onComplete}: {designs: readonly Bib
       {reveal && p < .65 ? Array.from({length: 8}, (_, i) => <Path key={`shard-${i}`} d="M-4 -3 L5 -1 L1 4Z" fill={colors.surface} stroke={colors.mint} strokeWidth={.6} opacity={1 - clamp(p * 1.6)} transform={`translate(${175 + Math.cos(i * Math.PI / 4) * (32 + p * 125)},${165 + Math.sin(i * Math.PI / 4) * p * 95 + p * p * 90}) rotate(${i * 40 + p * 130})`} />) : null}
       {frame.phase === 'collection' ? Array.from({length: 10}, (_, i) => <Egg key={i} x={65 + i % 5 * 55} y={126 + Math.floor(i / 5) * 78} scale={ease(clamp((p - i * .035) / .5)) * .4} ink={tone.ink} />) : !reveal || p < .6 ? <Egg x={175} y={reveal ? 165 : 170 - (gather ? ease(p) * 7 : Math.sin(p * Math.PI) * 5)} angle={reveal ? 0 : gather ? p > .82 ? 0 : Math.sin(p * 29) * 4 : Math.sin(p * Math.PI * 4) * 3} split={reveal ? Math.max(.001, clamp(p / .6)) : 0} glow={gather ? clamp((p - .35) / .5) : 0} ink={tone.ink} /> : null}
     </Svg>
-    {reveal && p > .17 ? <View pointerEvents="none" style={[styles.character, {top: (charY - 68) * scale, marginLeft: -68 * scale, width: 136 * scale, height: 136 * scale, opacity: ease(v * 4), transform: [{scaleX: (0.85 + ease(v) * .15) / squash}, {scaleY: (0.85 + ease(v) * .15) * squash}]}]}><BibleFriendDesignSprite designId={design.id} size={136 * scale} motion={v < .72 ? 'happy' : 'land'} elapsedMs={Math.max(0, (v < .72 ? v : land) * 500)} /></View> : null}
+    {/* Keep the image mounted before the shell opens so decoding does not consume the reveal. */}
+    <View key={design.id} testID="draw-revealed-character" pointerEvents="none" accessibilityElementsHidden={!characterVisible} importantForAccessibility={!characterVisible ? 'no-hide-descendants' : 'auto'} style={[styles.character, {top: (charY - 68) * scale, marginLeft: -68 * scale, width: 136 * scale, height: 136 * scale, opacity: characterVisible ? ease(v * 4) : 0, transform: [{scaleX: (0.85 + ease(v) * .15) / squash}, {scaleY: (0.85 + ease(v) * .15) * squash}]}]}><BibleFriendDesignSprite designId={design.id} size={136 * scale} motion={v < .72 ? 'happy' : 'land'} elapsedMs={Math.max(0, (v < .72 ? v : land) * 500)} /></View>
+    </View>
     <View style={styles.footer}><Text style={styles.caption}>{frame.index + 1} / {designs.length}</Text><Button accessibilityLabel="등장 연출 건너뛰고 전체 결과 보기" variant="ghost" size="compact" onPress={() => {if (!completed.current) {completed.current = true; onComplete();}}}>건너뛰기</Button></View>
   </View>;
 }
@@ -67,7 +71,9 @@ const styles = StyleSheet.create({
   label: {position: 'absolute', top: 16, left: 16, right: 16, zIndex: 2, alignItems: 'center', gap: 4},
   eyebrow: {...typography.caption, fontWeight: '600'},
   name: {...typography.cardTitle, color: colors.textPrimary, textAlign: 'center'},
-  character: {position: 'absolute', left: '50%', marginLeft: -68, width: 136, height: 136},
+  stage: {position: 'relative'},
+  effects: {position: 'absolute', top: 0, left: 0, zIndex: 0},
+  character: {position: 'absolute', zIndex: 1, left: '50%', marginLeft: -68, width: 136, height: 136},
   footer: {flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10},
   caption: {...typography.caption, color: colors.textSecondary},
 });

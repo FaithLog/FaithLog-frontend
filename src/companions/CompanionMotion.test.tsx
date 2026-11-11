@@ -26,6 +26,7 @@ import {CompanionDrawScene} from './CompanionDrawScene';
 import {CompanionGarden} from './CompanionGarden';
 import {CompanionProvider,useCompanions} from './CompanionProvider';
 import {useCompanionMotion} from './useCompanionMotion';
+import {drawTimings} from './companionDrawMotion';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 let tree: ReactTestRenderer | undefined;
 beforeEach(() => {vi.useFakeTimers(); native.reduce = false; native.removals = 0;});
@@ -58,6 +59,41 @@ describe('companion motion lifecycle', () => {
     expect(tree!.root.findByType('Sprite' as React.ElementType).props.designId).toBe('hope-rabbit:unique');
     await advance(1600); expect(complete).toHaveBeenCalledTimes(1);
     await advance(1000); expect(complete).toHaveBeenCalledTimes(1);
+  });
+  it('prepares the sprite before cracking and reveals it above the effects at a nonzero size', async () => {
+    const design = BIBLE_FRIEND_DESIGN_CATALOG[0]!;
+    await act(async () => {tree = create(<CompanionDrawScene designs={[design]} onComplete={vi.fn()} />);});
+    const character = () => tree!.root.findAllByType('View' as React.ElementType).find(n => n.props.testID === 'draw-revealed-character')!;
+    const sprite = tree!.root.findByType('Sprite' as React.ElementType);
+    expect(character().props.style[1].opacity).toBe(0);
+    expect(character().props.accessibilityElementsHidden).toBe(true);
+    // Layout may briefly report zero when the page is being attached.
+    const scene = tree!.root.findAllByType('View' as React.ElementType).find(n => n.props.onLayout)!;
+    await act(async () => scene.props.onLayout({nativeEvent:{layout:{width:0}}}));
+    const timings = drawTimings(design.rarity, false);
+    await advance(timings.anticipation + timings.gather + timings.reveal * .75);
+    expect(tree!.root.findByType('Sprite' as React.ElementType)).toBe(sprite);
+    expect(character().props.style[0].zIndex).toBeGreaterThan(0);
+    expect(character().props.style[1].opacity).toBe(1);
+    expect(character().props.style[1].width).toBeGreaterThan(0);
+    expect(character().props.accessibilityElementsHidden).toBe(false);
+  });
+  it('reveals every selected character in a ten-draw sequence', async () => {
+    const designs = BIBLE_FRIEND_DESIGN_CATALOG.slice(0, 10);
+    const complete = vi.fn();
+    await act(async () => {tree = create(<CompanionDrawScene designs={designs} onComplete={complete} />);});
+    await advance(1000);
+    for (const design of designs) {
+      const timings = drawTimings(design.rarity, true);
+      await advance(timings.anticipation + timings.gather + Math.ceil(timings.reveal * .75 / 40) * 40);
+      const sprite = tree!.root.findByType('Sprite' as React.ElementType);
+      expect(sprite.props.designId).toBe(design.id);
+      const character = tree!.root.findAllByType('View' as React.ElementType).find(n => n.props.testID === 'draw-revealed-character')!;
+      expect(character.props.style[1].opacity).toBe(1);
+      // Move to the next draw's anticipation using the same 40ms clock.
+      await advance(Math.ceil(timings.total / 40) * 40 - (timings.anticipation + timings.gather + Math.ceil(timings.reveal * .75 / 40) * 40));
+    }
+    expect(complete).toHaveBeenCalledTimes(1);
   });
   it('renders five selected friends and applies a touch reaction', async () => {
     await act(async () => {tree = create(<CompanionProvider><CompanionGarden onOpen={vi.fn()} /></CompanionProvider>);});

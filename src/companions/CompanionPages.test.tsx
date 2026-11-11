@@ -186,6 +186,19 @@ describe('companion page flows', () => {
     expect(tree!.root.findAllByType('Modal' as React.ElementType)).toHaveLength(0);
     expect(tree!.root.findAllByType('Pressable' as React.ElementType).some(n => n.props.accessibilityLabel === '다윗의 양 · 기본 배치 친구 상세')).toBe(true);
   });
+  it('keeps unowned catalog and detail sprites silhouetted while owned sprites stay colored', async () => {
+    await render('manage'); await press('전체 도감 보기');
+    const cards = tree!.root.findAllByType('Pressable' as React.ElementType).filter(n => n.props.accessibilityLabel?.includes('상세 보기'));
+    const unowned = cards.find(n => n.props.accessibilityLabel.includes('0마리 보유'))!;
+    const owned = cards.find(n => !n.props.accessibilityLabel.includes('0마리 보유'))!;
+    expect(unowned.findByType('Sprite' as React.ElementType).props.silhouette).toBe(true);
+    expect(owned.findByType('Sprite' as React.ElementType).props.silhouette).toBe(false);
+    const id = unowned.findByType('Sprite' as React.ElementType).props.designId;
+    await act(async () => unowned.props.onPress());
+    const detail = tree!.root.findAllByType('Sprite' as React.ElementType).find(n => n.props.designId === id && n.props.size === 88)!;
+    expect(detail.props.silhouette).toBe(true);
+    expect(button('정원에 배치하기').props.disabled).toBe(true);
+  });
   it('pages the catalog instead of mounting all 130 sprite atlases', async () => {
     await render('manage'); await press('전체 도감 보기');
     const sprites = tree!.root.findAllByType('Sprite' as React.ElementType);

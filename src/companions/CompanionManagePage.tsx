@@ -78,7 +78,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     </View>
     {design ? <View style={s.card}>
       <View style={s.between}><Text style={s.name}>친구 상세</Text><Button size="compact" accessibilityLabel="선택한 동물 상세 닫기" variant="ghost" onPress={() => setSelected(null)}>닫기</Button></View>
-      <View style={[s.row, {flexWrap:'nowrap'}]}><BibleFriendDesignSprite designId={design.id} motion="happy" size={88} /><View style={{flex:1,gap:8}}><Text style={s.title}>{design.name}</Text><Text style={s.body}>{RARITY_LABELS[design.rarity]} · {count}마리 보유</Text></View></View>
+      <View style={[s.row, {flexWrap:'nowrap'}]}><BibleFriendDesignSprite designId={design.id} silhouette={count < 1} motion="happy" size={88} /><View style={{flex:1,gap:8}}><Text style={s.title}>{design.name}</Text><Text style={s.body}>{RARITY_LABELS[design.rarity]} · {count}마리 보유</Text></View></View>
       <Button fullWidth accessibilityLabel={state.equipped.includes(design.id) ? '정원에서 빼기' : '정원에 배치하기'}
         disabled={count < 1}
         onPress={() => {if (!state.equipped.includes(design.id) && state.equipped.length >= MAX_GARDEN_FRIENDS) setReplacementId(design.id); else dispatch({type:'equip',designId:design.id});}}>
@@ -109,7 +109,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
       return <View key={item.id} style={[s.collectionTile, selected === item.id ? s.selectedBorder : null]}><Pressable style={s.detail} accessibilityRole="button" accessibilityLabel={`${item.name}, ${owned}마리 보유${equipped ? ', 배치 중' : ''}, 상세 보기`}
         onPress={() => {setSelected(item.id); setQuantity(1); setConfirming(false); setMessage(''); onRevealDetails();}}
 >
-        <BibleFriendDesignSprite designId={item.id} size={80} />
+        <BibleFriendDesignSprite designId={item.id} silhouette={owned < 1} size={80} />
         <Text style={s.name}>{item.name}</Text><Chip label={RARITY_LABELS[item.rarity]} />
         <Text style={s.caption}>{owned ? `${owned}마리${equipped ? ' · 배치 중' : ''}` : '아직 만나지 못했어요'}</Text>
       </Pressable>
