@@ -15,6 +15,7 @@ export type BibleFriendDesignSpriteProps = {
   elapsedMs?: number;
   size?: number;
   accessibilityLabel?: string;
+  silhouette?: boolean;
 };
 
 /** Bundled assets only: no fetching or interval per sprite. */
@@ -24,11 +25,13 @@ export function BibleFriendDesignSprite({
   elapsedMs = 0,
   size = 96,
   accessibilityLabel,
+  silhouette = false,
 }: BibleFriendDesignSpriteProps) {
   const design = BIBLE_FRIEND_DESIGN_CATALOG.find(item => item.id === designId);
   if (!design) return null;
   const layout = getBibleFriendDesignMotionLayout(motion, elapsedMs, size);
-  const label = accessibilityLabel ?? design.name;
+  const label = accessibilityLabel ?? (silhouette ? `${design.name} · 미획득 실루엣` : design.name);
+  const tintColor = silhouette ? '#000000' : undefined;
 
   if (design.styleId === 'base' && Platform.OS === 'web') {
     // Keep every decoded frame mounted: changing Image.source on each tick
@@ -38,6 +41,7 @@ export function BibleFriendDesignSprite({
       style={{width: layout.size, height: layout.size}}>
       {(Object.keys(frames) as BibleFriendMotion[]).flatMap(frameMotion => frames[frameMotion].map((source, index) =>
         <Image key={`${frameMotion}-${index}`} accessible={false} source={source} resizeMode="contain" fadeDuration={0}
+          tintColor={tintColor}
           style={{position: 'absolute', width: layout.size, height: layout.size,
             opacity: frameMotion === motion && index === layout.frameIndex ? 1 : 0}} />))}
     </View>;
@@ -45,6 +49,7 @@ export function BibleFriendDesignSprite({
 
   if (design.styleId === 'base') {
     return <Image
+      tintColor={tintColor}
       source={BIBLE_FRIEND_MOTION_FRAMES[design.friendId][motion][layout.frameIndex]}
       accessibilityLabel={label}
       resizeMode="contain"
@@ -64,6 +69,7 @@ export function BibleFriendDesignSprite({
   >
     <Image
       accessible={false}
+      tintColor={tintColor}
       source={source}
       resizeMode="stretch"
       fadeDuration={0}

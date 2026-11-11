@@ -23,6 +23,21 @@ import { BibleFriendDesignSprite } from './BibleFriendDesignSprite';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('BibleFriendDesignSprite', () => {
+  it.each(['ios', 'web'] as const)('tints only the character pixels black on %s and restores owned colors', async platform => {
+    const original = Platform.OS;
+    Platform.OS = platform;
+    let renderer: ReturnType<typeof create>;
+    try {
+      for (const designId of ['hope-rabbit:base', 'hope-rabbit:unique'] as const) {
+        await act(async () => {renderer = create(<BibleFriendDesignSprite designId={designId} motion="walk" silhouette />);});
+        const images = () => renderer!.root.findAllByType('Image' as React.ElementType);
+        expect(images().every(image => image.props.tintColor === '#000000')).toBe(true);
+        await act(async () => {renderer!.update(<BibleFriendDesignSprite designId={designId} motion="walk" />);});
+        expect(images().every(image => image.props.tintColor === undefined)).toBe(true);
+        await act(async () => renderer!.unmount());
+      }
+    } finally {Platform.OS = original;}
+  });
   it('keeps web frame sources mounted across animation ticks', async () => {
     const original = Platform.OS;
     Platform.OS = 'web';
