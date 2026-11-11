@@ -23,6 +23,9 @@ export const companionStyles = StyleSheet.create({
   rosterTile: {width:88, padding:8, gap:8, borderRadius:radius.item, backgroundColor:colors.primarySoft},
   rosterName: {...typography.caption, color:colors.textPrimary, textAlign:'center', fontWeight:'600'},
   emptySlot: {minHeight:128, alignItems:'center', justifyContent:'center', backgroundColor:colors.surface, borderWidth:1, borderStyle:'dashed', borderColor:colors.borderSoft},
+  replacementOverlay: {flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', alignItems:'center', padding:20},
+  replacementSheet: {width:'100%', maxWidth:390, maxHeight:'90%', backgroundColor:colors.surface, borderRadius:radius.card, padding:spacing.card, gap:16},
+  replacementRow: {flexDirection:'row', alignItems:'center', gap:12, padding:12, borderRadius:radius.item, backgroundColor:colors.primarySoft},
   filterPanel: {gap:10},
   selectedBorder: {borderColor: colors.primary, backgroundColor: colors.primarySoft},
 

@@ -1,7 +1,7 @@
 import {GardenBackground} from './GardenBackground';
 import {GARDEN_BACKGROUNDS} from './gardenBackgrounds';
 import {useMemo, useRef, useState} from 'react';
-import {Pressable, ScrollView, Text, View} from 'react-native';
+import {Modal, Pressable, ScrollView, Text, View} from 'react-native';
 import {BibleFriendDesignSprite} from '../characters/BibleFriendDesignSprite';
 import {BIBLE_FRIEND_DESIGN_CATALOG, BIBLE_FRIEND_DESIGN_SPECIES, BIBLE_FRIEND_RARITIES, type BibleFriendRarity, type BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
 import {Button, Chip, DangerConfirmSheet, TextField} from '../components/ui';
@@ -18,6 +18,8 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
   const [rarity, setRarity] = useState<BibleFriendRarity | 'all'>('all');
   const [sort, setSort] = useState<'catalog' | 'rarity' | 'count'>('catalog');
   const [selected, setSelected] = useState<BibleFriendDesignId | null>(null);
+  const [replacementId, setReplacementId] = useState<BibleFriendDesignId | null>(null);
+  const replacement = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === replacementId);
   const [quantity, setQuantity] = useState(1);
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState('');
@@ -77,14 +79,10 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
       <View style={s.between}><Text style={s.name}>친구 상세</Text><Button size="compact" accessibilityLabel="선택한 동물 상세 닫기" variant="ghost" onPress={() => setSelected(null)}>닫기</Button></View>
       <View style={[s.row, {flexWrap:'nowrap'}]}><BibleFriendDesignSprite designId={design.id} motion="happy" size={88} /><View style={{flex:1,gap:8}}><Text style={s.title}>{design.name}</Text><Text style={s.body}>{RARITY_LABELS[design.rarity]} · {count}마리 보유</Text></View></View>
       <Button fullWidth accessibilityLabel={state.equipped.includes(design.id) ? '정원에서 빼기' : '정원에 배치하기'}
-        disabled={count < 1 || (!state.equipped.includes(design.id) && state.equipped.length >= MAX_GARDEN_FRIENDS)}
-        onPress={() => dispatch({type: 'equip', designId: design.id})}>
-        {state.equipped.includes(design.id) ? '정원에서 빼기' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '정원이 가득 찼어요' : '정원에 배치하기'}
+        disabled={count < 1}
+        onPress={() => {if (!state.equipped.includes(design.id) && state.equipped.length >= MAX_GARDEN_FRIENDS) setReplacementId(design.id); else dispatch({type:'equip',designId:design.id});}}>
+        {state.equipped.includes(design.id) ? '정원에서 빼기' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '배치한 친구와 교체하기' : '정원에 배치하기'}
       </Button>
-      {count > 0 && !state.equipped.includes(design.id) && state.equipped.length >= MAX_GARDEN_FRIENDS ? <View style={s.notice}>
-        <Text style={s.name}>누구와 교체할까요?</Text><Text style={s.caption}>아래 친구를 고르면 바로 교체돼요. 보유한 친구는 사라지지 않아요.</Text>
-        <View style={[s.row, {gap:4}]}>{state.equipped.map(id => <Pressable key={id} accessibilityRole="button" accessibilityLabel={`${BIBLE_FRIEND_DESIGN_CATALOG.find(item => item.id === id)?.name} 대신 ${design.name} 배치`} onPress={() => {dispatch({type:'replace', outgoingId:id, incomingId:design.id}); setMessage('정원의 친구를 교체했어요.');}}><BibleFriendDesignSprite designId={id} size={44} /></Pressable>)}</View>
-      </View> : null}
       <Text style={s.name}>중복 친구 정리</Text><Text style={s.caption}>마지막 한 마리는 남겨두고 판매해요.</Text>
       <Text style={s.caption}>체험 판매가 · {RARITY_LABELS[design.rarity]} 1마리 {DEMO_SELL_PRICES[design.rarity]}P (정식 가격 미확정)</Text>
       {count > 1 ? <View style={s.row}><View style={[s.between, {flexGrow:1}]}><Button accessibilityLabel="판매 수량 줄이기" disabled={quantity <= 1} onPress={() => setQuantity(n => n - 1)} variant="secondary">−</Button><Text style={s.name}>{quantity}마리</Text><Button accessibilityLabel="판매 수량 늘리기" disabled={quantity >= count - 1} onPress={() => setQuantity(n => n + 1)} variant="secondary">+</Button></View><Button size="compact" variant="ghost" accessibilityLabel="판매 가능한 중복 모두 선택" disabled={count <= 1} onPress={() => setQuantity(count - 1)}>최대</Button></View> : null}
@@ -115,13 +113,32 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         <Text style={s.caption}>{owned ? `${owned}마리${equipped ? ' · 배치 중' : ''}` : '아직 만나지 못했어요'}</Text>
       </Pressable>
       {owned > 0 ? <Button fullWidth size="compact" variant={equipped ? 'secondary' : 'ghost'} accessibilityLabel={`${item.name} ${equipped ? '바로 배치 해제' : '바로 배치'}`} onPress={() => {
-        if (!equipped && state.equipped.length >= MAX_GARDEN_FRIENDS) {setSelected(item.id); setQuantity(1); setConfirming(false); onRevealDetails();}
+        if (!equipped && state.equipped.length >= MAX_GARDEN_FRIENDS) {setReplacementId(item.id);}
         else {dispatch({type:'equip',designId:item.id}); setMessage(equipped ? '정원에서 친구를 뺐어요.' : '정원에 친구를 배치했어요.');}
       }}>{equipped ? '배치 해제' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '교체하기' : '배치하기'}</Button> : <Text style={s.caption}>미보유</Text>}
       </View>;
     })}</View>
     {entries.length > 12 ? <View style={s.between}><Button accessibilityLabel="이전 동물 목록" variant="secondary" disabled={visiblePage === 0} onPress={() => setPage(visiblePage - 1)}>이전</Button><Text style={s.caption}>{visiblePage + 1} / {pageCount}</Text><Button accessibilityLabel="다음 동물 목록" variant="secondary" disabled={visiblePage + 1 >= pageCount} onPress={() => setPage(visiblePage + 1)}>다음</Button></View> : null}
     </>}
+    <Modal visible={Boolean(replacement)} transparent animationType="fade" onRequestClose={() => setReplacementId(null)}>
+      <View style={s.replacementOverlay}>
+        <View style={s.replacementSheet} accessibilityViewIsModal>
+          <Text accessibilityRole="header" style={s.title}>누구와 교체할까요?</Text>
+          <Text style={s.body}>{replacement?.name}와 자리를 바꿀 친구를 골라주세요. 친구는 보유 목록에 그대로 남아요.</Text>
+          <ScrollView style={{maxHeight:360}} contentContainerStyle={s.stack}>
+            {replacement ? state.equipped.map(id => {
+              const outgoing = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === id)!;
+              return <Pressable key={id} accessibilityRole="button" accessibilityLabel={`${outgoing.name} 대신 ${replacement.name} 배치`} style={s.replacementRow} onPress={() => {
+                dispatch({type:'replace',outgoingId:id,incomingId:replacement.id});
+                setMessage(`${outgoing.name} 대신 ${replacement.name}를 배치했어요.`);
+                setReplacementId(null);
+              }}><BibleFriendDesignSprite designId={id} size={48} /><View style={{flex:1,gap:4}}><Text style={s.name}>{outgoing.name}</Text><Text style={s.caption}>{RARITY_LABELS[outgoing.rarity]}</Text></View><Text style={s.eyebrow}>교체</Text></Pressable>;
+            }) : null}
+          </ScrollView>
+          <Button fullWidth variant="secondary" accessibilityLabel="친구 교체 취소" onPress={() => setReplacementId(null)}>취소</Button>
+        </View>
+      </View>
+    </Modal>
     <DangerConfirmSheet visible={confirming && Boolean(design)} title="중복 친구를 판매할까요?" message={`${design?.name ?? ''} ${quantity}마리를 판매하고 체험 포인트 ${quote?.points ?? 0}P를 받아요.`}
       dangerSummary="판매한 수량은 되돌릴 수 없어요. 마지막 한 마리는 유지돼요." confirmLabel="판매하기" onCancel={() => setConfirming(false)}
       onConfirm={() => {

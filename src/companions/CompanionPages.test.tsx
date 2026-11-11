@@ -5,7 +5,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 vi.mock('react-native', async () => {
   const {createElement} = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(name, props, children);
-  return {ScrollView: host('ScrollView'), View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s, absoluteFill: {}},
+  return {Modal: ({visible,children}: React.PropsWithChildren<{visible:boolean}>)=>visible?createElement('Modal',{},children):null, ScrollView: host('ScrollView'), View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s, absoluteFill: {}},
     AppState: {currentState: 'active', addEventListener: () => ({remove: vi.fn()})},
     BackHandler: {addEventListener: () => ({remove: vi.fn()})}};
 });
@@ -165,6 +165,26 @@ describe('companion page flows', () => {
     expect(cards()).toHaveLength(7);
     await press('동물 보유 많은 순 정렬');
     expect(button('동물 보유 많은 순 정렬').props.variant).toBe('primary');
+  });
+  it('opens a replacement chooser immediately and replaces exactly one equipped friend', async () => {
+    await render('manage');
+    await press('새벽의 수호자 바로 배치');
+    expect(text()).toContain('누구와 교체할까요?');
+    const outgoing = tree!.root.findAllByType('Pressable' as React.ElementType).find(n => n.props.accessibilityLabel === '다윗의 양 · 기본 대신 새벽의 수호자 배치')!;
+    await act(async () => outgoing.props.onPress());
+    expect(tree!.root.findAllByType('Modal' as React.ElementType)).toHaveLength(0);
+    const roster = tree!.root.findAllByType('Pressable' as React.ElementType).filter(n => n.props.accessibilityLabel?.includes('배치 친구 상세'));
+    expect(roster).toHaveLength(5);
+    expect(roster.some(n => n.props.accessibilityLabel === '새벽의 수호자 배치 친구 상세')).toBe(true);
+    expect(roster.some(n => n.props.accessibilityLabel === '다윗의 양 · 기본 배치 친구 상세')).toBe(false);
+    expect(text()).toContain('3마리');
+  });
+  it('cancels replacement without changing the garden', async () => {
+    await render('manage');
+    await press('새벽의 수호자 바로 배치');
+    await press('친구 교체 취소');
+    expect(tree!.root.findAllByType('Modal' as React.ElementType)).toHaveLength(0);
+    expect(tree!.root.findAllByType('Pressable' as React.ElementType).some(n => n.props.accessibilityLabel === '다윗의 양 · 기본 배치 친구 상세')).toBe(true);
   });
   it('pages the catalog instead of mounting all 130 sprite atlases', async () => {
     await render('manage'); await press('전체 도감 보기');
