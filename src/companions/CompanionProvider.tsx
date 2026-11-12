@@ -8,7 +8,7 @@ import {companionReducer, createCompanionDemoState, type CompanionAction, type C
 import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dailyMissionContract';
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
-type Context = {state: CompanionState; dispatch: Dispatch<CompanionAction>; nextTransactionId: (kind: string) => string; daily: DailyState; refreshDaily: () => Promise<void>; claimDaily: (ids: readonly DailyMissionId[]) => Promise<void>; server:boolean; busy:boolean; error:string; serverSnapshot:ServerSnapshot|null; refresh:()=>Promise<void>; executeDraw?: (count:1|10)=>Promise<readonly BibleFriendDesignId[]>; perform?: (action:CompanionAction)=>Promise<boolean>};
+type Context = {gardenSaving?: boolean;state: CompanionState; dispatch: Dispatch<CompanionAction>; nextTransactionId: (kind: string) => string; daily: DailyState; refreshDaily: () => Promise<void>; claimDaily: (ids: readonly DailyMissionId[]) => Promise<void>; server:boolean; busy:boolean; error:string; serverSnapshot:ServerSnapshot|null; refresh:()=>Promise<void>; executeDraw?: (count:1|10)=>Promise<readonly BibleFriendDesignId[]>; perform?: (action:CompanionAction)=>Promise<boolean>};
 const CompanionContext = createContext<Context | null>(null);
 function DemoProvider({children, dailyApi}: PropsWithChildren<{dailyApi?: DailyMissionApi}>) {
   const [state, dispatch] = useReducer(companionReducer, undefined, createCompanionDemoState);
@@ -61,6 +61,10 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const [state,setState]=useState(empty);const current=useRef(state);
  const [snapshot,setSnapshot]=useState<ServerSnapshot|null>(null);const source=useRef<ServerSnapshot|null>(null);
  const [busy,setBusy]=useState(false);const [error,setError]=useState('');const lock=useRef(false);const alive=useRef(true);
+ const gardenDirty = useRef(false);
+ const gardenRevision = useRef(0);
+ const gardenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const [gardenSaving, setGardenSaving] = useState(false);
  const apply=useCallback((value:ServerSnapshot)=>{
   if(!alive.current)return;
   source.current=value;setSnapshot(value);
@@ -68,25 +72,96 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   for(const [id,code] of Object.entries(DAILY_MISSION_SERVER_IDS))if(value.daily.missions.some(m=>m.mission===code&&m.status==='CLAIMED'))claimed.push(`${value.daily.recordDate}:${id}`);
   if(value.attendance.claimed)claimed.push(`${value.attendance.date}:attendance`);
   for(const [id,code] of Object.entries(PERIOD_MISSION_IDS)){const item=value.periods.missions.find(m=>m.mission===code);if(item?.status==='CLAIMED')claimed.push(`${item.periodStart}:${id}`);}
-  const next:CompanionState={points:value.balance,dailyAwardedPoints:0,backgroundId:value.garden.backgroundId??'default',inventory:value.inventory,equipped:[...value.garden.placements].sort((a,b)=>a.slot-b.slot).map(p=>p.designId),gardenPositions:Object.fromEntries(value.garden.placements.map(p=>[p.designId,{x:p.x,y:p.y}])),claimed,transactions:[]};
+  let next:CompanionState={points:value.balance,dailyAwardedPoints:0,backgroundId:value.garden.backgroundId??'default',inventory:value.inventory,equipped:[...value.garden.placements].sort((a,b)=>a.slot-b.slot).map(p=>p.designId),gardenPositions:Object.fromEntries(value.garden.placements.map(p=>[p.designId,{x:p.x,y:p.y}])),claimed,transactions:[]};
+  if (gardenDirty.current) {
+    next = {...next,equipped:current.current.equipped,backgroundId:current.current.backgroundId,gardenPositions:current.current.gardenPositions};
+  }
   current.current=next;setState(next);
  },[]);
  const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{apply(await api.load());if(alive.current)setError('');}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply]);
- useEffect(()=>{alive.current=true;void refresh();const sub=AppState.addEventListener('change',value=>{if(value==='active')void refresh();});return()=>{alive.current=false;sub.remove();};},[refresh]);
+ const flushGarden = useCallback(async function saveGarden(): Promise<void> {
+  if (gardenTimer.current) clearTimeout(gardenTimer.current);
+  gardenTimer.current = null;
+  if (!gardenDirty.current || !source.current) return;
+  if (lock.current) {
+    gardenTimer.current = setTimeout(() => {void saveGarden();}, 700);
+    return;
+  }
+  lock.current = true;
+  setBusy(true);
+  const revision = gardenRevision.current;
+  const draft = current.current;
+  try {
+    const garden = await api.garden({
+      version:source.current.garden.version,
+      backgroundId:draft.backgroundId === 'default' ? null : draft.backgroundId,
+      placements:draft.equipped.map((id,index) => ({slot:index+1,designId:id,x:draft.gardenPositions[id]?.x??0.5,y:draft.gardenPositions[id]?.y??0.5})),
+    });
+    if (!alive.current) return;
+    gardenDirty.current = revision !== gardenRevision.current;
+    apply({...source.current!,garden});
+    if (!gardenDirty.current) setGardenSaving(false);
+  } catch {
+    if (alive.current) {
+      gardenDirty.current = false;
+      if (gardenTimer.current) clearTimeout(gardenTimer.current);
+      gardenTimer.current = null;
+      setGardenSaving(false);
+      apply(source.current!);
+      setError('정원 변경을 저장하지 못했어요. 새로 확인한 뒤 다시 변경해주세요.');
+    }
+  } finally {
+    lock.current = false;
+    if (alive.current) setBusy(false);
+    if (alive.current && gardenDirty.current && !gardenTimer.current) {
+      gardenTimer.current = setTimeout(() => {void saveGarden();}, 700);
+    }
+  }
+ }, [api,apply]);
+ useEffect(() => {
+  alive.current = true;
+  void refresh();
+  const sub = AppState.addEventListener('change',value => {
+    if (value === 'active') void refresh();
+    else void flushGarden();
+  });
+  return () => {
+    if (gardenTimer.current) clearTimeout(gardenTimer.current);
+    gardenTimer.current = null;
+    // Best effort on account/provider exit; normal page navigation keeps this provider.
+    if (gardenDirty.current && !lock.current) void flushGarden();
+    alive.current = false;
+    sub.remove();
+  };
+ }, [refresh,flushGarden]);
  const operate=useCallback(async<T,>(job:()=>Promise<T>):Promise<T>=>{if(lock.current||!source.current||error)throw new Error('서버 정보를 먼저 새로 확인해주세요.');lock.current=true;setBusy(true);try{const result=await job();apply(await api.load());return result;}catch(e){if(alive.current)setError('처리 결과를 확인해주세요. 새로 확인한 뒤 다시 시도할 수 있어요.');throw e;}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,error]);
  const perform=useCallback(async(action:CompanionAction)=>{
+  if (['background','equip','replace'].includes(action.type)) {
+    if (!source.current || error) return false;
+    if (action.type === 'background' && action.backgroundId !== 'default' && !source.current.backgrounds.includes(action.backgroundId)) return false;
+    const next = companionReducer(current.current,action);
+    if (next === current.current) return false;
+    current.current = next;
+    setState(next);
+    gardenDirty.current = true;
+    gardenRevision.current++;
+    setGardenSaving(true);
+    if (gardenTimer.current) clearTimeout(gardenTimer.current);
+    gardenTimer.current = setTimeout(() => {void flushGarden();}, 700);
+    return true;
+  }
+  // Drag positions are transient and never persisted by the server provider.
+  if (action.type === 'move') return false;
   try{return await operate(async()=>{
    if(action.type==='claim'){await api.claim(action.missionId);return true;}
    if(action.type==='sell'){await api.sell(action.designId,action.quantity);return true;}
-   if(!['background','move','equip','replace'].includes(action.type))return false;
-   const next=companionReducer(current.current,action);const old=source.current!.garden;
-   await api.garden({version:old.version,backgroundId:next.backgroundId==='default'?null:next.backgroundId,placements:next.equipped.map((id,index)=>({slot:index+1,designId:id,x:next.gardenPositions[id]?.x??0.5,y:next.gardenPositions[id]?.y??0.5}))});return true;
+   return false;
   });}catch{return false;}
- },[api,operate]);
+ },[api,operate,error,flushGarden]);
  const claimDaily=useCallback(async(ids:readonly DailyMissionId[])=>{for(const id of ids)if(!await perform({type:'claim',missionId:id,periodKey:'server',status:'ready'}))break;},[perform]);
  const executeDraw=useCallback(async(count:1|10)=>{const result=await operate(()=>api.draw(count));return result.designIds;},[api,operate]);
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{gardenSaving,state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);
