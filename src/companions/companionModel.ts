@@ -40,6 +40,7 @@ export type CompanionState = Readonly<{
   transactions: readonly string[];
 }>;
 export type CompanionAction =
+  | {type:'server-sync'; state:CompanionState}
   | {type: 'daily-sync'; snapshot: DailyMissionSnapshot}
   | {type: 'replace'; outgoingId: BibleFriendDesignId; incomingId: BibleFriendDesignId}
   | {type: 'background'; backgroundId: GardenBackgroundId}
@@ -58,14 +59,15 @@ export function createCompanionDemoState(): CompanionState {
     gardenPositions: {}, claimed: [], transactions: [],
   };
 }
-export function getSellQuote(state: CompanionState, id: BibleFriendDesignId, quantity: number) {
+export function getSellQuote(state: CompanionState, id: BibleFriendDesignId, quantity: number, prices = DEMO_SELL_PRICES) {
   const design = catalog.get(id);
   if (!design || !Number.isSafeInteger(quantity) || quantity < 1 || quantity >= (state.inventory[id] ?? 0)) return null;
-  return {quantity, points: DEMO_SELL_PRICES[design.rarity] * quantity};
+  return {quantity, points: prices[design.rarity] * quantity};
 }
 /** Session-only preview reducer. Never call this to settle real points or inventory. */
 export function companionReducer(state: CompanionState, action: CompanionAction): CompanionState {
   switch (action.type) {
+    case 'server-sync': return action.state;
     case 'daily-sync': {
       const {snapshot} = action;
       const total = Math.max(state.dailyAwardedPoints, snapshot.totalAwardedPoints);

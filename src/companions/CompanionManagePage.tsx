@@ -11,7 +11,7 @@ import {useCompanions} from './CompanionProvider';
 import {companionStyles as s} from './companionStyles';
 
 export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetails?: () => void}) {
-  const {state, dispatch, nextTransactionId} = useCompanions();
+  const {state, dispatch, nextTransactionId,server,busy,error,serverSnapshot,perform} = useCompanions();
   const [page, setPage] = useState(0);
   const [section, setSection] = useState<'friends' | 'backgrounds'>('friends');
   const [filter, setFilter] = useState<'owned' | 'duplicates' | 'all' | 'unequipped'>('owned');
@@ -27,12 +27,13 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
   const saleLock = useRef(false);
   const design = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === selected);
   const count = selected ? state.inventory[selected] ?? 0 : 0;
-  const quote = selected ? getSellQuote(state, selected, quantity) : null;
+  const quote = selected ? getSellQuote(state, selected, quantity, serverSnapshot?.prices ?? DEMO_SELL_PRICES) : null;
   const ownedCount = Object.values(state.inventory).filter(n => n && n > 0).length;
   const duplicateCount = Object.values(state.inventory).reduce<number>((sum, n) => sum + Math.max(0, (n ?? 0) - 1), 0);
   const entries = useMemo(() => {
     const search = query.trim().toLocaleLowerCase();
     const items = BIBLE_FRIEND_DESIGN_CATALOG.filter(d => {
+      if(server && !serverSnapshot?.catalog.includes(d.id) && !(state.inventory[d.id]??0))return false;
       const species = BIBLE_FRIEND_DESIGN_SPECIES.find(item => item.id === d.friendId)?.name ?? '';
       return (filter === 'all' || ((state.inventory[d.id] ?? 0) >= (filter === 'duplicates' ? 2 : 1) && (filter !== 'unequipped' || !state.equipped.includes(d.id))))
         && (rarity === 'all' || rarity === d.rarity)
@@ -43,20 +44,20 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     // Stable grouping keeps deployed friends first within the chosen sort.
     items.sort((a,b) => Number(state.equipped.includes(b.id)) - Number(state.equipped.includes(a.id)));
     return items;
-  }, [filter, state.inventory, state.equipped, query, rarity, sort]);
+  }, [filter, state.inventory, state.equipped, query, rarity, sort,server,serverSnapshot]);
   const pageCount = Math.max(1, Math.ceil(entries.length / 12));
   const visiblePage = Math.min(page, pageCount - 1);
   return <View style={s.page}>
     <View style={s.row}>{([['friends', '친구'], ['backgrounds', '배경']] as const).map(([key,label]) => <Button key={key} size="compact" accessibilityLabel={`${label} 관리 보기`} variant={section === key ? 'primary' : 'ghost'} onPress={() => {setSection(key); setSelected(null); setConfirming(false);}}>{label}</Button>)}</View>
     {section === 'backgrounds' ? <View style={s.section}>
-      <Text style={s.caption}>홈의 캐릭터 공간에만 적용돼요. 지금은 모든 배경을 체험할 수 있어요.</Text>
+      <Text style={s.caption}>{server ? '홈의 캐릭터 공간에 적용돼요. 보유한 배경만 선택할 수 있어요.' : '홈의 캐릭터 공간에만 적용돼요. 지금은 모든 배경을 체험할 수 있어요.'}</Text>
       <View style={s.grid}>{GARDEN_BACKGROUNDS.map(background => <Pressable key={background.id}
-        accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
+        disabled={server && (busy || Boolean(error) || background.id!=='default' && !serverSnapshot?.backgrounds.includes(background.id))} accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
         onPress={() => dispatch({type: 'background', backgroundId: background.id})}
         style={[s.collectionTile, state.backgroundId === background.id ? s.selectedBorder : null]}>
         <View style={{width: '100%', height: 82, overflow: 'hidden', borderRadius: 8}}><GardenBackground id={background.id} /></View>
         <Text style={s.name}>{background.name}</Text>
-        <Text style={state.backgroundId === background.id ? s.eyebrow : s.caption}>{state.backgroundId === background.id ? '✓ 적용 중' : '눌러서 적용'}</Text>
+        <Text style={state.backgroundId === background.id ? s.eyebrow : s.caption}>{state.backgroundId === background.id ? '✓ 적용 중' : server && background.id!=='default' && !serverSnapshot?.backgrounds.includes(background.id) ? '미보유' : '눌러서 적용'}</Text>
       </Pressable>)}</View>
     </View> : <>
 
@@ -69,7 +70,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
           <Pressable style={s.detail} accessibilityRole="button" accessibilityLabel={`${friend.name} 배치 친구 상세`} onPress={() => {setSelected(id);setQuantity(1);setConfirming(false);}}>
             <BibleFriendDesignSprite designId={id} size={58} /><Text style={s.rosterName}>{friend.name}</Text>
           </Pressable>
-          <Button size="compact" fullWidth variant="secondary" accessibilityLabel={`${friend.name} 배치 해제`} onPress={() => {dispatch({type:'equip',designId:id});setMessage('정원에서 친구를 뺐어요.');}}>해제</Button>
+          <Button size="compact" fullWidth variant="secondary" accessibilityLabel={`${friend.name} 배치 해제`} onPress={() => {dispatch({type:'equip',designId:id});if(!server)setMessage('정원에서 친구를 뺐어요.');}}>해제</Button>
         </View>;
       })}{Array.from({length:Math.max(0,MAX_GARDEN_FRIENDS-state.equipped.length)},(_,i)=><View key={`empty-${i}`} style={[s.rosterTile,s.emptySlot]}><Text style={s.title}>＋</Text><Text style={s.caption}>빈자리</Text></View>)}</ScrollView>
       <Text style={s.caption}>{state.equipped.length >= MAX_GARDEN_FRIENDS ? '다른 친구의 교체하기를 누르면 교체할 친구를 고를 수 있어요.' : `아래 목록에서 ${MAX_GARDEN_FRIENDS-state.equipped.length}마리 더 배치할 수 있어요.`}</Text>
@@ -85,7 +86,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         {state.equipped.includes(design.id) ? '정원에서 빼기' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '배치한 친구와 교체하기' : '정원에 배치하기'}
       </Button>
       <Text style={s.name}>중복 친구 정리</Text><Text style={s.caption}>마지막 한 마리는 남겨두고 판매해요.</Text>
-      <Text style={s.caption}>체험 판매가 · {RARITY_LABELS[design.rarity]} 1마리 {DEMO_SELL_PRICES[design.rarity]}P (정식 가격 미확정)</Text>
+      <Text style={s.caption}>{server ? '판매가' : '체험 판매가'} · {RARITY_LABELS[design.rarity]} 1마리 {(serverSnapshot?.prices ?? DEMO_SELL_PRICES)[design.rarity]}P</Text>
       {count > 1 ? <View style={s.row}><View style={[s.between, {flexGrow:1}]}><Button accessibilityLabel="판매 수량 줄이기" disabled={quantity <= 1} onPress={() => setQuantity(n => n - 1)} variant="secondary">−</Button><Text style={s.name}>{quantity}마리</Text><Button accessibilityLabel="판매 수량 늘리기" disabled={quantity >= count - 1} onPress={() => setQuantity(n => n + 1)} variant="secondary">+</Button></View><Button size="compact" variant="ghost" accessibilityLabel="판매 가능한 중복 모두 선택" disabled={count <= 1} onPress={() => setQuantity(count - 1)}>최대</Button></View> : null}
       <Button fullWidth accessibilityLabel="중복 동물 판매 확인" variant="secondary" disabled={!quote} onPress={() => {saleLock.current = false; setConfirming(true);}}>{quote ? `${quantity}마리 판매 · ${quote.points}P` : '판매할 중복이 없어요'}</Button>
     </View> : null}
@@ -115,7 +116,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
       </Pressable>
       {owned > 0 ? <Button fullWidth size="compact" variant={equipped ? 'secondary' : 'ghost'} accessibilityLabel={`${item.name} ${equipped ? '바로 배치 해제' : '바로 배치'}`} onPress={() => {
         if (!equipped && state.equipped.length >= MAX_GARDEN_FRIENDS) {setReplacementId(item.id);}
-        else {dispatch({type:'equip',designId:item.id}); setMessage(equipped ? '정원에서 친구를 뺐어요.' : '정원에 친구를 배치했어요.');}
+        else {dispatch({type:'equip',designId:item.id}); if(!server)setMessage(equipped ? '정원에서 친구를 뺐어요.' : '정원에 친구를 배치했어요.');}
       }}>{equipped ? '배치 해제' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '교체하기' : '배치하기'}</Button> : <Text style={s.caption}>미보유</Text>}
       </View>;
     })}</View>
@@ -129,8 +130,9 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
           <ScrollView style={{maxHeight:360}} contentContainerStyle={s.stack}>
             {replacement ? state.equipped.map(id => {
               const outgoing = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === id)!;
-              return <Pressable key={id} accessibilityRole="button" accessibilityLabel={`${outgoing.name} 대신 ${replacement.name} 배치`} style={s.replacementRow} onPress={() => {
-                dispatch({type:'replace',outgoingId:id,incomingId:replacement.id});
+              return <Pressable key={id} accessibilityRole="button" accessibilityLabel={`${outgoing.name} 대신 ${replacement.name} 배치`} style={s.replacementRow} onPress={async () => {
+                const action={type:'replace' as const,outgoingId:id,incomingId:replacement.id};
+                if(server){if(!await perform!(action))return;}else dispatch(action);
                 setMessage(`${outgoing.name} 대신 ${replacement.name}를 배치했어요.`);
                 setReplacementId(null);
               }}><BibleFriendDesignSprite designId={id} size={48} /><View style={{flex:1,gap:4}}><Text style={s.name}>{outgoing.name}</Text><Text style={s.caption}>{RARITY_LABELS[outgoing.rarity]}</Text></View><Text style={s.eyebrow}>교체</Text></Pressable>;
@@ -140,13 +142,14 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         </View>
       </View>
     </AppModal>
-    <DangerConfirmSheet visible={confirming && Boolean(design)} title="중복 친구를 판매할까요?" message={`${design?.name ?? ''} ${quantity}마리를 판매하고 체험 포인트 ${quote?.points ?? 0}P를 받아요.`}
+    <DangerConfirmSheet visible={confirming && Boolean(design)} title="중복 친구를 판매할까요?" message={`${design?.name ?? ''} ${quantity}마리를 판매하고 ${server ? '포인트' : '체험 포인트'} ${quote?.points ?? 0}P를 받아요.`}
       dangerSummary="판매한 수량은 되돌릴 수 없어요. 마지막 한 마리는 유지돼요." confirmLabel="판매하기" onCancel={() => setConfirming(false)}
-      onConfirm={() => {
+      onConfirm={async () => {
         if (saleLock.current || !selected || !quote) return;
         saleLock.current = true;
-        dispatch({type: 'sell', designId: selected, quantity, transactionId: nextTransactionId('sale')});
-        setMessage(`${quantity}마리 판매 · ${quote.points}P를 받았어요 (체험)`); setConfirming(false); setQuantity(1); setPage(0);
+        const action={type:'sell' as const,designId:selected,quantity,transactionId:nextTransactionId('sale')};
+        if(server){if(!await perform!(action)){saleLock.current=false;return;}}else dispatch(action);
+        setMessage(`${quantity}마리 판매 · ${quote.points}P를 받았어요${server ? '' : ' (체험)'}`); setConfirming(false); setQuantity(1); setPage(0);
       }} />
   </View>;
 }

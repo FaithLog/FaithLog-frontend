@@ -490,7 +490,7 @@ function parseWeeklyDevotionSummaryValue(value: unknown): WeeklyDevotionSummary 
     weeklyRecordId: requireNullablePositiveId(record.weeklyRecordId),
     campusId: requirePositiveId(record.campusId),
     campusName: requireString(record.campusName, 200),
-    region: requireString(record.region, 200),
+    region: requireNullableString(record.region, 200) ?? '',
     userId: requirePositiveId(record.userId),
     weekStartDate: requireDate(record.weekStartDate),
     weekEndDate: requireDate(record.weekEndDate),
