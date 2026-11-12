@@ -20,7 +20,7 @@ vi.mock('./GardenBackground', () => ({GardenBackground: (props: Record<string, u
 vi.mock('./CompanionDrawScene', () => ({CompanionDrawScene: (props: {onComplete: () => void}) => React.createElement('DrawScene', props)}));
 
 
-import {CompanionProvider,useCompanions} from './CompanionProvider';
+import {CompanionProvider,isCompanionPreviewEnabled,useCompanions} from './CompanionProvider';
 import type {CompanionServerApi,ServerSnapshot} from './companionServerContract';
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
 (globalThis as typeof globalThis&{IS_REACT_ACT_ENVIRONMENT:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
@@ -36,3 +36,5 @@ describe('server companion state ownership',()=>{
  it('serializes repeated taps and waits for server garden state before applying',async()=>{const s=snapshot();const api=apiFor(s);let release!:()=>void;api.garden=vi.fn(async g=>{await new Promise<void>(r=>{release=r;});s.garden={...g,version:1};return s.garden;});await mount(api);let first!:Promise<boolean>;await act(async()=>{first=current.perform!({type:'equip',designId:'david-lamb:base'});await Promise.resolve();expect(await current.perform!({type:'equip',designId:'david-lamb:base'})).toBe(false);});expect(current.state.equipped).toEqual([]);await act(async()=>{release();await first;});expect(api.garden).toHaveBeenCalledTimes(1);expect(current.state.equipped).toEqual(['david-lamb:base']);});
  it('ignores an old account response after the provider is replaced',async()=>{let resolve!:(s:ServerSnapshot)=>void;const slow=apiFor(snapshot());slow.load=vi.fn(()=>new Promise<ServerSnapshot>(r=>{resolve=r;}));await mount(slow,'old');await act(async()=>tree!.unmount());tree=undefined;const s=snapshot(0);s.inventory={};await mount(apiFor(s),'new');await act(async()=>resolve(snapshot(9999)));expect(current.state.points).toBe(0);expect(current.state.inventory).toEqual({});});
 });
+
+it('enables the server economy in production builds',()=>{vi.stubGlobal('__DEV__',false);try{expect(isCompanionPreviewEnabled()).toBe(true);}finally{vi.unstubAllGlobals();}});

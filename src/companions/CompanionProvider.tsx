@@ -93,5 +93,5 @@ export function useCompanions() {
   if (!value) throw new Error('CompanionProvider is required');
   return value;
 }
-/** Keep the unfinished draw/inventory economy out of store builds. */
-export function isCompanionPreviewEnabled() {return typeof __DEV__ !== 'undefined' && __DEV__;}
+/** Released economy uses the authenticated server in every build. */
+export function isCompanionPreviewEnabled() {return true;}

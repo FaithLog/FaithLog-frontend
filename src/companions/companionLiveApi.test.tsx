@@ -43,7 +43,7 @@ afterAll(()=>vi.unstubAllEnvs());
 describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP adapter',()=>{
  it('settles sales/attendance/calendar/submission and restores timed-out draws with the same key',async()=>{
   const token=await login(0);const f=fixtures[0]!;const storage=memory();const api=createCompanionServerApi(f.campus,async()=>token,storage);
-  let s=await api.load();expect(s.balance).toBe(1000);expect(s.inventory['david-lamb:base']).toBe(3);expect(s.catalog).toHaveLength(131);expect(s.prices.COMMON).toBe(10);
+  let s=await api.load();expect(s.balance).toBe(1000);expect(s.inventory['david-lamb:base']).toBe(3);expect(s.catalog).toHaveLength(131);expect(s.prices.COMMON).toBe(10);expect(s.prices.MIRACLE).toBe(1000000);expect(s.pool?.poolVersion).toBe('standard-v2');expect(s.pool!.entries.find(e=>e.designId==='jesus:miracle')!.weight/s.pool!.totalWeight).toBe(0.0001);
   const stale=s.garden;
   await api.garden({version:stale.version,backgroundId:'meadow',placements:[{slot:1,designId:'david-lamb:base',x:.2,y:.8}]});
   await expect(api.garden({...stale,placements:[]})).rejects.toMatchObject({detail:{status:409}});
