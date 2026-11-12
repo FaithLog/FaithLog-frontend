@@ -20,8 +20,9 @@ for index in range(2):
     sql(f"INSERT INTO campus_members(campus_id,user_id,campus_role,status,joined_at,created_at,updated_at) VALUES({campus},{user},'MEMBER','ACTIVE','2025-01-01',now(),now())")
     fixtures.append(dict(user=user, campus=campus, email=email))
 first = fixtures[0]
-sql(f"INSERT INTO point_wallets(user_id,balance,version) VALUES({first['user']},1000,0)")
-sql(f"INSERT INTO point_transactions(user_id,delta,balance_after,business_key,created_at) VALUES({first['user']},1000,1000,'qa-initial',now())")
+for fixture in fixtures:
+    assert sql(f"SELECT balance FROM point_wallets WHERE user_id={fixture['user']}") == '1000', 'V32 starter grant required'
+    assert sql(f"SELECT count(*) FROM point_transactions WHERE user_id={fixture['user']} AND business_key='welcome:initial-1000:v1'") == '1', 'Exactly one starter grant required'
 sql(f"INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES({first['user']},'david-lamb:base',3,now())")
 sql(f"INSERT INTO user_backgrounds(user_id,background_id,acquired_at) VALUES({first['user']},'meadow',now())")
 # Match MissionWindow: the most recently closed month, including its final week.

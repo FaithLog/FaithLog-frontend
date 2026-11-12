@@ -74,7 +74,7 @@ describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP ada
   await act(async()=>tree!.unmount());tree=undefined;
   const fresh=createCompanionServerApi(f.campus,async()=>token,storage);
   await act(async()=>{tree=create(<CompanionProvider api={fresh} key="account-two-relogin"><CompanionPages initialPage="missions" onBack={()=>{}} onActivity={()=>{}} /></CompanionProvider>);});
-  await ready(()=>expect(button('출석 보상 받기')?.props.disabled).toBe(false));await press('월간 미션 보기');expect(button('경건 체크 모두 제출 수령 완료')?.props.disabled).toBe(true);expect((await fresh.load()).balance).toBe(300);
+  await ready(()=>expect(button('출석 보상 받기')?.props.disabled).toBe(false));await press('월간 미션 보기');expect(button('경건 체크 모두 제출 수령 완료')?.props.disabled).toBe(true);expect((await fresh.load()).balance).toBe(1300);
   await expect(fresh.garden({version:0,backgroundId:null,placements:[{slot:1,designId:'david-lamb:base',x:.5,y:.5}]})).rejects.toMatchObject({detail:{status:403}});
   const wrong=createCompanionServerApi(fixtures[0]!.campus,async()=>token,memory());await expect(wrong.load()).rejects.toMatchObject({detail:{status:403}});
  },120_000);
