@@ -39,7 +39,7 @@ export function CompanionDrawScene({designs, onComplete}: {designs: readonly Bib
   }, [frame.done, motionReady, onComplete, reduceMotion]);
   if (!design) return null;
   const p = frame.progress, reveal = frame.phase === 'reveal', gather = frame.phase === 'gather';
-  const tone = MOTION_TONES[design.rarity], special = ['RARE', 'EPIC', 'UNIQUE'].includes(design.rarity);
+  const tone = MOTION_TONES[design.rarity], special = ['RARE', 'EPIC', 'UNIQUE', 'MIRACLE'].includes(design.rarity);
   const v = clamp((p - .17) / .48), land = clamp((v - .72) / .28);
   const charY = 205 - Math.sin(v * Math.PI) * 52 - Math.sin(land * Math.PI) * 6;
   const squash = 1 - Math.sin(land * Math.PI) * .1;
@@ -51,9 +51,9 @@ export function CompanionDrawScene({designs, onComplete}: {designs: readonly Bib
       <Defs><LinearGradient id="companion-shell" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={colors.surface} /><Stop offset="0.5" stopColor="#FFFDF8" /><Stop offset="1" stopColor="#DCEBED" /></LinearGradient><RadialGradient id="companion-aura"><Stop offset="0" stopColor={tone.soft} /><Stop offset="1" stopColor={colors.surface} stopOpacity={0} /></RadialGradient></Defs>
       <Rect width={350} height={300} fill="url(#companion-aura)" />
       <Ellipse cx={175} cy={242} rx={78} ry={14} fill={tone.ink} opacity={.08} /><Ellipse cx={175} cy={242} rx={78} ry={14} fill="none" stroke={tone.ink} opacity={.25} />
-      {reveal && special ? Array.from({length: 12}, (_, i) => <Path key={`ray-${i}`} d="M0 0 L-11 -155 L11 -155Z" fill={tone.ink} opacity={(1 - p) * (design.rarity === 'UNIQUE' ? .15 : .07)} transform={`translate(175,165) rotate(${i * 30 + p * 12})`} />) : null}
+      {reveal && special ? Array.from({length: 12}, (_, i) => <Path key={`ray-${i}`} d="M0 0 L-11 -155 L11 -155Z" fill={tone.ink} opacity={(1 - p) * ((design.rarity === 'UNIQUE' || design.rarity === 'MIRACLE') ? .15 : .07)} transform={`translate(175,165) rotate(${i * 30 + p * 12})`} />) : null}
       {reveal ? [0, 1].map(i => <Circle key={i} cx={175} cy={165} r={20 + ease(clamp((p - i * .12) / .8)) * 108} fill="none" stroke={tone.ink} strokeWidth={1.5 - i * .4} opacity={(1 - p) * .5} />) : null}
-      {(gather || reveal) ? Array.from({length: design.rarity === 'UNIQUE' ? 32 : 20}, (_, i) => {
+      {(gather || reveal) ? Array.from({length: (design.rarity === 'UNIQUE' || design.rarity === 'MIRACLE') ? 32 : 20}, (_, i) => {
         const a = i * 2.399 + (gather ? p * 1.7 : p * .3), r = gather ? 105 * (1 - p) + 10 : 18 + ease(p) * (50 + i % 7 * 10);
         return <Spark key={i} x={175 + Math.cos(a) * r} y={165 + Math.sin(a) * r * .8 + (reveal ? p * p * 18 : 0)} size={1.5 + i % 4} opacity={gather ? Math.sin(p * Math.PI) * .8 : Math.sin(p * Math.PI) * .8} color={tone.ink} rotation={a * 30 + p * 60} />;
       }) : null}

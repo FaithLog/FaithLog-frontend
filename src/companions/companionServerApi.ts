@@ -26,7 +26,7 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
     request(`/api/v1/campuses/${encodeURIComponent(campusId)}/missions/me`,parsePeriods),
     request('/api/v1/companions/me/backgrounds',v=>array(v).flatMap(x=>{const r=object(x);if(typeof r.owned!=='boolean'||typeof r.backgroundId!=='string'||!isGardenBackgroundId(r.backgroundId))throw new Error('Invalid background');return r.owned?[r.backgroundId]:[];})),
     request('/api/v1/companions/draw-pools',v=>array(v).map(x=>{const r=object(x);const entries=array(r.entries).map(e=>{const p=object(e);return{designId:designId(p.designId),weight:integer(p.weight,1)};});const totalWeight=integer(r.totalWeight,1);if(entries.reduce((s,e)=>s+e.weight,0)!==totalWeight)throw new Error('Invalid weights');return{poolVersion:string(r.poolVersion),unitCost:integer(r.unitCost,1),totalWeight,entries};})),
-    request('/api/v1/companions/sale-prices',v=>{const result={} as ServerSnapshot['prices'];for(const x of array(v)){const r=object(x);result[rarity(r.rarity)]=integer(r.unitPrice,1);}if(Object.keys(result).length!==5)throw new Error('Invalid prices');return result;}),
+    request('/api/v1/companions/sale-prices',v=>{const result={MIRACLE:1000000} as ServerSnapshot['prices'];for(const x of array(v)){const r=object(x);result[rarity(r.rarity)]=integer(r.unitPrice,1);}if(Object.keys(result).length!==6)throw new Error('Invalid prices');return result;}),
     request('/api/v1/companions/me/draws?page=0',v=>array(v).map(x=>{const r=object(x);return{result:parseOperation(r.result),createdAt:date(r.createdAt)};})),
     request('/api/v1/companions/catalog',v=>array(v).map(x=>designId(object(x).designId))),
    ]);

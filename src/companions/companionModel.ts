@@ -13,7 +13,7 @@ export const DRAW_COST = 100;
 export const MAX_GARDEN_FRIENDS = 5;
 /** Provisional demo prices. Server policy must replace these before launch. */
 export const DEMO_SELL_PRICES: Readonly<Record<BibleFriendRarity, number>> = {
-  COMMON: 10, UNCOMMON: 15, RARE: 25, EPIC: 40, UNIQUE: 50,
+  COMMON: 10, UNCOMMON: 15, RARE: 25, EPIC: 40, UNIQUE: 50, MIRACLE: 1000000,
 };
 export const MISSIONS: readonly MissionDefinition[] = [
   {id: 'attendance', period: 'daily', label: '출석', points: 10, destination: null},
@@ -27,7 +27,7 @@ export const MISSIONS: readonly MissionDefinition[] = [
   {id: 'all-submissions', period: 'monthly', label: '경건 체크 모두 제출', points: 300, destination: null},
 ];
 export const RARITY_LABELS: Readonly<Record<BibleFriendRarity, string>> = {
-  COMMON: '일반', UNCOMMON: '고급', RARE: '희귀', EPIC: '에픽', UNIQUE: '유니크',
+  COMMON: '일반', UNCOMMON: '고급', RARE: '희귀', EPIC: '에픽', UNIQUE: '유니크', MIRACLE: '미라클',
 };
 export type CompanionState = Readonly<{
   points: number;

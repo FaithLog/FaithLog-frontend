@@ -6,7 +6,7 @@ vi.mock('react-native', async () => {
   const { createElement } = await import('react');
   const host = (name: string) => ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
     createElement(name, props, children);
-  return { Image: host('Image'), View: host('View'), Platform: {OS: 'ios'} };
+  return { Image: host('Image'), View: host('View'), Text: host('Text'), Platform: {OS: 'ios'} };
 });
 vi.mock('./bibleFriendDesignMotionAssets', () => ({
   BIBLE_FRIEND_DESIGN_MOTION_ATLASES: { 'hope-rabbit:unique': 'rabbit-unique-atlas' },
@@ -23,6 +23,13 @@ import { BibleFriendDesignSprite } from './BibleFriendDesignSprite';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('BibleFriendDesignSprite', () => {
+  it('shows a question mark without any character image for an unowned miracle', async () => {
+    let renderer: ReturnType<typeof create>;
+    await act(async()=>{renderer=create(<BibleFriendDesignSprite designId="jesus:miracle" silhouette />);});
+    expect(renderer!.root.findAllByType('Image' as React.ElementType)).toHaveLength(0);
+    expect(renderer!.root.findByType('Text' as React.ElementType).props.children).toBe('?');
+    await act(async()=>renderer!.unmount());
+  });
   it.each(['ios', 'web'] as const)('tints only the character pixels black on %s and restores owned colors', async platform => {
     const original = Platform.OS;
     Platform.OS = platform;
