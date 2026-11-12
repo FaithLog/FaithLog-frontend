@@ -2,6 +2,8 @@ import React from 'react';
 import {act, create, type ReactTestRenderer} from 'react-test-renderer';
 import {describe, expect, it, vi} from 'vitest';
 
+vi.mock('../components/linkBookmarks', async (importOriginal) => ({...await importOriginal<typeof import('../components/linkBookmarks')>(), fetchLinkPreview: vi.fn(async () => ({title: '테스트 링크',description: null,imageUrl: null}))}));
+
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) =>

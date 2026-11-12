@@ -1,4 +1,5 @@
-import {createDailyMissionApi} from '../companions/dailyMissionApi';
+import {createCompanionServerApi} from '../companions/companionServerApi';
+import {companionPendingStorage} from '../companions/companionPendingStorage';
 import {pickValidationFieldErrors} from '../api/validationErrors';
 import {
   type Dispatch,
@@ -1967,8 +1968,8 @@ function StatusCard({
 
 function AuthenticatedShell(props: ComponentProps<typeof AuthenticatedShellContent>) {
   const campusId = props.state.selectedCampus.campusId;
-  const dailyApi = useMemo(() => createDailyMissionApi(campusId, () => resolveCurrentAccessToken(() => undefined)), [campusId]);
-  return <CompanionProvider dailyApi={dailyApi} key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
+  const api = useMemo(() => createCompanionServerApi(campusId, () => resolveCurrentAccessToken(() => undefined),companionPendingStorage(props.state.user.id)), [campusId,props.state.user.id]);
+  return <CompanionProvider {...(isCompanionPreviewEnabled()?{api}:{})} key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
     <AuthenticatedShellContent {...props} />
   </CompanionProvider>;
 }
@@ -2652,7 +2653,7 @@ function AuthenticatedShellContent({
               initialPage={companionPage}
               onScrollTop={() => companionScrollRef.current?.scrollTo({y: 0, animated: true})}
               onBack={() => setUserHomeView('dashboard')}
-              onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {setUserHomeView('dashboard'); setRoute(target);}}}
+              onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {if(target==='devotion'&&recordDate)setDevotionInitialDate(recordDate);setUserHomeView('dashboard'); setRoute(target);}}}
             />
           ) : userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen

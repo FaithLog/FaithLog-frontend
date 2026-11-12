@@ -2,6 +2,8 @@ import React from 'react';
 import {act, create} from 'react-test-renderer';
 import {describe, expect, it, vi} from 'vitest';
 
+vi.mock('../../components/linkBookmarks', async (importOriginal) => ({...await importOriginal(), fetchLinkPreview: vi.fn(async () => ({title: '테스트 링크',description: null,imageUrl: null}))}));
+
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const host = (name) => ({children, ...props}) => ReactModule.createElement(name, props, children);
