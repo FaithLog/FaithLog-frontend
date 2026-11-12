@@ -11,15 +11,44 @@ import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGard
 import {useCompanionMotion} from './useCompanionMotion';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
-  const {state, dispatch,server,busy,error,refresh:reloadServer,serverSnapshot} = useCompanions();
+  const {state, dispatch,server,busy,error,refresh:reloadServer,serverSnapshot,perform} = useCompanions();
   const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
   const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
   const agents = useRef(new Map<BibleFriendDesignId,GardenAgent>());
   const previous = useRef(elapsed);
   const dragCallback = useRef(onDragStateChange); dragCallback.current = onDragStateChange;
   const [, repaint] = useState(0);
+  const pendingMoves = useRef(new Map<BibleFriendDesignId, GardenPoint>());
+  const ownVersions = useRef(new Set<number>());
+  const latestVersion = useRef(serverSnapshot?.garden.version); latestVersion.current = serverSnapshot?.garden.version;
+  const savingMoves = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {mounted.current = true; return () => {mounted.current = false; pendingMoves.current.clear();};}, []);
+  const saveMove = async (designId: BibleFriendDesignId, position: GardenPoint) => {
+    if (!server || !perform) {dispatch({type:'move',designId,position}); return;}
+    pendingMoves.current.set(designId, position);
+    if (savingMoves.current) return;
+    savingMoves.current = true;
+    setSaving(true);
+    try {
+      while (mounted.current && pendingMoves.current.size) {
+        const [id, point] = pendingMoves.current.entries().next().value!;
+        pendingMoves.current.delete(id);
+        if (latestVersion.current !== undefined) ownVersions.current.add(latestVersion.current + 1);
+        if (!await perform({type:'move',designId:id,position:point})) {
+          pendingMoves.current.clear();
+          agents.current.clear();
+          break;
+        }
+      }
+    } finally {
+      savingMoves.current = false;
+      if (mounted.current) setSaving(false);
+    }
+  };
   const gardenVersion=serverSnapshot?.garden.version;
-  useEffect(()=>{if(server){agents.current.clear();repaint(n=>n+1);}},[server,gardenVersion,error]);
+  useEffect(()=>{if (gardenVersion !== undefined && ownVersions.current.delete(gardenVersion) && !error) return; if(server && !savingMoves.current){agents.current.clear();repaint(n=>n+1);}},[server,gardenVersion,error]);
   const refresh = () => repaint(value => value + 1);
   useEffect(() => () => {dragCallback.current?.(false);}, []);
   const delta = elapsed - previous.current; previous.current = elapsed;
@@ -45,7 +74,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     dragCallback.current?.(false);
   }, [foreground]);
   return <View style={styles.section}>
-    <View pointerEvents={server&&busy?'none':'auto'} onLayout={event => {
+    <View pointerEvents={server&&busy&&!saving?'none':'auto'} onLayout={event => {
       const width = event.nativeEvent.layout.width;
       if (width <= 0 || width === bounds.width) return;
       const next = {...bounds,width};
@@ -66,7 +95,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
             dragCallback.current?.(false);
             if (dragged) {
               const current = agents.current.get(id);
-              if (current) dispatch({type:'move',designId:id,position:normalizeGardenPoint(current.position,bounds)});
+              if (current) void saveMove(id,normalizeGardenPoint(current.position,bounds));
               update(id,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(id,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
