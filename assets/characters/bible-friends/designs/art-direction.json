@@ -1,0 +1,70 @@
+{
+  "tool": "built-in image generation",
+  "directions": {
+    "david-lamb": {
+      "uniqueName": "새벽 찬양",
+      "uniqueBrief": "An ivory-and-gold embroidered short choir cape with a sunrise clasp and a larger ornate golden lyre, tiny gold tassels; lamb remains fluffy ivory, no halo.",
+      "sourceSheet": "exec-59c03992-b4d2-4b25-aeae-d5349413df31.png"
+    },
+    "noah-bear": {
+      "uniqueName": "무지개 방주 선장",
+      "uniqueBrief": "A navy captain cape and petite ivory captain hat with a rainbow band, beautifully detailed miniature ark with tiny paired animals and rainbow sail, warm brown bear.",
+      "sourceSheet": "exec-5043e841-6402-4985-9ae0-a699f229a29f.png"
+    },
+    "jonah-whale": {
+      "uniqueName": "별바다 항해자",
+      "uniqueBrief": "A deep midnight-blue and pearl whale coloration, constellation-patterned teal shoulder scarf, small crescent sail-like fin ornament and a pearly shell charm, natural whale fins, no legs.",
+      "sourceSheet": "exec-a76be00b-78ed-4ca2-87ed-3b0bc642df8e.png"
+    },
+    "daniel-lion": {
+      "uniqueName": "새벽의 수호자",
+      "uniqueBrief": "A cream-and-antique-gold guardian mantle, broad sunrise brooch and gold-edged mane ornaments, caramel golden mane, still a soft gentle animal rather than a human knight.",
+      "sourceSheet": "exec-fcf00246-da5a-4818-bd00-61f50253912e.png"
+    },
+    "peace-dove": {
+      "uniqueName": "올리브 정원의 전령",
+      "uniqueBrief": "An elegant olive-leaf and white-flower wreath, sage-and-ivory short feather mantle, golden branch clasp, larger olive sprig, bright ivory dove with natural wings.",
+      "sourceSheet": "exec-6b7841ea-f3b6-45ef-ae08-189695180573.png"
+    },
+    "hope-rabbit": {
+      "uniqueName": "달빛 정원사",
+      "uniqueBrief": "A silver-lavender crescent gardening cap fitted around long rabbit ears, midnight-sage short cape, gold crescent-carrot pendant and miniature moon-shaped watering can.",
+      "sourceSheet": "exec-20b34553-f4b2-4821-9d38-fb39b2788bb3.png"
+    },
+    "word-fox": {
+      "uniqueName": "별빛 서고지기",
+      "uniqueBrief": "A midnight-blue scholarly mantle with silver constellation trim, tiny soft library cap between fox ears, large ornate ivory-and-gold closed book held gently, russet fluffy fox tail.",
+      "sourceSheet": "exec-29dcd44a-e79e-4d16-bb00-0b980a430d22.png"
+    },
+    "gentle-deer": {
+      "uniqueName": "숲의 약속",
+      "uniqueBrief": "Small ivory flowers and golden ribbons woven around tiny deer antlers, a rich emerald velvet collar with a gold leaf brooch, cream-and-gold forest-patterned short back drape, natural four-legged deer.",
+      "sourceSheet": "exec-fcc0617f-c49d-4d31-806c-73a8d80039b5.png"
+    },
+    "companion-donkey": {
+      "uniqueName": "축제의 동행",
+      "uniqueBrief": "A beautiful ivory-and-gold woven festival saddle blanket with navy tassels, deep teal neck ribbon and tiny gold bells, small flower band around long donkey ears, four-legged grey donkey.",
+      "sourceSheet": "exec-9d86b6d7-9087-41ab-8296-71ae3bc48def.png"
+    },
+    "joy-chick": {
+      "uniqueName": "황금 밀밭의 노래",
+      "uniqueBrief": "A delicate golden wheat-ear wreath, cream-and-gold short cape with sun clasp, tiny seed pouch and miniature wheat bundle, fluffy butter-yellow chick with natural little wings.",
+      "sourceSheet": "exec-c8619159-d54d-4347-994f-5aabc363353d.png"
+    },
+    "peace-penguin": {
+      "uniqueName": "오로라 우편배달부",
+      "uniqueBrief": "A soft midnight postal cap, beautiful aurora-teal-and-lavender scarf, ivory-and-gold mail satchel containing a crescent-sealed letter, charcoal cream penguin flippers.",
+      "sourceSheet": "exec-d6188e95-9e8b-49e5-b146-3a22edb21c11.png"
+    },
+    "love-otter": {
+      "uniqueName": "진주빛 보물지기",
+      "uniqueBrief": "A deep teal velvet short cape with a pearl clasp, tiny pearl-and-shell headband and a beautiful pearlescent heart-shaped pebble held to chest, honey brown otter with rounded ears and long tail.",
+      "sourceSheet": "exec-56c1a52f-8e6a-4b5a-a539-6c206c3a87ac.png"
+    },
+    "patience-turtle": {
+      "uniqueName": "오래된 정원의 파수꾼",
+      "uniqueBrief": "A deep emerald turtle shell with intricate golden vine patterns and a small integrated ivory-flower garden on its back, cream-and-gold collar and small antique gold cross clasp, natural four-legged turtle.",
+      "sourceSheet": "exec-09c74e16-cd78-469d-b033-1df87d9e98d4.png"
+    }
+  }
+}

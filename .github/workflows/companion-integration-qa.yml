@@ -1,0 +1,81 @@
+name: Companion Integration QA
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: faithlog_companion_qa
+          POSTGRES_USER: faithlog
+          POSTGRES_PASSWORD: faithlog
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U faithlog -d faithlog_companion_qa" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      PGHOST: 127.0.0.1
+      PGDATABASE: faithlog_companion_qa
+      PGUSER: faithlog
+      PGPASSWORD: faithlog
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/faithlog_companion_qa
+      SPRING_DATASOURCE_USERNAME: faithlog
+      SPRING_DATASOURCE_PASSWORD: faithlog
+      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_DATA_REDIS_HOST: 127.0.0.1
+      JWT_SECRET: test-only-qa-secret-at-least-thirty-two-bytes
+      FAITHLOG_SCHEDULER_ENABLED: 'false'
+      FAITHLOG_OBSERVABILITY_ENABLED: 'false'
+      FIREBASE_CONFIG_PATH: ''
+      FIREBASE_CONFIG_JSON: ''
+      FAITHLOG_QA_URL: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: FaithLog/FaithLog-backend
+          ref: 00a74c41c6c3e8a66b2910bb60bcccd80e58f36b
+          path: backend-qa
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22.13.1
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: backend-qa/*.gradle.kts
+      - run: npm ci
+      - name: Build isolated backend
+        working-directory: backend-qa
+        run: chmod +x gradlew && ./gradlew bootJar
+      - name: Start backend and wait for health
+        shell: bash
+        run: |
+          java -jar backend-qa/build/libs/faithlog-backend-0.1.0.jar > /tmp/backend-qa.log 2>&1 &
+          echo "$!" > /tmp/backend-qa.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/health; then exit 0; fi
+            sleep 2
+          done
+          tail -100 /tmp/backend-qa.log
+          exit 1
+      - name: Seed disposable QA fixtures
+        run: python3 scripts/seed-companion-qa.py
+      - name: Real frontend HTTP and page integration
+        run: npm test -- src/companions/companionLiveApi.test.tsx
+      - name: Stop backend
+        if: always()
+        run: if test -f /tmp/backend-qa.pid; then kill "$(cat /tmp/backend-qa.pid)" || true; fi

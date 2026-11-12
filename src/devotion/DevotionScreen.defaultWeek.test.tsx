@@ -112,6 +112,66 @@ describe('DevotionScreen initial week', () => {
     expect(api.saveWeeklyDevotion).toHaveBeenCalledOnce();
     await act(async () => renderer.unmount());
   });
+  it('keeps unsaved edits until the user explicitly discards them', async () => {
+    api.fetchWeeklyDevotionSummary.mockImplementation(
+      (_token: string, _campusId: number, week: string) => Promise.resolve(weekly(week, null)),
+    );
+    const renderer = await renderScreen('2026-08-03');
+    await act(async () => { byLabel(renderer, '토요 목자 모임 지각 분 입력').props.onChangeText('9'); });
+    await act(async () => { byLabel(renderer, '다음 주 경건생활 보기').props.onPress(); });
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenCalledOnce();
+    await act(async () => { byLabel(renderer, '계속 작성').props.onPress(); });
+    expect(byLabel(renderer, '토요 목자 모임 지각 분 입력').props.value).toBe('9');
+    await act(async () => { byLabel(renderer, '다음 주 경건생활 보기').props.onPress(); });
+    await act(async () => { byLabel(renderer, '변경 취소하고 이동').props.onPress(); });
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenLastCalledWith('access-token', 1, '2026-08-10');
+    await act(async () => renderer.unmount());
+  });
+
+  it('finds historical charges beyond the first page and shows the billed amount', async () => {
+    api.fetchWeeklyDevotionSummary.mockResolvedValue(weekly('2026-08-03', '2026-08-11T03:00:00Z'));
+    const page = await api.fetchMyCharges();
+    api.fetchMyCharges.mockResolvedValueOnce({...page, items: [], totalPages: 2})
+      .mockResolvedValueOnce({...page, page: 1, items: [{...page.items[0], amount: 12345}]});
+    const renderer = await renderScreen('2026-08-03');
+    expect(api.fetchMyCharges).toHaveBeenLastCalledWith('access-token', 1, expect.objectContaining({page: 1}));
+    expect(JSON.stringify(renderer.toJSON())).toContain('12,345');
+    await act(async () => renderer.unmount());
+  });
+
+  it('blocks week navigation while saving and navigates only after a successful save', async () => {
+    api.fetchWeeklyDevotionSummary.mockImplementation(
+      (_token: string, _campusId: number, week: string) => Promise.resolve(weekly(week, null)),
+    );
+    let finishSave!: (value: WeeklyDevotionSummary) => void;
+    api.saveWeeklyDevotion.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+    const renderer = await renderScreen('2026-08-03');
+    await act(async () => { byLabel(renderer, '토요 목자 모임 지각 분 입력').props.onChangeText('9'); });
+    await act(async () => { byLabel(renderer, '다음 주 경건생활 보기').props.onPress(); });
+    await act(async () => { byLabel(renderer, '저장하고 이동').props.onPress(); });
+    expect(byLabel(renderer, '다음 주 경건생활 보기').props.disabled).toBe(true);
+    await act(async () => { byLabel(renderer, '다음 주 경건생활 보기').props.onPress(); });
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenCalledOnce();
+    await act(async () => { finishSave({...weekly('2026-08-03', null), saturdayLateMinutes: 9}); await flushPromises(); });
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenLastCalledWith('access-token', 1, '2026-08-10');
+    await act(async () => renderer.unmount());
+  });
+
+  it('preserves edits and stays on the same week when save-and-move fails', async () => {
+    api.fetchWeeklyDevotionSummary.mockImplementation(
+      (_token: string, _campusId: number, week: string) => Promise.resolve(weekly(week, null)),
+    );
+    api.saveWeeklyDevotion.mockRejectedValueOnce(new Error('network'));
+    const renderer = await renderScreen('2026-08-03');
+    await act(async () => { byLabel(renderer, '토요 목자 모임 지각 분 입력').props.onChangeText('9'); });
+    await act(async () => { byLabel(renderer, '다음 주 경건생활 보기').props.onPress(); });
+    await act(async () => { byLabel(renderer, '저장하고 이동').props.onPress(); await flushPromises(); });
+    expect(api.fetchWeeklyDevotionSummary).toHaveBeenCalledOnce();
+    expect(byLabel(renderer, '토요 목자 모임 지각 분 입력').props.value).toBe('9');
+    await act(async () => { byLabel(renderer, '계속 작성').props.onPress(); });
+    await act(async () => renderer.unmount());
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();

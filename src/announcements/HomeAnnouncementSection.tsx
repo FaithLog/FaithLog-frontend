@@ -50,6 +50,16 @@ export function HomeAnnouncementSection({
     };
   }, [load]);
 
+  return <HomeAnnouncementContent content={content} onOpenAll={onOpenAll} onOpenAnnouncement={onOpenAnnouncement} onRetry={() => void load()} />;
+}
+
+/** Shared presentation for the live home and the design preview. */
+export function HomeAnnouncementContent({content, onOpenAll, onOpenAnnouncement, onRetry}: {
+  content: ContentState;
+  onOpenAll: () => void;
+  onOpenAnnouncement: (id: number) => void;
+  onRetry: () => void;
+}) {
   return (
     <View accessibilityLabel="홈 공지" style={styles.section}>
       <View style={styles.header}>
@@ -75,7 +85,7 @@ export function HomeAnnouncementSection({
             accessibilityLabel="홈 공지 다시 불러오기"
             accessibilityRole="button"
             hitSlop={6}
-            onPress={() => void load()}
+            onPress={onRetry}
             style={({pressed}) => [styles.retryButton, pressed ? styles.pressed : null]}>
             <Text style={styles.retryText}>다시 시도</Text>
           </Pressable>

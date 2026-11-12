@@ -176,6 +176,7 @@ import {
 } from './currentUserCache';
 
 type RequestOptions = {
+  idempotencyKey?: string;
   accessToken?: string;
   allowAuthSessionChange?: boolean;
   allowUnstoredAccessToken?: boolean;
@@ -1336,6 +1337,7 @@ async function executeApiRequest<T>(
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      ...(options.idempotencyKey ? {'Idempotency-Key': options.idempotencyKey} : {}),
       ...(accessToken ? {Authorization: `Bearer ${accessToken}`} : {}),
     },
     ...(body === undefined ? {} : {body: JSON.stringify(body)}),

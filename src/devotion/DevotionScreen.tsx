@@ -72,13 +72,12 @@ type DailyFormCheck = DevotionDailyCheck & {
 };
 
 type SavingAction = 'draft' | 'submit' | null;
-type ScreenMode = 'entry' | 'locked';
 type SubmittedChargeState =
   | {status: 'idle' | 'loading'}
+  | {status: 'error'}
   | {status: 'ready'; charge: ChargeItem | null}
   | {status: 'marking'; charge: ChargeItem};
 
-const REQUIRED_DAYS = 5;
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
 const DEVOTION_FIELD_LABELS: Array<[DevotionCheckField, string]> = [
   ['quietTimeChecked', '큐티'],
@@ -107,19 +106,23 @@ export function DevotionScreen({
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [paymentFeedback, setPaymentFeedback] = useState<string | null>(null);
-  const [screenMode, setScreenMode] = useState<ScreenMode>('entry');
   const [submitConfirmVisible, setSubmitConfirmVisible] = useState(false);
   const [currentWeekStart, setCurrentWeekStart] = useState<string | null>(null);
   const [initialWeekReason, setInitialWeekReason] = useState<InitialDevotionWeekReason | null>(null);
   const [initializationVersion, setInitializationVersion] = useState(0);
   const [submittedChargeState, setSubmittedChargeState] = useState<SubmittedChargeState>({status: 'idle'});
   const campusId = state.selectedCampus.campusId;
+  const saveInFlight = useRef(false);
+  const [pendingWeek, setPendingWeek] = useState<string | null>(null);
   const latestRequest = useRef(0);
   const latestChargeRequest = useRef(0);
   const paymentMutationInFlight = useRef(false);
   const preloadedWeekly = useRef<{scopeKey: string; weekly: WeeklyDevotionSummary} | null>(null);
   const [tossRemittanceOpener] = useState(() => createTossRemittanceOpener(Linking));
   const selectedScopeKey = selectedWeekStart ? `${campusId}:${selectedWeekStart}` : null;
+
+  const scopeRef = useRef(selectedScopeKey);
+  scopeRef.current = selectedScopeKey;
 
   useEffect(() => {
     const requestId = ++latestRequest.current;
@@ -218,7 +221,6 @@ export function DevotionScreen({
       setLoadState({status: 'success', scopeKey: requestedScopeKey, weekly});
       setFormChecks(normalizeWeekChecks(weekly));
       setLateMinutesText(String(Math.max(0, weekly.saturdayLateMinutes)));
-      setScreenMode(isWeeklyDevotionEditable(weekly) ? 'entry' : 'locked');
       setSaveFeedback(null);
       setSubmitConfirmVisible(false);
       try {
@@ -268,23 +270,29 @@ export function DevotionScreen({
       try {
         const accessToken = await resolveAccessToken(setAuthState);
         if (!accessToken || requestId !== latestChargeRequest.current) return;
-        const charges = await fetchMyCharges(accessToken, campusId, {
-          includeArchived: true,
-          page: 0,
-          paymentCategory: 'PENALTY',
-          size: 100,
-          status: 'ALL',
-        });
-        if (requestId !== latestChargeRequest.current) return;
-        const charge = charges.items.find((item) =>
-          item.source?.sourceType === 'DEVOTION_RECORD' &&
-          item.source.sourceId === weeklyRecordId,
-        ) ?? null;
+        let page = 0;
+        let charge: ChargeItem | null = null;
+        do {
+          const charges = await fetchMyCharges(accessToken, campusId, {
+            includeArchived: true,
+            page,
+            paymentCategory: 'PENALTY',
+            size: 100,
+            status: 'ALL',
+          });
+          if (requestId !== latestChargeRequest.current) return;
+          charge = charges.items.find((item) =>
+            item.source?.sourceType === 'DEVOTION_RECORD' &&
+            item.source.sourceId === weeklyRecordId,
+          ) ?? null;
+          page += 1;
+          if (charge || page >= charges.totalPages) break;
+        } while (requestId === latestChargeRequest.current);
         setSubmittedChargeState({status: 'ready', charge});
       } catch (error) {
         if (requestId !== latestChargeRequest.current) return;
         const apiError = toApiError(error, '경건생활 벌금 청구를 확인하지 못했습니다.');
-        setSubmittedChargeState({status: 'ready', charge: null});
+        setSubmittedChargeState({status: 'error'});
         setActionError(apiError);
         handleAuthError(apiError, setAuthState);
       }
@@ -323,20 +331,22 @@ export function DevotionScreen({
   const counts = getCurrentCounts(formChecks);
   const locked = !isWeeklyDevotionEditable(weekly);
 
-  const moveWeek = (direction: -1 | 1) => {
-    const nextWeek = addDays(parseDate(selectedWeekStart), direction * 7);
-
+  const dirty = !locked && (
+    JSON.stringify(formChecks) !== JSON.stringify(normalizeWeekChecks(weekly)) ||
+    lateMinutesText !== String(Math.max(0, weekly.saturdayLateMinutes))
+  );
+  const requestWeek = (target: string) => {
+    if (saveInFlight.current || paymentMutationInFlight.current) return;
+    if (target === selectedWeekStart) return;
+    if (dirty) { setPendingWeek(target); return; }
     setInitialWeekReason(null);
-    setSelectedDate(formatLocalDate(nextWeek));
+    setSelectedDate(target);
   };
-
+  const moveWeek = (direction: -1 | 1) => {
+    requestWeek(formatLocalDate(addDays(parseDate(selectedWeekStart), direction * 7)));
+  };
   const openCurrentWeek = () => {
-    if (!currentWeekStart) {
-      return;
-    }
-
-    setInitialWeekReason(null);
-    setSelectedDate(currentWeekStart);
+    if (currentWeekStart) requestWeek(currentWeekStart);
   };
 
   const toggleCheck = (recordDate: string, field: DevotionCheckField) => {
@@ -353,11 +363,13 @@ export function DevotionScreen({
     );
   };
 
-  const saveWeek = async (submit: boolean) => {
-    if (locked || savingAction || invalidLateMinutes) {
+  const saveWeek = async (submit: boolean, moveTo?: string) => {
+    if (locked || saveInFlight.current || savingAction || invalidLateMinutes) {
       return;
     }
 
+    saveInFlight.current = true;
+    const requestScope = selectedScopeKey;
     setSavingAction(submit ? 'submit' : 'draft');
     setActionError(null);
     setSaveFeedback(null);
@@ -382,6 +394,7 @@ export function DevotionScreen({
         ? await runWithCompletionEvent(saveRequest, trackDevotionSubmitComplete)
         : await saveRequest();
 
+      if (scopeRef.current !== requestScope) return;
       setLoadState({
         status: 'success',
         scopeKey: `${campusId}:${selectedWeekStart}`,
@@ -389,12 +402,17 @@ export function DevotionScreen({
       });
       setFormChecks(normalizeWeekChecks(nextWeekly));
       setLateMinutesText(String(Math.max(0, nextWeekly.saturdayLateMinutes)));
-      setScreenMode(submit ? 'locked' : 'entry');
       setSaveFeedback(submit ? '제출 완료' : '임시저장 완료');
       if (submit) {
         setSubmitConfirmVisible(false);
       }
+      if (moveTo) {
+        setPendingWeek(null);
+        setInitialWeekReason(null);
+        setSelectedDate(moveTo);
+      }
     } catch (error) {
+      if (scopeRef.current !== requestScope) return;
       if (submit) {
         setSubmitConfirmVisible(false);
       }
@@ -405,6 +423,7 @@ export function DevotionScreen({
       setActionError(apiError);
       handleAuthError(apiError, setAuthState);
     } finally {
+      saveInFlight.current = false;
       setSavingAction(null);
     }
   };
@@ -531,7 +550,6 @@ export function DevotionScreen({
           onMarkPaid={() => void markSubmittedPenaltyPaid()}
           onSendWithToss={() => void sendSubmittedPenaltyWithToss()}
           paymentFeedback={paymentFeedback}
-          penaltySummary={penaltySummary}
           weekly={weekly}
         />
       ) : (
@@ -558,6 +576,47 @@ export function DevotionScreen({
         />
       )}
 
+      <AppModal
+        transparent
+        visible={pendingWeek !== null}
+        onRequestClose={() => { if (!saveInFlight.current) setPendingWeek(null); }}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>저장하지 않은 기록이 있어요</Text>
+            <Text style={styles.modalDescription}>입력한 내용을 저장하고 이동할까요?</Text>
+            <Pressable
+              accessibilityLabel="저장하고 이동"
+              accessibilityRole="button"
+              disabled={Boolean(savingAction) || invalidLateMinutes}
+              onPress={() => { if (pendingWeek) void saveWeek(false, pendingWeek); }}
+              style={styles.modalPrimaryButton}>
+              <Text style={styles.primaryButtonText}>{savingAction ? '저장 중' : '저장하고 이동'}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="변경 취소하고 이동"
+              accessibilityRole="button"
+              disabled={Boolean(savingAction)}
+              onPress={() => {
+                if (saveInFlight.current) return;
+                setSelectedDate(pendingWeek);
+                setInitialWeekReason(null);
+                setPendingWeek(null);
+              }}
+              style={styles.modalSecondaryButton}>
+              <Text>변경 취소하고 이동</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="계속 작성"
+              accessibilityRole="button"
+              disabled={Boolean(savingAction)}
+              onPress={() => setPendingWeek(null)}
+              style={styles.modalSecondaryButton}>
+              <Text>계속 작성</Text>
+            </Pressable>
+            {actionError ? <Text accessibilityRole="alert">저장하지 못했습니다. 계속 작성하거나 다시 시도해 주세요.</Text> : null}
+          </View>
+        </View>
+      </AppModal>
       <SubmitConfirmModal
         estimatedAmountText={getSubmitConfirmAmountText(penaltySummary)}
         onCancel={cancelSubmitConfirm}
@@ -612,6 +671,7 @@ function EntryView({
             accessibilityLabel="이전 주 경건생활 보기"
             accessibilityRole="button"
             hitSlop={8}
+            disabled={Boolean(savingAction)}
             onPress={() => moveWeek(-1)}>
             <Text style={styles.chevron}>〈</Text>
           </Pressable>
@@ -622,17 +682,18 @@ function EntryView({
             accessibilityLabel="다음 주 경건생활 보기"
             accessibilityRole="button"
             hitSlop={8}
+            disabled={Boolean(savingAction)}
             onPress={() => moveWeek(1)}>
             <Text style={styles.chevron}>〉</Text>
           </Pressable>
         </View>
         <View style={styles.weekRuleRow}>
-          <Text style={styles.weekRuleText}>벌금 기준 {REQUIRED_DAYS}일</Text>
-          <Text style={styles.weekRuleText}>{REQUIRED_DAYS}일 채우면 벌금 없음</Text>
+          <Text style={styles.weekRuleText}>{penaltySummary.amountStatus === 'rulesUnavailable' ? '경건 기준 확인 중' : penaltySummary.rows.filter(row => row.key !== 'late').map(row => `${row.label} ${row.requiredCount}회`).join(' · ')}</Text>
+          <Text style={styles.weekRuleText}>지각 벌금은 별도로 계산돼요</Text>
         </View>
         <Text style={styles.weekSummaryText}>
-          현재 큐티 {counts.quietTime}/{REQUIRED_DAYS} · 기도 {counts.prayer}/{REQUIRED_DAYS} · 말씀{' '}
-          {counts.bibleReading}/{REQUIRED_DAYS}
+          현재 큐티 {counts.quietTime}/{penaltySummary.rows[0]!.requiredCount} · 기도 {counts.prayer}/{penaltySummary.rows[1]!.requiredCount} · 말씀{' '}
+          {counts.bibleReading}/{penaltySummary.rows[2]!.requiredCount}
         </Text>
       </View>
 
@@ -647,6 +708,7 @@ function EntryView({
           <Pressable
             accessibilityLabel="이번 주 경건생활 기록 보기"
             accessibilityRole="button"
+            disabled={Boolean(savingAction)}
             onPress={onOpenCurrentWeek}
             style={({pressed}) => [styles.currentWeekButton, pressed ? styles.pressed : null]}>
             <Text style={styles.currentWeekButtonText}>이번 주 보기</Text>
@@ -842,7 +904,6 @@ function LockedView({
   onMarkPaid,
   onSendWithToss,
   paymentFeedback,
-  penaltySummary,
   weekly,
 }: {
   chargeState: SubmittedChargeState;
@@ -852,7 +913,6 @@ function LockedView({
   onMarkPaid: () => void;
   onSendWithToss: () => void;
   paymentFeedback: string | null;
-  penaltySummary: DevotionPenaltySummary;
   weekly: WeeklyDevotionSummary;
 }) {
   const charge = chargeState.status === 'ready' || chargeState.status === 'marking'
@@ -869,6 +929,7 @@ function LockedView({
             accessibilityLabel="이전 주 경건생활 보기"
             accessibilityRole="button"
             hitSlop={8}
+            disabled={markingPaid}
             onPress={() => moveWeek(-1)}>
             <Text style={styles.chevron}>〈</Text>
           </Pressable>
@@ -877,6 +938,7 @@ function LockedView({
             accessibilityLabel="다음 주 경건생활 보기"
             accessibilityRole="button"
             hitSlop={8}
+            disabled={markingPaid}
             onPress={() => moveWeek(1)}>
             <Text style={styles.chevron}>〉</Text>
           </Pressable>
@@ -925,13 +987,14 @@ function LockedView({
         <View style={styles.submitSummary}>
           <Text style={styles.bodyText}>벌금 결과</Text>
           <Text style={styles.submitSummaryValue}>
-            {getPenaltySummaryAmountText(penaltySummary)}
+            {chargeState.status === 'loading' || chargeState.status === 'idle' ? '확인 중' : chargeState.status === 'error' ? '확인 실패' : charge ? formatWon(charge.amount) : '청구 없음'}
           </Text>
         </View>
-        <Text style={styles.captionText}>{getPenaltySummaryCaption(penaltySummary)}</Text>
-        <PenaltyPreviewRows penaltySummary={penaltySummary} />
+        <Text style={styles.captionText}>제출된 기록의 실제 청구 금액입니다.</Text>
         {chargeState.status === 'loading' ? (
           <Text style={styles.captionText}>청구 정보를 확인하고 있어요.</Text>
+        ) : chargeState.status === 'error' ? (
+          <Text style={styles.captionText}>청구 정보를 확인하지 못했습니다. 다시 시도해 주세요.</Text>
         ) : canPay ? (
           <View style={styles.actionRow}>
             <Pressable

@@ -777,3 +777,11 @@ describe('runtime API response validation', () => {
     ])).toThrow(INVALID_RESPONSE);
   });
 });
+
+
+describe('weekly devotion nullable campus region',()=>{
+ it('accepts the backend nullable region without rejecting a successful submission',()=>{
+  const parsed=parseWeeklyDevotionSummary({weeklyRecordId:1,campusId:1,campusName:'QA',region:null,userId:1,weekStartDate:'2026-11-09',weekEndDate:'2026-11-15',quietTimeCount:0,prayerCount:0,bibleReadingCount:0,saturdayLateMinutes:0,submittedAt:null,dailyChecks:[]});
+  expect(parsed.region).toBe('');
+ });
+});
