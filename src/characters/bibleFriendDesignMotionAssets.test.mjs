@@ -10,7 +10,7 @@ const manifest = JSON.parse(readFileSync(resolve(root, 'manifest.json'), 'utf8')
 
 describe('costume motion coverage', () => {
   it('covers every non-base design with one 768px transparent PNG atlas and static require', () => {
-    const costumes = BIBLE_FRIEND_DESIGN_CATALOG.filter(design => design.styleId !== 'base');
+    const costumes = BIBLE_FRIEND_DESIGN_CATALOG.filter(design => design.styleId !== 'base' && design.friendId !== 'jesus');
     const registry = readFileSync(resolve('src/characters/bibleFriendDesignMotionAssets.ts'), 'utf8');
     expect(manifest.designs.map(design => design.id).sort()).toEqual(costumes.map(design => design.id).sort());
     expect(manifest.designs).toHaveLength(117);

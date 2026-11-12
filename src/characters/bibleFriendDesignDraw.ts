@@ -42,7 +42,7 @@ export function createBibleFriendDrawPool(
   const entries = BIBLE_FRIEND_DESIGN_CATALOG
     .map(design => ({
       ...design,
-      weight: designWeights[design.id] ?? styleWeights[design.styleId] ?? design.weight,
+      weight: designWeights[design.id] ?? (design.styleId === 'miracle' ? undefined : styleWeights[design.styleId]) ?? design.weight,
     }))
     .filter(design => design.weight > 0);
   const totalWeight = entries.reduce((total, design) => total + design.weight, 0);
@@ -51,7 +51,7 @@ export function createBibleFriendDrawPool(
   }
 
   const rarityWeights: Record<BibleFriendRarity, number> = {
-    COMMON: 0, UNCOMMON: 0, RARE: 0, EPIC: 0, UNIQUE: 0,
+    COMMON: 0, UNCOMMON: 0, RARE: 0, EPIC: 0, UNIQUE: 0, MIRACLE: 0,
   };
   for (const design of entries) rarityWeights[design.rarity] += design.weight;
   return { entries, totalWeight, rarityWeights };

@@ -3,6 +3,7 @@ import type { BibleFriendDesignId } from './bibleFriendDesignCatalog';
 
 // Literal paths are required for Metro to include every collectible image offline.
 export const BIBLE_FRIEND_DESIGN_IMAGES = {
+  'jesus:miracle': require('../../assets/characters/jesus-miracle/portrait.png') as ImageSourcePropType,
   'david-lamb:base': require('../../assets/characters/bible-friends/david-lamb-idle.png') as ImageSourcePropType,
   'david-lamb:sunshine': require('../../assets/characters/bible-friends/designs/david-lamb/sunshine.png') as ImageSourcePropType,
   'david-lamb:scholar': require('../../assets/characters/bible-friends/designs/david-lamb/scholar.png') as ImageSourcePropType,

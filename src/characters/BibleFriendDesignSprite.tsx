@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Platform, View } from 'react-native';
+import {JesusMiracleSprite} from './JesusMiracleSprite';
+import { Image, Platform, Text, View } from 'react-native';
 
 import type { BibleFriendDesignId } from './bibleFriendDesignCatalog';
 import { BIBLE_FRIEND_DESIGN_CATALOG } from './bibleFriendDesignCatalog';
@@ -32,6 +33,11 @@ export function BibleFriendDesignSprite({
   const layout = getBibleFriendDesignMotionLayout(motion, elapsedMs, size);
   const label = accessibilityLabel ?? (silhouette ? `${design.name} · 미획득 실루엣` : design.name);
   const tintColor = silhouette ? '#000000' : undefined;
+
+  if (design.friendId === 'jesus') {
+    if (silhouette) return <View accessible accessibilityRole="image" accessibilityLabel="미획득 미라클 캐릭터" style={{width:size,height:size,alignItems:'center',justifyContent:'center'}}><Text style={{fontSize:size*.65,color:'#946313'}}>?</Text></View>;
+    return <JesusMiracleSprite motion={motion} elapsedMs={elapsedMs} size={size} accessibilityLabel={label} />;
+  }
 
   if (design.styleId === 'base' && Platform.OS === 'web') {
     // Keep every decoded frame mounted: changing Image.source on each tick

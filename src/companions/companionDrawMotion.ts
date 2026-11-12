@@ -4,15 +4,16 @@ export const MOTION_TONES: Readonly<Record<BibleFriendRarity, {ink: string; soft
   UNCOMMON: {ink: '#71B8C3', soft: '#E8F6F7', deep: '#2E7078'},
   RARE: {ink: '#AB8CE6', soft: '#F1ECFC', deep: '#7852AF'},
   EPIC: {ink: '#AB8CE6', soft: '#EEE6FC', deep: '#7852AF'},
+  MIRACLE: {ink: '#F5CC60', soft: '#FFF8DD', deep: '#946313'},
   UNIQUE: {ink: '#E1BD68', soft: '#FFF4DB', deep: '#946313'},
 };
 export const clamp = (x: number) => Math.max(0, Math.min(1, x));
 export const ease = (x: number) => 1 - (1 - clamp(x)) ** 3;
 export function drawTimings(rarity: BibleFriendRarity, batch: boolean) {
-  const special = ['RARE', 'EPIC', 'UNIQUE'].includes(rarity);
+  const special = ['RARE', 'EPIC', 'UNIQUE', 'MIRACLE'].includes(rarity);
   const anticipation = batch ? 360 : 800;
   const gather = special ? 1250 : 500;
-  const reveal = rarity === 'UNIQUE' ? 2300 : special ? 1800 : 950;
+  const reveal = (rarity === 'UNIQUE' || rarity === 'MIRACLE') ? 2300 : special ? 1800 : 950;
   return {anticipation, gather, reveal, total: anticipation + gather + reveal};
 }
 export function getDrawFrame(rarities: readonly BibleFriendRarity[], elapsedMs: number) {

@@ -1,6 +1,6 @@
 import type { BibleFriendId } from './bibleFriends';
 
-export const BIBLE_FRIEND_RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'UNIQUE'] as const;
+export const BIBLE_FRIEND_RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'UNIQUE', 'MIRACLE'] as const;
 export type BibleFriendRarity = typeof BIBLE_FRIEND_RARITIES[number];
 
 export const BIBLE_FRIEND_DESIGN_STYLES = [
@@ -17,7 +17,7 @@ export const BIBLE_FRIEND_DESIGN_STYLES = [
 ] as const satisfies readonly { id: string; name: string; rarity: BibleFriendRarity; weight: number }[];
 
 export type BibleFriendStyleId = typeof BIBLE_FRIEND_DESIGN_STYLES[number]['id'];
-export type BibleFriendDesignId = `${BibleFriendId}:${BibleFriendStyleId}`;
+export type BibleFriendDesignId = `${BibleFriendId}:${BibleFriendStyleId}` | 'jesus:miracle';
 
 export const BIBLE_FRIEND_DESIGN_SPECIES = [
   { id: 'david-lamb', name: '다윗의 양', uniqueName: '새벽 찬양' },
@@ -37,8 +37,8 @@ export const BIBLE_FRIEND_DESIGN_SPECIES = [
 
 export type BibleFriendDesign = Readonly<{
   id: BibleFriendDesignId;
-  friendId: BibleFriendId;
-  styleId: BibleFriendStyleId;
+  friendId: BibleFriendId | 'jesus';
+  styleId: BibleFriendStyleId | 'miracle';
   name: string;
   rarity: BibleFriendRarity;
   weight: number;
@@ -46,12 +46,12 @@ export type BibleFriendDesign = Readonly<{
 }>;
 
 export const BIBLE_FRIEND_DESIGN_CATALOG: readonly BibleFriendDesign[] =
-  BIBLE_FRIEND_DESIGN_SPECIES.flatMap(friend => BIBLE_FRIEND_DESIGN_STYLES.map(style => ({
+  [...BIBLE_FRIEND_DESIGN_SPECIES.flatMap(friend => BIBLE_FRIEND_DESIGN_STYLES.map(style => ({
     id: `${friend.id}:${style.id}` as BibleFriendDesignId,
     friendId: friend.id,
     styleId: style.id,
     name: style.id === 'unique' ? friend.uniqueName : `${friend.name} · ${style.name}`,
     rarity: style.rarity,
-    weight: style.weight,
+    weight: style.weight * 9999,
     animationReady: true,
-  })));
+  }))), {id: 'jesus:miracle', friendId: 'jesus', styleId: 'miracle', name: '예수님', rarity: 'MIRACLE', weight: 13000, animationReady: true}];

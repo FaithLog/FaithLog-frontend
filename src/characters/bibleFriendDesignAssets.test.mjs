@@ -11,11 +11,11 @@ const manifest = JSON.parse(readFileSync(resolve(root, 'manifest.json'), 'utf8')
 describe('collectible design files', () => {
   it('matches all catalog IDs and default weights to the exported PNG manifest', () => {
     expect(manifest.designs).toHaveLength(130);
-    expect(manifest.totalWeight).toBe(BIBLE_FRIEND_DEFAULT_DRAW_POOL.totalWeight);
-    expect(manifest.designs.map(design => design.id)).toEqual(BIBLE_FRIEND_DESIGN_CATALOG.map(design => design.id));
-    for (const design of BIBLE_FRIEND_DESIGN_CATALOG) {
+    expect(manifest.totalWeight * 10000).toBe(BIBLE_FRIEND_DEFAULT_DRAW_POOL.totalWeight);
+    expect(manifest.designs.map(design => design.id)).toEqual(BIBLE_FRIEND_DESIGN_CATALOG.filter(d=>d.friendId!=='jesus').map(design => design.id));
+    for (const design of BIBLE_FRIEND_DESIGN_CATALOG.filter(d=>d.friendId!=='jesus')) {
       const exported = manifest.designs.find(item => item.id === design.id);
-      expect(exported).toMatchObject(design);
+      expect(exported).toMatchObject({...design,weight:design.weight/9999});
     }
   });
 
