@@ -41,6 +41,7 @@ export const companionStyles = StyleSheet.create({
   grid: {flexDirection: 'row', flexWrap: 'wrap', gap: 12},
   tile: {flexBasis: '46%', flexGrow: 1, maxWidth: '100%', backgroundColor: colors.surface, borderRadius: radius.item, padding: 12, gap: 8, alignItems: 'center'},
   selected: {backgroundColor: colors.primarySoft},
-  detail: {alignItems: 'center', gap: 12},
+  // Fill each stretched card so its action stays at the bottom even when names wrap.
+  detail: {alignItems: 'center', alignSelf: 'stretch', flexGrow: 1, gap: 12},
   message: {color: colors.faith, ...typography.caption},
 });
