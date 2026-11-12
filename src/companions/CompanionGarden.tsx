@@ -11,15 +11,14 @@ import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGard
 import {useCompanionMotion} from './useCompanionMotion';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
-  const {state, dispatch,server,busy,error,refresh:reloadServer,serverSnapshot} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer} = useCompanions();
   const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
   const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
   const agents = useRef(new Map<BibleFriendDesignId,GardenAgent>());
   const previous = useRef(elapsed);
   const dragCallback = useRef(onDragStateChange); dragCallback.current = onDragStateChange;
   const [, repaint] = useState(0);
-  const gardenVersion=serverSnapshot?.garden.version;
-  useEffect(()=>{if(server){agents.current.clear();repaint(n=>n+1);}},[server,gardenVersion,error]);
+  // Positions and motion belong to this screen, independently of server snapshots.
   const refresh = () => repaint(value => value + 1);
   useEffect(() => () => {dragCallback.current?.(false);}, []);
   const delta = elapsed - previous.current; previous.current = elapsed;
@@ -45,7 +44,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     dragCallback.current?.(false);
   }, [foreground]);
   return <View style={styles.section}>
-    <View pointerEvents={server&&busy?'none':'auto'} onLayout={event => {
+    <View onLayout={event => {
       const width = event.nativeEvent.layout.width;
       if (width <= 0 || width === bounds.width) return;
       const next = {...bounds,width};
@@ -65,8 +64,6 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           onRelease={dragged => {
             dragCallback.current?.(false);
             if (dragged) {
-              const current = agents.current.get(id);
-              if (current) dispatch({type:'move',designId:id,position:normalizeGardenPoint(current.position,bounds)});
               update(id,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(id,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
@@ -79,7 +76,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <View key={page} style={styles.action}><Button fullWidth size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button></View>)}</View>
     </View>
     {server&&error?<Button size="compact" accessibilityLabel="정원 서버 정보 새로 확인" disabled={busy} onPress={()=>void reloadServer()}>정원 새로 확인</Button>:null}
-    <Text style={styles.helper}>{server ? '끌어서 놓으면 위치가 저장돼요' : '끌어서 옮겨보세요 · 체험 모드'}</Text>
+    <Text style={styles.helper}>{server ? '친구들을 끌어서 옮겨보세요' : '끌어서 옮겨보세요 · 체험 모드'}</Text>
   </View>;
 }
 const styles = StyleSheet.create({

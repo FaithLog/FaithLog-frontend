@@ -10,8 +10,26 @@ import {DEMO_SELL_PRICES, getSellQuote, MAX_GARDEN_FRIENDS, RARITY_LABELS} from 
 import {useCompanions} from './CompanionProvider';
 import {companionStyles as s} from './companionStyles';
 
+function CompanionCardName({name, compact = false}: {name: string; compact?: boolean}) {
+  let lines = name.split(' · ');
+  if (lines.length === 1) {
+    const words = name.split(' ');
+    let split = 0;
+    let difference = Infinity;
+    for (let i = 1; i < words.length; i++) {
+      const next = Math.abs(words.slice(0,i).join(' ').length - words.slice(i).join(' ').length);
+      if (next < difference) {difference = next; split = i;}
+    }
+    lines = split ? [words.slice(0,split).join(' '),words.slice(split).join(' ')] : [name,''];
+  }
+  return <View style={s.cardName}>
+    {lines.map((line,index) => <Text key={index} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}
+      style={[compact ? s.rosterName : s.name,s.cardNameLine,{minHeight:compact ? 18 : 22}]}>{line || ' '}</Text>)}
+  </View>;
+}
+
 export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetails?: () => void}) {
-  const {state, dispatch, nextTransactionId,server,busy,error,serverSnapshot,perform} = useCompanions();
+  const {state, dispatch, nextTransactionId,server,error,serverSnapshot,perform} = useCompanions();
   const [page, setPage] = useState(0);
   const [section, setSection] = useState<'friends' | 'backgrounds'>('friends');
   const [filter, setFilter] = useState<'owned' | 'duplicates' | 'all' | 'unequipped'>('owned');
@@ -52,7 +70,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     {section === 'backgrounds' ? <View style={s.section}>
       <Text style={s.caption}>{server ? '홈의 캐릭터 공간에 적용돼요. 보유한 배경만 선택할 수 있어요.' : '홈의 캐릭터 공간에만 적용돼요. 지금은 모든 배경을 체험할 수 있어요.'}</Text>
       <View style={s.grid}>{GARDEN_BACKGROUNDS.map(background => <Pressable key={background.id}
-        disabled={server && (busy || Boolean(error) || background.id!=='default' && !serverSnapshot?.backgrounds.includes(background.id))} accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
+        disabled={server && (Boolean(error) || background.id!=='default' && !serverSnapshot?.backgrounds.includes(background.id))} accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
         onPress={() => dispatch({type: 'background', backgroundId: background.id})}
         style={[s.collectionTile, state.backgroundId === background.id ? s.selectedBorder : null]}>
         <View style={{width: '100%', height: 82, overflow: 'hidden', borderRadius: 8}}><GardenBackground id={background.id} /></View>
@@ -68,7 +86,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         const friend = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === id)!;
         return <View key={id} style={s.rosterTile}>
           <Pressable style={s.detail} accessibilityRole="button" accessibilityLabel={`${friend.name} 배치 친구 상세`} onPress={() => {setSelected(id);setQuantity(1);setConfirming(false);}}>
-            <BibleFriendDesignSprite designId={id} size={58} /><Text style={s.rosterName}>{friend.name}</Text>
+            <BibleFriendDesignSprite designId={id} size={58} /><CompanionCardName name={friend.name} compact />
           </Pressable>
           <Button size="compact" fullWidth variant="secondary" accessibilityLabel={`${friend.name} 배치 해제`} onPress={() => {dispatch({type:'equip',designId:id});if(!server)setMessage('정원에서 친구를 뺐어요.');}}>해제</Button>
         </View>;
@@ -111,7 +129,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         onPress={() => {setSelected(item.id); setQuantity(1); setConfirming(false); setMessage(''); onRevealDetails();}}
 >
         <BibleFriendDesignSprite designId={item.id} silhouette={owned < 1} size={80} />
-        <Text style={s.name}>{item.name}</Text><Chip label={RARITY_LABELS[item.rarity]} />
+        <CompanionCardName name={item.name} /><Chip label={RARITY_LABELS[item.rarity]} />
         <Text style={s.caption}>{owned ? `${owned}마리${equipped ? ' · 배치 중' : ''}` : '아직 만나지 못했어요'}</Text>
       </Pressable>
       {owned > 0 ? <Button fullWidth size="compact" variant={equipped ? 'secondary' : 'ghost'} accessibilityLabel={`${item.name} ${equipped ? '바로 배치 해제' : '바로 배치'}`} onPress={() => {

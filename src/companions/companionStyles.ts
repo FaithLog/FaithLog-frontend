@@ -21,6 +21,8 @@ export const companionStyles = StyleSheet.create({
   collectionTile: {flexBasis: '46%', flexGrow: 1, minWidth: 0, backgroundColor: colors.surface, borderRadius: radius.item, padding: 12, gap: 6, alignItems: 'center', borderWidth: 1, borderColor: colors.borderSoft},
   rosterGrid: {flexDirection:'row', gap:8, paddingVertical:2},
   rosterTile: {width:88, padding:8, gap:8, borderRadius:radius.item, backgroundColor:colors.primarySoft},
+  cardName: {alignSelf:'stretch', gap:2},
+  cardNameLine: {textAlign:'center', width:'100%'},
   rosterName: {...typography.caption, color:colors.textPrimary, textAlign:'center', fontWeight:'600'},
   emptySlot: {minHeight:128, alignItems:'center', justifyContent:'center', backgroundColor:colors.surface, borderWidth:1, borderStyle:'dashed', borderColor:colors.borderSoft},
   replacementOverlay: {flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', alignItems:'center', padding:20},
@@ -41,6 +43,7 @@ export const companionStyles = StyleSheet.create({
   grid: {flexDirection: 'row', flexWrap: 'wrap', gap: 12},
   tile: {flexBasis: '46%', flexGrow: 1, maxWidth: '100%', backgroundColor: colors.surface, borderRadius: radius.item, padding: 12, gap: 8, alignItems: 'center'},
   selected: {backgroundColor: colors.primarySoft},
-  detail: {alignItems: 'center', gap: 12},
+  // Fill each stretched card so its action stays at the bottom even when names wrap.
+  detail: {alignItems: 'center', alignSelf: 'stretch', flexGrow: 1, gap: 12},
   message: {color: colors.faith, ...typography.caption},
 });
