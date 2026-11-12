@@ -27,7 +27,7 @@ import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalo
 let current:ReturnType<typeof useCompanions>;let tree:ReactTestRenderer|undefined;
 function Probe(){current=useCompanions();return null;}
 function snapshot(balance=1000):ServerSnapshot{return{balance,inventory:{'david-lamb:base':2},garden:{version:0,backgroundId:null,placements:[]},daily:{recordDate:'2026-11-12',serverNow:'2026-11-12T00:00:00Z',totalAwardedPoints:900,missions:[{mission:'QUIET_TIME',status:'INCOMPLETE',points:30},{mission:'PRAYER',status:'READY',points:30},{mission:'BIBLE',status:'INCOMPLETE',points:30}]},attendance:{date:'2026-11-12',points:10,claimed:false,balance},periods:{serverNow:'2026-11-12T00:00:00Z',balance,missions:[]},backgrounds:[],pool:null,prices:{COMMON:10,UNCOMMON:15,RARE:25,EPIC:40,UNIQUE:50,MIRACLE:1000000},history:[],catalog:BIBLE_FRIEND_DESIGN_CATALOG.map(d=>d.id)};}
-function apiFor(s:ServerSnapshot):CompanionServerApi{return{load:vi.fn(async()=>s),garden:vi.fn(async g=>g),claim:vi.fn(async()=>{}),draw:vi.fn(),sell:vi.fn()};}
+function apiFor(s:ServerSnapshot):CompanionServerApi{return{load:vi.fn(async()=>s),garden:vi.fn(async g=>g),claim:vi.fn(async()=>({balance:s.balance,attendance:s.attendance})),draw:vi.fn(),sell:vi.fn()};}
 async function mount(api:CompanionServerApi,key='account'){await act(async()=>{tree=create(<CompanionProvider api={api} key={key}><Probe /></CompanionProvider>);});}
 beforeEach(()=>vi.useFakeTimers());
 afterEach(async()=>{if(tree)await act(async()=>tree!.unmount());tree=undefined;vi.useRealTimers();vi.restoreAllMocks();});
@@ -76,6 +76,25 @@ describe('server companion state ownership',()=>{
   expect(current.gardenSaving).toBe(false);
   await act(async()=>current.refresh());
   expect(current.error).toBe('');
+ });
+ it('applies a confirmed mission response without reloading garden, catalog or inventory',async()=>{
+  const s=snapshot(7);const api=apiFor(s);await mount(api);
+  api.claim=vi.fn(async()=>({balance:37,daily:{...s.daily,missions:s.daily.missions.map(m=>m.mission==='PRAYER'?{...m,status:'CLAIMED' as const}:m)}}));
+  await act(async()=>{expect(await current.perform!({type:'claim',missionId:'prayer',periodKey:'server',status:'ready'})).toBe(true);});
+  expect(current.state.points).toBe(37);expect(current.state.claimed).toContain('2026-11-12:prayer');
+  expect(api.load).toHaveBeenCalledTimes(1);expect(current.state.inventory).toEqual(s.inventory);
+ });
+ it('preserves pending garden edits and rejects repeated mission taps during a claim',async()=>{
+  const s=snapshot(7);const api=apiFor(s);let release!:()=>void;
+  api.claim=vi.fn(async()=>{await new Promise<void>(resolve=>{release=resolve;});return{balance:37,daily:s.daily};});
+  await mount(api);let first!:Promise<boolean>;
+  await act(async()=>{first=current.perform!({type:'claim',missionId:'prayer',periodKey:'server',status:'ready'});await Promise.resolve();});
+  await act(async()=>{expect(await current.perform!({type:'claim',missionId:'prayer',periodKey:'server',status:'ready'})).toBe(false);await current.perform!({type:'equip',designId:'david-lamb:base'});});
+  await act(async()=>{release();expect(await first).toBe(true);});
+  expect(current.state.points).toBe(37);expect(current.state.equipped).toEqual(['david-lamb:base']);
+  expect(api.claim).toHaveBeenCalledTimes(1);expect(api.load).toHaveBeenCalledTimes(1);
+  await act(async()=>{vi.advanceTimersByTime(700);});
+  expect(api.garden).toHaveBeenCalledTimes(1);expect(current.state.points).toBe(37);
  });
  it('ignores an old account response after the provider is replaced',async()=>{let resolve!:(s:ServerSnapshot)=>void;const slow=apiFor(snapshot());slow.load=vi.fn(()=>new Promise<ServerSnapshot>(r=>{resolve=r;}));await mount(slow,'old');await act(async()=>tree!.unmount());tree=undefined;const s=snapshot(0);s.inventory={};await mount(apiFor(s),'new');await act(async()=>resolve(snapshot(9999)));expect(current.state.points).toBe(0);expect(current.state.inventory).toEqual({});});
 });

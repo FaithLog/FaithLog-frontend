@@ -3,7 +3,7 @@ import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
 import {isDailyMission} from './dailyMissionContract';
 import {isGardenBackgroundId} from './gardenBackgrounds';
-import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,PERIOD_MISSION_IDS,rarity,string,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
+import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,PERIOD_MISSION_IDS,rarity,string,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
  const daily=createDailyMissionApi(campusId,getToken);let pool:ServerSnapshot['pool']=null;let mutation=false;
@@ -22,7 +22,7 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
    if(mutation)throw new Error('거래 처리 중이에요.');const old=await pending();if(old){mutation=true;try{await execute(old);}finally{mutation=false;}}
    const [garden,dailyResult,attendance,periods,backgrounds,pools,prices,history,catalog]=await Promise.all([
     request('/api/v1/companions/me/garden',parseGarden),daily.load(),
-    request('/api/v1/points/me/attendance',v=>{const r=object(v);if(typeof r.claimed!=='boolean')throw new Error('Invalid attendance');return{date:date(r.date),points:integer(r.points,1),claimed:r.claimed,balance:integer(r.balance)};}),
+    request('/api/v1/points/me/attendance',parseAttendance),
     request(`/api/v1/campuses/${encodeURIComponent(campusId)}/missions/me`,parsePeriods),
     request('/api/v1/companions/me/backgrounds',v=>array(v).flatMap(x=>{const r=object(x);if(typeof r.owned!=='boolean'||typeof r.backgroundId!=='string'||!isGardenBackgroundId(r.backgroundId))throw new Error('Invalid background');return r.owned?[r.backgroundId]:[];})),
     request('/api/v1/companions/draw-pools',v=>array(v).map(x=>{const r=object(x);const entries=array(r.entries).map(e=>{const p=object(e);return{designId:designId(p.designId),weight:integer(p.weight,1)};});const totalWeight=integer(r.totalWeight,1);if(entries.reduce((s,e)=>s+e.weight,0)!==totalWeight)throw new Error('Invalid weights');return{poolVersion:string(r.poolVersion),unitCost:integer(r.unitCost,1),totalWeight,entries};})),
@@ -35,7 +35,12 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
    return{balance,inventory,garden,daily:dailyResult,attendance,periods,backgrounds,pool,prices,history,catalog};
   },
   garden:(garden:Garden)=>request('/api/v1/companions/me/garden',parseGarden,'PUT',garden),
-  async claim(id){if(id==='attendance')await request('/api/v1/points/me/attendance',object,'POST');else if(isDailyMission(id))await daily.claim(id);else{const code=PERIOD_MISSION_IDS[id as keyof typeof PERIOD_MISSION_IDS];if(!code)throw new Error('Invalid mission');await request(`/api/v1/campuses/${encodeURIComponent(campusId)}/missions/me/${code}/claims`,parsePeriods,'POST');}},
+  async claim(id){
+   if(id==='attendance'){const attendance=await request('/api/v1/points/me/attendance',parseAttendance,'POST');return{attendance,balance:attendance.balance};}
+   if(isDailyMission(id)){const result=await daily.claim(id);const balance=await request('/api/v1/points/me/wallet',v=>integer(object(v).balance));return{daily:result,balance};}
+   const code=PERIOD_MISSION_IDS[id as keyof typeof PERIOD_MISSION_IDS];if(!code)throw new Error('Invalid mission');
+   const periods=await request(`/api/v1/campuses/${encodeURIComponent(campusId)}/missions/me/${code}/claims`,parsePeriods,'POST');return{periods,balance:periods.balance};
+  },
   draw:count=>{if(!pool)throw new Error('뽑기 정보를 새로 확인해주세요.');return mutate('draws',{poolVersion:pool.poolVersion,count});},
   sell:(designId,quantity)=>mutate('sales',{designId,quantity}),
  };
