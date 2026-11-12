@@ -1,0 +1,98 @@
+{
+  "version": 2,
+  "state": "idle",
+  "format": "transparent-png",
+  "characters": [
+    {
+      "id": "daniel-lion",
+      "file": "daniel-lion-idle.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 630550
+    },
+    {
+      "id": "david-lamb",
+      "file": "david-lamb-idle.png",
+      "width": 1312,
+      "height": 1199,
+      "bytes": 773880
+    },
+    {
+      "id": "jonah-whale",
+      "file": "jonah-whale-idle.png",
+      "width": 1312,
+      "height": 1199,
+      "bytes": 854965
+    },
+    {
+      "id": "noah-bear",
+      "file": "noah-bear-idle.png",
+      "width": 1312,
+      "height": 1199,
+      "bytes": 718526
+    },
+    {
+      "id": "peace-dove",
+      "file": "peace-dove-idle.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 608483
+    },
+    {
+      "id": "hope-rabbit",
+      "file": "hope-rabbit-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14572
+    },
+    {
+      "id": "word-fox",
+      "file": "word-fox-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 16372
+    },
+    {
+      "id": "gentle-deer",
+      "file": "gentle-deer-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14018
+    },
+    {
+      "id": "companion-donkey",
+      "file": "companion-donkey-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 12729
+    },
+    {
+      "id": "joy-chick",
+      "file": "joy-chick-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14120
+    },
+    {
+      "id": "peace-penguin",
+      "file": "peace-penguin-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 14465
+    },
+    {
+      "id": "love-otter",
+      "file": "love-otter-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 13730
+    },
+    {
+      "id": "patience-turtle",
+      "file": "patience-turtle-idle.png",
+      "width": 192,
+      "height": 192,
+      "bytes": 15462
+    }
+  ]
+}

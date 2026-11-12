@@ -1,6 +1,8 @@
+import {createDailyMissionApi} from '../companions/dailyMissionApi';
 import {pickValidationFieldErrors} from '../api/validationErrors';
 import {
   type Dispatch,
+  type ComponentProps,
   type PropsWithChildren,
   type SetStateAction,
   useCallback,
@@ -66,6 +68,10 @@ import type {
   PrayerWeekSummary,
   UserRole,
 } from '../api/types';
+import {CompanionProvider, isCompanionPreviewEnabled} from '../companions/CompanionProvider';
+import {CompanionGarden} from '../companions/CompanionGarden';
+import {CompanionPages} from '../companions/CompanionPages';
+import {getMissionPeriodKeys, type CompanionPage} from '../companions/companionModel';
 import {AdminScreen} from '../admin/AdminScreen';
 import {
   getAuthenticatedAnalyticsScreen,
@@ -1959,7 +1965,15 @@ function StatusCard({
   );
 }
 
-function AuthenticatedShell({
+function AuthenticatedShell(props: ComponentProps<typeof AuthenticatedShellContent>) {
+  const campusId = props.state.selectedCampus.campusId;
+  const dailyApi = useMemo(() => createDailyMissionApi(campusId, () => resolveCurrentAccessToken(() => undefined)), [campusId]);
+  return <CompanionProvider dailyApi={dailyApi} key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
+    <AuthenticatedShellContent {...props} />
+  </CompanionProvider>;
+}
+
+function AuthenticatedShellContent({
   announcementInitialId,
   announcementOpenRequestKey,
   campusNavigation,
@@ -1993,7 +2007,11 @@ function AuthenticatedShell({
   setAnnouncementInitialId: (id: number | null) => void;
 }) {
   const androidShellInsets = useAndroidShellLayoutInsets();
-  const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance'>('dashboard');
+  const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance' | 'companions'>('dashboard');
+  const [companionPage, setCompanionPage] = useState<CompanionPage>('manage');
+  const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
+  const companionScrollRef = useRef<ScrollView>(null);
+  const [companionDragging, setCompanionDragging] = useState(false);
   const [shepherdAttendanceHome, setShepherdAttendanceHome] = useState<{campusId: number; data: ShepherdAttendanceHome} | null>(null);
   const [profileView, setProfileView] = useState<
     'accountDeletion' | 'coffee' | 'main' | 'meal' | 'notifications' | 'password'
@@ -2557,6 +2575,8 @@ function AuthenticatedShell({
         </View>
       ) : (
         <ScrollView
+          ref={companionScrollRef}
+          scrollEnabled={!companionDragging}
           contentContainerStyle={[
             styles.shellContent,
             Platform.OS === 'android'
@@ -2627,8 +2647,17 @@ function AuthenticatedShell({
             user={state.user}
           />
         ) : route === 'userHome' ? (
-          userHomeView === 'monthlyCalendar' ? (
+          userHomeView === 'companions' && isCompanionPreviewEnabled() ? (
+            <CompanionPages
+              initialPage={companionPage}
+              onScrollTop={() => companionScrollRef.current?.scrollTo({y: 0, animated: true})}
+              onBack={() => setUserHomeView('dashboard')}
+              onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {setUserHomeView('dashboard'); setRoute(target);}}}
+            />
+          ) : userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen
+              {...(isCompanionPreviewEnabled() ? {onBackToMissions: () => {setCompanionPage('missions'); setUserHomeView('companions');}} : {})}
+              {...(calendarInitialDate ? {initialDate: calendarInitialDate} : {})}
               canOpenAdminMode={adminModeRoutes.length > 0}
               onOpenWeeklyDevotion={(selectedDate) => {
                 setDevotionInitialDate(selectedDate);
@@ -2657,6 +2686,8 @@ function AuthenticatedShell({
             />
           ) : (
             <UserHomeDashboard
+              onCompanionDragChange={setCompanionDragging}
+              onOpenCompanions={(page) => {setCompanionPage(page); setUserHomeView('companions');}}
               onOpenAnnouncements={() => {
                 setAnnouncementInitialId(null);
                 setRoute('announcements');
@@ -2677,7 +2708,7 @@ function AuthenticatedShell({
                 setDevotionInitialDate(null);
                 setRoute('devotion');
               }}
-              onOpenMonthlyCalendar={() => setUserHomeView('monthlyCalendar')}
+              onOpenMonthlyCalendar={() => {setCalendarInitialDate(null); setUserHomeView('monthlyCalendar');}}
               onOpenCoffeeDuty={() => {
                 setProfileView('coffee');
                 setRoute('profile');
@@ -3033,6 +3064,8 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
+  onCompanionDragChange,
+  onOpenCompanions,
   canOpenAdminMode,
   onOpenAdminMode,
   onOpenAnnouncements,
@@ -3051,6 +3084,8 @@ function UserHomeDashboard({
   state,
   yearlyRecap,
 }: {
+  onCompanionDragChange: (dragging: boolean) => void;
+  onOpenCompanions: (page: CompanionPage) => void;
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
   onOpenAnnouncements: () => void;
@@ -3205,42 +3240,7 @@ function UserHomeDashboard({
     void loadHomeCards();
   }, [campusId, campusReady, month, weekStartDate, year]);
 
-  return (
-    <View style={styles.userFrame}>
-      <View style={styles.figmaHeader}>
-        <FaithLogHeaderTopRow campusLabel={campusLabel} contextLabel={`${displayUserName}님`}>
-          <FaithLogHeaderIconButton
-            accessibilityLabel="알림 설정 화면으로 이동"
-            badge
-            iconName="bell"
-            onPress={onOpenNotifications}
-          />
-          {canOpenAdminMode ? (
-            <FaithLogHeaderPillButton
-              accessibilityLabel="관리자 영역 선택"
-              label="관리자"
-              onPress={onOpenAdminMode}
-              showChevron
-            />
-          ) : null}
-        </FaithLogHeaderTopRow>
-        <Text
-          adjustsFontSizeToFit
-          ellipsizeMode="tail"
-          minimumFontScale={0.82}
-          numberOfLines={1}
-          style={styles.figmaTitle}>
-          {displayUserName}님, 오늘의 FaithLog
-        </Text>
-      </View>
-
-      {yearlyRecap ? (
-        <YearlyRecapHomeCard
-          onPress={onOpenYearlyRecap}
-          recapYear={yearlyRecap.recapYear}
-        />
-      ) : null}
-
+  const homeOverview = (<>
       <Text style={styles.figmaSectionTitle}>이번 달 요약</Text>
       <View style={styles.homeMetricRow}>
         <HomeMetricTile
@@ -3301,6 +3301,47 @@ function UserHomeDashboard({
           onPress={onOpenDevotion}
         />
       </View>
+  </>);
+
+  return (
+    <View style={styles.userFrame}>
+      <View style={styles.figmaHeader}>
+        <FaithLogHeaderTopRow campusLabel={campusLabel} contextLabel={`${displayUserName}님`}>
+          <FaithLogHeaderIconButton
+            accessibilityLabel="알림 설정 화면으로 이동"
+            badge
+            iconName="bell"
+            onPress={onOpenNotifications}
+          />
+          {canOpenAdminMode ? (
+            <FaithLogHeaderPillButton
+              accessibilityLabel="관리자 영역 선택"
+              label="관리자"
+              onPress={onOpenAdminMode}
+              showChevron
+            />
+          ) : null}
+        </FaithLogHeaderTopRow>
+        <Text
+          adjustsFontSizeToFit
+          ellipsizeMode="tail"
+          minimumFontScale={0.82}
+          numberOfLines={1}
+          style={styles.figmaTitle}>
+          {displayUserName}님, 오늘의 FaithLog
+        </Text>
+      </View>
+
+      {isCompanionPreviewEnabled() ? <CompanionGarden onOpen={onOpenCompanions} onDragStateChange={onCompanionDragChange} /> : null}
+
+      {yearlyRecap ? (
+        <YearlyRecapHomeCard
+          onPress={onOpenYearlyRecap}
+          recapYear={yearlyRecap.recapYear}
+        />
+      ) : null}
+
+      {!isCompanionPreviewEnabled() ? homeOverview : null}
       {campusReady && isShepherdAttendanceCapabilityEnabled() ? (
         <HomeShepherdAttendanceSection
           api={getShepherdAttendanceRuntimeApi()}
@@ -3343,6 +3384,8 @@ function UserHomeDashboard({
         prayerState={prayerState}
       />
       <HomeChargeEntryCard chargeState={chargeState} onPress={onOpenPayments} />
+
+      {isCompanionPreviewEnabled() ? homeOverview : null}
 
     </View>
   );
