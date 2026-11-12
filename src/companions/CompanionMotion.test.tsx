@@ -32,7 +32,7 @@ let tree: ReactTestRenderer | undefined;
 beforeEach(() => {vi.useFakeTimers(); native.reduce = false; native.removals = 0;});
 afterEach(async () => {if (tree) await act(async () => tree!.unmount()); tree = undefined; vi.useRealTimers();});
 async function advance(ms: number) {await act(async () => {vi.advanceTimersByTime(ms);});}
-function Probe(){const {state}=useCompanions();return React.createElement('probe',{positions:state.gardenPositions});}
+function Probe(){const {state,refresh}=useCompanions();return React.createElement('probe',{positions:state.gardenPositions,refresh});}
 function Clock() {const {elapsed} = useCompanionMotion(true, 80); return React.createElement('clock', {elapsed});}
 describe('companion motion lifecycle', () => {
   it('excludes background time and disposes timers and listeners on unmount', async () => {
@@ -103,7 +103,7 @@ describe('companion motion lifecycle', () => {
     await advance(900);
     expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).not.toBe('happy');
   });
-  it('captures a drag, clamps it, releases scrolling and remembers the dropped position',async()=>{
+  it('captures a drag, clamps it and releases scrolling without persisting the position',async()=>{
     const drag=vi.fn();
     await act(async()=>{tree=create(<CompanionProvider><CompanionGarden onOpen={vi.fn()} onDragStateChange={drag}/><Probe/></CompanionProvider>);});
     const animal=()=>tree!.root.findAllByType('View' as React.ElementType).find(n=>n.props.testID==='garden-animal-david-lamb:base')!;
@@ -111,7 +111,8 @@ describe('companion motion lifecycle', () => {
     await act(async()=>animal().props.onResponderMove({}, {dx:9999,dy:-9999}));
     expect(animal().props.style[1]).toMatchObject({left:236,top:0});
     await act(async()=>animal().props.onResponderRelease());expect(drag).toHaveBeenLastCalledWith(false);
-    expect(tree!.root.findByType('probe' as React.ElementType).props.positions['david-lamb:base']).toEqual({x:1,y:0});
+    expect(animal().props.style[1]).toMatchObject({left:236,top:0});
+    expect(tree!.root.findByType('probe' as React.ElementType).props.positions['david-lamb:base']).toBeUndefined();
     expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('land');
     await advance(1000);expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('idle');
     await act(async()=>tree!.unmount());tree=undefined;expect(vi.getTimerCount()).toBe(0);
@@ -123,7 +124,7 @@ describe('companion motion lifecycle', () => {
     await act(async()=>animal().props.onResponderGrant());
     await act(async()=>animal().props.onResponderMove({}, {dx:9999,dy:9999}));
     await act(async()=>animal().props.onResponderRelease());
-    expect(tree!.root.findByType('probe' as React.ElementType).props.positions['david-lamb:base']).toEqual({x:1,y:1});
+    expect(animal().props.style[1]).toMatchObject({left:236,top:144});
     expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('idle');
     await act(async()=>animal().props.onResponderGrant());
     await act(async()=>native.appListener?.('background'));expect(drag).toHaveBeenLastCalledWith(false);
@@ -131,43 +132,35 @@ describe('companion motion lifecycle', () => {
 
 });
 
-import type {CompanionServerApi, ServerSnapshot, Garden} from './companionServerContract';
+import type {CompanionServerApi, ServerSnapshot} from './companionServerContract';
 function snapshot(balance=1000):ServerSnapshot{return{balance,inventory:{'david-lamb:base':2},garden:{version:0,backgroundId:null,placements:[]},daily:{recordDate:'2026-11-12',serverNow:'2026-11-12T00:00:00Z',totalAwardedPoints:900,missions:[{mission:'QUIET_TIME',status:'INCOMPLETE',points:30},{mission:'PRAYER',status:'READY',points:30},{mission:'BIBLE',status:'INCOMPLETE',points:30}]},attendance:{date:'2026-11-12',points:10,claimed:false,balance},periods:{serverNow:'2026-11-12T00:00:00Z',balance,missions:[]},backgrounds:[],pool:null,prices:{COMMON:10,UNCOMMON:15,RARE:25,EPIC:40,UNIQUE:50,MIRACLE:1000000},history:[],catalog:BIBLE_FRIEND_DESIGN_CATALOG.map(d=>d.id)};}
 
-it('keeps a second drag held across a delayed save and persists the latest drop in order', async () => {
+it('handles consecutive drags locally without API requests or resets from server refreshes', async () => {
   const data = snapshot();
   data.garden.placements = [{slot:1,designId:'david-lamb:base',x:0.2,y:0.2}];
-  const releases: Array<() => void> = [];
   const api: CompanionServerApi = {
     load: vi.fn(async () => ({...data, garden:{...data.garden}})),
-    garden: vi.fn(async (garden: Garden) => {
-      await new Promise<void>(resolve => releases.push(resolve));
-      data.garden = {...garden,version:garden.version+1};
-      return data.garden;
-    }), claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+    garden: vi.fn(), claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
   };
   await act(async () => {tree=create(<CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/><Probe/></CompanionProvider>);});
   const animal = () => tree!.root.findAllByType('View' as React.ElementType).find(n=>n.props.testID==='garden-animal-david-lamb:base')!;
+  for (let i=0; i<5; i++) {
+    const before = animal().props.style[1].left;
+    await act(async () => animal().props.onResponderGrant());
+    await act(async () => animal().props.onResponderMove({}, {dx:10,dy:5}));
+    await act(async () => animal().props.onResponderRelease());
+    expect(animal().props.style[1].left).toBeCloseTo(before+10);
+  }
+  expect(api.garden).not.toHaveBeenCalled();
+  expect(api.load).toHaveBeenCalledTimes(1);
   await act(async () => animal().props.onResponderGrant());
-  await act(async () => animal().props.onResponderMove({}, {dx:20,dy:10}));
-  await act(async () => animal().props.onResponderRelease());
-  expect(tree!.root.findAllByType('View' as React.ElementType).find(n=>n.props.testID==='companion-garden-space')!.props.pointerEvents).toBe('auto');
-  await act(async () => animal().props.onResponderGrant());
-  await act(async () => animal().props.onResponderMove({}, {dx:30,dy:10}));
   const position = {...animal().props.style[1]};
-  await act(async () => releases.shift()!());
+  data.garden.version++;
+  await act(async () => tree!.root.findByType('probe' as React.ElementType).props.refresh());
   expect(animal().props.style[1]).toEqual(position);
   expect(tree!.root.findByType('Sprite' as React.ElementType).props.motion).toBe('held');
   await act(async () => animal().props.onResponderRelease());
-  await act(async () => animal().props.onResponderGrant());
-  await act(async () => animal().props.onResponderMove({}, {dx:15,dy:10}));
-  await act(async () => animal().props.onResponderRelease());
-  const final = {...animal().props.style[1]};
-  expect(api.garden).toHaveBeenCalledTimes(2);
-  await act(async () => releases.shift()!());
-  expect(api.garden).toHaveBeenCalledTimes(3);
-  await act(async () => releases.shift()!());
-  expect(animal().props.style[1]).toEqual(final);
-  expect(data.garden.placements[0]!.x).toBeCloseTo(final.left/236);
-  expect(data.garden.version).toBe(3);
+  await advance(3000);
+  expect(api.garden).not.toHaveBeenCalled();
+  expect(api.load).toHaveBeenCalledTimes(2);
 });
