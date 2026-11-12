@@ -11,7 +11,7 @@ import {useCompanions} from './CompanionProvider';
 import {companionStyles as s} from './companionStyles';
 
 export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetails?: () => void}) {
-  const {state, dispatch, nextTransactionId,server,busy,error,serverSnapshot,perform} = useCompanions();
+  const {state, dispatch, nextTransactionId,server,error,serverSnapshot,perform} = useCompanions();
   const [page, setPage] = useState(0);
   const [section, setSection] = useState<'friends' | 'backgrounds'>('friends');
   const [filter, setFilter] = useState<'owned' | 'duplicates' | 'all' | 'unequipped'>('owned');
@@ -52,7 +52,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     {section === 'backgrounds' ? <View style={s.section}>
       <Text style={s.caption}>{server ? '홈의 캐릭터 공간에 적용돼요. 보유한 배경만 선택할 수 있어요.' : '홈의 캐릭터 공간에만 적용돼요. 지금은 모든 배경을 체험할 수 있어요.'}</Text>
       <View style={s.grid}>{GARDEN_BACKGROUNDS.map(background => <Pressable key={background.id}
-        disabled={server && (busy || Boolean(error) || background.id!=='default' && !serverSnapshot?.backgrounds.includes(background.id))} accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
+        disabled={server && (Boolean(error) || background.id!=='default' && !serverSnapshot?.backgrounds.includes(background.id))} accessibilityRole="button" accessibilityLabel={`${background.name} 배경 적용`} accessibilityState={{selected: state.backgroundId === background.id}}
         onPress={() => dispatch({type: 'background', backgroundId: background.id})}
         style={[s.collectionTile, state.backgroundId === background.id ? s.selectedBorder : null]}>
         <View style={{width: '100%', height: 82, overflow: 'hidden', borderRadius: 8}}><GardenBackground id={background.id} /></View>
