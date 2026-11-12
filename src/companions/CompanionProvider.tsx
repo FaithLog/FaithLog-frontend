@@ -134,7 +134,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
     sub.remove();
   };
  }, [refresh,flushGarden]);
- const operate=useCallback(async<T,>(job:()=>Promise<T>):Promise<T>=>{if(lock.current||!source.current||error)throw new Error('서버 정보를 먼저 새로 확인해주세요.');lock.current=true;setBusy(true);try{const result=await job();apply(await api.load());return result;}catch(e){if(alive.current)setError('처리 결과를 확인해주세요. 새로 확인한 뒤 다시 시도할 수 있어요.');throw e;}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,error]);
+ const operate=useCallback(async<T,>(job:()=>Promise<T>,reconcile?:(result:T)=>ServerSnapshot):Promise<T>=>{if(lock.current||!source.current||error)throw new Error('서버 정보를 먼저 새로 확인해주세요.');lock.current=true;setBusy(true);try{const result=await job();apply(reconcile?reconcile(result):await api.load());return result;}catch(e){if(alive.current)setError('처리 결과를 확인해주세요. 새로 확인한 뒤 다시 시도할 수 있어요.');throw e;}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,error]);
  const perform=useCallback(async(action:CompanionAction)=>{
   if (['background','equip','replace'].includes(action.type)) {
     if (!source.current || error) return false;
@@ -152,8 +152,9 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   }
   // Drag positions are transient and never persisted by the server provider.
   if (action.type === 'move') return false;
-  try{return await operate(async()=>{
-   if(action.type==='claim'){await api.claim(action.missionId);return true;}
+  try{
+   if(action.type==='claim'){await operate(()=>api.claim(action.missionId),result=>({...source.current!,...result}));return true;}
+   return await operate(async()=>{
    if(action.type==='sell'){await api.sell(action.designId,action.quantity);return true;}
    return false;
   });}catch{return false;}
