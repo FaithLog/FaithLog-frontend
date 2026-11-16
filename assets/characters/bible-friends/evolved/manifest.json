@@ -1,0 +1,1171 @@
+{
+  "version": 1,
+  "species": [
+    {
+      "id": "david-lamb",
+      "name": "다윗의 양"
+    },
+    {
+      "id": "noah-bear",
+      "name": "노아의 곰"
+    },
+    {
+      "id": "jonah-whale",
+      "name": "요나의 고래"
+    },
+    {
+      "id": "daniel-lion",
+      "name": "다니엘의 사자"
+    },
+    {
+      "id": "peace-dove",
+      "name": "평화의 비둘기"
+    },
+    {
+      "id": "hope-rabbit",
+      "name": "소망 토끼"
+    },
+    {
+      "id": "word-fox",
+      "name": "말씀 여우"
+    },
+    {
+      "id": "gentle-deer",
+      "name": "온유 사슴"
+    },
+    {
+      "id": "companion-donkey",
+      "name": "동행 당나귀"
+    },
+    {
+      "id": "joy-chick",
+      "name": "기쁨 병아리"
+    },
+    {
+      "id": "peace-penguin",
+      "name": "평안 펭귄"
+    },
+    {
+      "id": "love-otter",
+      "name": "사랑 수달"
+    },
+    {
+      "id": "patience-turtle",
+      "name": "인내 거북이"
+    }
+  ],
+  "stages": [
+    1,
+    2
+  ],
+  "poses": [
+    "idle",
+    "walk-left",
+    "walk-right",
+    "feed",
+    "play",
+    "sleep",
+    "wake"
+  ],
+  "anchor": {
+    "x": 96,
+    "y": 176
+  },
+  "frameSize": 192,
+  "source": "custom independent full-body vector illustrations",
+  "count": 182,
+  "assets": [
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/idle.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/feed.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/play.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-1/wake.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/idle.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/feed.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/play.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "david-lamb",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/david-lamb/stage-2/wake.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/idle.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/feed.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/play.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-1/wake.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/idle.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/feed.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/play.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "noah-bear",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/noah-bear/stage-2/wake.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/idle.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/feed.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/play.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-1/wake.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/idle.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/feed.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/play.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "jonah-whale",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/jonah-whale/stage-2/wake.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/idle.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/feed.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/play.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-1/wake.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/idle.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/feed.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/play.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "daniel-lion",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/daniel-lion/stage-2/wake.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/idle.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/feed.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/play.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-1/wake.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/idle.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/feed.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/play.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "peace-dove",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/peace-dove/stage-2/wake.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/idle.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/feed.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/play.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-1/wake.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/idle.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/feed.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/play.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "hope-rabbit",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/hope-rabbit/stage-2/wake.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/idle.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/feed.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/play.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-1/wake.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/idle.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/feed.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/play.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "word-fox",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/word-fox/stage-2/wake.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/idle.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/feed.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/play.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-1/wake.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/idle.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/feed.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/play.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "gentle-deer",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/gentle-deer/stage-2/wake.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/idle.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/feed.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/play.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-1/wake.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/idle.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/feed.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/play.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "companion-donkey",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/companion-donkey/stage-2/wake.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/idle.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/feed.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/play.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-1/wake.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/idle.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/feed.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/play.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "joy-chick",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/joy-chick/stage-2/wake.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/idle.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/feed.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/play.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-1/wake.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/idle.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/feed.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/play.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "peace-penguin",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/peace-penguin/stage-2/wake.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/idle.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/feed.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/play.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-1/wake.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/idle.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/feed.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/play.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "love-otter",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/love-otter/stage-2/wake.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/idle.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/walk-left.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/walk-right.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/feed.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/play.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/sleep.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 1,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-1/wake.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "idle",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/idle.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "walk-left",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/walk-left.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "walk-right",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/walk-right.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "feed",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/feed.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "play",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/play.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "sleep",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/sleep.svg"
+    },
+    {
+      "characterId": "patience-turtle",
+      "stage": 2,
+      "pose": "wake",
+      "path": "assets/characters/bible-friends/evolved/patience-turtle/stage-2/wake.svg"
+    }
+  ]
+}
