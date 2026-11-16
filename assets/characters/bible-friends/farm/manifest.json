@@ -1,0 +1,315 @@
+{
+  "version": 1,
+  "format": "SVG vector overlays + original PNG base character",
+  "canvas": {
+    "width": 192,
+    "height": 192,
+    "anchor": {
+      "x": 96,
+      "y": 176
+    }
+  },
+  "description": "Overlay only; not 80 individually drawn frames or a complete evolved-body redesign.",
+  "characters": [
+    {
+      "id": "david-lamb",
+      "motif": "lyre",
+      "headAnchor": [
+        96,
+        52
+      ],
+      "accent": "#eac17e",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/david-lamb/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/david-lamb/stage-2.svg"
+      ]
+    },
+    {
+      "id": "noah-bear",
+      "motif": "ark",
+      "headAnchor": [
+        97,
+        52
+      ],
+      "accent": "#a6c3aa",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/noah-bear/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/noah-bear/stage-2.svg"
+      ]
+    },
+    {
+      "id": "jonah-whale",
+      "motif": "wave",
+      "headAnchor": [
+        96,
+        60
+      ],
+      "accent": "#8bd5da",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/jonah-whale/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/jonah-whale/stage-2.svg"
+      ]
+    },
+    {
+      "id": "daniel-lion",
+      "motif": "shield",
+      "headAnchor": [
+        96,
+        51
+      ],
+      "accent": "#edc17c",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/daniel-lion/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/daniel-lion/stage-2.svg"
+      ]
+    },
+    {
+      "id": "peace-dove",
+      "motif": "olive",
+      "headAnchor": [
+        99,
+        55
+      ],
+      "accent": "#97b99b",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/peace-dove/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/peace-dove/stage-2.svg"
+      ]
+    },
+    {
+      "id": "hope-rabbit",
+      "motif": "moon",
+      "headAnchor": [
+        95,
+        37
+      ],
+      "accent": "#c1b3df",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/hope-rabbit/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/hope-rabbit/stage-2.svg"
+      ]
+    },
+    {
+      "id": "word-fox",
+      "motif": "book",
+      "headAnchor": [
+        97,
+        52
+      ],
+      "accent": "#86b5b2",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/word-fox/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/word-fox/stage-2.svg"
+      ]
+    },
+    {
+      "id": "gentle-deer",
+      "motif": "leaf",
+      "headAnchor": [
+        96,
+        40
+      ],
+      "accent": "#8ab58d",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/gentle-deer/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/gentle-deer/stage-2.svg"
+      ]
+    },
+    {
+      "id": "companion-donkey",
+      "motif": "bell",
+      "headAnchor": [
+        96,
+        45
+      ],
+      "accent": "#dfb679",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/companion-donkey/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/companion-donkey/stage-2.svg"
+      ]
+    },
+    {
+      "id": "joy-chick",
+      "motif": "wheat",
+      "headAnchor": [
+        96,
+        62
+      ],
+      "accent": "#edca64",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/joy-chick/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/joy-chick/stage-2.svg"
+      ]
+    },
+    {
+      "id": "peace-penguin",
+      "motif": "letter",
+      "headAnchor": [
+        96,
+        55
+      ],
+      "accent": "#94bcce",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/peace-penguin/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/peace-penguin/stage-2.svg"
+      ]
+    },
+    {
+      "id": "love-otter",
+      "motif": "heart",
+      "headAnchor": [
+        96,
+        54
+      ],
+      "accent": "#e5aab2",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/love-otter/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/love-otter/stage-2.svg"
+      ]
+    },
+    {
+      "id": "patience-turtle",
+      "motif": "flower",
+      "headAnchor": [
+        96,
+        69
+      ],
+      "accent": "#9eba8d",
+      "stages": [
+        "assets/characters/bible-friends/farm/evolution/patience-turtle/stage-1.svg",
+        "assets/characters/bible-friends/farm/evolution/patience-turtle/stage-2.svg"
+      ]
+    }
+  ],
+  "actions": {
+    "feed": {
+      "frames": 4,
+      "frameMs": 190,
+      "loop": false,
+      "label": "먹이 주기",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/feed-0.svg",
+        "assets/characters/bible-friends/farm/actions/feed-1.svg",
+        "assets/characters/bible-friends/farm/actions/feed-2.svg",
+        "assets/characters/bible-friends/farm/actions/feed-3.svg"
+      ]
+    },
+    "play": {
+      "frames": 4,
+      "frameMs": 180,
+      "loop": false,
+      "label": "공놀이",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/play-0.svg",
+        "assets/characters/bible-friends/farm/actions/play-1.svg",
+        "assets/characters/bible-friends/farm/actions/play-2.svg",
+        "assets/characters/bible-friends/farm/actions/play-3.svg"
+      ]
+    },
+    "sleep": {
+      "frames": 4,
+      "frameMs": 550,
+      "loop": true,
+      "label": "잠자기",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/sleep-0.svg",
+        "assets/characters/bible-friends/farm/actions/sleep-1.svg",
+        "assets/characters/bible-friends/farm/actions/sleep-2.svg",
+        "assets/characters/bible-friends/farm/actions/sleep-3.svg"
+      ]
+    },
+    "dirty": {
+      "frames": 4,
+      "frameMs": 420,
+      "loop": true,
+      "label": "배변 및 오염",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/dirty-0.svg",
+        "assets/characters/bible-friends/farm/actions/dirty-1.svg",
+        "assets/characters/bible-friends/farm/actions/dirty-2.svg",
+        "assets/characters/bible-friends/farm/actions/dirty-3.svg"
+      ]
+    },
+    "clean": {
+      "frames": 4,
+      "frameMs": 180,
+      "loop": false,
+      "label": "청소",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/clean-0.svg",
+        "assets/characters/bible-friends/farm/actions/clean-1.svg",
+        "assets/characters/bible-friends/farm/actions/clean-2.svg",
+        "assets/characters/bible-friends/farm/actions/clean-3.svg"
+      ]
+    },
+    "pet": {
+      "frames": 4,
+      "frameMs": 230,
+      "loop": false,
+      "label": "쓰다듬기",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/pet-0.svg",
+        "assets/characters/bible-friends/farm/actions/pet-1.svg",
+        "assets/characters/bible-friends/farm/actions/pet-2.svg",
+        "assets/characters/bible-friends/farm/actions/pet-3.svg"
+      ]
+    },
+    "hungry": {
+      "frames": 4,
+      "frameMs": 450,
+      "loop": true,
+      "label": "배고픔",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/hungry-0.svg",
+        "assets/characters/bible-friends/farm/actions/hungry-1.svg",
+        "assets/characters/bible-friends/farm/actions/hungry-2.svg",
+        "assets/characters/bible-friends/farm/actions/hungry-3.svg"
+      ]
+    },
+    "sick": {
+      "frames": 4,
+      "frameMs": 400,
+      "loop": true,
+      "label": "아픔",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/sick-0.svg",
+        "assets/characters/bible-friends/farm/actions/sick-1.svg",
+        "assets/characters/bible-friends/farm/actions/sick-2.svg",
+        "assets/characters/bible-friends/farm/actions/sick-3.svg"
+      ]
+    },
+    "faint": {
+      "frames": 4,
+      "frameMs": 360,
+      "loop": true,
+      "label": "기절",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/faint-0.svg",
+        "assets/characters/bible-friends/farm/actions/faint-1.svg",
+        "assets/characters/bible-friends/farm/actions/faint-2.svg",
+        "assets/characters/bible-friends/farm/actions/faint-3.svg"
+      ]
+    },
+    "evolve": {
+      "frames": 8,
+      "frameMs": 140,
+      "loop": false,
+      "label": "진화 이펙트",
+      "files": [
+        "assets/characters/bible-friends/farm/actions/evolve-0.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-1.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-2.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-3.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-4.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-5.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-6.svg",
+        "assets/characters/bible-friends/farm/actions/evolve-7.svg"
+      ]
+    }
+  },
+  "counts": {
+    "species": 13,
+    "evolutionOverlays": 26,
+    "actionFrames": 44
+  }
+}
