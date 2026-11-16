@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { FARM_ACTION_TIMELINE, getFarmActionFrameIndex } from './farmMotionTimeline';
 import { FARM_ACTION_XML, FARM_EVOLUTION_XML } from './farmVisualAssetCatalog';
-import { BIBLE_FRIENDS } from './bibleFriends';
+
+const BASE_SPECIES = [
+  'david-lamb', 'noah-bear', 'jonah-whale', 'daniel-lion', 'peace-dove',
+  'hope-rabbit', 'word-fox', 'gentle-deer', 'companion-donkey',
+  'joy-chick', 'peace-penguin', 'love-otter', 'patience-turtle',
+] as const;
 
 describe('farm care visual assets', () => {
   it('covers each of the 13 base characters with both evolution stages', () => {
-    for (const friend of BIBLE_FRIENDS) {
-      expect(FARM_EVOLUTION_XML[friend.id].stage1).toMatch(/^<svg /);
-      expect(FARM_EVOLUTION_XML[friend.id].stage2).toMatch(/^<svg /);
+    expect(Object.keys(FARM_EVOLUTION_XML)).toHaveLength(BASE_SPECIES.length);
+    for (const id of BASE_SPECIES) {
+      expect(FARM_EVOLUTION_XML[id].stage1).toMatch(/^<svg /);
+      expect(FARM_EVOLUTION_XML[id].stage2).toMatch(/^<svg /);
     }
   });
   it('keeps each motion timeline consistent with its sprite frames', () => {
