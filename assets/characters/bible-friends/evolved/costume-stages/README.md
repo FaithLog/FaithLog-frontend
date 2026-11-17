@@ -19,3 +19,9 @@
 재생용 생성 명령: `python3 tools/generate_faithlog_costume_evolution.py --root .`.
 
 **실제 홈 화면에서 진화 단계 전달, 서버 상태/친밀도 저장 및 실기기 QA는 별도 연동 대상입니다.**
+
+## 자동 생성 결과 검증
+
+- 총 234개 PNG, 16프레임씩 총 3,744개. GitHub Actions 검증 완료.
+- 투명 팔레트 PNG 압축 후 실제 PNG 합계 약 29.4MiB.
+- `develop` 병합 전 Frontend CI 및 Companion Integration QA가 모두 통과해야 합니다.
