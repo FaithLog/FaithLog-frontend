@@ -1,0 +1,55 @@
+name: Generate FaithLog evolved care PNG atlases
+
+on:
+  push:
+    branches:
+      - feat/342-evolved-care-action-assets
+    paths:
+      - tools/generate_faithlog_care_atlases.py
+      - .github/workflows/generate-evolved-care-assets.yml
+
+permissions:
+  contents: write
+
+jobs:
+  produce-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: true
+      - name: Install image processing dependencies
+        run: |
+          python3 -m venv /tmp/faithlog-image-venv
+          /tmp/faithlog-image-venv/bin/pip install --disable-pip-version-check 'Pillow>=11.0,<13'
+      - name: Generate all 13 x 2 x 11 care action PNG atlases
+        run: /tmp/faithlog-image-venv/bin/python tools/generate_faithlog_care_atlases.py --root .
+      - name: Verify actual alpha PNG frames, sizes and manifest
+        run: |
+          /tmp/faithlog-image-venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image
+          root=Path('assets/characters/bible-friends/evolved/care-actions')
+          manifest=json.loads((root/'manifest.json').read_text())
+          assert len(manifest['entries']) == 286
+          assert len(manifest['actions']) == 11
+          for entry in manifest['entries']:
+              file=root/entry['path']
+              assert file.exists(),file
+              im=Image.open(file).convert('RGBA')
+              assert im.size == (768,192),file
+              for idx in range(4):
+                  assert im.crop((192*idx,0,192*(idx+1),192)).getchannel('A').getbbox(),(file,idx)
+          assert (root/'contact-sheet.jpg').stat().st_size > 5000
+          print('Validated 286 real transparent PNG atlases / 1144 non-empty frames')
+          PY
+      - name: Commit generated binary image files to feature branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/characters/bible-friends/evolved/care-actions/
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: #342 generate 286 care-action PNG sprite atlases [skip ci]'
+          git push origin HEAD:${GITHUB_REF_NAME}

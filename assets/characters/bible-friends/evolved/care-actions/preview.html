@@ -1,0 +1,33 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FaithLog 진화형 전용 행동 PNG</title><style>
+body{font:14px system-ui;background:#faf6e9;color:#494949;max-width:920px;margin:auto;padding:20px}
+label{display:flex;flex-direction:column;gap:6px;font-weight:600}
+select{font:inherit;border:1px solid #d8d3bb;background:#fffdf6;border-radius:12px;padding:10px;min-width:180px}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.frame{width:192px;height:192px;position:relative;overflow:hidden;background:#fffdf6;border-radius:18px;border:1px solid #ece8d9;margin:14px auto}
+.frame img{width:768px;height:192px;position:absolute;top:0;left:0;max-width:none;image-rendering:auto}
+#all{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:12px}
+.card{background:#fffdf6;border:1px solid #ece8d9;border-radius:14px;padding:8px;text-align:center}
+.card .mini{width:112px;height:112px;overflow:hidden;position:relative;margin:auto}
+.card img{position:absolute;left:0;top:0;width:448px;height:112px;max-width:none}
+small{color:#847d70}
+</style></head><body>
+<h1>진화형 동물농장 행동 PNG 확인</h1><p>GitHub에 들어간 실제 4프레임 투명 PNG 아틀라스. <b>원본 캐릭터 몸체의 움직임+행동별 새 소품 그래픽</b>입니다.</p>
+<div class="row"><label>종<select id="species"></select></label><label>진화 단계<select id="level"><option value="2">Lv.2</option><option value="3" selected>Lv.3</option></select></label><label>행동<select id="action"></select></label></div>
+<div class="frame"><img id="frame" alt="선택된 행동 애니메이션 프레임"></div>
+<p style="text-align:center"><small id="state">준비중</small></p><h2>13종 전체 같은 행동 비교</h2><div id="all"></div>
+<script>
+const ids=['david-lamb','noah-bear','jonah-whale','daniel-lion','peace-dove','hope-rabbit','word-fox','gentle-deer','companion-donkey','joy-chick','peace-penguin','love-otter','patience-turtle'];
+const acts=['feed','play','sleep','wake','pet','dirty','clean','hungry','sick','faint','evolve'];
+const q=id=>document.getElementById(id);
+q('species').innerHTML=ids.map(x=>'<option>'+x+'</option>').join('');
+q('action').innerHTML=acts.map(x=>'<option>'+x+'</option>').join('');
+q('all').innerHTML=ids.map(x=>'<div class="card"><div class="mini"><img alt="" data-id="'+x+'"></div><small>'+x+'</small></div>').join('');
+let i=0;
+function draw(){let id=q('species').value,lv=q('level').value,act=q('action').value;
+let file=id+'-lv'+lv+'-'+act+'.png';if(q('frame').getAttribute('src')!==file)q('frame').src=file;
+q('frame').style.left=(-i*192)+'px';q('state').textContent=file+' · 프레임 '+(i+1)+'/4';
+for(const img of q('all').querySelectorAll('img')){let p=img.dataset.id+'-lv'+lv+'-'+act+'.png';if(img.getAttribute('src')!==p)img.src=p;img.style.left=(-i*112)+'px';}}
+q('species').onchange=q('level').onchange=q('action').onchange=()=>{i=0;draw()};
+setInterval(()=>{i=(i+1)%4;draw()},180);draw();
+</script></body></html>

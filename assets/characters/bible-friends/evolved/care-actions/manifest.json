@@ -1,0 +1,1755 @@
+{
+  "version": 1,
+  "kind": "dedicated visual action atlas, source-derived character drawings plus newly drawn props",
+  "speciesCount": 13,
+  "levels": [
+    2,
+    3
+  ],
+  "actions": [
+    "feed",
+    "play",
+    "sleep",
+    "wake",
+    "pet",
+    "dirty",
+    "clean",
+    "hungry",
+    "sick",
+    "faint",
+    "evolve"
+  ],
+  "frameWidth": 192,
+  "frameHeight": 192,
+  "framesPerAction": 4,
+  "atlasColumns": 4,
+  "atlasRows": 1,
+  "atlasSize": [
+    768,
+    192
+  ],
+  "anchor": [
+    96,
+    176
+  ],
+  "frameDurationMs": 180,
+  "individualHandPaintedBodyPoses": false,
+  "entries": [
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "feed",
+      "path": "david-lamb-lv2-feed.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "play",
+      "path": "david-lamb-lv2-play.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "sleep",
+      "path": "david-lamb-lv2-sleep.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "wake",
+      "path": "david-lamb-lv2-wake.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "pet",
+      "path": "david-lamb-lv2-pet.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "dirty",
+      "path": "david-lamb-lv2-dirty.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "clean",
+      "path": "david-lamb-lv2-clean.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "hungry",
+      "path": "david-lamb-lv2-hungry.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "sick",
+      "path": "david-lamb-lv2-sick.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "faint",
+      "path": "david-lamb-lv2-faint.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 2,
+      "action": "evolve",
+      "path": "david-lamb-lv2-evolve.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "feed",
+      "path": "david-lamb-lv3-feed.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "play",
+      "path": "david-lamb-lv3-play.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "sleep",
+      "path": "david-lamb-lv3-sleep.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "wake",
+      "path": "david-lamb-lv3-wake.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "pet",
+      "path": "david-lamb-lv3-pet.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "dirty",
+      "path": "david-lamb-lv3-dirty.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "clean",
+      "path": "david-lamb-lv3-clean.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "hungry",
+      "path": "david-lamb-lv3-hungry.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "sick",
+      "path": "david-lamb-lv3-sick.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "faint",
+      "path": "david-lamb-lv3-faint.png"
+    },
+    {
+      "species": "david-lamb",
+      "level": 3,
+      "action": "evolve",
+      "path": "david-lamb-lv3-evolve.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "feed",
+      "path": "noah-bear-lv2-feed.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "play",
+      "path": "noah-bear-lv2-play.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "sleep",
+      "path": "noah-bear-lv2-sleep.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "wake",
+      "path": "noah-bear-lv2-wake.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "pet",
+      "path": "noah-bear-lv2-pet.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "dirty",
+      "path": "noah-bear-lv2-dirty.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "clean",
+      "path": "noah-bear-lv2-clean.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "hungry",
+      "path": "noah-bear-lv2-hungry.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "sick",
+      "path": "noah-bear-lv2-sick.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "faint",
+      "path": "noah-bear-lv2-faint.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 2,
+      "action": "evolve",
+      "path": "noah-bear-lv2-evolve.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "feed",
+      "path": "noah-bear-lv3-feed.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "play",
+      "path": "noah-bear-lv3-play.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "sleep",
+      "path": "noah-bear-lv3-sleep.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "wake",
+      "path": "noah-bear-lv3-wake.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "pet",
+      "path": "noah-bear-lv3-pet.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "dirty",
+      "path": "noah-bear-lv3-dirty.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "clean",
+      "path": "noah-bear-lv3-clean.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "hungry",
+      "path": "noah-bear-lv3-hungry.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "sick",
+      "path": "noah-bear-lv3-sick.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "faint",
+      "path": "noah-bear-lv3-faint.png"
+    },
+    {
+      "species": "noah-bear",
+      "level": 3,
+      "action": "evolve",
+      "path": "noah-bear-lv3-evolve.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "feed",
+      "path": "jonah-whale-lv2-feed.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "play",
+      "path": "jonah-whale-lv2-play.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "sleep",
+      "path": "jonah-whale-lv2-sleep.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "wake",
+      "path": "jonah-whale-lv2-wake.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "pet",
+      "path": "jonah-whale-lv2-pet.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "dirty",
+      "path": "jonah-whale-lv2-dirty.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "clean",
+      "path": "jonah-whale-lv2-clean.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "hungry",
+      "path": "jonah-whale-lv2-hungry.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "sick",
+      "path": "jonah-whale-lv2-sick.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "faint",
+      "path": "jonah-whale-lv2-faint.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 2,
+      "action": "evolve",
+      "path": "jonah-whale-lv2-evolve.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "feed",
+      "path": "jonah-whale-lv3-feed.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "play",
+      "path": "jonah-whale-lv3-play.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "sleep",
+      "path": "jonah-whale-lv3-sleep.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "wake",
+      "path": "jonah-whale-lv3-wake.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "pet",
+      "path": "jonah-whale-lv3-pet.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "dirty",
+      "path": "jonah-whale-lv3-dirty.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "clean",
+      "path": "jonah-whale-lv3-clean.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "hungry",
+      "path": "jonah-whale-lv3-hungry.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "sick",
+      "path": "jonah-whale-lv3-sick.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "faint",
+      "path": "jonah-whale-lv3-faint.png"
+    },
+    {
+      "species": "jonah-whale",
+      "level": 3,
+      "action": "evolve",
+      "path": "jonah-whale-lv3-evolve.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "feed",
+      "path": "daniel-lion-lv2-feed.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "play",
+      "path": "daniel-lion-lv2-play.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "sleep",
+      "path": "daniel-lion-lv2-sleep.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "wake",
+      "path": "daniel-lion-lv2-wake.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "pet",
+      "path": "daniel-lion-lv2-pet.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "dirty",
+      "path": "daniel-lion-lv2-dirty.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "clean",
+      "path": "daniel-lion-lv2-clean.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "hungry",
+      "path": "daniel-lion-lv2-hungry.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "sick",
+      "path": "daniel-lion-lv2-sick.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "faint",
+      "path": "daniel-lion-lv2-faint.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 2,
+      "action": "evolve",
+      "path": "daniel-lion-lv2-evolve.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "feed",
+      "path": "daniel-lion-lv3-feed.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "play",
+      "path": "daniel-lion-lv3-play.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "sleep",
+      "path": "daniel-lion-lv3-sleep.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "wake",
+      "path": "daniel-lion-lv3-wake.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "pet",
+      "path": "daniel-lion-lv3-pet.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "dirty",
+      "path": "daniel-lion-lv3-dirty.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "clean",
+      "path": "daniel-lion-lv3-clean.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "hungry",
+      "path": "daniel-lion-lv3-hungry.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "sick",
+      "path": "daniel-lion-lv3-sick.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "faint",
+      "path": "daniel-lion-lv3-faint.png"
+    },
+    {
+      "species": "daniel-lion",
+      "level": 3,
+      "action": "evolve",
+      "path": "daniel-lion-lv3-evolve.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "feed",
+      "path": "peace-dove-lv2-feed.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "play",
+      "path": "peace-dove-lv2-play.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "sleep",
+      "path": "peace-dove-lv2-sleep.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "wake",
+      "path": "peace-dove-lv2-wake.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "pet",
+      "path": "peace-dove-lv2-pet.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "dirty",
+      "path": "peace-dove-lv2-dirty.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "clean",
+      "path": "peace-dove-lv2-clean.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "hungry",
+      "path": "peace-dove-lv2-hungry.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "sick",
+      "path": "peace-dove-lv2-sick.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "faint",
+      "path": "peace-dove-lv2-faint.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 2,
+      "action": "evolve",
+      "path": "peace-dove-lv2-evolve.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "feed",
+      "path": "peace-dove-lv3-feed.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "play",
+      "path": "peace-dove-lv3-play.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "sleep",
+      "path": "peace-dove-lv3-sleep.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "wake",
+      "path": "peace-dove-lv3-wake.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "pet",
+      "path": "peace-dove-lv3-pet.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "dirty",
+      "path": "peace-dove-lv3-dirty.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "clean",
+      "path": "peace-dove-lv3-clean.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "hungry",
+      "path": "peace-dove-lv3-hungry.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "sick",
+      "path": "peace-dove-lv3-sick.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "faint",
+      "path": "peace-dove-lv3-faint.png"
+    },
+    {
+      "species": "peace-dove",
+      "level": 3,
+      "action": "evolve",
+      "path": "peace-dove-lv3-evolve.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "feed",
+      "path": "hope-rabbit-lv2-feed.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "play",
+      "path": "hope-rabbit-lv2-play.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "sleep",
+      "path": "hope-rabbit-lv2-sleep.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "wake",
+      "path": "hope-rabbit-lv2-wake.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "pet",
+      "path": "hope-rabbit-lv2-pet.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "dirty",
+      "path": "hope-rabbit-lv2-dirty.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "clean",
+      "path": "hope-rabbit-lv2-clean.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "hungry",
+      "path": "hope-rabbit-lv2-hungry.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "sick",
+      "path": "hope-rabbit-lv2-sick.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "faint",
+      "path": "hope-rabbit-lv2-faint.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 2,
+      "action": "evolve",
+      "path": "hope-rabbit-lv2-evolve.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "feed",
+      "path": "hope-rabbit-lv3-feed.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "play",
+      "path": "hope-rabbit-lv3-play.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "sleep",
+      "path": "hope-rabbit-lv3-sleep.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "wake",
+      "path": "hope-rabbit-lv3-wake.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "pet",
+      "path": "hope-rabbit-lv3-pet.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "dirty",
+      "path": "hope-rabbit-lv3-dirty.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "clean",
+      "path": "hope-rabbit-lv3-clean.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "hungry",
+      "path": "hope-rabbit-lv3-hungry.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "sick",
+      "path": "hope-rabbit-lv3-sick.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "faint",
+      "path": "hope-rabbit-lv3-faint.png"
+    },
+    {
+      "species": "hope-rabbit",
+      "level": 3,
+      "action": "evolve",
+      "path": "hope-rabbit-lv3-evolve.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "feed",
+      "path": "word-fox-lv2-feed.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "play",
+      "path": "word-fox-lv2-play.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "sleep",
+      "path": "word-fox-lv2-sleep.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "wake",
+      "path": "word-fox-lv2-wake.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "pet",
+      "path": "word-fox-lv2-pet.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "dirty",
+      "path": "word-fox-lv2-dirty.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "clean",
+      "path": "word-fox-lv2-clean.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "hungry",
+      "path": "word-fox-lv2-hungry.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "sick",
+      "path": "word-fox-lv2-sick.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "faint",
+      "path": "word-fox-lv2-faint.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 2,
+      "action": "evolve",
+      "path": "word-fox-lv2-evolve.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "feed",
+      "path": "word-fox-lv3-feed.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "play",
+      "path": "word-fox-lv3-play.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "sleep",
+      "path": "word-fox-lv3-sleep.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "wake",
+      "path": "word-fox-lv3-wake.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "pet",
+      "path": "word-fox-lv3-pet.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "dirty",
+      "path": "word-fox-lv3-dirty.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "clean",
+      "path": "word-fox-lv3-clean.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "hungry",
+      "path": "word-fox-lv3-hungry.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "sick",
+      "path": "word-fox-lv3-sick.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "faint",
+      "path": "word-fox-lv3-faint.png"
+    },
+    {
+      "species": "word-fox",
+      "level": 3,
+      "action": "evolve",
+      "path": "word-fox-lv3-evolve.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "feed",
+      "path": "gentle-deer-lv2-feed.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "play",
+      "path": "gentle-deer-lv2-play.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "sleep",
+      "path": "gentle-deer-lv2-sleep.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "wake",
+      "path": "gentle-deer-lv2-wake.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "pet",
+      "path": "gentle-deer-lv2-pet.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "dirty",
+      "path": "gentle-deer-lv2-dirty.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "clean",
+      "path": "gentle-deer-lv2-clean.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "hungry",
+      "path": "gentle-deer-lv2-hungry.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "sick",
+      "path": "gentle-deer-lv2-sick.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "faint",
+      "path": "gentle-deer-lv2-faint.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 2,
+      "action": "evolve",
+      "path": "gentle-deer-lv2-evolve.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "feed",
+      "path": "gentle-deer-lv3-feed.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "play",
+      "path": "gentle-deer-lv3-play.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "sleep",
+      "path": "gentle-deer-lv3-sleep.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "wake",
+      "path": "gentle-deer-lv3-wake.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "pet",
+      "path": "gentle-deer-lv3-pet.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "dirty",
+      "path": "gentle-deer-lv3-dirty.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "clean",
+      "path": "gentle-deer-lv3-clean.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "hungry",
+      "path": "gentle-deer-lv3-hungry.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "sick",
+      "path": "gentle-deer-lv3-sick.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "faint",
+      "path": "gentle-deer-lv3-faint.png"
+    },
+    {
+      "species": "gentle-deer",
+      "level": 3,
+      "action": "evolve",
+      "path": "gentle-deer-lv3-evolve.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "feed",
+      "path": "companion-donkey-lv2-feed.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "play",
+      "path": "companion-donkey-lv2-play.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "sleep",
+      "path": "companion-donkey-lv2-sleep.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "wake",
+      "path": "companion-donkey-lv2-wake.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "pet",
+      "path": "companion-donkey-lv2-pet.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "dirty",
+      "path": "companion-donkey-lv2-dirty.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "clean",
+      "path": "companion-donkey-lv2-clean.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "hungry",
+      "path": "companion-donkey-lv2-hungry.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "sick",
+      "path": "companion-donkey-lv2-sick.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "faint",
+      "path": "companion-donkey-lv2-faint.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 2,
+      "action": "evolve",
+      "path": "companion-donkey-lv2-evolve.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "feed",
+      "path": "companion-donkey-lv3-feed.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "play",
+      "path": "companion-donkey-lv3-play.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "sleep",
+      "path": "companion-donkey-lv3-sleep.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "wake",
+      "path": "companion-donkey-lv3-wake.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "pet",
+      "path": "companion-donkey-lv3-pet.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "dirty",
+      "path": "companion-donkey-lv3-dirty.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "clean",
+      "path": "companion-donkey-lv3-clean.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "hungry",
+      "path": "companion-donkey-lv3-hungry.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "sick",
+      "path": "companion-donkey-lv3-sick.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "faint",
+      "path": "companion-donkey-lv3-faint.png"
+    },
+    {
+      "species": "companion-donkey",
+      "level": 3,
+      "action": "evolve",
+      "path": "companion-donkey-lv3-evolve.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "feed",
+      "path": "joy-chick-lv2-feed.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "play",
+      "path": "joy-chick-lv2-play.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "sleep",
+      "path": "joy-chick-lv2-sleep.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "wake",
+      "path": "joy-chick-lv2-wake.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "pet",
+      "path": "joy-chick-lv2-pet.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "dirty",
+      "path": "joy-chick-lv2-dirty.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "clean",
+      "path": "joy-chick-lv2-clean.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "hungry",
+      "path": "joy-chick-lv2-hungry.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "sick",
+      "path": "joy-chick-lv2-sick.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "faint",
+      "path": "joy-chick-lv2-faint.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 2,
+      "action": "evolve",
+      "path": "joy-chick-lv2-evolve.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "feed",
+      "path": "joy-chick-lv3-feed.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "play",
+      "path": "joy-chick-lv3-play.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "sleep",
+      "path": "joy-chick-lv3-sleep.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "wake",
+      "path": "joy-chick-lv3-wake.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "pet",
+      "path": "joy-chick-lv3-pet.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "dirty",
+      "path": "joy-chick-lv3-dirty.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "clean",
+      "path": "joy-chick-lv3-clean.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "hungry",
+      "path": "joy-chick-lv3-hungry.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "sick",
+      "path": "joy-chick-lv3-sick.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "faint",
+      "path": "joy-chick-lv3-faint.png"
+    },
+    {
+      "species": "joy-chick",
+      "level": 3,
+      "action": "evolve",
+      "path": "joy-chick-lv3-evolve.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "feed",
+      "path": "peace-penguin-lv2-feed.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "play",
+      "path": "peace-penguin-lv2-play.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "sleep",
+      "path": "peace-penguin-lv2-sleep.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "wake",
+      "path": "peace-penguin-lv2-wake.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "pet",
+      "path": "peace-penguin-lv2-pet.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "dirty",
+      "path": "peace-penguin-lv2-dirty.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "clean",
+      "path": "peace-penguin-lv2-clean.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "hungry",
+      "path": "peace-penguin-lv2-hungry.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "sick",
+      "path": "peace-penguin-lv2-sick.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "faint",
+      "path": "peace-penguin-lv2-faint.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 2,
+      "action": "evolve",
+      "path": "peace-penguin-lv2-evolve.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "feed",
+      "path": "peace-penguin-lv3-feed.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "play",
+      "path": "peace-penguin-lv3-play.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "sleep",
+      "path": "peace-penguin-lv3-sleep.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "wake",
+      "path": "peace-penguin-lv3-wake.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "pet",
+      "path": "peace-penguin-lv3-pet.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "dirty",
+      "path": "peace-penguin-lv3-dirty.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "clean",
+      "path": "peace-penguin-lv3-clean.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "hungry",
+      "path": "peace-penguin-lv3-hungry.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "sick",
+      "path": "peace-penguin-lv3-sick.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "faint",
+      "path": "peace-penguin-lv3-faint.png"
+    },
+    {
+      "species": "peace-penguin",
+      "level": 3,
+      "action": "evolve",
+      "path": "peace-penguin-lv3-evolve.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "feed",
+      "path": "love-otter-lv2-feed.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "play",
+      "path": "love-otter-lv2-play.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "sleep",
+      "path": "love-otter-lv2-sleep.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "wake",
+      "path": "love-otter-lv2-wake.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "pet",
+      "path": "love-otter-lv2-pet.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "dirty",
+      "path": "love-otter-lv2-dirty.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "clean",
+      "path": "love-otter-lv2-clean.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "hungry",
+      "path": "love-otter-lv2-hungry.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "sick",
+      "path": "love-otter-lv2-sick.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "faint",
+      "path": "love-otter-lv2-faint.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 2,
+      "action": "evolve",
+      "path": "love-otter-lv2-evolve.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "feed",
+      "path": "love-otter-lv3-feed.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "play",
+      "path": "love-otter-lv3-play.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "sleep",
+      "path": "love-otter-lv3-sleep.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "wake",
+      "path": "love-otter-lv3-wake.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "pet",
+      "path": "love-otter-lv3-pet.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "dirty",
+      "path": "love-otter-lv3-dirty.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "clean",
+      "path": "love-otter-lv3-clean.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "hungry",
+      "path": "love-otter-lv3-hungry.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "sick",
+      "path": "love-otter-lv3-sick.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "faint",
+      "path": "love-otter-lv3-faint.png"
+    },
+    {
+      "species": "love-otter",
+      "level": 3,
+      "action": "evolve",
+      "path": "love-otter-lv3-evolve.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "feed",
+      "path": "patience-turtle-lv2-feed.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "play",
+      "path": "patience-turtle-lv2-play.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "sleep",
+      "path": "patience-turtle-lv2-sleep.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "wake",
+      "path": "patience-turtle-lv2-wake.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "pet",
+      "path": "patience-turtle-lv2-pet.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "dirty",
+      "path": "patience-turtle-lv2-dirty.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "clean",
+      "path": "patience-turtle-lv2-clean.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "hungry",
+      "path": "patience-turtle-lv2-hungry.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "sick",
+      "path": "patience-turtle-lv2-sick.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "faint",
+      "path": "patience-turtle-lv2-faint.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 2,
+      "action": "evolve",
+      "path": "patience-turtle-lv2-evolve.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "feed",
+      "path": "patience-turtle-lv3-feed.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "play",
+      "path": "patience-turtle-lv3-play.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "sleep",
+      "path": "patience-turtle-lv3-sleep.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "wake",
+      "path": "patience-turtle-lv3-wake.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "pet",
+      "path": "patience-turtle-lv3-pet.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "dirty",
+      "path": "patience-turtle-lv3-dirty.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "clean",
+      "path": "patience-turtle-lv3-clean.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "hungry",
+      "path": "patience-turtle-lv3-hungry.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "sick",
+      "path": "patience-turtle-lv3-sick.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "faint",
+      "path": "patience-turtle-lv3-faint.png"
+    },
+    {
+      "species": "patience-turtle",
+      "level": 3,
+      "action": "evolve",
+      "path": "patience-turtle-lv3-evolve.png"
+    }
+  ]
+}
