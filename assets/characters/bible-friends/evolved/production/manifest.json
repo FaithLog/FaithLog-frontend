@@ -1,0 +1,202 @@
+{
+  "version": 1,
+  "source": "New original stage-specific FaithLog chibi illustration drafts, not existing royal or unique costumes",
+  "format": "PNG indexed-color with transparency",
+  "canvas": {
+    "size": [
+      768,
+      768
+    ],
+    "frame": [
+      192,
+      192
+    ],
+    "columns": 4,
+    "rows": 4,
+    "anchor": [
+      96,
+      176
+    ]
+  },
+  "motions": {
+    "idle": {
+      "offset": 0,
+      "frames": 4
+    },
+    "walk": {
+      "offset": 4,
+      "frames": 4
+    },
+    "happy": {
+      "offset": 8,
+      "frames": 4
+    },
+    "held": {
+      "offset": 12,
+      "frames": 2
+    },
+    "land": {
+      "offset": 14,
+      "frames": 2
+    }
+  },
+  "note": "Each stage has one independent character illustration; 16 visible animation frames are produced by nonrigid scale/rotation/translation, NOT 16 individually drawn poses.",
+  "files": [
+    {
+      "id": "david-lamb",
+      "level": 2,
+      "path": "david-lamb-lv2.png",
+      "gitBlobSha": "18f260c477836484d70b74be491fe0d1ccd06f65"
+    },
+    {
+      "id": "david-lamb",
+      "level": 3,
+      "path": "david-lamb-lv3.png",
+      "gitBlobSha": "b6e92cc6cc6768c15979aa856d9ccdb7897470a0"
+    },
+    {
+      "id": "noah-bear",
+      "level": 2,
+      "path": "noah-bear-lv2.png",
+      "gitBlobSha": "b6d1cf019aedd340372c3e8c21410ebb52d16704"
+    },
+    {
+      "id": "noah-bear",
+      "level": 3,
+      "path": "noah-bear-lv3.png",
+      "gitBlobSha": "6bdc6f49589b4f17acc809b70b18662e88cda53b"
+    },
+    {
+      "id": "jonah-whale",
+      "level": 2,
+      "path": "jonah-whale-lv2.png",
+      "gitBlobSha": "3382b777dd22d65c70d587b2b64345412872080e"
+    },
+    {
+      "id": "jonah-whale",
+      "level": 3,
+      "path": "jonah-whale-lv3.png",
+      "gitBlobSha": "e0d410cb658a9e9ecf873401586daac31f45ac9c"
+    },
+    {
+      "id": "daniel-lion",
+      "level": 2,
+      "path": "daniel-lion-lv2.png",
+      "gitBlobSha": "bc254922df321f742f03905d51185262cd63a96a"
+    },
+    {
+      "id": "daniel-lion",
+      "level": 3,
+      "path": "daniel-lion-lv3.png",
+      "gitBlobSha": "82eb49f0b01bb54b6943995a0a2fb16679b7ce67"
+    },
+    {
+      "id": "peace-dove",
+      "level": 2,
+      "path": "peace-dove-lv2.png",
+      "gitBlobSha": "7d70d6fa10af8dc9a2b6d440212107252ba078b3"
+    },
+    {
+      "id": "peace-dove",
+      "level": 3,
+      "path": "peace-dove-lv3.png",
+      "gitBlobSha": "5845133644f8eec552ff972be712107e1a1b4df6"
+    },
+    {
+      "id": "hope-rabbit",
+      "level": 2,
+      "path": "hope-rabbit-lv2.png",
+      "gitBlobSha": "7835fbd2b8047bfdbb95ca55630b4ffd23cea543"
+    },
+    {
+      "id": "hope-rabbit",
+      "level": 3,
+      "path": "hope-rabbit-lv3.png",
+      "gitBlobSha": "92ac0228134834198397116f385f209b23998c9f"
+    },
+    {
+      "id": "word-fox",
+      "level": 2,
+      "path": "word-fox-lv2.png",
+      "gitBlobSha": "d620ae3789a998fe5496d1be4e91827db1779dc9"
+    },
+    {
+      "id": "word-fox",
+      "level": 3,
+      "path": "word-fox-lv3.png",
+      "gitBlobSha": "8faa555fb4a6d4b57b08628a5b4af23ad5ccc369"
+    },
+    {
+      "id": "gentle-deer",
+      "level": 2,
+      "path": "gentle-deer-lv2.png",
+      "gitBlobSha": "a8e4575f9204611cf0b578bf56ba82f25745deb2"
+    },
+    {
+      "id": "gentle-deer",
+      "level": 3,
+      "path": "gentle-deer-lv3.png",
+      "gitBlobSha": "158a6651916dba77934ec04a259edcd0c0735f8c"
+    },
+    {
+      "id": "companion-donkey",
+      "level": 2,
+      "path": "companion-donkey-lv2.png",
+      "gitBlobSha": "2353f5a9af9a162b0d915e76e0d9fed421dfa8f9"
+    },
+    {
+      "id": "companion-donkey",
+      "level": 3,
+      "path": "companion-donkey-lv3.png",
+      "gitBlobSha": "2e22906fe7218176a467b0174bc92d777efb6d66"
+    },
+    {
+      "id": "joy-chick",
+      "level": 2,
+      "path": "joy-chick-lv2.png",
+      "gitBlobSha": "c408e9feb940a032155eaf42cb66625e9778a738"
+    },
+    {
+      "id": "joy-chick",
+      "level": 3,
+      "path": "joy-chick-lv3.png",
+      "gitBlobSha": "4d8cacc2c0eb8a9625f619ac29f4c091f5c9ce42"
+    },
+    {
+      "id": "peace-penguin",
+      "level": 2,
+      "path": "peace-penguin-lv2.png",
+      "gitBlobSha": "15e57f04523c6e7e29c35a307e905bcb17824a2b"
+    },
+    {
+      "id": "peace-penguin",
+      "level": 3,
+      "path": "peace-penguin-lv3.png",
+      "gitBlobSha": "545ef88772b7c1b575166929c6d05688fc1f11d9"
+    },
+    {
+      "id": "love-otter",
+      "level": 2,
+      "path": "love-otter-lv2.png",
+      "gitBlobSha": "a6d3fabd8425c3779c0a5b0f4d9d6b111b29b785"
+    },
+    {
+      "id": "love-otter",
+      "level": 3,
+      "path": "love-otter-lv3.png",
+      "gitBlobSha": "022587f3f9e8591e8b437a434f97837851cc1ab0"
+    },
+    {
+      "id": "patience-turtle",
+      "level": 2,
+      "path": "patience-turtle-lv2.png",
+      "gitBlobSha": "d1e5515c4df61997b5992d40d35de316a21adf21"
+    },
+    {
+      "id": "patience-turtle",
+      "level": 3,
+      "path": "patience-turtle-lv3.png",
+      "gitBlobSha": "f7654451f458bfb791bc1e82c8bfff51a6ebbe99"
+    }
+  ]
+}
