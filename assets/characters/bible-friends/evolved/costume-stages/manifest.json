@@ -1,0 +1,3089 @@
+{
+  "version": 1,
+  "kind": "derived costume-stage evolution assets",
+  "sourceDisclosure": "Transforms original complete costume frames; does NOT contain 234 bespoke hand-painted evolved bodies.",
+  "species": [
+    "david-lamb",
+    "noah-bear",
+    "jonah-whale",
+    "daniel-lion",
+    "peace-dove",
+    "hope-rabbit",
+    "word-fox",
+    "gentle-deer",
+    "companion-donkey",
+    "joy-chick",
+    "peace-penguin",
+    "love-otter",
+    "patience-turtle"
+  ],
+  "styles": [
+    "sunshine",
+    "scholar",
+    "gardener",
+    "sailor",
+    "explorer",
+    "festival",
+    "starlight",
+    "royal",
+    "unique"
+  ],
+  "levels": [
+    2,
+    3
+  ],
+  "frameSize": [
+    192,
+    192
+  ],
+  "atlasSize": [
+    768,
+    768
+  ],
+  "framesPerAtlas": 16,
+  "count": 234,
+  "entries": [
+    {
+      "species": "david-lamb",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/sunshine.png",
+      "path": "david-lamb--sunshine--lv2.png",
+      "sha256": "4dbb6bba28d211e9fbf67cfc8ca20f698bcc6bc9e55e66a5c68ec42211b0dfa4",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/sunshine.png",
+      "path": "david-lamb--sunshine--lv3.png",
+      "sha256": "78e7a4060785561d9611037fc4d36e4fb523046263ce81ac3d8120831845747c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/scholar.png",
+      "path": "david-lamb--scholar--lv2.png",
+      "sha256": "6252f6dbfa69d1358a3e9d0823406effaf450fe8243ae2a97075521ac6e4c0fd",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/scholar.png",
+      "path": "david-lamb--scholar--lv3.png",
+      "sha256": "0996e1a5c38ac9fe4de2fc038a05ac1ef1125f45599e631f30fbfb78bba54ec0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/gardener.png",
+      "path": "david-lamb--gardener--lv2.png",
+      "sha256": "a6cb85496de61738077754f8586b6562daeb5150a9995c3a0beca0ef09e0946a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/gardener.png",
+      "path": "david-lamb--gardener--lv3.png",
+      "sha256": "14ab04f5b03f2c9999f1d2b4899f75fd478ae1b69151de776d687e13df1052ad",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/sailor.png",
+      "path": "david-lamb--sailor--lv2.png",
+      "sha256": "e3576aa5bd9acf312760e8003b21d387acc8f8774bca0c4eb2db5283bd4521de",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/sailor.png",
+      "path": "david-lamb--sailor--lv3.png",
+      "sha256": "22f5c59d5096ce0289018ed873cc31b44718f4ce327f1e08d29e5c4c1947f8aa",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/explorer.png",
+      "path": "david-lamb--explorer--lv2.png",
+      "sha256": "e01e4ed8a422be13765a0bb2b37e73511f03fe25b8c2eb04dd0a0fd65f705cf6",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/explorer.png",
+      "path": "david-lamb--explorer--lv3.png",
+      "sha256": "7eef941c5a5b4a8104bae00227a9572637aebe031efc5633758d33956ff3b896",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/festival.png",
+      "path": "david-lamb--festival--lv2.png",
+      "sha256": "15a9ba7d3500d1c7986abdf59c81b44e9f10055a2d8a51cbeee168d816154674",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/festival.png",
+      "path": "david-lamb--festival--lv3.png",
+      "sha256": "de5e500f8b711ce1ffb2a138bdb80c66c1f700e43d3cd1e0343e8f8190b561fc",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/starlight.png",
+      "path": "david-lamb--starlight--lv2.png",
+      "sha256": "0a5bf235eabb417981430221ffcc469d9aafe43b5b3c0d4478eb7c4ae7b9e677",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/starlight.png",
+      "path": "david-lamb--starlight--lv3.png",
+      "sha256": "032d64906e9edc75338016ba626a2e90115c34943b8473c5a70a606742f0cd42",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/royal.png",
+      "path": "david-lamb--royal--lv2.png",
+      "sha256": "407575208064efbcd01571480ecfcf598750c8989071663bbf8938573a158ffa",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/royal.png",
+      "path": "david-lamb--royal--lv3.png",
+      "sha256": "993a22ab842ed1afae50e3e0e8746872d794ea025ee9d512953c65032c653888",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/unique.png",
+      "path": "david-lamb--unique--lv2.png",
+      "sha256": "86b5ab09ae33e5198a62f201a2c37d9849f60278f940cabb70b4f1a132231831",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "david-lamb",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/david-lamb/unique.png",
+      "path": "david-lamb--unique--lv3.png",
+      "sha256": "750a37649d89c3461a05e235c50860ee4d20eab03b9624c8159ae146d8b44bb0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/sunshine.png",
+      "path": "noah-bear--sunshine--lv2.png",
+      "sha256": "baab4ba0903692ba745b2377ce331b5b2edde6542693a43139533e4b95f28534",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/sunshine.png",
+      "path": "noah-bear--sunshine--lv3.png",
+      "sha256": "00cd4429c89521730f93888629054c8b733bd6c899328f9488391c1ec6ad5120",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/scholar.png",
+      "path": "noah-bear--scholar--lv2.png",
+      "sha256": "2468cb96f9713ac95799e0ca106f63aace6979aaaead8e7620a0c9741b159ae2",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/scholar.png",
+      "path": "noah-bear--scholar--lv3.png",
+      "sha256": "45e5f4f925b10f27a63ec9f25774721e7eea2e4b1da4de41d253b03d1c02e880",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/gardener.png",
+      "path": "noah-bear--gardener--lv2.png",
+      "sha256": "b11e7e671ae9ac4e82c32e218560f40dde930e58dfd0665734c07658a2e222c1",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/gardener.png",
+      "path": "noah-bear--gardener--lv3.png",
+      "sha256": "4f1a2c6ff50eade89f5f0495c67c730151bee800c9c8d0a3c1aa32e3838dfc81",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/sailor.png",
+      "path": "noah-bear--sailor--lv2.png",
+      "sha256": "d4aacc359cbdb8b8b12526aa669de0950729e5cdd85ae34bd6784055f6aedba3",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/sailor.png",
+      "path": "noah-bear--sailor--lv3.png",
+      "sha256": "49535d248aceceb8c5ac1857092d79bade6e564fb7e980f30076c7e37ccf751c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/explorer.png",
+      "path": "noah-bear--explorer--lv2.png",
+      "sha256": "06bb618fb033b32250ae94485f487a6dc5b5f85952af2ad69d6ce64c586ae746",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/explorer.png",
+      "path": "noah-bear--explorer--lv3.png",
+      "sha256": "5d60f0a350a724b0dbed0955e0ba758f1dcedea73c4c88a26625577b356c6818",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/festival.png",
+      "path": "noah-bear--festival--lv2.png",
+      "sha256": "8b0628ba6c506f178c0f0c47b461514654f20a17f521fd928e2bfdb38586ea9c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/festival.png",
+      "path": "noah-bear--festival--lv3.png",
+      "sha256": "7e0696e5248683008b2e71f1aa53e0114b202d9f62774387679a4e2112711229",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/starlight.png",
+      "path": "noah-bear--starlight--lv2.png",
+      "sha256": "833b2f17bcd1d90f43d0739c8701b1a722f8a6a673cf99b6244bcf84df7ab469",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/starlight.png",
+      "path": "noah-bear--starlight--lv3.png",
+      "sha256": "47cd7558d066fcb645046fd14d160411c0c3c645d3cd795c86396039b776bbfa",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/royal.png",
+      "path": "noah-bear--royal--lv2.png",
+      "sha256": "2cc88622416016e3e46ac60239c20ab2a0e7711666501a43c59c91ebec4889ba",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/royal.png",
+      "path": "noah-bear--royal--lv3.png",
+      "sha256": "5ea3ab748c63b392a59dc9f3af8031f2b583b4014564b9270ad75587993fd3ee",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/unique.png",
+      "path": "noah-bear--unique--lv2.png",
+      "sha256": "35a6788d21a7c0f47829fbee65cd69d32381fa0fa7569502a8064e9f79f7a206",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "noah-bear",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/noah-bear/unique.png",
+      "path": "noah-bear--unique--lv3.png",
+      "sha256": "d45f049c69132ea147a35fc1a647638e9f78dcb3bf49c78418979a2175b308f3",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/sunshine.png",
+      "path": "jonah-whale--sunshine--lv2.png",
+      "sha256": "46c9c42ba7fb984105c8ff11e1907f6b86a4080f52464648a131501f21b7b7d5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/sunshine.png",
+      "path": "jonah-whale--sunshine--lv3.png",
+      "sha256": "bd61e7353ff1e4781c0fd5b7860e99d0070ab2b85b7e934865a90fe7057d43ee",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/scholar.png",
+      "path": "jonah-whale--scholar--lv2.png",
+      "sha256": "4cfe82af3dafbf0ff4cfca2b0c7334149b5abddde32351a385999b4bd2f731e5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/scholar.png",
+      "path": "jonah-whale--scholar--lv3.png",
+      "sha256": "e0911c1e57e8d7cc58701db6f697aa37ce1581f38c9b4f68596c8d3c47e3d8ff",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/gardener.png",
+      "path": "jonah-whale--gardener--lv2.png",
+      "sha256": "1e954c65ba311cd7e5b066cdfbd0171092b0d4a9113740cc441318bb9f0f6ab5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/gardener.png",
+      "path": "jonah-whale--gardener--lv3.png",
+      "sha256": "44468d4a8d98f8f3007d64d4c1d9ac3ff0aa0d00d06164e37f38c2fb7b503c49",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/sailor.png",
+      "path": "jonah-whale--sailor--lv2.png",
+      "sha256": "8bba963a8756d7315c00ef188a47b254b6356c93ac60d25b54b6afbffc2470b7",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/sailor.png",
+      "path": "jonah-whale--sailor--lv3.png",
+      "sha256": "9e01b7019290722036d4833e0a73e82745bd4281a2326ea4743fd7b06db76072",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/explorer.png",
+      "path": "jonah-whale--explorer--lv2.png",
+      "sha256": "9c85d6bf16fcbef415f7cfaa40d5077ee0b6d09cd9a7a19f0150d96f9d764a51",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/explorer.png",
+      "path": "jonah-whale--explorer--lv3.png",
+      "sha256": "1e09109418dcde64a9fa565adf72a74d7888fcf3205cd3edb3c281b2f7b493ac",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/festival.png",
+      "path": "jonah-whale--festival--lv2.png",
+      "sha256": "b2bc87a16546a4bf01d5b99bfb1491a1eb8fa07ff77378307b9ac7066e860cde",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/festival.png",
+      "path": "jonah-whale--festival--lv3.png",
+      "sha256": "44921c2b451ccb481d247834586e5fa3a0ef038da5163abb11c00828d49a93b7",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/starlight.png",
+      "path": "jonah-whale--starlight--lv2.png",
+      "sha256": "9d2b86f53ca298c1f21e8f8fbc2a69968894940431aaf726626452917c3f70ac",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/starlight.png",
+      "path": "jonah-whale--starlight--lv3.png",
+      "sha256": "d03458a25994821a6ff18dc77d344d9a58663ffc89f0dfe8ade69c68e5b524bc",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/royal.png",
+      "path": "jonah-whale--royal--lv2.png",
+      "sha256": "362e86bcedf555ad0e19708dbaf5ffd0cf2770f7fcdb34282f9252611d0892cb",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/royal.png",
+      "path": "jonah-whale--royal--lv3.png",
+      "sha256": "e1ee60fe1926293da40b98adfd18f8f0eb9fb5a3d6228c5ce942bafbfde1ced5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/unique.png",
+      "path": "jonah-whale--unique--lv2.png",
+      "sha256": "dedb9381cbe0cbacd9782d847fc055fa761d5862899f43de6b1717e0ba45b94d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "jonah-whale",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/jonah-whale/unique.png",
+      "path": "jonah-whale--unique--lv3.png",
+      "sha256": "9e9f715afb16dbb8264a2534962619007f2343ca98cef43e81b65b9fb2a09b63",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/sunshine.png",
+      "path": "daniel-lion--sunshine--lv2.png",
+      "sha256": "1d59b42cbe2313ee236767888ef199f736df0ae029074e378c9c27a6960e44a7",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/sunshine.png",
+      "path": "daniel-lion--sunshine--lv3.png",
+      "sha256": "1f72005b273f33b87a0ab8d8d45a650d452962f262dae15b6778f08495fd9f8f",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/scholar.png",
+      "path": "daniel-lion--scholar--lv2.png",
+      "sha256": "14894f938dcabc2d32340842e870957939e89233e983e5cc2cd019449dabf3c9",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/scholar.png",
+      "path": "daniel-lion--scholar--lv3.png",
+      "sha256": "db8f710c8db6e8892f5cb84051b8fa880c2f1f5e1adbb94533daf4972dfb73c0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/gardener.png",
+      "path": "daniel-lion--gardener--lv2.png",
+      "sha256": "186043f5d65d345ddc5af90f7fca15e02ab27165ff4c1d1c6b9e5a564110a7c5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/gardener.png",
+      "path": "daniel-lion--gardener--lv3.png",
+      "sha256": "eca2e685651e00237d70dc48208d8cececfa392f59bf0b2bc1495321519f0b55",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/sailor.png",
+      "path": "daniel-lion--sailor--lv2.png",
+      "sha256": "0ec6b7029ad4f99f740aa3a6cd136bdb6c404e6378b711f49acfa65cb17e8ffc",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/sailor.png",
+      "path": "daniel-lion--sailor--lv3.png",
+      "sha256": "f962369489fe5aaf31e740d9dd28c732a71812835b640cb65cb337db362dc49d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/explorer.png",
+      "path": "daniel-lion--explorer--lv2.png",
+      "sha256": "a570ccf22b0412e5afaaeb16b92856bcd63032975e76f46701c86c83716577d5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/explorer.png",
+      "path": "daniel-lion--explorer--lv3.png",
+      "sha256": "b38e71ffa2bfc2041a5486cffcb2000d6319dbad22ec74064124eff5c9d01c7d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/festival.png",
+      "path": "daniel-lion--festival--lv2.png",
+      "sha256": "1ab625a3ee601fe15ea9a83388c5e9a6534c26dc547fe34cd1a8c1c6f4ff8cdf",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/festival.png",
+      "path": "daniel-lion--festival--lv3.png",
+      "sha256": "f9850f8dce0a7675adf81414b8d8da75c25b346ac2a7b820a8c548c3332e4eb9",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/starlight.png",
+      "path": "daniel-lion--starlight--lv2.png",
+      "sha256": "2001b643305ec97060f38d4814a4b5daa2e53281ccf0d80a3bbf26d4b2777cb4",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/starlight.png",
+      "path": "daniel-lion--starlight--lv3.png",
+      "sha256": "f8357375d282db6a26c9172a930ce2d8eb59039b1a822d022e060957099982d5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/royal.png",
+      "path": "daniel-lion--royal--lv2.png",
+      "sha256": "60cd7b5aa7abf0503cb299c46d27a9d1f1f142643ad1093296a02f33602195da",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/royal.png",
+      "path": "daniel-lion--royal--lv3.png",
+      "sha256": "0057ea937c60f69032f7708f400667bb846feace914fd87f8fd3a5e2cc61ea49",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/unique.png",
+      "path": "daniel-lion--unique--lv2.png",
+      "sha256": "a05321fd2c064b05f761d6bf9af581efb993e85e56b9f4724bdfe1b7602459b5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "daniel-lion",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/daniel-lion/unique.png",
+      "path": "daniel-lion--unique--lv3.png",
+      "sha256": "751e044686723acab819a041a5700514338a9c76319e1dfc4803f2890f01d875",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/sunshine.png",
+      "path": "peace-dove--sunshine--lv2.png",
+      "sha256": "115725a80f783fc6bf7325d9b0105db117bddce7842afcd274c5814b6692a284",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/sunshine.png",
+      "path": "peace-dove--sunshine--lv3.png",
+      "sha256": "45da218c7e7d3ef40ca95ac70687c75d1d56652f8fa3215ab5df7c2bc7d9fb29",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/scholar.png",
+      "path": "peace-dove--scholar--lv2.png",
+      "sha256": "65caa06a2e1ba79af92b8ffa418c7cc6574b25cac77e9c72bc1370161485cb86",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/scholar.png",
+      "path": "peace-dove--scholar--lv3.png",
+      "sha256": "9dc70001c0a1759f99b247943e02d3bf8473454856389e1effcfa4803811350c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/gardener.png",
+      "path": "peace-dove--gardener--lv2.png",
+      "sha256": "1d20e720c58dc7d43bed960d5c48ec091c4a410cca73ff3b0aeb29d5aa76025e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/gardener.png",
+      "path": "peace-dove--gardener--lv3.png",
+      "sha256": "db69480fd23ca8f9e0371c76096d099817b9638902999a34d74d82a47a197093",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/sailor.png",
+      "path": "peace-dove--sailor--lv2.png",
+      "sha256": "3f733ee89f813cb7b5de3d3b74049307df87651d586d68ba05caced4e9a5b81a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/sailor.png",
+      "path": "peace-dove--sailor--lv3.png",
+      "sha256": "e1186ea04c670d7385205dd5c5bc8e29b8a74c1509058353ad138186c847b55c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/explorer.png",
+      "path": "peace-dove--explorer--lv2.png",
+      "sha256": "a251ab3b7c3e9d979a3edb290dea6a6ca7a15244ec4355318aed23e84d1b3da6",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/explorer.png",
+      "path": "peace-dove--explorer--lv3.png",
+      "sha256": "bd2b2ca20538b87b1f1f1f1f4234f7a470f7baf1af28fe4c664597c8eba801eb",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/festival.png",
+      "path": "peace-dove--festival--lv2.png",
+      "sha256": "bbc158bc0ff99c34e4d4a648a0de3f5a27873b4e30c0caa6fadbccffd883f6db",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/festival.png",
+      "path": "peace-dove--festival--lv3.png",
+      "sha256": "018ef432150358f5993a2c95b42f4991b9946d0c9b5b2dcd1b7c6f2e623e8aa5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/starlight.png",
+      "path": "peace-dove--starlight--lv2.png",
+      "sha256": "23436e03e02de4062fd50ca66b971f2cf40dfa500bce8fb48116f1af1635f24b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/starlight.png",
+      "path": "peace-dove--starlight--lv3.png",
+      "sha256": "acb37298ec1a6a35461b14964835a8c8b87a072b01f4a78b19547e0ec2e8c166",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/royal.png",
+      "path": "peace-dove--royal--lv2.png",
+      "sha256": "023cd6dc2c7cc73c48a872807cb102a040fc339e64ec534f9c60ebf6c497c034",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/royal.png",
+      "path": "peace-dove--royal--lv3.png",
+      "sha256": "e85812757bcfc83aa6c2a9cbc9b780198359d64cbe3595088336e85e982d2685",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/unique.png",
+      "path": "peace-dove--unique--lv2.png",
+      "sha256": "b1a1b754ce9c593bbed36b1829c674153bc75423c0a9b541c0a4919be19d19d8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-dove",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-dove/unique.png",
+      "path": "peace-dove--unique--lv3.png",
+      "sha256": "dc58b2938917b354f1d4a1f80a83950f48533690222749898c58450fd3bc8921",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/sunshine.png",
+      "path": "hope-rabbit--sunshine--lv2.png",
+      "sha256": "1c9922ba497b8a3ba1025dafdf72d29281eaa12053f03a2b6f921379564493a6",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/sunshine.png",
+      "path": "hope-rabbit--sunshine--lv3.png",
+      "sha256": "87283138de11ca01d23b4fa7a3c0c9ab0dfa8b79121be7140b12947d855b5af8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/scholar.png",
+      "path": "hope-rabbit--scholar--lv2.png",
+      "sha256": "bd04b9412201282d448c7e206f3f167df7a42f2bc09e87188c1ddbead9480ab2",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/scholar.png",
+      "path": "hope-rabbit--scholar--lv3.png",
+      "sha256": "e55769c3c4bdfa140150f4afbe157fb2932054437866ac209e548ab6821720c5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/gardener.png",
+      "path": "hope-rabbit--gardener--lv2.png",
+      "sha256": "35942bcdac0d18ef4b09269f5325991f00092f8e6ab4fa528d046aa3c7f99632",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/gardener.png",
+      "path": "hope-rabbit--gardener--lv3.png",
+      "sha256": "be1e7a5a4a60a83f5344fbd7e65437290f8f6bdb6c853e30fa1bf9903acafacc",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/sailor.png",
+      "path": "hope-rabbit--sailor--lv2.png",
+      "sha256": "1ab8cd38a4538a37719c0d215f8aa3a4f2f998794460da022f03350d21518fa8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/sailor.png",
+      "path": "hope-rabbit--sailor--lv3.png",
+      "sha256": "9dbacc38d7857105505c916d15acdd92c5bb2b8c88f759973c39a261c42630d5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/explorer.png",
+      "path": "hope-rabbit--explorer--lv2.png",
+      "sha256": "e9c110adaad524ba4210ee00e67a848ebfae027a900e8bde784dd7505d7d0d32",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/explorer.png",
+      "path": "hope-rabbit--explorer--lv3.png",
+      "sha256": "17b9bfebbb2ea89187b61ee6e70fac6266e3d6aac4c3de28d36e05b55d6797d3",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/festival.png",
+      "path": "hope-rabbit--festival--lv2.png",
+      "sha256": "ede0d86d31c0eb160798db0fa94cfbecdbe9db1523baa63cf9e6cbdc180af9fd",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/festival.png",
+      "path": "hope-rabbit--festival--lv3.png",
+      "sha256": "108a26458278f2fe4b4e50f4d6f70947481f2633c091a011fa59ae7b60532415",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/starlight.png",
+      "path": "hope-rabbit--starlight--lv2.png",
+      "sha256": "9efdc62625e94806e8156e7d42a0a3aa611d552833f24adc7912975a5c1b92dd",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/starlight.png",
+      "path": "hope-rabbit--starlight--lv3.png",
+      "sha256": "87352084739f84654d96c3b0c50640ac61ad94208f5a025a357a36a3e3997a81",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/royal.png",
+      "path": "hope-rabbit--royal--lv2.png",
+      "sha256": "11360d38059762f736dce67b5f25d35745c6e5db29cbe4f6e716ce6891932c11",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/royal.png",
+      "path": "hope-rabbit--royal--lv3.png",
+      "sha256": "0fe93febe0aacb9876674c06b257b72928c2893a150fbee77eb4d36333bf2e57",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/unique.png",
+      "path": "hope-rabbit--unique--lv2.png",
+      "sha256": "3cf8a48e623bdcc8d1fc0e23fb826452a5cd6aafbd58d7197c8ac8c79aba407f",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "hope-rabbit",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/hope-rabbit/unique.png",
+      "path": "hope-rabbit--unique--lv3.png",
+      "sha256": "e01b25ee6dbf280e221e0d40fe5bebb0897f0efcf0884d08bdef9ddc2f99c189",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/sunshine.png",
+      "path": "word-fox--sunshine--lv2.png",
+      "sha256": "2e043e339cc309029c578eb2c41b6a0be20af939864b06cf883ad720780fc739",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/sunshine.png",
+      "path": "word-fox--sunshine--lv3.png",
+      "sha256": "cd865fa98d48981983e557896b08873b195dc4c6535739d75733978a0ce2f789",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/scholar.png",
+      "path": "word-fox--scholar--lv2.png",
+      "sha256": "0011306742782cc2450f70c5b7fbcaa162bd8f2b1ef122868b38e56a2e2811a8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/scholar.png",
+      "path": "word-fox--scholar--lv3.png",
+      "sha256": "166aa9ae451369ec78b0bc77bb2e0f85206e280790f97535ab024b6d255019d8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/gardener.png",
+      "path": "word-fox--gardener--lv2.png",
+      "sha256": "d1a5af2bc74b8613c064a3b4636f14821e086794a58f34e11a3f118d87683b26",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/gardener.png",
+      "path": "word-fox--gardener--lv3.png",
+      "sha256": "ce231d350453223c95eaf852775408f21b1b6ec63797cfdb8effd5669641ce01",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/sailor.png",
+      "path": "word-fox--sailor--lv2.png",
+      "sha256": "f5dc83ac694fa52531c499e37e6c9542f2ff13ead8af414d7db6f44cb0725712",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/sailor.png",
+      "path": "word-fox--sailor--lv3.png",
+      "sha256": "cea294cf10be1467d0d4f0863fefd6d002835aa18c9e0ec63a2374b6e2e14dce",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/explorer.png",
+      "path": "word-fox--explorer--lv2.png",
+      "sha256": "5c60eb1281f781dd5aaa04748a598f90f1ca78de0872eedbf1d1ca2a4fb2088b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/explorer.png",
+      "path": "word-fox--explorer--lv3.png",
+      "sha256": "928ff5df18c527459cfcc384972571c30d5322d1d1b08f248e760cc2301dc2c8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/festival.png",
+      "path": "word-fox--festival--lv2.png",
+      "sha256": "9351cba0b2eaa659fca7ce59eebcfdea23ceb9379d8044355809a2d36738b171",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/festival.png",
+      "path": "word-fox--festival--lv3.png",
+      "sha256": "9357a7de37454b7d3e7d254ecd49908441467bf6b28d8b3bd6fe19aa56e87bf4",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/starlight.png",
+      "path": "word-fox--starlight--lv2.png",
+      "sha256": "f70363166503fce674b73cb63285e5e48780da27764fd648f2848e3aeca76c29",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/starlight.png",
+      "path": "word-fox--starlight--lv3.png",
+      "sha256": "96967a678b7e117b8678580bbb3b9ac405ddc6a0efa71e28dbc48e8b50aadc19",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/royal.png",
+      "path": "word-fox--royal--lv2.png",
+      "sha256": "61430799471603ea4bda29336cbe8d4b8d09dedcc184cde2be33b995abe0e220",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/royal.png",
+      "path": "word-fox--royal--lv3.png",
+      "sha256": "818e7f0aa1ba4214b39b14eafff01d1071d19ebaced517c6f1fb1602537f936d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/unique.png",
+      "path": "word-fox--unique--lv2.png",
+      "sha256": "4c64efa977393a7b2fb72c4647541790256ead6c02587e6bd72bef3df54e9000",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "word-fox",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/word-fox/unique.png",
+      "path": "word-fox--unique--lv3.png",
+      "sha256": "835f9dd05f3560e5c83d8f4c4db3dd63b02edd11fedf599cb7c46396a627da2a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/sunshine.png",
+      "path": "gentle-deer--sunshine--lv2.png",
+      "sha256": "fd293879002ee76fe1fb05ae63cfb87a0321cd6d6e91298687ec8a0f48c870b1",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/sunshine.png",
+      "path": "gentle-deer--sunshine--lv3.png",
+      "sha256": "61779feae198279a143499767d1685709c212b00b952cdb20312aedb57d24a16",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/scholar.png",
+      "path": "gentle-deer--scholar--lv2.png",
+      "sha256": "9c7e163e8aee554f76f86b81cd3406bc9c9618098fbf9c2bb2b5c0bad1d3d17d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/scholar.png",
+      "path": "gentle-deer--scholar--lv3.png",
+      "sha256": "a9fed4b80c3ff9c0e2bd210fa93293b9be930d1599b3080d4b7eb83e097b8214",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/gardener.png",
+      "path": "gentle-deer--gardener--lv2.png",
+      "sha256": "b8f65da892efc86001f723886de076d24b747068247aea5a2d80a0cb8788b35b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/gardener.png",
+      "path": "gentle-deer--gardener--lv3.png",
+      "sha256": "e73ab98b3e18777ec9d633583c32b2ae12e80faa42c427145ad29067a15c256c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/sailor.png",
+      "path": "gentle-deer--sailor--lv2.png",
+      "sha256": "b01211c828a3ff40f2e0933ab4ca992df406d97f6f5cd716e71e3aaa0fad62a5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/sailor.png",
+      "path": "gentle-deer--sailor--lv3.png",
+      "sha256": "7dc42882ca4357b5ced988b7ed8b67581cb4500539c5bb40c4c711c30790eca0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/explorer.png",
+      "path": "gentle-deer--explorer--lv2.png",
+      "sha256": "9838fca7f8cefbab824bb3e1ef3bb9672c2e95ad95362f2923741b73a2a713bf",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/explorer.png",
+      "path": "gentle-deer--explorer--lv3.png",
+      "sha256": "ce79758895199abca4a9249e48068948ae758c672a5fa6b1d6ed5849eb8400fd",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/festival.png",
+      "path": "gentle-deer--festival--lv2.png",
+      "sha256": "4ce940154e459047fa4f9ef81c4ce0c9fe4abc487a01d497cd9d3be1b39aae39",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/festival.png",
+      "path": "gentle-deer--festival--lv3.png",
+      "sha256": "5e2db656f7031c58dccd9c369c8223b1ddc98940c61f4a3bd86c94fe86a3f078",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/starlight.png",
+      "path": "gentle-deer--starlight--lv2.png",
+      "sha256": "32da7b0a06dddf305d5fe49cf85d02ed8500e2009519e84bb4d52a40a5b80f09",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/starlight.png",
+      "path": "gentle-deer--starlight--lv3.png",
+      "sha256": "d191f1f7e31a371e106305087e9df6bb41304b75569b9635df31609488dfd81c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/royal.png",
+      "path": "gentle-deer--royal--lv2.png",
+      "sha256": "02a797c1726cf0f9862b5ff7e015a1818a211e6bcaa9338b70edc3b5593e0bfd",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/royal.png",
+      "path": "gentle-deer--royal--lv3.png",
+      "sha256": "289faf215b4ad174ef43125ba853a935ed310e729c7f090e7e70812eabb0008a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/unique.png",
+      "path": "gentle-deer--unique--lv2.png",
+      "sha256": "0717075e02c55da6885d81157e055be3263d819f065d24f4857a9b306348c04b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "gentle-deer",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/gentle-deer/unique.png",
+      "path": "gentle-deer--unique--lv3.png",
+      "sha256": "0ca9a69edca4e6f67896da5674cdd0612575fbb3c00b19868572c47eb8ceefe0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/sunshine.png",
+      "path": "companion-donkey--sunshine--lv2.png",
+      "sha256": "e7e9a95333bbe81ebae2d018b80d240f561cf8b5434e465b22129073daa168ab",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/sunshine.png",
+      "path": "companion-donkey--sunshine--lv3.png",
+      "sha256": "85a4add2c6624a96b2391c5bae7b500915a13598b0daf4e15b84968d516aad50",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/scholar.png",
+      "path": "companion-donkey--scholar--lv2.png",
+      "sha256": "1834e3174e45dc7c6e4c4394a4e66ac0e84fdf2a6234463cc09617842e29a667",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/scholar.png",
+      "path": "companion-donkey--scholar--lv3.png",
+      "sha256": "1b39877a0dbff75257a5ab7506f798121a0164c59d8256a4bdccb59b9b98c32c",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/gardener.png",
+      "path": "companion-donkey--gardener--lv2.png",
+      "sha256": "263095f80c31395fdfb0aaea7c9d828fed0eb44a71b5c1297789ccbc42cb12d2",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/gardener.png",
+      "path": "companion-donkey--gardener--lv3.png",
+      "sha256": "d625a9940df133ac4c41b56368d4d5591bda1c4c0ebe083e3f5f858462bfc47a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/sailor.png",
+      "path": "companion-donkey--sailor--lv2.png",
+      "sha256": "5801c4167bf88b820cf1be156318221ff10548c2b34124b7d55a0625a22a5050",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/sailor.png",
+      "path": "companion-donkey--sailor--lv3.png",
+      "sha256": "f266839b162660d274e31973959c592ce5d37268b12e5e7bac9068ab8bc7fc51",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/explorer.png",
+      "path": "companion-donkey--explorer--lv2.png",
+      "sha256": "a1da8501648f71dba8ed9206b317b5120fab366bc35e080de93291bfce172f38",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/explorer.png",
+      "path": "companion-donkey--explorer--lv3.png",
+      "sha256": "bb092eceb12babb6970a02403d2cd00b5132e11ad59e46d591cbec28bd77c857",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/festival.png",
+      "path": "companion-donkey--festival--lv2.png",
+      "sha256": "9f6f90c958fb6d535a2f6a4aa1cc662db3a695d34ba467ceab538507ae1007a7",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/festival.png",
+      "path": "companion-donkey--festival--lv3.png",
+      "sha256": "6b9df7fade4c125c457a8b16cedfd5b80997657e3cac6931734f777c11f0bf1d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/starlight.png",
+      "path": "companion-donkey--starlight--lv2.png",
+      "sha256": "e9c20e514d8535f47fd8eb344fae44c2d3ab4a7ba65001b6a00457c077b29da1",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/starlight.png",
+      "path": "companion-donkey--starlight--lv3.png",
+      "sha256": "976f3bf681212ecc476b857afb7ef140fc8ef50ac654055027c7c5d258db8e03",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/royal.png",
+      "path": "companion-donkey--royal--lv2.png",
+      "sha256": "fa1c273f7d41d275294358edf8fd5566401f3ec1e44ed5c9769ab6ab4ad599d9",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/royal.png",
+      "path": "companion-donkey--royal--lv3.png",
+      "sha256": "00ebef0a6ce0ced2966aae51bed2bf105338e5012be5a2aa1873bbfb920c26bf",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/unique.png",
+      "path": "companion-donkey--unique--lv2.png",
+      "sha256": "881e64844314ca5e41519fae2bf5ea1ce76ea062b8ae457a259cb1b6eda4ca4b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "companion-donkey",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/companion-donkey/unique.png",
+      "path": "companion-donkey--unique--lv3.png",
+      "sha256": "06d0b8097b098a684df7d64906f4478910ee0ebe235da779859b3cd7f3449061",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/sunshine.png",
+      "path": "joy-chick--sunshine--lv2.png",
+      "sha256": "1e44131c510e6e0e9a09cc6acbd3ab40c7bbad5d4f8f201ce6167e5240b2846b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/sunshine.png",
+      "path": "joy-chick--sunshine--lv3.png",
+      "sha256": "6094670e976c67f10349d3b7f9ac8e82ba7590bcc0fab224ed48229468bbca35",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/scholar.png",
+      "path": "joy-chick--scholar--lv2.png",
+      "sha256": "736c7fadf9c6f370f69044e58f2f8c6f5291d8070ea13fc873c530c6c58d345d",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/scholar.png",
+      "path": "joy-chick--scholar--lv3.png",
+      "sha256": "ccad545ff121098df9d51eb3625b7914ccf2607aa14d955ceb9c90cddc2da4b9",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/gardener.png",
+      "path": "joy-chick--gardener--lv2.png",
+      "sha256": "bfd9916bf21695c357f5213eee73132fff9df7d31fc60d5c5eb1b986b23051da",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/gardener.png",
+      "path": "joy-chick--gardener--lv3.png",
+      "sha256": "8d4e4c98d111c498be60e0a03c8e73a2a3be2b67c0190d1942aad1969ee81a67",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/sailor.png",
+      "path": "joy-chick--sailor--lv2.png",
+      "sha256": "57b80291e5634fddddb6dc0db4f470369c9036648b41bffbdc3273addab054f5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/sailor.png",
+      "path": "joy-chick--sailor--lv3.png",
+      "sha256": "c3bc5b6551c88e2f4313308e8817e209f8437acb5834c9a734083e66c10a3023",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/explorer.png",
+      "path": "joy-chick--explorer--lv2.png",
+      "sha256": "9c2e71c3c167cdfb9ffee8c1c3d4e8f1a2d745f9aebdd0499be914835f830190",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/explorer.png",
+      "path": "joy-chick--explorer--lv3.png",
+      "sha256": "825407ab6f2f6c129ebfcd0873c28c86c2b972350316a033b1e2e34244d8aff3",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/festival.png",
+      "path": "joy-chick--festival--lv2.png",
+      "sha256": "ffb9f1d83524f9f1467088382aa3670095537e9fa3a49a0d4994899b464cec6e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/festival.png",
+      "path": "joy-chick--festival--lv3.png",
+      "sha256": "d6351d063fd7c97760026c72ed196f12f43c39aa8a08b0938f2c3025eb9cd4ec",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/starlight.png",
+      "path": "joy-chick--starlight--lv2.png",
+      "sha256": "bef54ce6c4756def36f9d5856d1caee8e30a97903a3261f99dbca7414bd076e5",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/starlight.png",
+      "path": "joy-chick--starlight--lv3.png",
+      "sha256": "3c829d257b319743c10fc5ad3380690e2509387d2bc175bda6616b22b0e756a6",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/royal.png",
+      "path": "joy-chick--royal--lv2.png",
+      "sha256": "f0d0faf7043eeeb00f04eec19207b2490c0ea8565caa3ac9c0f6291e5ae5e7ea",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/royal.png",
+      "path": "joy-chick--royal--lv3.png",
+      "sha256": "d1734b9b25df30144926817b4e50fddb0cb9cea04089dc36b5f1d8393ea102b4",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/unique.png",
+      "path": "joy-chick--unique--lv2.png",
+      "sha256": "d689e0414a588f5b48051757a1743eba6498d9d17d10708df53e583b6f9e3b40",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "joy-chick",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/joy-chick/unique.png",
+      "path": "joy-chick--unique--lv3.png",
+      "sha256": "8d0239bb3382f6c004205e8785fd46dfeb5dfcf4f53901ee711236e14d88e76e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/sunshine.png",
+      "path": "peace-penguin--sunshine--lv2.png",
+      "sha256": "65d6efff02968eef1a3653a3df9909bf140e32346cae923ee1a68f6368878bb2",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/sunshine.png",
+      "path": "peace-penguin--sunshine--lv3.png",
+      "sha256": "7202b0d6c6322d871f5d73965898f6d07026f880427e6d38b40d90df30b18ceb",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/scholar.png",
+      "path": "peace-penguin--scholar--lv2.png",
+      "sha256": "38e8f9e63045575caf1ad772a051b165afc2b4a89f107cb0d6294a30ab6edb77",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/scholar.png",
+      "path": "peace-penguin--scholar--lv3.png",
+      "sha256": "2213552b77890c8662ca2e901a3076a61b5bb6d4c6068e96826b5408d2dd73a7",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/gardener.png",
+      "path": "peace-penguin--gardener--lv2.png",
+      "sha256": "434cf91b308bd5dedd711e214c78f69a184637288045f32b65614681df306c9e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/gardener.png",
+      "path": "peace-penguin--gardener--lv3.png",
+      "sha256": "53463982f08e416dd69e698b918be00d6d0a3737c5c8094e2d0402e06bc5f1d7",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/sailor.png",
+      "path": "peace-penguin--sailor--lv2.png",
+      "sha256": "78d136bf2e2317caed7640059c79021f4951ad95053dbb61a6fb81979fe18b61",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/sailor.png",
+      "path": "peace-penguin--sailor--lv3.png",
+      "sha256": "8e6da989b5bb38a5c8ac27fdf5e9d8900130f97aa3976d714d19b254fd88c68e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/explorer.png",
+      "path": "peace-penguin--explorer--lv2.png",
+      "sha256": "5d20cd8eb9af8fb00d6107379f93793a1b370fee8dda6c72154dd67985893687",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/explorer.png",
+      "path": "peace-penguin--explorer--lv3.png",
+      "sha256": "5e9b3ba0d462623aa8d8211978817dd7be2e829980e85491fe70c964fa821a25",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/festival.png",
+      "path": "peace-penguin--festival--lv2.png",
+      "sha256": "d2ec8813d52a1b508d655093b094adcb4692ef79ea17efe19522d110f1a39c36",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/festival.png",
+      "path": "peace-penguin--festival--lv3.png",
+      "sha256": "182aabfa2dd8a9b59f54689188ef579eba1646fcc3fcbf1ab970f83f630d07b0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/starlight.png",
+      "path": "peace-penguin--starlight--lv2.png",
+      "sha256": "e1e0ba9ec6093b5b7c6a599c82fc4a373d478e0bb7c09d3577ccdc4f65a8924e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/starlight.png",
+      "path": "peace-penguin--starlight--lv3.png",
+      "sha256": "e92ee2e715655ad0fc98e7692000c647c0d65e3930bf29c950fd6b3ddf972161",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/royal.png",
+      "path": "peace-penguin--royal--lv2.png",
+      "sha256": "105fe9d9b730f7985ab7ece6d6b651878648099d835ffd980cf1a1d7ef4fe0a3",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/royal.png",
+      "path": "peace-penguin--royal--lv3.png",
+      "sha256": "c28aa9d6475b5fa73df2a86677367256e95ec250b34bba1b02a36f0ed31152ab",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/unique.png",
+      "path": "peace-penguin--unique--lv2.png",
+      "sha256": "3c313869d73d463c60db81d2e029797a5bc87a8193fc79afd3148cbd24253fde",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "peace-penguin",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/peace-penguin/unique.png",
+      "path": "peace-penguin--unique--lv3.png",
+      "sha256": "1023d6b9d6c6a8df0e197a533ee821b8720c916ba821849b24477a3844773876",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/sunshine.png",
+      "path": "love-otter--sunshine--lv2.png",
+      "sha256": "18450376f49e1c06570b003707f1c68fea2431d54e54347842c2fd8ff29ba590",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/sunshine.png",
+      "path": "love-otter--sunshine--lv3.png",
+      "sha256": "493cf642e14ebce59f9f562f2a25bfeeb862f278a21196f27b2ace87ce6010a4",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/scholar.png",
+      "path": "love-otter--scholar--lv2.png",
+      "sha256": "9f8c7f8ffe41e8828057d3763b5a4674a24197c214efac8e2f483a5feeaf1664",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/scholar.png",
+      "path": "love-otter--scholar--lv3.png",
+      "sha256": "02c1caa4d1876207426e3774a75a8ecd17d6b1a3a2ed7c976d4a1448ebd72fc4",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/gardener.png",
+      "path": "love-otter--gardener--lv2.png",
+      "sha256": "42a1d4c758ea3614dde4e8c72fd7d2669c7f34f1cad2bf32b15854cbd9df5bb0",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/gardener.png",
+      "path": "love-otter--gardener--lv3.png",
+      "sha256": "d1ce0b70117ec23517b8789afdb2cd0623b6707fcf4a86a5fd8315b389a524f6",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/sailor.png",
+      "path": "love-otter--sailor--lv2.png",
+      "sha256": "6bece22f84f7373e08b1016853f901fb3b0f41322ee44b5875e0962b33724e81",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/sailor.png",
+      "path": "love-otter--sailor--lv3.png",
+      "sha256": "be2da7500cfbedced2601cfd89e8ef93c1e7d16c1a5bdcbdb6f81998e926c106",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/explorer.png",
+      "path": "love-otter--explorer--lv2.png",
+      "sha256": "d0b92a8abd54fa8788ba63f14fd84572914bdbbd19a94a0f0fad56d9d1341f86",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/explorer.png",
+      "path": "love-otter--explorer--lv3.png",
+      "sha256": "e315308338de9ef81d48e59c6a13b84fca6abc5240bf863c5cb1c3e7307a8c69",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/festival.png",
+      "path": "love-otter--festival--lv2.png",
+      "sha256": "6edb82ecc9a214377230c91f8ea5e986e1a4dcdb9cc13ab39fe3ee78ee8e08c8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/festival.png",
+      "path": "love-otter--festival--lv3.png",
+      "sha256": "f180c29757f7b21e4a26a4840a8be8660845f9737a7cab8ec3a22eb489fd68ea",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/starlight.png",
+      "path": "love-otter--starlight--lv2.png",
+      "sha256": "ae5f6e995bc77d9d35e7d5edc210b6627fe6c0723ab8ab2f0b0255ffff27e65e",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/starlight.png",
+      "path": "love-otter--starlight--lv3.png",
+      "sha256": "bab78ce756022019194723b58b34088e076dbe7e9c966de7e39f6ec0ad68dc51",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/royal.png",
+      "path": "love-otter--royal--lv2.png",
+      "sha256": "d97681e1a07c1a6fe25dd0b5019a6ba2d0bf38c23a3c5a1126329a53ea73b74a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/royal.png",
+      "path": "love-otter--royal--lv3.png",
+      "sha256": "8e4a4f661ab3f99ee3bbdce763fc333aaa92879783c6ce5c7b11558f7c47b1be",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/unique.png",
+      "path": "love-otter--unique--lv2.png",
+      "sha256": "1110755edb624bc0eb8cfa3722d36ba45623f47d4c471f16def7bf1c07277dfc",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "love-otter",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/love-otter/unique.png",
+      "path": "love-otter--unique--lv3.png",
+      "sha256": "6ecd1b5ce564d0e16dc7efbc216c78a0167189ca86cca661f5e396f86168ce8b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "sunshine",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/sunshine.png",
+      "path": "patience-turtle--sunshine--lv2.png",
+      "sha256": "0a3037aa89581a581ba7aec9a08271c0bc6f635ef4c2b7a9403d6454e849cd0a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "sunshine",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/sunshine.png",
+      "path": "patience-turtle--sunshine--lv3.png",
+      "sha256": "0dc8ee12b46d02c2ba3a02bea433fc0f4b51db5f2e8253bced79b9ff30788832",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "scholar",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/scholar.png",
+      "path": "patience-turtle--scholar--lv2.png",
+      "sha256": "5ed9d8796498d50cd39ea03adbcc46e750e82b841290ad472302eaa52f97ff11",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "scholar",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/scholar.png",
+      "path": "patience-turtle--scholar--lv3.png",
+      "sha256": "e03ccc86daf4b8b0885da9c0501e5f28c3f92f778e5d6e6a47b18d925994ef84",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "gardener",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/gardener.png",
+      "path": "patience-turtle--gardener--lv2.png",
+      "sha256": "aadc94fcda965b93361c77d075a3a4278889be410a01d9ae4f748236b8209658",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "gardener",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/gardener.png",
+      "path": "patience-turtle--gardener--lv3.png",
+      "sha256": "71d70c04fb79a6e1cd43e6018f05e897a950c4cd989750246123088200414aea",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "sailor",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/sailor.png",
+      "path": "patience-turtle--sailor--lv2.png",
+      "sha256": "232ecd2476c4ded9e1b024ab6713f90cad6dd9baf6d710b1c4fa2dcf0c6822e9",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "sailor",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/sailor.png",
+      "path": "patience-turtle--sailor--lv3.png",
+      "sha256": "be68337e1a4d5050832024203bf5e1a17f3abdbc273e8e8339aaab19c9716c9f",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "explorer",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/explorer.png",
+      "path": "patience-turtle--explorer--lv2.png",
+      "sha256": "dd3efbe9e79cf89ac03750bb749a44b5d1cd85aa28b5196196a17c3a92e5aa05",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "explorer",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/explorer.png",
+      "path": "patience-turtle--explorer--lv3.png",
+      "sha256": "028717efbef35d1a0e4b725240a9a1166b7262f93d59a713cb1537d545fbcd00",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "festival",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/festival.png",
+      "path": "patience-turtle--festival--lv2.png",
+      "sha256": "e3d3e0a8843357b0b4be56c8d0b5beb5428acdebc41520e5d6c53a1e13399ed8",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "festival",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/festival.png",
+      "path": "patience-turtle--festival--lv3.png",
+      "sha256": "cfb78411c20e8bc2cdc54e9c883042cb751329f01236f87348a6bbd0a804f2c2",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "starlight",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/starlight.png",
+      "path": "patience-turtle--starlight--lv2.png",
+      "sha256": "c99d734107c978fdbf84efd9ddec2a895f48b93f20d79af557ef5cdc1365552b",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "starlight",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/starlight.png",
+      "path": "patience-turtle--starlight--lv3.png",
+      "sha256": "98c53cccd8fb0d1fe881f0fba637487e3b30cd6f973dc3be634afba19e8f766a",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "royal",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/royal.png",
+      "path": "patience-turtle--royal--lv2.png",
+      "sha256": "e6473e17c5a2526ab8bcada0461a511d8c8c43f920b9247783792679adca6820",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "royal",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/royal.png",
+      "path": "patience-turtle--royal--lv3.png",
+      "sha256": "2fc2475e2d71fcb07631c5f3ee530b264f20cbfa1fd0214268fd24d762b264ff",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "unique",
+      "level": 2,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/unique.png",
+      "path": "patience-turtle--unique--lv2.png",
+      "sha256": "fb2ab06a57c56ce036277b32a33348d0e890e3bc9c4d5e295a11d59c01b34b69",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    },
+    {
+      "species": "patience-turtle",
+      "style": "unique",
+      "level": 3,
+      "source": "assets/characters/bible-friends/design-motions/patience-turtle/unique.png",
+      "path": "patience-turtle--unique--lv3.png",
+      "sha256": "6f5c9b11ffdd18738ae902366f3a76a740ad2a87d68c36c2baced271c860d161",
+      "frames": 16,
+      "size": [
+        768,
+        768
+      ]
+    }
+  ]
+}
