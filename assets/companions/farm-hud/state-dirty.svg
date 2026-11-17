@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><defs>
+<linearGradient id="blue" x1="0" y1="0" x2=".2" y2="1"><stop stop-color="#72B9FC"/><stop offset="1" stop-color="#2368D3"/></linearGradient>
+<linearGradient id="teal" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#B8F1E7"/><stop offset="1" stop-color="#46A9AF"/></linearGradient>
+<linearGradient id="gold" x1="0" y1="0" x2="0.9" y2="1"><stop stop-color="#FFF2AA"/><stop offset="1" stop-color="#F4BB55"/></linearGradient>
+<linearGradient id="pink" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#FFC4CF"/><stop offset="1" stop-color="#F38499"/></linearGradient>
+<linearGradient id="cream" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#FFFDF6"/><stop offset="1" stop-color="#F5EBE1"/></linearGradient>
+<linearGradient id="silver" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F0F5F9"/><stop offset="1" stop-color="#BCCADA"/></linearGradient>
+</defs><path d="M22 45 Q9 28 26 25 Q40 16 46 27 Q65 16 68 35 Q86 43 71 55 Q82 72 64 72 Q46 84 36 70 Q15 79 20 58Z" fill="#B78560" stroke="#8E634A" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" /><circle cx="36" cy="47" r="4" fill="#E8C7A6" stroke="none" stroke-width="0"/><circle cx="61" cy="43" r="4" fill="#E8C7A6" stroke="none" stroke-width="0"/><circle cx="53" cy="60" r="5" fill="#B37C53" stroke="none" stroke-width="0"/></svg>
