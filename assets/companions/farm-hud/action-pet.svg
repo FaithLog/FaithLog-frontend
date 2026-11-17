@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><defs>
+<linearGradient id="blue" x1="0" y1="0" x2=".2" y2="1"><stop stop-color="#72B9FC"/><stop offset="1" stop-color="#2368D3"/></linearGradient>
+<linearGradient id="teal" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#B8F1E7"/><stop offset="1" stop-color="#46A9AF"/></linearGradient>
+<linearGradient id="gold" x1="0" y1="0" x2="0.9" y2="1"><stop stop-color="#FFF2AA"/><stop offset="1" stop-color="#F4BB55"/></linearGradient>
+<linearGradient id="pink" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#FFC4CF"/><stop offset="1" stop-color="#F38499"/></linearGradient>
+<linearGradient id="cream" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#FFFDF6"/><stop offset="1" stop-color="#F5EBE1"/></linearGradient>
+<linearGradient id="silver" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F0F5F9"/><stop offset="1" stop-color="#BCCADA"/></linearGradient>
+</defs><path d="M67 35.78 C58.32 28.96 53.36 22.76 57.7 17.18 C61.42 12.84 66.38 15.32 67 19.04 C71.96 12.22 79.4 15.94 79.4 22.76 C79.4 28.34 72.58 32.06 67 35.78Z" fill="url(#pink)" stroke="#B8546D" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" /><path d="M18 57 Q27 49 38 47 Q44 40 55 41 L70 46 Q78 51 74 58 Q70 63 60 63 L51 65 L59 69 Q64 73 61 79 Q56 84 48 79 L38 72 Q28 72 18 77Z" fill="url(#cream)" stroke="#A17C68" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" /><path d="M33 45 Q35 39 43 37 L61 38 Q68 38 69 45" fill="none" stroke="#A17C68" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" /><rect x="11" y="56" width="19" height="23" rx="5" fill="url(#teal)" stroke="#3C8290" stroke-width="2.4"/></svg>

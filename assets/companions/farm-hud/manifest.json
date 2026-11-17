@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "name": "FaithLog Farm HUD",
+  "source": "Fresh vector redraw in FaithLog blue/teal theme; based on previously approved UI direction, not a cropped sprite sheet",
+  "palette": {
+    "primary": "#2368D3",
+    "faith": "#2E7078",
+    "mint": "#92C7CF",
+    "background": "#F7F8FA",
+    "surface": "#FFFFFF",
+    "text": "#191F28"
+  },
+  "logicalSize": [
+    96,
+    96
+  ],
+  "pngSize": [
+    192,
+    192
+  ],
+  "icons": [
+    {
+      "id": "action-feed",
+      "png": "action-feed.png",
+      "svg": "action-feed.svg",
+      "sha256": "d771e0cbe543ff39d1e1b2239ac8e20dcdfd64b711b36f7593cda7fb23b2e908"
+    },
+    {
+      "id": "action-pet",
+      "png": "action-pet.png",
+      "svg": "action-pet.svg",
+      "sha256": "7206d7d83e3ef004a94efe5508923c3c9d9346b02338c0ce2adfb462ec9c913b"
+    },
+    {
+      "id": "action-play",
+      "png": "action-play.png",
+      "svg": "action-play.svg",
+      "sha256": "13edc2700146c7259ad250d730f6e18483320e768a2b8ab1f188c584c928d460"
+    },
+    {
+      "id": "action-clean",
+      "png": "action-clean.png",
+      "svg": "action-clean.svg",
+      "sha256": "a0ec8fd275a40fd6d2926eeeb94012d59300b4d3652073fa4abe14d6f1887a16"
+    },
+    {
+      "id": "action-sleep",
+      "png": "action-sleep.png",
+      "svg": "action-sleep.svg",
+      "sha256": "f6790065280f7873cade389d250648838cacaca1ee6efc5e79fdbe03d8e62e0d"
+    },
+    {
+      "id": "action-evolve",
+      "png": "action-evolve.png",
+      "svg": "action-evolve.svg",
+      "sha256": "3905d144525d4c17217e5028f1ee7cc8837125b8dc7e939583bd0718dbb2734b"
+    },
+    {
+      "id": "status-hunger",
+      "png": "status-hunger.png",
+      "svg": "status-hunger.svg",
+      "sha256": "815848398cec12e3fd9c55e3a29a0c9d9c1f5275e2f88fa250fec668e7507ec0"
+    },
+    {
+      "id": "status-affection",
+      "png": "status-affection.png",
+      "svg": "status-affection.svg",
+      "sha256": "1dadbc4422416f71581a5090f8b60f4ce4f56da64e9b44f1299da79ffd0f7e30"
+    },
+    {
+      "id": "status-cleanliness",
+      "png": "status-cleanliness.png",
+      "svg": "status-cleanliness.svg",
+      "sha256": "708e2842ad1020a9765b659f4bec22a9343b0799c9ecb0b7b7c96a75d0fb4a74"
+    },
+    {
+      "id": "status-health",
+      "png": "status-health.png",
+      "svg": "status-health.svg",
+      "sha256": "a665f7f12007c4279478c2b31ebcd385736f5688157c2216b67deb30074630c3"
+    },
+    {
+      "id": "status-joy",
+      "png": "status-joy.png",
+      "svg": "status-joy.svg",
+      "sha256": "00a93c59be2ff9199adf0c1ec26831db0a734ad873034ae4b0c2b3247281c99a"
+    },
+    {
+      "id": "state-hungry",
+      "png": "state-hungry.png",
+      "svg": "state-hungry.svg",
+      "sha256": "cba8139855c4f86ad14330ee3c97c250e394ded7fd4b98e3788cbeebfb8465ae"
+    },
+    {
+      "id": "state-dirty",
+      "png": "state-dirty.png",
+      "svg": "state-dirty.svg",
+      "sha256": "7033be87e5717286aee094ca612cc9eec2a1ea1b38c2b44bdee559dcbc7c5b28"
+    },
+    {
+      "id": "state-sick",
+      "png": "state-sick.png",
+      "svg": "state-sick.svg",
+      "sha256": "13c01e2ec70b7cf5eb7c80904c70639e0cd7e25287f0f2cbdccbda24c2068256"
+    },
+    {
+      "id": "state-sleepy",
+      "png": "state-sleepy.png",
+      "svg": "state-sleepy.svg",
+      "sha256": "f6790065280f7873cade389d250648838cacaca1ee6efc5e79fdbe03d8e62e0d"
+    },
+    {
+      "id": "state-happy",
+      "png": "state-happy.png",
+      "svg": "state-happy.svg",
+      "sha256": "4b6ee1500973f4bec5cf1d92b6d9ec65a87af7f94f5526bf329438c7f1a32fa5"
+    },
+    {
+      "id": "state-selected",
+      "png": "state-selected.png",
+      "svg": "state-selected.svg",
+      "sha256": "3988ed7fd19595eb3346dc7ce094d00d1c6626f1005eff8a848d00b0743adf94"
+    },
+    {
+      "id": "fx-heart",
+      "png": "fx-heart.png",
+      "svg": "fx-heart.svg",
+      "sha256": "08dff0e275a87640c19d81c948b98995c2314d34f4ff9a540cb3c6fe3cd5147c"
+    },
+    {
+      "id": "fx-sparkles",
+      "png": "fx-sparkles.png",
+      "svg": "fx-sparkles.svg",
+      "sha256": "e98ec01c19e57746dd92109219c9ce3091938faf30247f031e777a6efb587e03"
+    },
+    {
+      "id": "fx-clean",
+      "png": "fx-clean.png",
+      "svg": "fx-clean.svg",
+      "sha256": "6d3d6bc8a6ee9ec745a9618986506d581bd93eb73571fd38e6d9a5e637b4d19f"
+    },
+    {
+      "id": "fx-evolve",
+      "png": "fx-evolve.png",
+      "svg": "fx-evolve.svg",
+      "sha256": "7676dd7b282301e47252c8454e27efd587541f0b23de196a1492a692a48ef981"
+    },
+    {
+      "id": "badge-lv1",
+      "png": "badge-lv1.png",
+      "svg": "badge-lv1.svg",
+      "sha256": "923f555509a7965ec46a8bba24796c36a175fdd191f39fb5d8526710c06e3c6a"
+    },
+    {
+      "id": "badge-lv2",
+      "png": "badge-lv2.png",
+      "svg": "badge-lv2.svg",
+      "sha256": "c066250abba7ff7873c45626b3d672b1dd0d3f541e5ce3b12f1992216eea2101"
+    },
+    {
+      "id": "badge-lv3",
+      "png": "badge-lv3.png",
+      "svg": "badge-lv3.svg",
+      "sha256": "032a0a2380fd4894de8ef53eb822c0c861072ab787c126bc2fae81cfcf2642cb"
+    }
+  ]
+}
