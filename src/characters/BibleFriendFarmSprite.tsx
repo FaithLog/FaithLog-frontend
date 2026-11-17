@@ -6,6 +6,7 @@ import { BibleFriendDesignSprite } from './BibleFriendDesignSprite';
 import type { BibleFriendDesignSpriteProps } from './BibleFriendDesignSprite';
 import { BIBLE_FRIEND_DESIGN_CATALOG } from './bibleFriendDesignCatalog';
 import { ProductionEvolvedSprite } from './ProductionEvolvedSprite';
+import { EvolvedCareActionSprite } from './EvolvedCareActionSprite';
 import { FARM_ACTION_XML, FARM_EVOLUTION_XML } from './farmVisualAssetCatalog';
 import type { FarmVisualAction } from './farmMotionTimeline';
 import { getFarmActionFrameIndex } from './farmMotionTimeline';
@@ -35,34 +36,34 @@ export function BibleFriendFarmSprite({
   const actionXml: string | undefined = frames?.[frameIndex];
 
   if (isEvolvedBase) {
-    const motion = getHighFidelityFarmMotion(farmAction, friendProps.motion);
+    // Dedicated character PNG frame atlases include action props and effects,
+    // so DO NOT draw the previous generic SVG overlay a second time.
+    const careAction = farmAction ?? (friendProps.motion === 'land' ? 'wake' : undefined);
     const elapsedMs = farmAction ? farmActionElapsedMs : (friendProps.elapsedMs ?? 0);
-    const sleeping = farmAction === 'sleep' || farmAction === 'faint';
 
     return (
       <View style={{ width: size, height: size }}>
-        <View style={{
-          width: size, height: size,
-          transform: sleeping
-            ? [{ translateY: size * 0.05 },
-               { rotate: farmAction === 'faint' ? '18deg' : '8deg' },
-               { scaleY: 0.92 }]
-            : [],
-        }}>
-          <ProductionEvolvedSprite
+        {careAction ? (
+          <EvolvedCareActionSprite
             speciesId={design.friendId}
             stage={evolutionStage as 1 | 2}
-            motion={motion}
+            action={careAction}
             elapsedMs={elapsedMs}
             reduceMotion={reduceMotion}
             size={size}
             accessibilityLabel={friendProps.accessibilityLabel ?? design.name}
           />
-        </View>
-        {actionXml ? (
-          <SvgXml xml={actionXml} width={size} height={size} pointerEvents="none"
-            style={{ position: 'absolute', left: 0, top: 0 }} />
-        ) : null}
+        ) : (
+          <ProductionEvolvedSprite
+            speciesId={design.friendId}
+            stage={evolutionStage as 1 | 2}
+            motion={getHighFidelityFarmMotion(undefined, friendProps.motion)}
+            elapsedMs={reduceMotion ? 0 : elapsedMs}
+            reduceMotion={reduceMotion}
+            size={size}
+            accessibilityLabel={friendProps.accessibilityLabel ?? design.name}
+          />
+        )}
       </View>
     );
   }
