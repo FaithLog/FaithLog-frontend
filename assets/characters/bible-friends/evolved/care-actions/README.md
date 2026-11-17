@@ -42,3 +42,11 @@ python3 tools/generate_faithlog_care_atlases.py --root .
 ```
 
 생성 후 이미지 검증은 `.github/workflows/generate-evolved-care-assets.yml`에서 수행됩니다.
+
+## 출시 전 실기기 검수 항목
+
+- 홈/동물농장 화면에서 실제 상태 변경으로 새 행동 PNG가 호출되는지 확인
+- iOS/Android 작은 화면에서 발·뿔·소품이 잘리지 않는지 확인
+- 동시에 5마리를 렌더링할 때 메모리 사용량과 프레임 드롭 측정
+- 종별 눈 감는 오버페인트 위치를 시각 검수하고 필요하면 직접 보정
+- 현재 11종 행동은 PNG로 생성됐지만 서버 먹이/배변/진화 조건 연결은 별도임
