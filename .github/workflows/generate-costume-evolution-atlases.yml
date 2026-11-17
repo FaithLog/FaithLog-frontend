@@ -1,0 +1,60 @@
+name: Generate FaithLog costume evolution PNG atlases
+
+on:
+  push:
+    branches:
+      - feat/344-costume-evolution-atlases
+    paths:
+      - tools/generate_faithlog_costume_evolution.py
+      - .github/workflows/generate-costume-evolution-atlases.yml
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: true
+      - name: Install Pillow
+        run: |
+          python3 -m venv /tmp/faithlog-costume-venv
+          /tmp/faithlog-costume-venv/bin/pip install --disable-pip-version-check 'Pillow>=11,<13'
+      - name: Render 13 x 9 x 2 costume-stage PNG atlases
+        run: /tmp/faithlog-costume-venv/bin/python tools/generate_faithlog_costume_evolution.py --root .
+      - name: Validate 234 transparent PNG atlases / 3744 frames
+        run: |
+          /tmp/faithlog-costume-venv/bin/python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          from PIL import Image,ImageChops
+          root=Path('assets/characters/bible-friends/evolved/costume-stages')
+          manifest=json.loads((root/'manifest.json').read_text())
+          assert manifest['count'] == 234
+          assert len(manifest['entries']) == 234
+          assert len({e['sha256'] for e in manifest['entries']}) == 234
+          for e in manifest['entries']:
+              file=root/e['path']
+              img=Image.open(file).convert('RGBA')
+              assert img.size == (768,768),file
+              assert img.getchannel('A').getextrema()[0] == 0,file
+              assert hashlib.sha256(file.read_bytes()).hexdigest() == e['sha256'],file
+              for slot in range(16):
+                  box=((slot%4)*192,(slot//4)*192,(slot%4+1)*192,(slot//4+1)*192)
+                  assert img.crop(box).getchannel('A').getbbox(),(file,slot)
+              source=Image.open(e['source']).convert('RGBA')
+              assert ImageChops.difference(img,source).getbbox(),file
+          assert (root/'contact-sheet.jpg').stat().st_size > 5000
+          print('Verified 234 real PNG atlases with 3744 non-empty animation frames')
+          PY
+      - name: Commit generated binary image files on feature branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/characters/bible-friends/evolved/costume-stages/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore: #344 generate 234 costume evolution PNG atlases [skip ci]'
+          git push origin HEAD:$GITHUB_REF_NAME

@@ -7,6 +7,9 @@ import type { BibleFriendDesignSpriteProps } from './BibleFriendDesignSprite';
 import { BIBLE_FRIEND_DESIGN_CATALOG } from './bibleFriendDesignCatalog';
 import { ProductionEvolvedSprite } from './ProductionEvolvedSprite';
 import { EvolvedCareActionSprite } from './EvolvedCareActionSprite';
+import { CostumeEvolvedSprite } from './CostumeEvolvedSprite';
+import type { CostumeEvolutionStyle } from './costumeEvolutionMetadata';
+import type { BibleFriendId } from './bibleFriends';
 import { FARM_ACTION_XML, FARM_EVOLUTION_XML } from './farmVisualAssetCatalog';
 import type { FarmVisualAction } from './farmMotionTimeline';
 import { getFarmActionFrameIndex } from './farmMotionTimeline';
@@ -68,7 +71,32 @@ export function BibleFriendFarmSprite({
     );
   }
 
-  // No changes to original Lv1, 117 collectible costumes, silhouettes or Jesus.
+  // Keep gacha IDs and costume ownership unchanged. Use generated evolution
+  // atlases for the original nine costume variants only when actually evolved.
+  const isEvolvedCostume = !!stageKey && design.styleId !== 'base' &&
+    design.friendId !== 'jesus' && !friendProps.silhouette;
+  if (isEvolvedCostume) {
+    const motion = getHighFidelityFarmMotion(farmAction, friendProps.motion);
+    const elapsedMs = farmAction ? farmActionElapsedMs : (friendProps.elapsedMs ?? 0);
+    return (
+      <View style={{width:size,height:size}}>
+        <CostumeEvolvedSprite
+          speciesId={design.friendId as BibleFriendId}
+          styleId={design.styleId as CostumeEvolutionStyle}
+          stage={evolutionStage as 1 | 2}
+          motion={motion} elapsedMs={elapsedMs}
+          reduceMotion={reduceMotion} size={size}
+          accessibilityLabel={friendProps.accessibilityLabel ?? design.name}
+        />
+        {actionXml ? (
+          <SvgXml xml={actionXml} width={size} height={size}
+            pointerEvents="none" style={{position:'absolute',left:0,top:0}} />
+        ) : null}
+      </View>
+    );
+  }
+
+  // Lv1, Jesus Miracle and unowned silhouettes keep original presentation.
   const stageXml = design.friendId === 'jesus' || !stageKey || friendProps.silhouette
     ? undefined : FARM_EVOLUTION_XML[design.friendId][stageKey];
 
