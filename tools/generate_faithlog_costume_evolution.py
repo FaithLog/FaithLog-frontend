@@ -123,7 +123,10 @@ def main():
             for level in LEVELS:
                 atlas=render_atlas(original,level,species)
                 destfile=dest/(species+'--'+style+'--lv'+str(level)+'.png')
-                atlas.save(destfile,optimize=False,compress_level=1)
+                # Indexed-color alpha PNG keeps the mobile install package compact.
+                packed=atlas.quantize(colors=255,method=Image.Quantize.FASTOCTREE,
+                                      dither=Image.Dither.NONE)
+                packed.save(destfile,optimize=False,compress_level=3)
                 sha=hashlib.sha256(destfile.read_bytes()).hexdigest()
                 if sha in hashes: raise RuntimeError('Identical output image: '+str(destfile))
                 hashes.add(sha)
