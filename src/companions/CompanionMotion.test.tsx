@@ -249,11 +249,15 @@ it('shows a mess only for a server-confirmed low-cleanliness animal and removes 
   const cleaning=tree!.root.findAllByType('Pressable' as React.ElementType)
     .find(node=>String(node.props.accessibilityLabel??'').includes('주변 청소하기'));
   expect(cleaning).toBeDefined();
+  expect(tree!.root.findAllByType('View' as React.ElementType)
+    .filter(node=>node.props.testID==='companion-attention-banner')).toHaveLength(1);
   await act(async()=>cleaning!.props.onPress());
   expect(api.careInstance).toHaveBeenCalledWith(id,'CLEAN',0,expect.stringMatching(/^pet-care-/));
   expect(tree!.root.findAllByType('Pressable' as React.ElementType)
     .some(node=>String(node.props.accessibilityLabel??'').includes('주변 청소하기'))).toBe(false);
   expect(api.instances).toHaveBeenCalledTimes(1);
+  expect(tree!.root.findAllByType('View' as React.ElementType)
+    .filter(node=>node.props.testID==='companion-attention-banner')).toHaveLength(0);
 });
 
 it('does not show fabricated care stats when the backend has no instance API',async()=>{
