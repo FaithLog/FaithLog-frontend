@@ -74,6 +74,8 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
  const [careError,setCareError] = useState('');
  const instanceBusy = useRef(false);
+ const lastSuccessfulRefreshAt = useRef(0);
+ const FOREGROUND_MIN_REFRESH_MS = 30_000;
  const refreshInstances = useCallback(async() => {
   if (!api.instances) return;
   try {
@@ -101,7 +103,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   }
   current.current=next;setState(next);
  },[]);
- const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{apply(await api.load());await refreshInstances();if(alive.current)setError('');}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,refreshInstances]);
+ const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{apply(await api.load());await refreshInstances();if(alive.current){lastSuccessfulRefreshAt.current=Date.now();setError('');}}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,refreshInstances]);
  const flushGarden = useCallback(async function saveGarden(): Promise<void> {
   if (gardenTimer.current) clearTimeout(gardenTimer.current);
   gardenTimer.current = null;
@@ -145,8 +147,12 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   alive.current = true;
   void refresh();
   const sub = AppState.addEventListener('change',value => {
-    if (value === 'active') void refresh();
-    else void flushGarden();
+    if (value === 'active') {
+      // Short app switches/notification overlays must not trigger a dozen
+      // wallet, catalog, mission and garden requests in quick succession.
+      // Explicit user refresh still runs immediately, even within 30 seconds.
+      if(Date.now()-lastSuccessfulRefreshAt.current >= FOREGROUND_MIN_REFRESH_MS) void refresh();
+    } else void flushGarden();
   });
   return () => {
     if (gardenTimer.current) clearTimeout(gardenTimer.current);

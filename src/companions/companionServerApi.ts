@@ -43,7 +43,8 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   },
   draw:count=>{if(!pool)throw new Error('뽑기 정보를 새로 확인해주세요.');return mutate('draws',{poolVersion:pool.poolVersion,count});},
   sell:(designId,quantity)=>mutate('sales',{designId,quantity}),
-  instances:()=>request('/api/v1/companions/me/instances',v=>array(v).map(parseCompanionInstance)),
+  // Home renders at most five animals; never fetch the owner's full duplicate inventory.
+  instances:()=>request('/api/v1/companions/me/instances/garden',v=>array(v).map(parseCompanionInstance)),
   careInstance:(id,action,expectedVersion,key)=>request(
    `/api/v1/companions/me/instances/${encodeURIComponent(id)}/care`,
    parseCompanionInstance,'POST',{action,expectedVersion},key),
