@@ -1,6 +1,6 @@
 import {GardenBackground} from './GardenBackground';
-import {useEffect, useRef, useState} from 'react';
-import {Alert, StyleSheet, Text, View} from 'react-native';
+import {Fragment, useEffect, useRef, useState} from 'react';
+import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
 import {FarmCareButton,FarmHudGauge,FarmHudIcon} from './FarmHudAssets';
 import type {CompanionCareAction} from './companionServerContract';
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
@@ -10,6 +10,7 @@ import {companionGardenSlots, type CompanionPage} from './companionModel';
 import {useCompanions} from './CompanionProvider';
 import {GardenAnimal} from './GardenAnimal';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
+import {FarmMessMarker} from './FarmMessMarker';
 import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 
@@ -89,7 +90,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';
         const animal=instances?.find(item=>slot.instanceId
           ? item.instanceId===slot.instanceId:item.designId===id);
-        return <GardenAnimal key={key} {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
+        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
           evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
@@ -99,7 +100,21 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
               update(key,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
-          onReact={() => {setSelectedKey(key);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />;
+          onReact={() => {setSelectedKey(key);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
+        {animal && animal.stats.cleanliness<35 && <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${name} 주변 청소하기`}
+          accessibilityHint="청소가 필요한 흔적을 치웁니다. 청소 쿨타임이 적용돼요."
+          disabled={busy||!careInstance||!!error}
+          onPress={()=>{setSelectedKey(key);void careInstance?.(animal.instanceId,'CLEAN');}}
+          style={[styles.messSpot,{
+            left:Math.max(0,Math.min(bounds.width-40,agent.position.x+24)),
+            top:Math.max(0,Math.min(bounds.height-40,agent.position.y+65)),
+            zIndex:1001,
+          }]}>
+          <FarmMessMarker/>
+        </Pressable>}
+        </Fragment>;
       })}
       {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
@@ -196,6 +211,7 @@ const styles = StyleSheet.create({
   xpFill:{height:8,borderRadius:8,backgroundColor:colors.primary},
   careActions:{flexDirection:'row',flexWrap:'wrap',gap:6},
   growthDetails:{borderColor:colors.borderSoft,borderWidth:1,borderRadius:12,padding:10,gap:8},
+  messSpot:{position:'absolute',width:40,height:40,alignItems:'center',justifyContent:'center'},
   previewRow:{flexDirection:'row',alignItems:'center',gap:8},
   requirementRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8},
   warning:{...typography.caption,color:colors.danger},
