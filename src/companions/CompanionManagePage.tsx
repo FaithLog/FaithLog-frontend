@@ -5,7 +5,8 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {Pressable, ScrollView, Text, View} from 'react-native';
 import {BibleFriendDesignSprite} from '../characters/BibleFriendDesignSprite';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
-import type {CompanionInstance} from './companionServerContract';
+import type {CompanionInstance,CompanionSaleAvailability} from './companionServerContract';
+import {FaithLogApiError} from '../api/apiError';
 import {BIBLE_FRIEND_DESIGN_CATALOG, BIBLE_FRIEND_DESIGN_SPECIES, BIBLE_FRIEND_RARITIES, type BibleFriendRarity, type BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
 import {Button, Chip, DangerConfirmSheet, TextField} from '../components/ui';
 import {companionGardenSlots, DEMO_SELL_PRICES, getSellQuote, MAX_GARDEN_FRIENDS, RARITY_LABELS} from './companionModel';
@@ -31,7 +32,7 @@ function CompanionCardName({name, compact = false}: {name: string; compact?: boo
 }
 
 export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetails?: () => void}) {
-  const {state, dispatch, nextTransactionId,server,error,serverSnapshot,perform,instancesByDesign} = useCompanions();
+  const {state, dispatch, nextTransactionId,server,error,serverSnapshot,perform,instancesByDesign,saleAvailability} = useCompanions();
   const [page, setPage] = useState(0);
   const [section, setSection] = useState<'friends' | 'backgrounds'>('friends');
   const [filter, setFilter] = useState<'owned' | 'duplicates' | 'all' | 'unequipped'>('owned');
@@ -48,14 +49,21 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
   const [ownedInstances,setOwnedInstances]=useState<CompanionInstance[] | null>(null);
   const [instanceLoading,setInstanceLoading]=useState(false);
   const [instanceError,setInstanceError]=useState('');
+  const [instanceUnsupported,setInstanceUnsupported]=useState(false);
   useEffect(()=>{
     let cancelled=false;
-    setOwnedInstances(null);setInstanceError('');
+    setOwnedInstances(null);setInstanceError('');setInstanceUnsupported(false);
     if(!selected || !server || !instancesByDesign) return;
     setInstanceLoading(true);
     void instancesByDesign(selected,instancePage)
       .then(result=>{if(!cancelled){setOwnedInstances(result);setInstanceError('');}})
-      .catch(()=>{if(!cancelled){setOwnedInstances(null);setInstanceError('개별 동물 정보를 불러오지 못했어요.');}})
+      .catch(e=>{if(!cancelled){
+        setOwnedInstances(null);
+        if(e instanceof FaithLogApiError&&e.detail.status===404){
+          setInstanceUnsupported(true);
+          setInstanceError('현재 서버는 개체별 배치를 지원하지 않아요. 기본 배치만 이용할 수 있어요.');
+        }else setInstanceError('개별 동물 정보를 불러오지 못했어요.');
+      }})
       .finally(()=>{if(!cancelled)setInstanceLoading(false);});
     return()=>{cancelled=true;};
   },[selected,instancePage,server,instancesByDesign]);
@@ -63,7 +71,38 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
   const saleLock = useRef(false);
   const design = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === selected);
   const count = selected ? state.inventory[selected] ?? 0 : 0;
-  const quote = selected ? getSellQuote(state, selected, quantity, serverSnapshot?.prices ?? DEMO_SELL_PRICES) : null;
+  const [saleInfo,setSaleInfo]=useState<CompanionSaleAvailability|null>(null);
+  const [saleLoading,setSaleLoading]=useState(false);
+  const [saleError,setSaleError]=useState('');
+  useEffect(()=>{
+    let active=true;
+    setSaleInfo(null);setSaleError('');
+    if(!selected||!server)return;
+    if(!saleAvailability){
+      setSaleError('현재 서버에서는 안전한 판매 수량을 확인할 수 없어요.');
+      return;
+    }
+    setSaleLoading(true);
+    void saleAvailability(selected)
+      .then(result=>{if(active){
+        if(result.ownedQuantity!==count){
+          setSaleError('보유 수량이 변경됐어요. 다시 확인해주세요.');
+          setSaleInfo(null);
+        }else setSaleInfo(result);
+      }})
+      .catch(e=>{if(active){
+        setSaleInfo(null);
+        setSaleError(e instanceof FaithLogApiError&&e.detail.status===404
+          ? '서버 업데이트 후에 동물 판매를 이용할 수 있어요.'
+          : '판매 가능 수량을 확인하지 못했어요. 새로 확인해주세요.');
+      }})
+      .finally(()=>{if(active)setSaleLoading(false);});
+    return()=>{active=false;};
+  },[selected,count,server,saleAvailability,serverSnapshot?.garden.version]);
+  const maxSellable=server?(saleInfo?.ownedQuantity===count?saleInfo.sellableQuantity:0):Math.max(0,count-1);
+  const quoteCandidate=selected?getSellQuote(state,selected,quantity,serverSnapshot?.prices??DEMO_SELL_PRICES):null;
+  const quote=quoteCandidate&&quantity<=maxSellable&&!saleLoading&&!saleError?quoteCandidate:null;
+  const canSelectIndividual=Boolean(server&&instancesByDesign&&!instanceUnsupported);
   const ownedCount = Object.values(state.inventory).filter(n => n && n > 0).length;
   const duplicateCount = Object.values(state.inventory).reduce<number>((sum, n) => sum + Math.max(0, (n ?? 0) - 1), 0);
   const entries = useMemo(() => {
@@ -124,12 +163,12 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     {design ? <View style={s.card}>
       <View style={s.between}><Text style={s.name}>친구 상세</Text><Button size="compact" accessibilityLabel="선택한 동물 상세 닫기" variant="ghost" onPress={() => setSelected(null)}>닫기</Button></View>
       <View style={[s.row, {flexWrap:'nowrap'}]}><BibleFriendDesignSprite designId={design.id} silhouette={count < 1} motion="happy" size={88} /><View style={{flex:1,gap:8}}><Text style={s.title}>{design.name}</Text><Text style={s.body}>{RARITY_LABELS[design.rarity]} · {count}마리 보유</Text></View></View>
-      {(!server || !instancesByDesign) ? <Button fullWidth accessibilityLabel={state.equipped.includes(design.id) ? '정원에서 빼기' : '정원에 배치하기'}
+      {!canSelectIndividual ? <Button fullWidth accessibilityLabel={state.equipped.includes(design.id) ? '정원에서 빼기' : '정원에 배치하기'}
         disabled={count < 1}
         onPress={() => {if (!state.equipped.includes(design.id) && state.equipped.length >= MAX_GARDEN_FRIENDS) setReplacementId(design.id); else dispatch({type:'equip',designId:design.id});}}>
         {state.equipped.includes(design.id) ? '정원에서 빼기' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '배치한 친구와 교체하기' : '정원에 배치하기'}
       </Button> : null}
-      {server&&instancesByDesign ? <View style={s.stack}>
+      {canSelectIndividual ? <View style={s.stack}>
         <Text style={s.name}>개체별 성장과 배치</Text>
         <Text style={s.caption}>같은 디자인도 서로 다른 동물로 키울 수 있어요. 배치는 5마리까지 가능해요.</Text>
         {instanceLoading?<Text style={s.caption}>개체 목록을 확인하고 있어요.</Text>:null}
@@ -161,10 +200,14 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
           <Button size="compact" variant="secondary" accessibilityLabel="개체 목록 다음 페이지" disabled={ownedInstances.length<20||instanceLoading} onPress={()=>setInstancePage(p=>p+1)}>다음</Button>
         </View>:null}
       </View>:null}
-      <Text style={s.name}>중복 친구 정리</Text><Text style={s.caption}>마지막 한 마리는 남겨두고 판매해요.</Text>
+      <Text style={s.name}>중복 친구 정리</Text>
+      <Text style={s.caption}>마지막 한 마리를 남기고, 성장했거나 정원에 배치된 동물은 판매하지 않아요.</Text>
+      {server?<Text style={s.caption}>
+        {saleLoading?'판매 가능 수량 확인 중…':saleError||`실제 판매 가능 ${maxSellable}마리 · 보유 ${count}마리`}
+      </Text>:null}
       <Text style={s.caption}>{server ? '판매가' : '체험 판매가'} · {RARITY_LABELS[design.rarity]} 1마리 {(serverSnapshot?.prices ?? DEMO_SELL_PRICES)[design.rarity]}P</Text>
-      {count > 1 ? <View style={s.row}><View style={[s.between, {flexGrow:1}]}><Button accessibilityLabel="판매 수량 줄이기" disabled={quantity <= 1} onPress={() => setQuantity(n => n - 1)} variant="secondary">−</Button><Text style={s.name}>{quantity}마리</Text><Button accessibilityLabel="판매 수량 늘리기" disabled={quantity >= count - 1} onPress={() => setQuantity(n => n + 1)} variant="secondary">+</Button></View><Button size="compact" variant="ghost" accessibilityLabel="판매 가능한 중복 모두 선택" disabled={count <= 1} onPress={() => setQuantity(count - 1)}>최대</Button></View> : null}
-      <Button fullWidth accessibilityLabel="중복 동물 판매 확인" variant="secondary" disabled={!quote} onPress={() => {saleLock.current = false; setConfirming(true);}}>{quote ? `${quantity}마리 판매 · ${quote.points}P` : '판매할 중복이 없어요'}</Button>
+      {count > 1 ? <View style={s.row}><View style={[s.between, {flexGrow:1}]}><Button accessibilityLabel="판매 수량 줄이기" disabled={quantity <= 1||!!saleLoading} onPress={() => setQuantity(n => n - 1)} variant="secondary">−</Button><Text style={s.name}>{quantity}마리</Text><Button accessibilityLabel="판매 수량 늘리기" disabled={quantity >= maxSellable||!!saleError||saleLoading} onPress={() => setQuantity(n => n + 1)} variant="secondary">+</Button></View><Button size="compact" variant="ghost" accessibilityLabel="판매 가능한 중복 모두 선택" disabled={maxSellable<1||!!saleError||saleLoading} onPress={() => setQuantity(maxSellable)}>최대</Button></View> : null}
+      <Button fullWidth accessibilityLabel="중복 동물 판매 확인" variant="secondary" disabled={!quote} onPress={() => {saleLock.current = false; setConfirming(true);}}>{quote ? `${quantity}마리 판매 · ${quote.points}P` : server&&saleLoading?'판매 가능 수량 확인 중…':'판매할 수 있는 중복 동물이 없어요'}</Button>
     </View> : null}
     <View style={s.tabBar}>{([['owned', '보유'], ['duplicates', '중복'], ['unequipped', '미배치'], ['all', '도감']] as const).map(([key, text]) => <View key={key} style={s.tab}><Button fullWidth accessibilityLabel={`${key === 'all' ? '전체 도감' : text} 보기`} onPress={() => {setFilter(key); setPage(0); setSelected(null); setConfirming(false);}} variant={key === filter ? 'primary' : 'secondary'} size="compact">{text}</Button></View>)}</View>
     <TextField label="친구 찾기" accessibilityLabel="동물 이름 또는 의상 검색" placeholder="예: 토끼, 별빛, 유니크" value={query} onChangeText={value => {setQuery(value); setPage(0);}} />
