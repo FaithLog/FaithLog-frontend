@@ -322,10 +322,10 @@ it('separates two same-design pets by UUID for movement, care and evolution HUD'
   expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(5);
   const label=tree!.root.findAllByType('Text' as React.ElementType)
     .map(n=>n.props.children).flat().filter(Boolean).map(String).join(' ');
-  expect(label).toContain('1,000 XP');
+  expect(label).toMatch(/1,000\s+XP/);
   await act(async()=>touches[0]?.props.onPress());
   const updatedLabel=tree!.root.findAllByType('Text' as React.ElementType)
     .map(n=>n.props.children).flat().filter(Boolean).map(String).join(' ');
-  expect(updatedLabel).toContain('100 XP');
+  expect(updatedLabel).toMatch(/100\s+XP/);
   expect(api.garden).not.toHaveBeenCalled();
 });
