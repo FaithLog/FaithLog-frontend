@@ -3,10 +3,10 @@ import {useEffect, useRef, useState} from 'react';
 import {Alert, StyleSheet, Text, View} from 'react-native';
 import {FarmCareButton,FarmHudGauge,FarmHudIcon} from './FarmHudAssets';
 import type {CompanionCareAction} from './companionServerContract';
-import {BIBLE_FRIEND_DESIGN_CATALOG, type BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
+import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
 import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
-import {type CompanionPage} from './companionModel';
+import {companionGardenSlots, type CompanionPage} from './companionModel';
 import {useCompanions} from './CompanionProvider';
 import {GardenAnimal} from './GardenAnimal';
 import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
@@ -14,17 +14,22 @@ import {useCompanionMotion} from './useCompanionMotion';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
   const {state,server,busy,error,refresh:reloadServer,instances,careError,careInstance,evolveInstance} = useCompanions();
-  const [selectedDesign,setSelectedDesign] = useState<BibleFriendDesignId|null>(null);
-  const selected = selectedDesign&&state.equipped.includes(selectedDesign)
-    ? instances?.find(item=>item.designId===selectedDesign):null;
-  const activeDesign = selectedDesign ? BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===selectedDesign) : null;
+  const slots=companionGardenSlots(state);
+  const [selectedKey,setSelectedKey] = useState<string|null>(null);
+  const selectedSlot=slots.find(p=>(p.instanceId??p.designId)===selectedKey);
+  const selected=selectedSlot
+    ? instances?.find(item=>selectedSlot.instanceId
+      ? item.instanceId===selectedSlot.instanceId : item.designId===selectedSlot.designId)
+    : null;
+  const activeDesign=selectedSlot
+    ? BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===selectedSlot.designId):null;
   const xpFloor=selected?.level===3?1000:selected?.level===2?300:0;
   const nextTarget=selected?.nextEvolution?.threshold?.growthXp ?? xpFloor;
   const xpPct=nextTarget>xpFloor?Math.max(0,Math.min(100,((selected?.growthXp??0)-xpFloor)/(nextTarget-xpFloor)*100)):100;
   const conditionText:Record<string,string>={EXPERIENCE:'경험치',CARE_DAYS:'돌봄 날짜',HEALTH:'건강',SATIETY:'배부름',CLEANLINESS:'청결도',MAX_LEVEL:'최종 진화'};
   const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
   const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
-  const agents = useRef(new Map<BibleFriendDesignId,GardenAgent>());
+  const agents = useRef(new Map<string,GardenAgent>());
   const previous = useRef(elapsed);
   const dragCallback = useRef(onDragStateChange); dragCallback.current = onDragStateChange;
   const [, repaint] = useState(0);
@@ -32,19 +37,21 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
   const refresh = () => repaint(value => value + 1);
   useEffect(() => () => {dragCallback.current?.(false);}, []);
   const delta = elapsed - previous.current; previous.current = elapsed;
-  for (const id of [...agents.current.keys()]) if (!state.equipped.includes(id)) agents.current.delete(id);
-  for (const id of state.equipped) {
-    if (!agents.current.has(id)) {
-      const saved = state.gardenPositions[id];
-      const position = saved ? restoreGardenPoint(saved,bounds) : chooseGardenTarget(bounds,[...agents.current.values()].map(a=>a.position));
-      agents.current.set(id,createGardenAgent(position,elapsed,bounds));
+  const keys=new Set(slots.map(p=>p.instanceId??p.designId));
+  for (const key of [...agents.current.keys()]) if (!keys.has(key)) agents.current.delete(key);
+  for (const slot of slots) {
+    const key=slot.instanceId??slot.designId;
+    if (!agents.current.has(key)) {
+      const saved={x:slot.x,y:slot.y};
+      const position=restoreGardenPoint(saved,bounds);
+      agents.current.set(key,createGardenAgent(position,elapsed,bounds));
     }
   }
   if (!reduceMotion && delta > 0) {
     const snapshot = [...agents.current.entries()];
     for (const [id,agent] of snapshot) agents.current.set(id,advanceGardenAgent(agent,elapsed,delta,bounds,snapshot.filter(([other])=>other!==id).map(([,a])=>a.position)));
   }
-  const update = (id: BibleFriendDesignId, next: (agent: GardenAgent) => GardenAgent) => {
+  const update = (id: string, next: (agent: GardenAgent) => GardenAgent) => {
     const current = agents.current.get(id); if (!current) return;
     agents.current.set(id,next(current)); refresh();
   };
@@ -65,23 +72,26 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
       <GardenBackground id={state.backgroundId} />
-      {state.equipped.map(id => {
-        const agent = agents.current.get(id)!;
+      {slots.map(slot => {
+        const id=slot.designId;
+        const key=slot.instanceId??id;
+        const agent=agents.current.get(key)!;
         const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';
-        const animal=instances?.find(item=>item.designId===id);
-        return <GardenAnimal key={id} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
-          evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedDesign===id && !!selected}
-          onGrab={() => {dragCallback.current?.(true);update(id,a=>({...a,motion:'held',motionSince:elapsed}));}}
-          onMove={(point:GardenPoint) => update(id,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
+        const animal=instances?.find(item=>slot.instanceId
+          ? item.instanceId===slot.instanceId:item.designId===id);
+        return <GardenAnimal key={key} instanceId={slot.instanceId??undefined} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
+          evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
+          onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
+          onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
           onRelease={dragged => {
             dragCallback.current?.(false);
             if (dragged) {
-              update(id,a=>releaseGardenAgent(a,elapsed,reduceMotion));
-            } else update(id,a=>reactGardenAgent(a,elapsed,reduceMotion));
+              update(key,a=>releaseGardenAgent(a,elapsed,reduceMotion));
+            } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
-          onReact={() => {setSelectedDesign(id);update(id,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />;
+          onReact={() => {setSelectedKey(key);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />;
       })}
-      {state.equipped.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
+      {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
     {selected && <View style={styles.careCard} testID="selected-companion-care-panel">
       <View style={styles.careTitle}>
@@ -90,7 +100,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           <Text style={styles.careName}>{activeDesign?.name ?? '나의 동물'} · Lv.{selected.level}</Text>
           <Text style={styles.helper}>내 동물의 상태 · 누적 {selected.totalEarnedXp.toLocaleString()} XP</Text>
         </View>
-        <Button variant="ghost" size="compact" accessibilityLabel="동물 돌봄 패널 닫기" onPress={()=>setSelectedDesign(null)}>닫기</Button>
+        <Button variant="ghost" size="compact" accessibilityLabel="동물 돌봄 패널 닫기" onPress={()=>setSelectedKey(null)}>닫기</Button>
       </View>
       <View style={styles.meters}>
         <View style={styles.meter}><FarmHudGauge kind="hunger" label="배부름" value={selected.stats.satiety}/></View>

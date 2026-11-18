@@ -7,7 +7,7 @@ import {DRAG_THRESHOLD, GARDEN_ANIMAL_SIZE, type GardenAgent, type GardenPoint} 
 
 type Props = {
   designId: BibleFriendDesignId; name: string; agent: GardenAgent; elapsed: number; reduceMotion: boolean;
-  evolutionStage?: 0|1|2; selected?: boolean;
+  evolutionStage?: 0|1|2; selected?: boolean; instanceId?:string;
   onGrab: () => void; onMove: (point: GardenPoint) => void;
   onRelease: (dragged: boolean) => void; onReact: () => void;
 };
@@ -44,7 +44,7 @@ export function GardenAnimal(props: Props) {
   const lifted = agent.motion === 'held';
   return <View {...responder.panHandlers}
     style={[styles.animal, {left:agent.position.x,top:agent.position.y,zIndex:lifted ? 1000 : Math.round(agent.position.y)}, Platform.OS === 'web' ? styles.webTouch : null,selected ? styles.selected : null]}
-    testID={`garden-animal-${designId}`}>
+    testID={`garden-animal-${props.instanceId??designId}`}>
     <Pressable
     accessibilityRole="button" accessibilityLabel={`${name} 인사하기`}
     accessibilityHint="누르면 인사하고, 끌어서 위치를 옮길 수 있어요. 접근성 동작으로도 이동할 수 있어요."
