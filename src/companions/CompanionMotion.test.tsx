@@ -227,6 +227,35 @@ it('shows only server-backed care gauges and sends the chosen instance version',
     .toBe(response.stats.satiety);
 });
 
+it('shows a mess only for a server-confirmed low-cleanliness animal and removes it after CLEAN',async()=>{
+  const data=snapshot();
+  const id='12345678-1234-1234-1234-123456789abc';
+  data.garden.placements=[{slot:1,designId:'david-lamb:base',x:.2,y:.2,instanceId:id}];
+  const pet={
+    instanceId:id,designId:'david-lamb:base' as const,level:1 as const,
+    growthXp:0,totalEarnedXp:0,careDays:0,version:0,
+    stats:{satiety:80,cleanliness:12,joy:100,affection:100,health:100},
+    lastCaredAt:'2026-11-18T01:00:00Z',nextEvolution:null,canEvolve:false,
+  };
+  const after={...pet,growthXp:15,totalEarnedXp:15,careDays:1,version:1,
+    stats:{...pet.stats,cleanliness:57}};
+  const api:CompanionServerApi={
+    load:vi.fn(async()=>data),garden:vi.fn(),claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+    instances:vi.fn(async()=>[pet]),careInstance:vi.fn(async()=>after),
+  };
+  await act(async()=>{tree=create(
+    <CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>
+  );});
+  const cleaning=tree!.root.findAllByType('Pressable' as React.ElementType)
+    .find(node=>String(node.props.accessibilityLabel??'').includes('주변 청소하기'));
+  expect(cleaning).toBeDefined();
+  await act(async()=>cleaning!.props.onPress());
+  expect(api.careInstance).toHaveBeenCalledWith(id,'CLEAN',0,expect.stringMatching(/^pet-care-/));
+  expect(tree!.root.findAllByType('Pressable' as React.ElementType)
+    .some(node=>String(node.props.accessibilityLabel??'').includes('주변 청소하기'))).toBe(false);
+  expect(api.instances).toHaveBeenCalledTimes(1);
+});
+
 it('does not show fabricated care stats when the backend has no instance API',async()=>{
   const data=snapshot();
   data.garden.placements=[{slot:1,designId:'david-lamb:base',x:0.2,y:0.2}];
