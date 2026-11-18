@@ -62,6 +62,21 @@ describe('companion preview economy', () => {
     expect(companionReducer(freed, {type: 'equip', designId: 'word-fox:unique'})).toBe(freed);
     expect(companionReducer(freed, {type: 'equip', designId: 'daniel-lion:unique'}).equipped).toHaveLength(5);
   });
+  it('separately equips and removes two UUIDs of an identical design without changing ownership',()=>{
+    const original=createCompanionDemoState();
+    const empty={...original,equipped:[] as typeof original.equipped,gardenSlots:[]};
+    const first=companionReducer(empty,{type:'equip-instance',
+      designId:'david-lamb:base',instanceId:'pet-one'});
+    const second=companionReducer(first,{type:'equip-instance',
+      designId:'david-lamb:base',instanceId:'pet-two'});
+    expect(second.equipped).toEqual(['david-lamb:base','david-lamb:base']);
+    expect(second.gardenSlots?.map(s=>s.instanceId)).toEqual(['pet-one','pet-two']);
+    expect(companionReducer(second,{type:'equip-instance',
+      designId:'david-lamb:base',instanceId:'pet-one'})).toBe(second);
+    const removed=companionReducer(second,{type:'unequip-instance',instanceId:'pet-one'});
+    expect(removed.gardenSlots?.map(s=>s.instanceId)).toEqual(['pet-two']);
+    expect(removed.inventory).toEqual(original.inventory);
+  });
   it('sells duplicates while preserving the equipped last copy and credits once per transaction', () => {
     const state = createCompanionDemoState();
     const action = {type: 'sell', designId: 'david-lamb:base', quantity: 2, transactionId: 'sale-1'} as const;

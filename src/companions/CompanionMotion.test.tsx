@@ -284,3 +284,48 @@ it('refreshes only five-pet data once after equipping, not on background-only up
   expect(api.instances).toHaveBeenCalledTimes(2);
   expect(api.load).toHaveBeenCalledTimes(1);
 });
+
+
+it('separates two same-design pets by UUID for movement, care and evolution HUD', async()=>{
+  const data=snapshot();
+  const idA='12345678-1234-1234-1234-123456789abc';
+  const idB='12345678-1234-1234-1234-123456789abd';
+  data.inventory={'david-lamb:base':2};
+  data.garden.placements=[
+    {slot:1,designId:'david-lamb:base',x:.2,y:.2,instanceId:idA},
+    {slot:2,designId:'david-lamb:base',x:.7,y:.7,instanceId:idB},
+  ];
+  const base={
+    designId:'david-lamb:base' as const,
+    totalEarnedXp:1000,careDays:11,
+    stats:{satiety:80,cleanliness:90,joy:95,affection:70,health:100},
+    lastCaredAt:'2026-11-18T01:00:00Z',version:0,
+    nextEvolution:null,canEvolve:false,
+  };
+  const api:CompanionServerApi={
+    load:vi.fn(async()=>data),garden:vi.fn(),claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+    instances:vi.fn(async()=>[
+      {...base,instanceId:idA,level:1 as const,growthXp:100,totalEarnedXp:100},
+      {...base,instanceId:idB,level:3 as const,growthXp:1000},
+    ]),
+    careInstance:vi.fn(),
+  };
+  await act(async()=>{
+    tree=create(<CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>);
+  });
+  const scenes=tree!.root.findAllByType('View' as React.ElementType)
+    .filter(node=>String(node.props.testID??'').startsWith('garden-animal-'));
+  expect(scenes.map(x=>x.props.testID)).toEqual([\`garden-animal-\${idA}\`,\`garden-animal-\${idB}\`]);
+  expect(tree!.root.findAllByType('FarmSprite' as React.ElementType)).toHaveLength(1);
+  const touches=tree!.root.findAllByType('Pressable' as React.ElementType);
+  await act(async()=>touches[1]?.props.onPress());
+  expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(5);
+  const label=tree!.root.findAllByType('Text' as React.ElementType)
+    .map(n=>n.props.children).flat().filter(Boolean).map(String).join(' ');
+  expect(label).toContain('1,000 XP');
+  await act(async()=>touches[0]?.props.onPress());
+  const updatedLabel=tree!.root.findAllByType('Text' as React.ElementType)
+    .map(n=>n.props.children).flat().filter(Boolean).map(String).join(' ');
+  expect(updatedLabel).toContain('100 XP');
+  expect(api.garden).not.toHaveBeenCalled();
+});
