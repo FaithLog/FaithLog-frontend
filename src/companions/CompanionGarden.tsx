@@ -1,6 +1,6 @@
 import {GardenBackground} from './GardenBackground';
-import {useEffect, useRef, useState} from 'react';
-import {Alert, StyleSheet, Text, View} from 'react-native';
+import {Fragment, useEffect, useRef, useState} from 'react';
+import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
 import {FarmCareButton,FarmHudGauge,FarmHudIcon} from './FarmHudAssets';
 import type {CompanionCareAction} from './companionServerContract';
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
@@ -9,13 +9,20 @@ import {colors, typography} from '../theme';
 import {companionGardenSlots, type CompanionPage} from './companionModel';
 import {useCompanions} from './CompanionProvider';
 import {GardenAnimal} from './GardenAnimal';
+import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
+import {FarmMessMarker} from './FarmMessMarker';
 import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
   const {state,server,busy,error,refresh:reloadServer,instances,careError,careInstance,evolveInstance} = useCompanions();
   const slots=companionGardenSlots(state);
+  // Group alerts across the <=5 visible pets. No per-animal notifications,
+  // polling, push permission or scheduled server work on the home scene.
+  const needsAttention=(instances??[]).filter(item=>item.stats.health<25
+    ||item.stats.satiety<25||item.stats.cleanliness<25);
   const [selectedKey,setSelectedKey] = useState<string|null>(null);
+  const [growthExpanded,setGrowthExpanded]=useState(false);
   const selectedSlot=slots.find(p=>(p.instanceId??p.designId)===selectedKey);
   const selected=selectedSlot
     ? instances?.find(item=>selectedSlot.instanceId
@@ -26,6 +33,14 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
   const xpFloor=selected?.level===3?1000:selected?.level===2?300:0;
   const nextTarget=selected?.nextEvolution?.threshold?.growthXp ?? xpFloor;
   const xpPct=nextTarget>xpFloor?Math.max(0,Math.min(100,((selected?.growthXp??0)-xpFloor)/(nextTarget-xpFloor)*100)):100;
+  const threshold=selected?.nextEvolution?.threshold;
+  const growthRequirements=threshold?[
+   {name:'경험치',current:selected?.growthXp??0,need:threshold.growthXp,unit:'XP'},
+   {name:'돌봄 일수',current:selected?.careDays??0,need:threshold.distinctCareDays,unit:'일'},
+   {name:'건강',current:selected?.stats.health??0,need:threshold.health,unit:''},
+   {name:'배부름',current:selected?.stats.satiety??0,need:threshold.satiety,unit:''},
+   {name:'청결도',current:selected?.stats.cleanliness??0,need:threshold.cleanliness,unit:''},
+  ]:[];
   const conditionText:Record<string,string>={EXPERIENCE:'경험치',CARE_DAYS:'돌봄 날짜',HEALTH:'건강',SATIETY:'배부름',CLEANLINESS:'청결도',MAX_LEVEL:'최종 진화'};
   const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
   const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
@@ -79,7 +94,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';
         const animal=instances?.find(item=>slot.instanceId
           ? item.instanceId===slot.instanceId:item.designId===id);
-        return <GardenAnimal key={key} {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
+        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
           evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
@@ -89,10 +104,33 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
               update(key,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
-          onReact={() => {setSelectedKey(key);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />;
+          onReact={() => {setSelectedKey(key);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
+        {animal && animal.stats.cleanliness<35 && <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${name} 주변 청소하기`}
+          accessibilityHint="청소가 필요한 흔적을 치웁니다. 청소 쿨타임이 적용돼요."
+          disabled={busy||!careInstance||!!error}
+          onPress={()=>{setSelectedKey(key);void careInstance?.(animal.instanceId,'CLEAN');}}
+          style={[styles.messSpot,{
+            left:Math.max(0,Math.min(bounds.width-40,agent.position.x+24)),
+            top:Math.max(0,Math.min(bounds.height-40,agent.position.y+65)),
+            zIndex:1001,
+          }]}>
+          <FarmMessMarker/>
+        </Pressable>}
+        </Fragment>;
       })}
       {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
+    {needsAttention.length>0?<View style={styles.attentionRow} testID="companion-attention-banner">
+      <Text style={styles.helper}>돌봄이 필요한 동물 {needsAttention.length}마리 · 건강과 배부름·청결도를 확인해주세요.</Text>
+      <Button variant="secondary" size="compact" accessibilityLabel="돌봄 필요한 동물 보기"
+        onPress={()=>{
+          const target=needsAttention[0];
+          const slot=slots.find(p=>p.instanceId===target?.instanceId);
+          if(slot)setSelectedKey(slot.instanceId??slot.designId);
+        }}>돌보기</Button>
+    </View>:null}
     {selected && <View style={styles.careCard} testID="selected-companion-care-panel">
       <View style={styles.careTitle}>
         <FarmHudIcon name={selected.level===1?'badge-lv1':selected.level===2?'badge-lv2':'badge-lv3'} size={34}/>
@@ -119,6 +157,32 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           {selected.level===3?'최종 진화 완료':selected.canEvolve?'진화 조건을 모두 충족했어요.':`진화까지 필요한 조건: ${selected.nextEvolution?.blockers.map(item=>conditionText[item]??item).join(' · ') || '확인 중'}`}
         </Text>
       </View>
+      <Button variant="ghost" size="compact" accessibilityLabel="동물 성장 기록과 진화 조건 펼치기"
+        onPress={()=>setGrowthExpanded(value=>!value)}>
+        {growthExpanded?'성장 정보 접기':'성장 기록·진화 미리보기'}
+      </Button>
+      {growthExpanded?<View style={styles.growthDetails} testID="companion-growth-details">
+        <Text style={styles.careName}>성장 기록</Text>
+        <Text style={styles.helper}>누적 획득 {selected.totalEarnedXp.toLocaleString()} XP · 돌봄한 날짜 {selected.careDays}일</Text>
+        {threshold?<>
+          <View style={styles.previewRow}>
+            <BibleFriendFarmSprite designId={selected.designId}
+              evolutionStage={selected.level===1?1:2}
+              motion="idle" elapsedMs={0} reduceMotion size={68}/>
+            <View style={styles.careTitleCopy}>
+              <Text style={styles.careName}>다음 진화 · Lv.{selected.level+1}</Text>
+              <Text style={styles.helper}>아래 조건을 모두 충족하면 진화할 수 있어요.</Text>
+            </View>
+          </View>
+          {growthRequirements.map(req=><View key={req.name} style={styles.requirementRow}>
+            <Text style={styles.helper}>{req.name}</Text>
+            <Text style={styles.helper}>{req.current.toLocaleString()} / {req.need.toLocaleString()} {req.unit}
+              {req.current>=req.need?' ✓':''}</Text>
+          </View>)}
+        </>:<Text style={styles.helper}>
+          {selected.level===3?'최종 진화까지 완료했어요.':'이 캐릭터는 추가 진화 단계가 없어요.'}
+        </Text>}
+      </View>:null}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
       <View style={styles.careActions}>
         {(['feed','pet','play','clean','sleep'] as const).map(action=><FarmCareButton
@@ -149,6 +213,8 @@ const styles = StyleSheet.create({
   balance:{...typography.caption,color:colors.primary,fontWeight:'600'},
   empty:{flex:1,alignItems:'center',justifyContent:'center',padding:12},
   careCard:{backgroundColor:colors.surface,borderColor:colors.borderSoft,borderWidth:1,borderRadius:18,padding:12,gap:12},
+  attentionRow:{flexDirection:'row',alignItems:'center',gap:8,flexWrap:'wrap',
+    borderWidth:1,borderColor:colors.borderSoft,borderRadius:12,padding:10},
   careTitle:{flexDirection:'row',alignItems:'center',gap:8},
   careTitleCopy:{flex:1,minWidth:0,gap:2},
   careName:{...typography.body,fontWeight:'700',color:colors.textPrimary},
@@ -159,5 +225,9 @@ const styles = StyleSheet.create({
   xpTrack:{height:8,borderRadius:8,backgroundColor:colors.borderSoft,overflow:'hidden'},
   xpFill:{height:8,borderRadius:8,backgroundColor:colors.primary},
   careActions:{flexDirection:'row',flexWrap:'wrap',gap:6},
+  growthDetails:{borderColor:colors.borderSoft,borderWidth:1,borderRadius:12,padding:10,gap:8},
+  messSpot:{position:'absolute',width:40,height:40,alignItems:'center',justifyContent:'center'},
+  previewRow:{flexDirection:'row',alignItems:'center',gap:8},
+  requirementRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8},
   warning:{...typography.caption,color:colors.danger},
 });
