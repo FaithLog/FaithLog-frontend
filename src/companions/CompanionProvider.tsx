@@ -298,7 +298,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  },[api]);
 
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{gardenSaving,instances,careError,careInstance,evolveInstance,instancesByDesign:api.instancesByDesign?instancesByDesign:undefined,saleAvailability:api.saleAvailability,state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{gardenSaving,instances,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);
