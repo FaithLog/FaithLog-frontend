@@ -210,6 +210,14 @@ it('shows only server-backed care gauges and sends the chosen instance version',
   await act(async()=>touch.props.onPress());
   expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(5);
   expect(tree!.root.findByType('FarmSprite' as React.ElementType).props.evolutionStage).toBe(1);
+  expect(tree!.root.findAllByType('View' as React.ElementType)
+    .filter(node=>node.props.testID==='companion-growth-details')).toHaveLength(0);
+  const reveal=tree!.root.findAllByType('Button' as React.ElementType)
+    .find(node=>node.props.accessibilityLabel==='동물 성장 기록과 진화 조건 펼치기')!;
+  await act(async()=>reveal.props.onPress());
+  expect(tree!.root.findAllByType('FarmSprite' as React.ElementType)).toHaveLength(2);
+  expect(tree!.root.findAllByType('View' as React.ElementType)
+    .filter(node=>node.props.testID==='companion-growth-details')).toHaveLength(1);
   const feed=tree!.root.findAllByType('FarmCareButton' as React.ElementType)
     .find(item=>item.props.action==='feed')!;
   await act(async()=>feed.props.onPress());
