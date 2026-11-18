@@ -17,6 +17,10 @@ import {useCompanionMotion} from './useCompanionMotion';
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
   const {state,server,busy,error,refresh:reloadServer,instances,careError,careInstance,evolveInstance} = useCompanions();
   const slots=companionGardenSlots(state);
+  // Group alerts across the <=5 visible pets. No per-animal notifications,
+  // polling, push permission or scheduled server work on the home scene.
+  const needsAttention=(instances??[]).filter(item=>item.stats.health<25
+    ||item.stats.satiety<25||item.stats.cleanliness<25);
   const [selectedKey,setSelectedKey] = useState<string|null>(null);
   const [growthExpanded,setGrowthExpanded]=useState(false);
   const selectedSlot=slots.find(p=>(p.instanceId??p.designId)===selectedKey);
@@ -118,6 +122,15 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       })}
       {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
+    {needsAttention.length>0?<View style={styles.attentionRow} testID="companion-attention-banner">
+      <Text style={styles.helper}>돌봄이 필요한 동물 {needsAttention.length}마리 · 건강과 배부름·청결도를 확인해주세요.</Text>
+      <Button variant="secondary" size="compact" accessibilityLabel="돌봄 필요한 동물 보기"
+        onPress={()=>{
+          const target=needsAttention[0];
+          const slot=slots.find(p=>p.instanceId===target?.instanceId);
+          if(slot)setSelectedKey(slot.instanceId??slot.designId);
+        }}>돌보기</Button>
+    </View>:null}
     {selected && <View style={styles.careCard} testID="selected-companion-care-panel">
       <View style={styles.careTitle}>
         <FarmHudIcon name={selected.level===1?'badge-lv1':selected.level===2?'badge-lv2':'badge-lv3'} size={34}/>
@@ -200,6 +213,8 @@ const styles = StyleSheet.create({
   balance:{...typography.caption,color:colors.primary,fontWeight:'600'},
   empty:{flex:1,alignItems:'center',justifyContent:'center',padding:12},
   careCard:{backgroundColor:colors.surface,borderColor:colors.borderSoft,borderWidth:1,borderRadius:18,padding:12,gap:12},
+  attentionRow:{flexDirection:'row',alignItems:'center',gap:8,flexWrap:'wrap',
+    borderWidth:1,borderColor:colors.borderSoft,borderRadius:12,padding:10},
   careTitle:{flexDirection:'row',alignItems:'center',gap:8},
   careTitleCopy:{flex:1,minWidth:0,gap:2},
   careName:{...typography.body,fontWeight:'700',color:colors.textPrimary},
