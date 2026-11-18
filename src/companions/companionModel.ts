@@ -41,7 +41,7 @@ export type CompanionState = Readonly<{
   backgroundId: GardenBackgroundId;
   inventory: Readonly<Partial<Record<BibleFriendDesignId, number>>>;
   equipped: readonly BibleFriendDesignId[];
-  gardenSlots?: readonly GardenSlot[];
+  gardenSlots?: readonly GardenSlot[] | undefined;
   gardenPositions: Readonly<Partial<Record<BibleFriendDesignId, Readonly<{x: number; y: number}>>>>;
   claimed: readonly string[];
   transactions: readonly string[];

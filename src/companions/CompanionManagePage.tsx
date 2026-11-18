@@ -156,9 +156,9 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         })}
         {ownedInstances?.length===0?<Text style={s.caption}>이 페이지에는 동물이 없어요.</Text>:null}
         {ownedInstances?<View style={s.between}>
-          <Button size="compact" variant="secondary" disabled={instancePage===0||instanceLoading} onPress={()=>setInstancePage(p=>p-1)}>이전</Button>
+          <Button size="compact" variant="secondary" accessibilityLabel="개체 목록 이전 페이지" disabled={instancePage===0||instanceLoading} onPress={()=>setInstancePage(p=>p-1)}>이전</Button>
           <Text style={s.caption}>{instancePage+1}페이지</Text>
-          <Button size="compact" variant="secondary" disabled={ownedInstances.length<20||instanceLoading} onPress={()=>setInstancePage(p=>p+1)}>다음</Button>
+          <Button size="compact" variant="secondary" accessibilityLabel="개체 목록 다음 페이지" disabled={ownedInstances.length<20||instanceLoading} onPress={()=>setInstancePage(p=>p+1)}>다음</Button>
         </View>:null}
       </View>:null}
       <Text style={s.name}>중복 친구 정리</Text><Text style={s.caption}>마지막 한 마리는 남겨두고 판매해요.</Text>

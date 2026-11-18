@@ -79,7 +79,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';
         const animal=instances?.find(item=>slot.instanceId
           ? item.instanceId===slot.instanceId:item.designId===id);
-        return <GardenAnimal key={key} instanceId={slot.instanceId??undefined} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
+        return <GardenAnimal key={key} {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
           evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
