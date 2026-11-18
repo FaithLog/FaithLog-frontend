@@ -163,7 +163,7 @@ describe('sale availability cannot mislead owners of grown or placed pets',()=>{
  it('disables selling when all duplicates are protected by the backend',async()=>{
   const api=apiFor(snapshot());
   api.saleAvailability=vi.fn(async()=>({
-   designId:'david-lamb:base',ownedQuantity:2,sellableQuantity:0,
+   designId:'david-lamb:base' as const,ownedQuantity:2,sellableQuantity:0,
   }));
   await act(async()=>{
    tree=create(<CompanionProvider api={api}><CompanionManagePage/></CompanionProvider>);
@@ -183,7 +183,7 @@ describe('sale availability cannot mislead owners of grown or placed pets',()=>{
   const s=snapshot();s.inventory={'david-lamb:base':3};
   const api=apiFor(s);
   api.saleAvailability=vi.fn(async()=>({
-   designId:'david-lamb:base',ownedQuantity:3,sellableQuantity:1,
+   designId:'david-lamb:base' as const,ownedQuantity:3,sellableQuantity:1,
   }));
   await act(async()=>{
    tree=create(<CompanionProvider api={api}><CompanionManagePage/></CompanionProvider>);
