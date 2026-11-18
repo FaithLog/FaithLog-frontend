@@ -45,6 +45,7 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   sell:(designId,quantity)=>mutate('sales',{designId,quantity}),
   // Home renders at most five animals; never fetch the owner's full duplicate inventory.
   instances:()=>request('/api/v1/companions/me/instances/garden',v=>array(v).map(parseCompanionInstance)),
+  instancesByDesign:(designId,page)=>request(`/api/v1/companions/me/instances/by-design?designId=${encodeURIComponent(designId)}&page=${page}&size=20`,v=>array(v).map(parseCompanionInstance)),
   careInstance:(id,action,expectedVersion,key)=>request(
    `/api/v1/companions/me/instances/${encodeURIComponent(id)}/care`,
    parseCompanionInstance,'POST',{action,expectedVersion},key),

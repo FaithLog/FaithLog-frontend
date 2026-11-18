@@ -1,7 +1,8 @@
 import {BIBLE_FRIEND_DESIGN_CATALOG, BIBLE_FRIEND_RARITIES, type BibleFriendDesignId, type BibleFriendRarity} from '../characters/bibleFriendDesignCatalog';
 import {isGardenBackgroundId, type GardenBackgroundId} from './gardenBackgrounds';
 import type {DailyMissionSnapshot} from './dailyMissionContract';
-export type Garden = {version:number;backgroundId:GardenBackgroundId|null;placements:Array<{slot:number;designId:BibleFriendDesignId;x:number;y:number}>};
+export type GardenPlacement = {slot:number;designId:BibleFriendDesignId;x:number;y:number;instanceId?:string|null};
+export type Garden = {version:number;backgroundId:GardenBackgroundId|null;placements:GardenPlacement[]};
 export type Operation = {operationId:string;designIds:BibleFriendDesignId[];pointDelta:number;balance:number;policyVersion:string;quantity:number;unitPrice:number};
 export type MissionItem = {mission:string;points:number;status:'INCOMPLETE'|'READY'|'CLAIMED';periodStart:string;periodEnd:string;availableAt:string;expiresAt:string};
 export type ServerSnapshot = {balance:number;inventory:Partial<Record<BibleFriendDesignId,number>>;garden:Garden;daily:DailyMissionSnapshot;attendance:{date:string;points:number;claimed:boolean;balance:number};periods:{serverNow:string;balance:number;missions:MissionItem[]};backgrounds:GardenBackgroundId[];pool:{poolVersion:string;unitCost:number;totalWeight:number;entries:Array<{designId:BibleFriendDesignId;weight:number}>}|null;prices:Record<BibleFriendRarity,number>;history:Array<{result:Operation;createdAt:string}>;catalog:BibleFriendDesignId[]};
@@ -25,6 +26,7 @@ export type CompanionServerApi = {
  sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>;
  // Optional for old server/demo mocks; never fabricate growth stats on 404.
  instances?:()=>Promise<CompanionInstance[]>;
+ instancesByDesign?:(designId:BibleFriendDesignId,page:number)=>Promise<CompanionInstance[]>;
  careInstance?:(id:string,action:CompanionCareAction,expectedVersion:number,key:string)=>Promise<CompanionInstance>;
  evolveInstance?:(id:string,expectedVersion:number,key:string)=>Promise<CompanionInstance>;
 };
@@ -36,7 +38,25 @@ export function string(value:unknown):string{if(typeof value!=='string'||!value)
 export function date(value:unknown):string{const s=string(value);if(!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(s)||!Number.isFinite(Date.parse(s))||s.length===10&&new Date(s).toISOString().slice(0,10)!==s)throw new Error('Invalid date');return s;}
 export function array(value:unknown):unknown[]{if(!Array.isArray(value))throw new Error('Invalid array');return value;}
 export function designId(value:unknown):BibleFriendDesignId{if(!BIBLE_FRIEND_DESIGN_CATALOG.some(d=>d.id===value))throw new Error('새 캐릭터를 표시하려면 앱을 업데이트해주세요.');return value as BibleFriendDesignId;}
-export function parseGarden(value:unknown):Garden{const r=object(value);const bg=r.backgroundId;if(bg!==null&&(typeof bg!=='string'||!isGardenBackgroundId(bg)))throw new Error('Invalid background');const placements=array(r.placements).map(v=>{const p=object(v);const slot=integer(p.slot,1);if(slot>5||typeof p.x!=='number'||typeof p.y!=='number'||!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.x>1||p.y<0||p.y>1)throw new Error('Invalid placement');return{slot,designId:designId(p.designId),x:p.x,y:p.y};});if(placements.length>5||new Set(placements.map(p=>p.slot)).size!==placements.length||new Set(placements.map(p=>p.designId)).size!==placements.length)throw new Error('Duplicate placement');return{version:integer(r.version),backgroundId:bg as GardenBackgroundId|null,placements};}
+export function parseGarden(value:unknown):Garden{
+ const r=object(value);const bg=r.backgroundId;
+ if(bg!==null&&(typeof bg!=='string'||!isGardenBackgroundId(bg)))throw new Error('Invalid background');
+ const placements:GardenPlacement[]=array(r.placements).map(v=>{
+  const p=object(v);const slot=integer(p.slot,1);
+  if(slot>5||typeof p.x!=='number'||typeof p.y!=='number'||!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.x>1||p.y<0||p.y>1)throw new Error('Invalid placement');
+  const instanceId=p.instanceId==null?undefined:string(p.instanceId);
+  if(instanceId&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(instanceId))throw new Error('Invalid companion UUID');
+  return{slot,designId:designId(p.designId),x:p.x,y:p.y,...(instanceId?{instanceId}:{})};
+ });
+ if(placements.length>5||new Set(placements.map(p=>p.slot)).size!==placements.length)throw new Error('Duplicate placement slot');
+ const used=new Set<string>();const legacyDesigns=new Set<string>();
+ for(const p of placements){
+   if(p.instanceId){if(used.has(p.instanceId))throw new Error('Duplicate companion UUID');used.add(p.instanceId);}
+   else{if(legacyDesigns.has(p.designId))throw new Error('Duplicate legacy design');legacyDesigns.add(p.designId);}
+ }
+ if(placements.some(p=>!p.instanceId&&placements.some(other=>other!==p&&other.designId===p.designId)))throw new Error('Ambiguous duplicate legacy design');
+ return{version:integer(r.version),backgroundId:bg as GardenBackgroundId|null,placements};
+}
 export function parseOperation(value:unknown):Operation{const r=object(value);if(typeof r.pointDelta!=='number'||!Number.isSafeInteger(r.pointDelta)||!r.pointDelta)throw new Error('Invalid delta');return{operationId:string(r.operationId),designIds:array(r.designIds).map(designId),pointDelta:r.pointDelta,balance:integer(r.balance),policyVersion:string(r.policyVersion),quantity:integer(r.quantity),unitPrice:integer(r.unitPrice)};}
 export function rarity(value:unknown):BibleFriendRarity{if(!BIBLE_FRIEND_RARITIES.includes(value as BibleFriendRarity))throw new Error('Invalid rarity');return value as BibleFriendRarity;}
 export const PERIOD_MISSION_IDS = {submission:'WEEKLY_SUBMISSION',vote:'WEEKLY_VOTE','weekly-no-penalty':'WEEKLY_NO_PENALTY','monthly-no-penalty':'MONTHLY_NO_PENALTY','all-submissions':'MONTHLY_ALL_SUBMISSIONS'} as const;
