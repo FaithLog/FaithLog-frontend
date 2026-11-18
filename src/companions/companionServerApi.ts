@@ -3,7 +3,7 @@ import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
 import {isDailyMission} from './dailyMissionContract';
 import {isGardenBackgroundId} from './gardenBackgrounds';
-import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,PERIOD_MISSION_IDS,rarity,string,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
+import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
  const daily=createDailyMissionApi(campusId,getToken);let pool:ServerSnapshot['pool']=null;let mutation=false;
@@ -43,5 +43,12 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   },
   draw:count=>{if(!pool)throw new Error('뽑기 정보를 새로 확인해주세요.');return mutate('draws',{poolVersion:pool.poolVersion,count});},
   sell:(designId,quantity)=>mutate('sales',{designId,quantity}),
+  instances:()=>request('/api/v1/companions/me/instances',v=>array(v).map(parseCompanionInstance)),
+  careInstance:(id,action,expectedVersion,key)=>request(
+   `/api/v1/companions/me/instances/${encodeURIComponent(id)}/care`,
+   parseCompanionInstance,'POST',{action,expectedVersion},key),
+  evolveInstance:(id,expectedVersion,key)=>request(
+   `/api/v1/companions/me/instances/${encodeURIComponent(id)}/evolve`,
+   parseCompanionInstance,'POST',{expectedVersion},key),
  };
 }

@@ -1,5 +1,6 @@
 import {AppState} from 'react-native';
-import type {CompanionServerApi, ServerSnapshot} from './companionServerContract';
+import type {CompanionServerApi, ServerSnapshot, CompanionInstance, CompanionCareAction} from './companionServerContract';
+import {FaithLogApiError} from '../api/apiError';
 import {PERIOD_MISSION_IDS} from './companionServerContract';
 import {DAILY_MISSION_SERVER_IDS} from './dailyMissionContract';
 import type {BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
@@ -8,7 +9,12 @@ import {companionReducer, createCompanionDemoState, type CompanionAction, type C
 import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dailyMissionContract';
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
-type Context = {gardenSaving?: boolean;state: CompanionState; dispatch: Dispatch<CompanionAction>; nextTransactionId: (kind: string) => string; daily: DailyState; refreshDaily: () => Promise<void>; claimDaily: (ids: readonly DailyMissionId[]) => Promise<void>; server:boolean; busy:boolean; error:string; serverSnapshot:ServerSnapshot|null; refresh:()=>Promise<void>; executeDraw?: (count:1|10)=>Promise<readonly BibleFriendDesignId[]>; perform?: (action:CompanionAction)=>Promise<boolean>};
+type Context = {
+  instances?: CompanionInstance[] | null;
+  careError?: string;
+  careInstance?: (instanceId:string,action:CompanionCareAction)=>Promise<void>;
+  evolveInstance?: (instanceId:string)=>Promise<void>;
+  gardenSaving?: boolean;state: CompanionState; dispatch: Dispatch<CompanionAction>; nextTransactionId: (kind: string) => string; daily: DailyState; refreshDaily: () => Promise<void>; claimDaily: (ids: readonly DailyMissionId[]) => Promise<void>; server:boolean; busy:boolean; error:string; serverSnapshot:ServerSnapshot|null; refresh:()=>Promise<void>; executeDraw?: (count:1|10)=>Promise<readonly BibleFriendDesignId[]>; perform?: (action:CompanionAction)=>Promise<boolean>};
 const CompanionContext = createContext<Context | null>(null);
 function DemoProvider({children, dailyApi}: PropsWithChildren<{dailyApi?: DailyMissionApi}>) {
   const [state, dispatch] = useReducer(companionReducer, undefined, createCompanionDemoState);
@@ -65,6 +71,23 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const gardenRevision = useRef(0);
  const gardenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
  const [gardenSaving, setGardenSaving] = useState(false);
+ const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
+ const [careError,setCareError] = useState('');
+ const instanceBusy = useRef(false);
+ const refreshInstances = useCallback(async() => {
+  if (!api.instances) return;
+  try {
+   const result=await api.instances();
+   if(alive.current){setInstances(result);setCareError('');}
+  }catch(e){
+   // Keep supporting the deployed old backend until the instance API is released.
+   if(e instanceof FaithLogApiError && e.detail.status===404){
+    if(alive.current){setInstances(null);setCareError('');}
+    return;
+   }
+   if(alive.current){setInstances(null);setCareError('동물 상태를 불러오지 못했어요. 다시 확인해주세요.');}
+  }
+ },[api]);
  const apply=useCallback((value:ServerSnapshot)=>{
   if(!alive.current)return;
   source.current=value;setSnapshot(value);
@@ -78,7 +101,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   }
   current.current=next;setState(next);
  },[]);
- const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{apply(await api.load());if(alive.current)setError('');}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply]);
+ const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{apply(await api.load());await refreshInstances();if(alive.current)setError('');}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,refreshInstances]);
  const flushGarden = useCallback(async function saveGarden(): Promise<void> {
   if (gardenTimer.current) clearTimeout(gardenTimer.current);
   gardenTimer.current = null;
@@ -161,8 +184,38 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  },[api,operate,error,flushGarden]);
  const claimDaily=useCallback(async(ids:readonly DailyMissionId[])=>{for(const id of ids)if(!await perform({type:'claim',missionId:id,periodKey:'server',status:'ready'}))break;},[perform]);
  const executeDraw=useCallback(async(count:1|10)=>{const result=await operate(()=>api.draw(count));return result.designIds;},[api,operate]);
+ const careInstance=useCallback(async(id:string,action:CompanionCareAction)=>{
+  if(!api.careInstance || !instances || instanceBusy.current || lock.current || error) return;
+  const found=instances.find(item=>item.instanceId===id);
+  if(!found)return;
+  instanceBusy.current=true;setBusy(true);setCareError('');
+  try{
+   const key=`pet-care-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+   const updated=await api.careInstance(id,action,found.version,key);
+   if(alive.current)setInstances(items=>items?.map(item=>item.instanceId===id?updated:item)??null);
+  }catch{
+   if(alive.current)setCareError('돌봄을 처리하지 못했어요. 최신 상태를 다시 확인했어요.');
+   await refreshInstances();
+  }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
+ },[api,instances,error,refreshInstances]);
+
+ const evolveInstance=useCallback(async(id:string)=>{
+  if(!api.evolveInstance || !instances || instanceBusy.current || lock.current || error) return;
+  const found=instances.find(item=>item.instanceId===id);
+  if(!found?.canEvolve)return;
+  instanceBusy.current=true;setBusy(true);setCareError('');
+  try{
+   const key=`pet-evolve-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+   const updated=await api.evolveInstance(id,found.version,key);
+   if(alive.current)setInstances(items=>items?.map(item=>item.instanceId===id?updated:item)??null);
+  }catch{
+   if(alive.current)setCareError('진화를 완료하지 못했어요. 최신 진화 조건을 확인해주세요.');
+   await refreshInstances();
+  }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
+ },[api,instances,error,refreshInstances]);
+
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{gardenSaving,state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{gardenSaving,instances,careError,careInstance,evolveInstance,state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);

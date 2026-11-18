@@ -20,6 +20,12 @@ vi.mock('react-native-svg', async () => {
   return Object.fromEntries(['default', 'Circle', 'Defs', 'Ellipse', 'G', 'LinearGradient', 'Path', 'RadialGradient', 'Rect', 'Stop'].map(name => [name, ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(`svg-${name}`, props, children)]));
 });
 vi.mock('../characters/BibleFriendDesignSprite', () => ({BibleFriendDesignSprite: (props: Record<string, unknown>) => React.createElement('Sprite', props)}));
+vi.mock('../characters/BibleFriendFarmSprite', () => ({BibleFriendFarmSprite: (props: Record<string, unknown>) => React.createElement('FarmSprite', props)}));
+vi.mock('./FarmHudAssets', () => ({
+  FarmHudIcon:(props:Record<string,unknown>)=>React.createElement('FarmHudIcon',props),
+  FarmHudGauge:(props:Record<string,unknown>)=>React.createElement('FarmHudGauge',props),
+  FarmCareButton:(props:Record<string,unknown>)=>React.createElement('FarmCareButton',props),
+}));
 vi.mock('../components/ui', () => ({Button: (props: Record<string, unknown>) => React.createElement('Button', props), Chip: (props: Record<string, unknown>) => React.createElement('Chip', props)}));
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
 import {CompanionDrawScene} from './CompanionDrawScene';
@@ -163,4 +169,60 @@ it('handles consecutive drags locally without API requests or resets from server
   await advance(3000);
   expect(api.garden).not.toHaveBeenCalled();
   expect(api.load).toHaveBeenCalledTimes(2);
+});
+
+
+it('shows only server-backed care gauges and sends the chosen instance version', async () => {
+  const data = snapshot();
+  data.garden.placements = [{slot:1,designId:'david-lamb:base',x:0.2,y:0.2}];
+  const selected = {
+    instanceId:'12345678-1234-1234-1234-123456789abc',
+    designId:'david-lamb:base' as const,
+    level:2 as const,
+    growthXp:740,totalEarnedXp:760,careDays:6,version:2,
+    stats:{satiety:65,cleanliness:72,joy:81,affection:90,health:95},
+    lastCaredAt:'2026-11-18T01:00:00Z',
+    nextEvolution:{currentLevel:2 as const,nextLevel:3 as const,threshold:{
+      growthXp:1000,distinctCareDays:10,health:70,satiety:60,cleanliness:60,
+    },blockers:['EXPERIENCE' as const,'CARE_DAYS' as const]},
+    canEvolve:false,
+  };
+  const response = {...selected,growthXp:755,totalEarnedXp:775,version:3};
+  const api: CompanionServerApi = {
+    load:vi.fn(async()=>data),garden:vi.fn(),claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+    instances:vi.fn(async()=>[selected]),
+    careInstance:vi.fn(async()=>response),
+    evolveInstance:vi.fn(),
+  };
+  await act(async()=>{
+    tree=create(<CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>);
+  });
+  // A tap is only a greeting until the user selects the animal.
+  expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(0);
+  const touch=tree!.root.findAllByType('Pressable' as React.ElementType)[0]!;
+  await act(async()=>touch.props.onPress());
+  expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(5);
+  expect(tree!.root.findByType('FarmSprite' as React.ElementType).props.evolutionStage).toBe(1);
+  const feed=tree!.root.findAllByType('FarmCareButton' as React.ElementType)
+    .find(item=>item.props.action==='feed')!;
+  await act(async()=>feed.props.onPress());
+  expect(api.careInstance).toHaveBeenCalledWith(
+    selected.instanceId,'FEED',2,expect.stringMatching(/^pet-care-/));
+  expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)[0]!.props.value)
+    .toBe(response.stats.satiety);
+});
+
+it('does not show fabricated care stats when the backend has no instance API',async()=>{
+  const data=snapshot();
+  data.garden.placements=[{slot:1,designId:'david-lamb:base',x:0.2,y:0.2}];
+  const api: CompanionServerApi={
+    load:vi.fn(async()=>data),garden:vi.fn(),claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+  };
+  await act(async()=>{
+    tree=create(<CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>);
+  });
+  const touch=tree!.root.findAllByType('Pressable' as React.ElementType)[0]!;
+  await act(async()=>touch.props.onPress());
+  expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(0);
+  expect(tree!.root.findAllByType('Sprite' as React.ElementType)).toHaveLength(1);
 });

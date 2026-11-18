@@ -6,7 +6,28 @@ export type Operation = {operationId:string;designIds:BibleFriendDesignId[];poin
 export type MissionItem = {mission:string;points:number;status:'INCOMPLETE'|'READY'|'CLAIMED';periodStart:string;periodEnd:string;availableAt:string;expiresAt:string};
 export type ServerSnapshot = {balance:number;inventory:Partial<Record<BibleFriendDesignId,number>>;garden:Garden;daily:DailyMissionSnapshot;attendance:{date:string;points:number;claimed:boolean;balance:number};periods:{serverNow:string;balance:number;missions:MissionItem[]};backgrounds:GardenBackgroundId[];pool:{poolVersion:string;unitCost:number;totalWeight:number;entries:Array<{designId:BibleFriendDesignId;weight:number}>}|null;prices:Record<BibleFriendRarity,number>;history:Array<{result:Operation;createdAt:string}>;catalog:BibleFriendDesignId[]};
 export type ClaimUpdate = {balance:number} & ({daily:ServerSnapshot['daily']} | {attendance:ServerSnapshot['attendance']} | {periods:ServerSnapshot['periods']});
-export type CompanionServerApi = {load:()=>Promise<ServerSnapshot>;garden:(garden:Garden)=>Promise<Garden>;claim:(id:string)=>Promise<ClaimUpdate>;draw:(count:1|10)=>Promise<Operation>;sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>};
+export type CompanionCareAction = 'FEED' | 'PET' | 'PLAY' | 'CLEAN' | 'SLEEP';
+export type CompanionStats = {satiety:number;cleanliness:number;joy:number;affection:number;health:number};
+export type CompanionEvolutionBlocker = 'MAX_LEVEL'|'EXPERIENCE'|'CARE_DAYS'|'HEALTH'|'SATIETY'|'CLEANLINESS';
+export type CompanionEvolution = {
+ currentLevel:1|2|3;nextLevel:1|2|3;
+ threshold:{growthXp:number;distinctCareDays:number;health:number;satiety:number;cleanliness:number}|null;
+ blockers:CompanionEvolutionBlocker[];
+};
+export type CompanionInstance = {
+ instanceId:string;designId:BibleFriendDesignId;level:1|2|3;
+ growthXp:number;totalEarnedXp:number;careDays:number;stats:CompanionStats;
+ lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;
+};
+export type CompanionServerApi = {
+ load:()=>Promise<ServerSnapshot>;garden:(garden:Garden)=>Promise<Garden>;
+ claim:(id:string)=>Promise<ClaimUpdate>;draw:(count:1|10)=>Promise<Operation>;
+ sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>;
+ // Optional for old server/demo mocks; never fabricate growth stats on 404.
+ instances?:()=>Promise<CompanionInstance[]>;
+ careInstance?:(id:string,action:CompanionCareAction,expectedVersion:number,key:string)=>Promise<CompanionInstance>;
+ evolveInstance?:(id:string,expectedVersion:number,key:string)=>Promise<CompanionInstance>;
+};
 export type PendingOperation = {key:string;kind:'draws'|'sales';body:{poolVersion:string;count:1|10}|{designId:BibleFriendDesignId;quantity:number}};
 export type PendingStorage = {get:()=>Promise<string|null>;set:(value:string)=>Promise<void>;clear:()=>Promise<void>};
 export function object(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('서버 응답을 확인해주세요.');return value as Record<string,unknown>;}
@@ -22,3 +43,36 @@ export const PERIOD_MISSION_IDS = {submission:'WEEKLY_SUBMISSION',vote:'WEEKLY_V
 export function parsePeriods(value:unknown):ServerSnapshot['periods']{const r=object(value);const missions=array(r.missions).map(v=>{const m=object(v);const code=string(m.mission);if(!Object.values(PERIOD_MISSION_IDS).some(id=>id===code)||!['INCOMPLETE','READY','CLAIMED'].includes(String(m.status)))throw new Error('Invalid mission');return{mission:code,points:integer(m.points,1),status:m.status as MissionItem['status'],periodStart:date(m.periodStart),periodEnd:date(m.periodEnd),availableAt:date(m.availableAt),expiresAt:date(m.expiresAt)};});if(missions.length!==5||new Set(missions.map(m=>m.mission)).size!==5)throw new Error('Invalid missions');return{serverNow:date(r.serverNow),balance:integer(r.balance),missions};}
 
 export function parseAttendance(value:unknown):ServerSnapshot['attendance']{const r=object(value);if(typeof r.claimed!=='boolean')throw new Error('Invalid attendance');return{date:date(r.date),points:integer(r.points,1),claimed:r.claimed,balance:integer(r.balance)};}
+
+/** Refuse malformed/unknown-server data instead of displaying imaginary care stats. */
+export function parseCompanionInstance(value:unknown):CompanionInstance{
+ const r=object(value);const instanceId=string(r.instanceId);
+ if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(instanceId))throw new Error('Invalid companion UUID');
+ const level=integer(r.level,1);if(level>3)throw new Error('Invalid level');
+ const growthXp=integer(r.growthXp),totalEarnedXp=integer(r.totalEarnedXp),careDays=integer(r.careDays);
+ if(totalEarnedXp<growthXp||growthXp<(level===3?1000:level===2?300:0))throw new Error('Invalid companion XP');
+ const statsObject=object(r.stats);
+ const meters=(Object.fromEntries(['satiety','cleanliness','joy','affection','health'].map(k=>{
+   const v=integer(statsObject[k]);if(v>100)throw new Error('Invalid companion stats');return[k,v];
+ })) as CompanionStats);
+ const version=integer(r.version);
+ if(typeof r.canEvolve!=='boolean')throw new Error('Invalid evolution status');
+ let nextEvolution:CompanionEvolution|null=null;
+ if(r.nextEvolution!==null){
+  const evolution=object(r.nextEvolution);const currentLevel=integer(evolution.currentLevel,1),nextLevel=integer(evolution.nextLevel,1);
+  if(currentLevel!==level||nextLevel>3||nextLevel<currentLevel)throw new Error('Invalid evolution level');
+  const valid:CompanionEvolutionBlocker[]=['MAX_LEVEL','EXPERIENCE','CARE_DAYS','HEALTH','SATIETY','CLEANLINESS'];
+  const blockers=array(evolution.blockers).map(v=>{if(!valid.includes(v as CompanionEvolutionBlocker))throw new Error('Invalid evolution blocker');return v as CompanionEvolutionBlocker;});
+  let threshold:CompanionEvolution['threshold']=null;
+  if(evolution.threshold!==null){
+   const t=object(evolution.threshold);
+   threshold={growthXp:integer(t.growthXp),distinctCareDays:integer(t.distinctCareDays),
+      health:integer(t.health),satiety:integer(t.satiety),cleanliness:integer(t.cleanliness)};
+  }
+  nextEvolution={currentLevel:currentLevel as 1|2|3,nextLevel:nextLevel as 1|2|3,threshold,blockers};
+ }
+ if(r.canEvolve && (!nextEvolution || nextEvolution.blockers.length || level===3))throw new Error('Invalid evolution readiness');
+ return{instanceId,designId:designId(r.designId),level:level as 1|2|3,
+  growthXp,totalEarnedXp,careDays,stats:meters,
+  lastCaredAt:date(r.lastCaredAt),version,nextEvolution,canEvolve:r.canEvolve};
+}
