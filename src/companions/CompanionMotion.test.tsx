@@ -21,6 +21,11 @@ vi.mock('react-native-svg', async () => {
 });
 vi.mock('../characters/BibleFriendDesignSprite', () => ({BibleFriendDesignSprite: (props: Record<string, unknown>) => React.createElement('Sprite', props)}));
 vi.mock('../characters/BibleFriendFarmSprite', () => ({BibleFriendFarmSprite: (props: Record<string, unknown>) => React.createElement('FarmSprite', props)}));
+vi.mock('./FarmHudAssets', () => ({
+  FarmHudIcon:(props:Record<string,unknown>)=>React.createElement('FarmHudIcon',props),
+  FarmHudGauge:(props:Record<string,unknown>)=>React.createElement('FarmHudGauge',props),
+  FarmCareButton:(props:Record<string,unknown>)=>React.createElement('FarmCareButton',props),
+}));
 vi.mock('../components/ui', () => ({Button: (props: Record<string, unknown>) => React.createElement('Button', props), Chip: (props: Record<string, unknown>) => React.createElement('Chip', props)}));
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
 import {CompanionDrawScene} from './CompanionDrawScene';
