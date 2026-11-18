@@ -5,7 +5,7 @@ import {PERIOD_MISSION_IDS} from './companionServerContract';
 import {DAILY_MISSION_SERVER_IDS} from './dailyMissionContract';
 import type {BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
 import {createContext, useCallback, useContext, useEffect, useReducer, useRef, useState, type Dispatch, type PropsWithChildren} from 'react';
-import {companionReducer, createCompanionDemoState, type CompanionAction, type CompanionState} from './companionModel';
+import {companionGardenSlots, companionReducer, createCompanionDemoState, type CompanionAction, type CompanionState} from './companionModel';
 import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dailyMissionContract';
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
@@ -14,6 +14,7 @@ type Context = {
   careError?: string;
   careInstance?: (instanceId:string,action:CompanionCareAction)=>Promise<void>;
   evolveInstance?: (instanceId:string)=>Promise<void>;
+  instancesByDesign?: (designId:BibleFriendDesignId,page:number)=>Promise<CompanionInstance[]>;
   gardenSaving?: boolean;state: CompanionState; dispatch: Dispatch<CompanionAction>; nextTransactionId: (kind: string) => string; daily: DailyState; refreshDaily: () => Promise<void>; claimDaily: (ids: readonly DailyMissionId[]) => Promise<void>; server:boolean; busy:boolean; error:string; serverSnapshot:ServerSnapshot|null; refresh:()=>Promise<void>; executeDraw?: (count:1|10)=>Promise<readonly BibleFriendDesignId[]>; perform?: (action:CompanionAction)=>Promise<boolean>};
 const CompanionContext = createContext<Context | null>(null);
 function DemoProvider({children, dailyApi}: PropsWithChildren<{dailyApi?: DailyMissionApi}>) {
@@ -97,9 +98,12 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   for(const [id,code] of Object.entries(DAILY_MISSION_SERVER_IDS))if(value.daily.missions.some(m=>m.mission===code&&m.status==='CLAIMED'))claimed.push(`${value.daily.recordDate}:${id}`);
   if(value.attendance.claimed)claimed.push(`${value.attendance.date}:attendance`);
   for(const [id,code] of Object.entries(PERIOD_MISSION_IDS)){const item=value.periods.missions.find(m=>m.mission===code);if(item?.status==='CLAIMED')claimed.push(`${item.periodStart}:${id}`);}
-  let next:CompanionState={points:value.balance,dailyAwardedPoints:0,backgroundId:value.garden.backgroundId??'default',inventory:value.inventory,equipped:[...value.garden.placements].sort((a,b)=>a.slot-b.slot).map(p=>p.designId),gardenPositions:Object.fromEntries(value.garden.placements.map(p=>[p.designId,{x:p.x,y:p.y}])),claimed,transactions:[]};
+  const slots=[...value.garden.placements].sort((a,b)=>a.slot-b.slot).map(p=>({
+    designId:p.designId,instanceId:p.instanceId??null,x:p.x,y:p.y,
+  }));
+  let next:CompanionState={points:value.balance,dailyAwardedPoints:0,backgroundId:value.garden.backgroundId??'default',inventory:value.inventory,equipped:slots.map(p=>p.designId),gardenSlots:slots,gardenPositions:Object.fromEntries(value.garden.placements.map(p=>[p.designId,{x:p.x,y:p.y}])),claimed,transactions:[]};
   if (gardenDirty.current) {
-    next = {...next,equipped:current.current.equipped,backgroundId:current.current.backgroundId,gardenPositions:current.current.gardenPositions};
+    next = {...next,equipped:current.current.equipped,gardenSlots:current.current.gardenSlots,backgroundId:current.current.backgroundId,gardenPositions:current.current.gardenPositions};
   }
   current.current=next;setState(next);
  },[]);
@@ -120,16 +124,19 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
     const garden = await api.garden({
       version:source.current.garden.version,
       backgroundId:draft.backgroundId === 'default' ? null : draft.backgroundId,
-      placements:draft.equipped.map((id,index) => ({slot:index+1,designId:id,x:draft.gardenPositions[id]?.x??0.5,y:draft.gardenPositions[id]?.y??0.5})),
+      placements:companionGardenSlots(draft).map((p,index)=>({
+        slot:index+1,designId:p.designId,x:p.x,y:p.y,
+        ...(p.instanceId?{instanceId:p.instanceId}:{}),
+      })),
     });
     if (!alive.current) return;
     // A new garden assignment may point at a different owned instance.
     // Refresh only the <=5 equipped pets, not the full wallet/catalog/
     // inventory snapshot. Background-only changes require no extra API call.
     const previous = [...source.current!.garden.placements]
-      .sort((a,b)=>a.slot-b.slot).map(item=>item.designId);
+      .sort((a,b)=>a.slot-b.slot).map(item=>item.instanceId??item.designId);
     const updated = [...garden.placements]
-      .sort((a,b)=>a.slot-b.slot).map(item=>item.designId);
+      .sort((a,b)=>a.slot-b.slot).map(item=>item.instanceId??item.designId);
     const equippedChanged = previous.length !== updated.length ||
       previous.some((id,index)=>id!==updated[index]);
     gardenDirty.current = revision !== gardenRevision.current;
@@ -177,7 +184,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  }, [refresh,flushGarden]);
  const operate=useCallback(async<T,>(job:()=>Promise<T>,reconcile?:(result:T)=>ServerSnapshot):Promise<T>=>{if(lock.current||!source.current||error)throw new Error('서버 정보를 먼저 새로 확인해주세요.');lock.current=true;setBusy(true);try{const result=await job();apply(reconcile?reconcile(result):await api.load());return result;}catch(e){if(alive.current)setError('처리 결과를 확인해주세요. 새로 확인한 뒤 다시 시도할 수 있어요.');throw e;}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,error]);
  const perform=useCallback(async(action:CompanionAction)=>{
-  if (['background','equip','replace'].includes(action.type)) {
+  if (['background','equip','replace','equip-instance','unequip-instance'].includes(action.type)) {
     if (!source.current || error) return false;
     if (action.type === 'background' && action.backgroundId !== 'default' && !source.current.backgrounds.includes(action.backgroundId)) return false;
     const next = companionReducer(current.current,action);
@@ -232,8 +239,13 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
  },[api,instances,error,refreshInstances]);
 
+ const instancesByDesign = useCallback(async(designId:BibleFriendDesignId,page:number)=>{
+  if(!api.instancesByDesign || page<0 || page>100) return [];
+  return api.instancesByDesign(designId,page);
+ },[api]);
+
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{gardenSaving,instances,careError,careInstance,evolveInstance,state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{gardenSaving,instances,careError,careInstance,evolveInstance,instancesByDesign,state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);
