@@ -6,6 +6,18 @@ describe('companion server boundaries',()=>{
   for(const placements of [[{...p,x:NaN}],[p,p],[{...p,slot:6}],[{...p,designId:'unknown'}]])expect(()=>parseGarden({version:0,backgroundId:null,placements})).toThrow();
   expect(parseGarden({version:1,backgroundId:null,placements:[p]}).placements).toHaveLength(1);
  });
+ it('accepts separately owned copies of the same design and rejects duplicated UUIDs',()=>{
+  const a={slot:1,designId:'david-lamb:base',x:.2,y:.3,
+    instanceId:'12345678-1234-1234-1234-123456789abc'};
+  const b={...a,slot:2,x:.7,instanceId:'12345678-1234-1234-1234-123456789abd'};
+  const parsed=parseGarden({version:5,backgroundId:null,placements:[a,b]});
+  expect(parsed.placements).toHaveLength(2);
+  expect(parsed.placements[0]?.instanceId).toBe(a.instanceId);
+  expect(parsed.placements[1]?.instanceId).toBe(b.instanceId);
+  expect(()=>parseGarden({version:5,backgroundId:null,placements:[a,{...b,instanceId:a.instanceId}]})).toThrow();
+  expect(()=>parseGarden({version:5,backgroundId:null,placements:[a,{...b,instanceId:undefined}]})).toThrow();
+  expect(()=>parseGarden({version:5,backgroundId:null,placements:[{...a,instanceId:'invalid'}]})).toThrow();
+ });
  it('rejects unsafe amounts, unknown results and invalid calendar values',()=>{
   const op={operationId:'id',designIds:['david-lamb:base'],pointDelta:-100,balance:0,policyVersion:'v1',quantity:0,unitPrice:0};
   expect(()=>parseOperation({...op,balance:Number.MAX_SAFE_INTEGER+1})).toThrow();

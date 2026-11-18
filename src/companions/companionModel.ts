@@ -29,12 +29,19 @@ export const MISSIONS: readonly MissionDefinition[] = [
 export const RARITY_LABELS: Readonly<Record<BibleFriendRarity, string>> = {
   COMMON: '일반', UNCOMMON: '고급', RARE: '희귀', EPIC: '에픽', UNIQUE: '유니크', MIRACLE: '미라클',
 };
+export type GardenSlot = Readonly<{designId:BibleFriendDesignId;instanceId?:string|null;x:number;y:number}>;
+export function companionGardenSlots(state:CompanionState):readonly GardenSlot[]{
+ return state.gardenSlots??state.equipped.map(designId=>({
+   designId,x:state.gardenPositions[designId]?.x??0.5,y:state.gardenPositions[designId]?.y??0.5,
+ }));
+}
 export type CompanionState = Readonly<{
   points: number;
   dailyAwardedPoints: number;
   backgroundId: GardenBackgroundId;
   inventory: Readonly<Partial<Record<BibleFriendDesignId, number>>>;
   equipped: readonly BibleFriendDesignId[];
+  gardenSlots?: readonly GardenSlot[] | undefined;
   gardenPositions: Readonly<Partial<Record<BibleFriendDesignId, Readonly<{x: number; y: number}>>>>;
   claimed: readonly string[];
   transactions: readonly string[];
@@ -46,6 +53,8 @@ export type CompanionAction =
   | {type: 'background'; backgroundId: GardenBackgroundId}
   | {type: 'move'; designId: BibleFriendDesignId; position: Readonly<{x:number; y:number}>}
   | {type: 'equip'; designId: BibleFriendDesignId}
+  | {type: 'equip-instance'; designId:BibleFriendDesignId; instanceId:string}
+  | {type: 'unequip-instance'; instanceId:string}
   | {type: 'claim'; missionId: string; periodKey: string; status: MissionStatus}
   | {type: 'draw'; results: readonly BibleFriendDesignId[]; transactionId: string}
   | {type: 'sell'; designId: BibleFriendDesignId; quantity: number; transactionId: string};
@@ -94,12 +103,43 @@ export function companionReducer(state: CompanionState, action: CompanionAction)
       if (outgoingPosition) gardenPositions[action.incomingId] = outgoingPosition;
       else delete gardenPositions[action.incomingId];
       delete gardenPositions[action.outgoingId];
+      if(state.gardenSlots){
+        const index=state.gardenSlots.findIndex(p=>p.designId===action.outgoingId);
+        if(index<0)return state;
+        const slots=state.gardenSlots.map((p,i)=>i===index?{...p,designId:action.incomingId,instanceId:null}:p);
+        return{...state,equipped:slots.map(p=>p.designId),gardenSlots:slots,gardenPositions};
+      }
       return {...state, equipped: state.equipped.map(id => id === action.outgoingId ? action.incomingId : id), gardenPositions};
     }
     case 'equip': {
-      if (state.equipped.includes(action.designId)) return {...state, equipped: state.equipped.filter(id => id !== action.designId)};
+      if (state.equipped.includes(action.designId)){
+        if(state.gardenSlots){
+          const slots=state.gardenSlots.filter(p=>p.designId!==action.designId);
+          return{...state,equipped:slots.map(p=>p.designId),gardenSlots:slots};
+        }
+        return {...state, equipped: state.equipped.filter(id => id !== action.designId)};
+      }
       if (!catalog.has(action.designId) || !(state.inventory[action.designId] ?? 0) || state.equipped.length >= MAX_GARDEN_FRIENDS) return state;
+      if(state.gardenSlots){
+        const slots=[...state.gardenSlots,{designId:action.designId,instanceId:null,x:0.5,y:0.5}];
+        return {...state,equipped:slots.map(p=>p.designId),gardenSlots:slots};
+      }
       return {...state, equipped: [...state.equipped, action.designId]};
+    }
+    case 'equip-instance': {
+      if(!catalog.has(action.designId)||!action.instanceId||(state.inventory[action.designId]??0)<1)return state;
+      const slots=companionGardenSlots(state);
+      if(slots.some(p=>p.instanceId===action.instanceId))return state;
+      if(slots.length>=MAX_GARDEN_FRIENDS)return state;
+      // The server remains authoritative about actual per-design ownership.
+      const next=[...slots,{designId:action.designId,instanceId:action.instanceId,x:0.5,y:0.5}];
+      return {...state,equipped:next.map(p=>p.designId),gardenSlots:next};
+    }
+    case 'unequip-instance': {
+      const slots=companionGardenSlots(state);
+      if(!slots.some(p=>p.instanceId===action.instanceId))return state;
+      const next=slots.filter(p=>p.instanceId!==action.instanceId);
+      return {...state,equipped:next.map(p=>p.designId),gardenSlots:next};
     }
     case 'claim': {
       const mission = MISSIONS.find(m => m.id === action.missionId);
