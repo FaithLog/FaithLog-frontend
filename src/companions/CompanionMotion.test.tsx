@@ -315,7 +315,7 @@ it('separates two same-design pets by UUID for movement, care and evolution HUD'
   });
   const scenes=tree!.root.findAllByType('View' as React.ElementType)
     .filter(node=>String(node.props.testID??'').startsWith('garden-animal-'));
-  expect(scenes.map(x=>x.props.testID)).toEqual([\`garden-animal-\${idA}\`,\`garden-animal-\${idB}\`]);
+  expect(scenes.map(x=>x.props.testID)).toEqual(['garden-animal-'+idA,'garden-animal-'+idB]);
   expect(tree!.root.findAllByType('FarmSprite' as React.ElementType)).toHaveLength(1);
   const touches=tree!.root.findAllByType('Pressable' as React.ElementType);
   await act(async()=>touches[1]?.props.onPress());
