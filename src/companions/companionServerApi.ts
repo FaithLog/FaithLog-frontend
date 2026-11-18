@@ -3,7 +3,7 @@ import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
 import {isDailyMission} from './dailyMissionContract';
 import {isGardenBackgroundId} from './gardenBackgrounds';
-import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
+import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionSaleAvailability,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
  const daily=createDailyMissionApi(campusId,getToken);let pool:ServerSnapshot['pool']=null;let mutation=false;
@@ -34,7 +34,8 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
    const balance=await request('/api/v1/points/me/wallet',v=>integer(object(v).balance));pool=pools[0]??null;
    return{balance,inventory,garden,daily:dailyResult,attendance,periods,backgrounds,pool,prices,history,catalog};
   },
-  garden:(garden:Garden)=>request('/api/v1/companions/me/garden',parseGarden,'PUT',garden),
+  garden:(garden:Garden)=>request('/api/v1/companions/me/garden',parseGarden,'PUT',
+      {...garden,placementProtocol:'INSTANCE_V1'}),
   async claim(id){
    if(id==='attendance'){const attendance=await request('/api/v1/points/me/attendance',parseAttendance,'POST');return{attendance,balance:attendance.balance};}
    if(isDailyMission(id)){const result=await daily.claim(id);const balance=await request('/api/v1/points/me/wallet',v=>integer(object(v).balance));return{daily:result,balance};}
@@ -43,6 +44,15 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   },
   draw:count=>{if(!pool)throw new Error('뽑기 정보를 새로 확인해주세요.');return mutate('draws',{poolVersion:pool.poolVersion,count});},
   sell:(designId,quantity)=>mutate('sales',{designId,quantity}),
+  saleAvailability:(selected)=>request(
+     `/api/v1/companions/me/sales/availability?designId=${encodeURIComponent(selected)}`,
+     v=>{const r=object(v);const design=designId(r.designId);
+       const ownedQuantity=integer(r.ownedQuantity);
+       const sellableQuantity=integer(r.sellableQuantity);
+       if(design!==selected||sellableQuantity>Math.max(0,ownedQuantity-1))
+         throw new Error('Invalid sale availability');
+       return{designId:design,ownedQuantity,sellableQuantity} satisfies CompanionSaleAvailability;
+     }),
   // Home renders at most five animals; never fetch the owner's full duplicate inventory.
   instances:()=>request('/api/v1/companions/me/instances/garden',v=>array(v).map(parseCompanionInstance)),
   instancesByDesign:(designId,page)=>request(`/api/v1/companions/me/instances/by-design?designId=${encodeURIComponent(designId)}&page=${page}&size=20`,v=>array(v).map(parseCompanionInstance)),
