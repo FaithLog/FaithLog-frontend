@@ -167,12 +167,15 @@ it('handles consecutive drags locally without API requests or resets from server
   expect(tree!.root.findByType('Sprite' as React.ElementType).props.motion).toBe('held');
   await act(async () => animal().props.onResponderRelease());
   await advance(3000);
-  // Foreground switches within 30s reuse the last server snapshot.
+  // Explicit manual refresh already fetched a second snapshot. A quick
+  // foreground switch must NOT fetch it a third time.
   expect(api.garden).not.toHaveBeenCalled();
-  expect(api.load).toHaveBeenCalledTimes(1);
-  await advance(31_000);
+  expect(api.load).toHaveBeenCalledTimes(2);
   await act(async()=>native.appListener?.('active'));
   expect(api.load).toHaveBeenCalledTimes(2);
+  await advance(31_000);
+  await act(async()=>native.appListener?.('active'));
+  expect(api.load).toHaveBeenCalledTimes(3);
 });
 
 
