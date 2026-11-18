@@ -124,7 +124,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
     {design ? <View style={s.card}>
       <View style={s.between}><Text style={s.name}>친구 상세</Text><Button size="compact" accessibilityLabel="선택한 동물 상세 닫기" variant="ghost" onPress={() => setSelected(null)}>닫기</Button></View>
       <View style={[s.row, {flexWrap:'nowrap'}]}><BibleFriendDesignSprite designId={design.id} silhouette={count < 1} motion="happy" size={88} /><View style={{flex:1,gap:8}}><Text style={s.title}>{design.name}</Text><Text style={s.body}>{RARITY_LABELS[design.rarity]} · {count}마리 보유</Text></View></View>
-      {(!server || !instancesByDesign || instanceError) ? <Button fullWidth accessibilityLabel={state.equipped.includes(design.id) ? '정원에서 빼기' : '정원에 배치하기'}
+      {(!server || !instancesByDesign) ? <Button fullWidth accessibilityLabel={state.equipped.includes(design.id) ? '정원에서 빼기' : '정원에 배치하기'}
         disabled={count < 1}
         onPress={() => {if (!state.equipped.includes(design.id) && state.equipped.length >= MAX_GARDEN_FRIENDS) setReplacementId(design.id); else dispatch({type:'equip',designId:design.id});}}>
         {state.equipped.includes(design.id) ? '정원에서 빼기' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '배치한 친구와 교체하기' : '정원에 배치하기'}
@@ -190,7 +190,11 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         <CompanionCardName name={item.name} /><Chip label={RARITY_LABELS[item.rarity]} />
         <Text style={s.caption}>{owned ? `${owned}마리${equipped ? ' · 배치 중' : ''}` : '아직 만나지 못했어요'}</Text>
       </Pressable>
-      {owned > 0 ? <Button fullWidth size="compact" variant={equipped ? 'secondary' : 'ghost'} accessibilityLabel={`${item.name} ${equipped ? '바로 배치 해제' : '바로 배치'}`} onPress={() => {
+      {owned > 0 && server && instancesByDesign ? <Button fullWidth size="compact" variant="ghost"
+        accessibilityLabel={`${item.name} 개체 목록 열기`}
+        onPress={()=>{setSelected(item.id);setInstancePage(0);setMessage('');onRevealDetails();}}>
+          개체 선택
+      </Button> : owned > 0 ? <Button fullWidth size="compact" variant={equipped ? 'secondary' : 'ghost'} accessibilityLabel={`${item.name} ${equipped ? '바로 배치 해제' : '바로 배치'}`} onPress={() => {
         if (!equipped && state.equipped.length >= MAX_GARDEN_FRIENDS) {setReplacementId(item.id);}
         else {dispatch({type:'equip',designId:item.id}); if(!server)setMessage(equipped ? '정원에서 친구를 뺐어요.' : '정원에 친구를 배치했어요.');}
       }}>{equipped ? '배치 해제' : state.equipped.length >= MAX_GARDEN_FRIENDS ? '교체하기' : '배치하기'}</Button> : <Text style={s.caption}>미보유</Text>}
