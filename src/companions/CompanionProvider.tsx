@@ -123,9 +123,21 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
       placements:draft.equipped.map((id,index) => ({slot:index+1,designId:id,x:draft.gardenPositions[id]?.x??0.5,y:draft.gardenPositions[id]?.y??0.5})),
     });
     if (!alive.current) return;
+    // A new garden assignment may point at a different owned instance.
+    // Refresh only the <=5 equipped pets, not the full wallet/catalog/
+    // inventory snapshot. Background-only changes require no extra API call.
+    const previous = [...source.current!.garden.placements]
+      .sort((a,b)=>a.slot-b.slot).map(item=>item.designId);
+    const updated = [...garden.placements]
+      .sort((a,b)=>a.slot-b.slot).map(item=>item.designId);
+    const equippedChanged = previous.length !== updated.length ||
+      previous.some((id,index)=>id!==updated[index]);
     gardenDirty.current = revision !== gardenRevision.current;
     apply({...source.current!,garden});
-    if (!gardenDirty.current) setGardenSaving(false);
+    if (!gardenDirty.current) {
+      setGardenSaving(false);
+      if (equippedChanged) await refreshInstances();
+    }
   } catch {
     if (alive.current) {
       gardenDirty.current = false;
@@ -142,7 +154,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
       gardenTimer.current = setTimeout(() => {void saveGarden();}, 700);
     }
   }
- }, [api,apply]);
+ }, [api,apply,refreshInstances]);
  useEffect(() => {
   alive.current = true;
   void refresh();

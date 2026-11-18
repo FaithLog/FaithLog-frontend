@@ -233,3 +233,54 @@ it('does not show fabricated care stats when the backend has no instance API',as
   expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(0);
   expect(tree!.root.findAllByType('Sprite' as React.ElementType)).toHaveLength(1);
 });
+
+
+function EquipProbe(){
+  const {perform,instances}=useCompanions();
+  return React.createElement('equipProbe',{perform,instances});
+}
+
+it('refreshes only five-pet data once after equipping, not on background-only updates',async()=>{
+  const data=snapshot();
+  data.inventory={'hope-rabbit:base':1};
+  data.backgrounds=['meadow'];
+  const pet={
+    instanceId:'12345678-1234-1234-1234-123456789abc',
+    designId:'hope-rabbit:base' as const,
+    level:1 as const,growthXp:0,totalEarnedXp:0,careDays:0,version:0,
+    stats:{satiety:100,cleanliness:100,joy:100,affection:100,health:100},
+    lastCaredAt:'2026-11-18T01:00:00Z',
+    nextEvolution:null,canEvolve:false,
+  };
+  const api:CompanionServerApi={
+    load:vi.fn(async()=>({...data,garden:{...data.garden}})),
+    garden:vi.fn(async garden=>{
+      data.garden={...garden,version:garden.version+1};
+      return data.garden;
+    }),
+    instances:vi.fn(async()=>data.garden.placements.length?[pet]:[]),
+    claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+  };
+  await act(async()=>{
+    tree=create(<CompanionProvider api={api}>
+      <CompanionGarden onOpen={vi.fn()}/><EquipProbe/>
+    </CompanionProvider>);
+  });
+  expect(api.instances).toHaveBeenCalledTimes(1);
+  const probe=()=>tree!.root.findByType('equipProbe' as React.ElementType);
+  await act(async()=>{await probe().props.perform({type:'equip',designId:'hope-rabbit:base'});});
+  await advance(900);
+  expect(api.garden).toHaveBeenCalledTimes(1);
+  expect(api.instances).toHaveBeenCalledTimes(2);
+  expect(api.load).toHaveBeenCalledTimes(1);
+  expect(probe().props.instances).toHaveLength(1);
+  // The pet exists in the scene, independently of the exact localized label.
+  expect(tree!.root.findAllByType('View' as React.ElementType).some(
+    n=>n.props.testID==='garden-animal-hope-rabbit:base')).toBe(true);
+
+  await act(async()=>{await probe().props.perform({type:'background',backgroundId:'meadow'});});
+  await advance(900);
+  expect(api.garden).toHaveBeenCalledTimes(2);
+  expect(api.instances).toHaveBeenCalledTimes(2);
+  expect(api.load).toHaveBeenCalledTimes(1);
+});
