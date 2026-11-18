@@ -20,10 +20,12 @@ export type CompanionInstance = {
  growthXp:number;totalEarnedXp:number;careDays:number;stats:CompanionStats;
  lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;
 };
+export type CompanionSaleAvailability = {designId:BibleFriendDesignId;ownedQuantity:number;sellableQuantity:number};
 export type CompanionServerApi = {
  load:()=>Promise<ServerSnapshot>;garden:(garden:Garden)=>Promise<Garden>;
  claim:(id:string)=>Promise<ClaimUpdate>;draw:(count:1|10)=>Promise<Operation>;
  sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>;
+ saleAvailability?:(id:BibleFriendDesignId)=>Promise<CompanionSaleAvailability>;
  // Optional for old server/demo mocks; never fabricate growth stats on 404.
  instances?:()=>Promise<CompanionInstance[]>;
  instancesByDesign?:(designId:BibleFriendDesignId,page:number)=>Promise<CompanionInstance[]>;
