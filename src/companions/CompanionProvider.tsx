@@ -243,8 +243,14 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
    if(alive.current)setInstances(items=>items?.map(item=>item.instanceId!==id?item:
      item.version>updated.version?item:updated)??null);
    pendingOperation.current=null;
-  }catch{
-   if(alive.current)setCareError('돌봄 응답이 불확실해요. 같은 요청으로 다시 시도할 수 있어요.');
+  }catch(e){
+   const definitive=e instanceof FaithLogApiError &&
+     (e.detail.status??0)>=400 && (e.detail.status??0)<500 &&
+     ![408,429].includes(e.detail.status??0);
+   if(definitive)pendingOperation.current=null;
+   if(alive.current)setCareError(definitive
+     ?'돌봄 요청이 거절됐어요. 현재 상태와 쿨타임을 확인해주세요.'
+     :'돌봄 응답이 불확실해요. 같은 요청으로 다시 시도할 수 있어요.');
    const latest=await refreshInstances();
    if(latest?.some(item=>item.instanceId===id&&item.version>found.version)){
     pendingOperation.current=null;
@@ -270,8 +276,14 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
    if(alive.current)setInstances(items=>items?.map(item=>item.instanceId!==id?item:
      item.version>updated.version?item:updated)??null);
    pendingOperation.current=null;
-  }catch{
-   if(alive.current)setCareError('진화 응답이 불확실해요. 같은 요청으로 다시 시도할 수 있어요.');
+  }catch(e){
+   const definitive=e instanceof FaithLogApiError &&
+     (e.detail.status??0)>=400 && (e.detail.status??0)<500 &&
+     ![408,429].includes(e.detail.status??0);
+   if(definitive)pendingOperation.current=null;
+   if(alive.current)setCareError(definitive
+     ?'진화 요청이 거절됐어요. 성장 조건을 다시 확인해주세요.'
+     :'진화 응답이 불확실해요. 같은 요청으로 다시 시도할 수 있어요.');
    const latest=await refreshInstances();
    if(latest?.some(item=>item.instanceId===id&&item.version>found.version)){
     pendingOperation.current=null;

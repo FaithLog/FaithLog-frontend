@@ -21,7 +21,7 @@ vi.mock('./CompanionDrawScene', () => ({CompanionDrawScene: (props: {onComplete:
 
 
 import {CompanionProvider,isCompanionPreviewEnabled,useCompanions} from './CompanionProvider';
-import type {CompanionServerApi,ServerSnapshot} from './companionServerContract';
+import type {CompanionServerApi,ServerSnapshot,CompanionInstance} from './companionServerContract';
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
 (globalThis as typeof globalThis&{IS_REACT_ACT_ENVIRONMENT:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let current:ReturnType<typeof useCompanions>;let tree:ReactTestRenderer|undefined;
@@ -100,3 +100,59 @@ describe('server companion state ownership',()=>{
 });
 
 it('enables the server economy in production builds',()=>{vi.stubGlobal('__DEV__',false);try{expect(isCompanionPreviewEnabled()).toBe(true);}finally{vi.unstubAllGlobals();}});
+
+const petId='12345678-1234-1234-1234-123456789abc';
+const petState:CompanionInstance={
+ instanceId:petId,designId:'david-lamb:base',level:1,growthXp:0,totalEarnedXp:0,
+ careDays:0,version:0,stats:{satiety:100,cleanliness:100,joy:100,affection:100,health:100},
+ lastCaredAt:'2026-11-18T00:00:00Z',nextEvolution:null,canEvolve:false,
+};
+describe('individual companion concurrent request safety',()=>{
+ it('reuses the same idempotency key when a care response is lost',async()=>{
+  const api=apiFor(snapshot());
+  api.instances=vi.fn(async()=>[petState]);
+  let attempts=0;
+  api.careInstance=vi.fn(async()=>{
+   attempts++;
+   if(attempts===1)throw new TypeError('response lost after commit');
+   return {...petState,version:1,growthXp:15,totalEarnedXp:15};
+  });
+  await mount(api);
+  await act(async()=>{await current.careInstance!(petId,'FEED');});
+  expect(current.instances?.[0]?.version).toBe(0);
+  await act(async()=>{await current.careInstance!(petId,'FEED');});
+  expect(current.instances?.[0]?.version).toBe(1);
+  const calls=vi.mocked(api.careInstance).mock.calls;
+  expect(calls).toHaveLength(2);
+  expect(calls[0]?.[3]).toBe(calls[1]?.[3]);
+  expect(calls[0]?.[2]).toBe(calls[1]?.[2]);
+ });
+
+ it('never lets an older GET overwrite a completed care version',async()=>{
+  const api=apiFor(snapshot());
+  let reads=0;
+  let deliverRead!:(pets:CompanionInstance[])=>void;
+  api.instances=vi.fn(async()=>{
+   reads++;
+   if(reads===1)return[petState];
+   return new Promise<CompanionInstance[]>(resolve=>{deliverRead=resolve;});
+  });
+  let deliverCare!:(pet:CompanionInstance)=>void;
+  api.careInstance=vi.fn(async()=>{
+   return new Promise<CompanionInstance>(resolve=>{deliverCare=resolve;});
+  });
+  await mount(api);
+  let care!:Promise<void>;
+  await act(async()=>{care=current.careInstance!(petId,'FEED');await Promise.resolve();});
+  let reading!:Promise<void>;
+  await act(async()=>{reading=current.refresh();await Promise.resolve();await Promise.resolve();});
+  await act(async()=>{
+   deliverCare({...petState,version:1,growthXp:15,totalEarnedXp:15});
+   await care;
+  });
+  expect(current.instances?.[0]?.version).toBe(1);
+  await act(async()=>{deliverRead([petState]);await reading;});
+  expect(current.instances?.[0]?.version).toBe(1);
+  expect(current.instances?.[0]?.growthXp).toBe(15);
+ });
+});
