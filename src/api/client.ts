@@ -177,6 +177,7 @@ import {
 } from './currentUserCache';
 
 type RequestOptions = {
+  background?: boolean;
   idempotencyKey?: string;
   accessToken?: string;
   allowAuthSessionChange?: boolean;
@@ -1449,11 +1450,12 @@ export async function apiRequest<T>(
       options.authSessionGeneration ?? getAuthSessionGeneration(),
   };
 
-  return withApiProgress(() => executeRequestWithAuth(
+  const execute = () => executeRequestWithAuth(
     requestOptions,
     guardAuthSession,
     (effectiveOptions) => executeApiRequest<T>(path, effectiveOptions),
-  ));
+  );
+  return options.background ? execute() : withApiProgress(execute);
 }
 
 export function authenticatedTransportRequest<T>({
@@ -2381,17 +2383,17 @@ export function fetchCoffeeMenus(accessToken: string, brandId: unknown) {
   );
 }
 
-export function fetchPolls(accessToken: string, campusId: unknown) {
+export function fetchPolls(accessToken: string, campusId: unknown, background = false) {
   return apiRequest<PollSummary[]>(buildPollListPath(campusId), {
     accessToken,
-    responseParser: parsePollSummaryList,
+    background, responseParser: parsePollSummaryList,
   });
 }
 
-export function fetchPollDetail(accessToken: string, campusId: unknown, pollId: unknown) {
+export function fetchPollDetail(accessToken: string, campusId: unknown, pollId: unknown, background = false) {
   return apiRequest<PollDetail>(
     buildCampusPath(campusId, 'polls', toPositiveIntegerPathSegment(pollId, 'pollId')),
-    {accessToken, responseParser: parsePollDetail},
+    {accessToken, background, responseParser: parsePollDetail},
   );
 }
 
@@ -2440,7 +2442,7 @@ export function addUserPollOption(
   );
 }
 
-export function fetchPollResults(accessToken: string, campusId: unknown, pollId: unknown) {
+export function fetchPollResults(accessToken: string, campusId: unknown, pollId: unknown, background = false) {
   return apiRequest<PollResults>(
     buildCampusPath(
       campusId,
@@ -2448,11 +2450,11 @@ export function fetchPollResults(accessToken: string, campusId: unknown, pollId:
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'results',
     ),
-    {accessToken, responseParser: parsePollResults},
+    {accessToken, background, responseParser: parsePollResults},
   );
 }
 
-export function fetchPollComments(accessToken: string, campusId: unknown, pollId: unknown) {
+export function fetchPollComments(accessToken: string, campusId: unknown, pollId: unknown, background = false) {
   return apiRequest<PollComment[]>(
     buildCampusPath(
       campusId,
@@ -2460,7 +2462,7 @@ export function fetchPollComments(accessToken: string, campusId: unknown, pollId
       toPositiveIntegerPathSegment(pollId, 'pollId'),
       'comments',
     ),
-    {accessToken, responseParser: parsePollComments},
+    {accessToken, background, responseParser: parsePollComments},
   );
 }
 

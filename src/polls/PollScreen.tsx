@@ -242,16 +242,16 @@ export function PollScreen({
       const token = await resolveAccessToken(setAuthState);
       if (!token || !valid()) return;
       if (pollId === null) {
-        const polls = await fetchPolls(token, campusId);
+        const polls = await fetchPolls(token, campusId, true);
         if (valid() && liveSnapshot.current.listState === snapshot.listState) {
           setListState({status: 'success', polls}); setRefreshWarning(null);
         }
         return;
       }
       const [detail, result, comments] = await Promise.all([
-        fetchPollDetail(token, campusId, pollId),
-        fetchPollResultState(token, campusId, pollId),
-        snapshot.detailTab === 'comments' ? fetchPollComments(token, campusId, pollId) : Promise.resolve(null),
+        fetchPollDetail(token, campusId, pollId, true),
+        fetchPollResultState(token, campusId, pollId, true),
+        snapshot.detailTab === 'comments' ? fetchPollComments(token, campusId, pollId, true) : Promise.resolve(null),
       ]);
       if (!valid() || liveSnapshot.current.detailState !== snapshot.detailState) return;
       if (detail.id !== pollId || detail.campusId !== campusId) return;
@@ -2555,10 +2555,11 @@ async function fetchPollResultState(
   accessToken: string,
   campusId: unknown,
   pollId: unknown,
+  background = false,
 ): Promise<{results: PollResults | null; error: ApiError | null}> {
   try {
     return {
-      results: await fetchPollResults(accessToken, campusId, pollId),
+      results: await fetchPollResults(accessToken, campusId, pollId, background),
       error: null,
     };
   } catch (error) {
