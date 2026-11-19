@@ -115,7 +115,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           ? undefined : visual.action;
         return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
           evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
-          farmAction={farmAction} farmActionElapsedMs={visual.elapsedMs}
+          {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
           onRelease={dragged => {
