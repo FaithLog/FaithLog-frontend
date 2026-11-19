@@ -13,7 +13,7 @@ def sql(statement):
 
 sql('CREATE EXTENSION IF NOT EXISTS pgcrypto')
 fixtures = []
-for index in range(2):
+for index in range(3):
     email = f'companion-qa-{index}@example.test'
     user = int(sql(f"INSERT INTO users(name,email,password_hash,role,is_active,token_version,created_at,updated_at) VALUES('QA','{email}',crypt('test-only-password',gen_salt('bf',10)),'USER',true,0,now(),now()) RETURNING id"))
     campus = int(sql(f"INSERT INTO campuses(name,invite_code,is_active,created_at,updated_at) VALUES('QA','companion-qa-{index}',true,now(),now()) RETURNING id"))
@@ -25,6 +25,17 @@ for fixture in fixtures:
     assert sql(f"SELECT count(*) FROM point_transactions WHERE user_id={fixture['user']} AND business_key='welcome:initial-1000:v1'") == '1', 'Exactly one starter grant required'
 sql(f"INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES({first['user']},'david-lamb:base',3,now())")
 sql(f"INSERT INTO user_backgrounds(user_id,background_id,acquired_at) VALUES({first['user']},'meadow',now())")
+# Account #3 has two UUID-distinct pets of the same design. One is eligible
+# for evolution, seeded directly only into this disposable PostgreSQL database.
+third = fixtures[2]
+sql(f"INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES({third['user']},'david-lamb:base',2,now())")
+sql(f"UPDATE companion_instances SET growth_xp=300,total_earned_xp=300,"
+    f"care_days=3,health=90,satiety=90,cleanliness=90 "
+    f"WHERE id=(SELECT id FROM companion_instances WHERE user_id={third['user']} "
+    f"AND design_id='david-lamb:base' ORDER BY acquired_at,id LIMIT 1)")
+assert sql(f"SELECT count(*) FROM companion_instances WHERE user_id={third['user']} AND design_id='david-lamb:base'") == '2', 'Two owned instances required'
+assert sql(f"SELECT count(*) FROM companion_instances WHERE user_id={third['user']} AND growth_xp=300") == '1', 'One evolution-ready pet required'
+
 # Match MissionWindow: the most recently closed month, including its final week.
 today = dt.datetime.now(ZoneInfo('Asia/Seoul')).date()
 last = today.replace(day=1) - dt.timedelta(days=1)
