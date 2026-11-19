@@ -23,8 +23,8 @@ const androidScreenReportingPlugin = fs.readFileSync(
 
 describe('Firebase Analytics native configuration', () => {
   it('uses the matching React Native Firebase package and Expo config plugin', () => {
-    expect(packageJson.dependencies['@react-native-firebase/analytics']).toBe('25.1.0');
-    expect(packageJson.dependencies['@react-native-firebase/app']).toBe('^25.1.0');
+    expect(packageJson.dependencies['@react-native-firebase/analytics']).toBe('26.4.2');
+    expect(packageJson.dependencies['@react-native-firebase/app']).toBe('26.4.2');
     expect(appConfig).toContain("'@react-native-firebase/analytics'");
     expect(appConfig).toMatch(/withoutAdIdSupport:\s*true/);
     expect(appJson.expo.android.blockedPermissions).toContain(
