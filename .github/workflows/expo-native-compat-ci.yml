@@ -91,3 +91,14 @@ jobs:
 
       - name: Generate iOS native project (synthetic Firebase only)
         run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Guard native iOS SPM linkage before release
+        run: |
+          node - <<'NODE'
+          const props=require('./ios/Podfile.properties.json');
+          if(props['ios.useFrameworks']!=='dynamic'){
+            throw new Error('RNFirebase 26 SPM requires ios.useFrameworks=dynamic');
+          }
+          console.log('iOS Firebase 26 SPM dynamic linkage is configured');
+          NODE
+
