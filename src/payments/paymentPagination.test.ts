@@ -14,6 +14,16 @@ describe('payment empty-page fallback', () => {
     expect(result?.data).not.toContainEqual(oldPaidCharge);
   });
 
+  it('skips pages beyond the server-reported last page', async () => {
+    const visited: number[] = [];
+    const result = await findFreshFallbackPage(8, async (page) => {
+      visited.push(page);
+      return ['fresh'];
+    }, (data) => data.length === 0, () => true, 3);
+    expect(visited).toEqual([2]);
+    expect(result).toEqual({page: 2, data: ['fresh']});
+  });
+
   it('walks backward across empty intermediate pages', async () => {
     const visited: number[] = [];
     const result = await findFreshFallbackPage(3, async (page) => {
