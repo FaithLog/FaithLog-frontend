@@ -1,0 +1,78 @@
+name: EAS iOS Pods Fix Preview Verification
+
+on:
+  push:
+    branches:
+      - test/371-eas-ios-preview-recheck
+    paths:
+      - .github/workflows/eas-preview-native-qa.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preview-native:
+    if: github.repository == 'FaithLog/FaithLog-frontend'
+    name: Preview / ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios]
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_PUBLIC_API_BASE_URL: https://faithlog-549871256004.asia-northeast3.run.app
+      EXPO_PUBLIC_APP_ENV: preview
+      EXPO_PUBLIC_MOCK_MODE: 'false'
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout QA snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node 26
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+          cache: npm
+
+      - name: Install and verify source
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npx expo install --check
+
+      - name: Setup Expo and EAS CLI
+        uses: expo/expo-github-action@9da89d3617bb88139671bad31b09c65714c2ee06 # v9
+        with:
+          eas-version: 20.5.1
+
+      - name: Validate preview-only build configuration
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_APP_ENV" = preview
+          test "$EXPO_PUBLIC_MOCK_MODE" = false
+          test -n "$EXPO_TOKEN" || { echo "::error::EXPO_TOKEN is not configured for preview"; exit 1; }
+          node -e "const eas=require('./eas.json'); const p=eas.build.preview; if(p.distribution!=='internal'||p.env.EXPO_PUBLIC_MOCK_MODE!=='false'||p.env.EXPO_PUBLIC_APP_ENV!=='preview'||p.env.EXPO_PUBLIC_API_BASE_URL!==process.env.EXPO_PUBLIC_API_BASE_URL) process.exit(1)"
+          eas whoami
+
+      - name: Check backend reachable
+        run: |
+          set -euo pipefail
+          status_code="$(curl --max-time 15 -sS -o /dev/null -w '%{http_code}' "$EXPO_PUBLIC_API_BASE_URL/api/v1/users/me" || true)"
+          case "$status_code" in
+            200|401|403) echo "Backend API reachable: HTTP $status_code" ;;
+            *) echo "::error::Backend API unavailable (HTTP $status_code)"; exit 1 ;;
+          esac
+
+      - name: Build signed internal preview app (never submit)
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          eas build --profile preview --platform "$BUILD_PLATFORM" --non-interactive
