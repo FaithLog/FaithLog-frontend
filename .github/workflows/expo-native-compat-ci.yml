@@ -102,3 +102,11 @@ jobs:
           console.log('iOS Firebase 26 SPM dynamic linkage is configured');
           NODE
 
+
+      - name: Verify EAS post-install Crashlytics plist path
+        env:
+          EAS_BUILD_PLATFORM: ios
+        run: |
+          node scripts/stage-ios-firebase-plist.js
+          test -s ios/GoogleService-Info.plist
+          echo "Crashlytics Firebase plist is staged at ios root"
