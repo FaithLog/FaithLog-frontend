@@ -2,12 +2,14 @@ import {useEffect, useMemo, useRef} from 'react';
 import {PanResponder, Platform, Pressable, StyleSheet, type ViewStyle, View} from 'react-native';
 import {BibleFriendDesignSprite} from '../characters/BibleFriendDesignSprite';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
+import type {FarmRuntimeAction} from './companionFarmVisual';
 import type {BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
 import {DRAG_THRESHOLD, GARDEN_ANIMAL_SIZE, type GardenAgent, type GardenPoint} from './gardenMotion';
 
 type Props = {
   designId: BibleFriendDesignId; name: string; agent: GardenAgent; elapsed: number; reduceMotion: boolean;
   evolutionStage?: 0|1|2; selected?: boolean; instanceId?:string;
+  farmAction?:FarmRuntimeAction; farmActionElapsedMs?:number;
   onGrab: () => void; onMove: (point: GardenPoint) => void;
   onRelease: (dragged: boolean) => void; onReact: () => void;
 };
@@ -40,7 +42,7 @@ export function GardenAnimal(props: Props) {
     onPanResponderTerminationRequest: () => false,
     onShouldBlockNativeResponder: () => true,
   }), []);
-  const {agent, elapsed, reduceMotion, designId, name, onReact, onMove, onRelease, evolutionStage = 0, selected = false} = props;
+  const {agent, elapsed, reduceMotion, designId, name, onReact, onMove, onRelease, evolutionStage = 0, selected = false, farmAction, farmActionElapsedMs = 0} = props;
   const lifted = agent.motion === 'held';
   return <View {...responder.panHandlers}
     style={[styles.animal, {left:agent.position.x,top:agent.position.y,zIndex:lifted ? 1000 : Math.round(agent.position.y)}, Platform.OS === 'web' ? styles.webTouch : null,selected ? styles.selected : null]}
@@ -58,10 +60,11 @@ export function GardenAnimal(props: Props) {
     onPress={() => {if (!dragged.current) onReact();}}
     style={styles.touch}>
     <View pointerEvents="none" style={{transform:[{scaleX:agent.facing},{translateY:lifted && !reduceMotion ? -5 : 0},{scale:lifted && !reduceMotion ? 1.04 : 1}]}}>
-      {evolutionStage > 0 ? (
+      {evolutionStage > 0 || farmAction ? (
         <BibleFriendFarmSprite designId={designId} evolutionStage={evolutionStage}
-          motion={reduceMotion ? 'idle' : agent.motion}
+          motion={reduceMotion ? 'idle' : farmAction ? 'idle' : agent.motion}
           elapsedMs={reduceMotion ? 0 : Math.max(0,elapsed-agent.motionSince)}
+          farmAction={farmAction} farmActionElapsedMs={farmActionElapsedMs}
           reduceMotion={reduceMotion} size={GARDEN_ANIMAL_SIZE}/>
       ) : (
         <BibleFriendDesignSprite designId={designId}
