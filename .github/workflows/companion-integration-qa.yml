@@ -98,13 +98,10 @@ jobs:
           FROM companion_instances ci JOIN users u ON u.id=ci.user_id
           WHERE u.email LIKE 'perf-%@example.test';
 
-          DO $ BEGIN
-            IF (SELECT count(*) FROM garden_placements gp JOIN users u ON u.id=gp.user_id
-                WHERE u.email LIKE 'perf-%@example.test') <> 1500 THEN
-              RAISE EXCEPTION 'Expected 1500 placed instances';
-            END IF;
-          END $;
+          
           SQL
+          placed=$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM garden_placements gp JOIN users u ON u.id=gp.user_id WHERE u.email LIKE 'perf-%@example.test'")
+          test "$placed" -eq 1500
           cd backend-qa
           python3 -c 'import json; print(json.dumps([dict(email=f"perf-{i}@example.test",password="synthetic-farm-only") for i in range(1,301)]))' > build/perf-farm-users.json
           status=0
