@@ -11,11 +11,12 @@ import {useCompanions} from './CompanionProvider';
 import {GardenAnimal} from './GardenAnimal';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
 import {FarmMessMarker} from './FarmMessMarker';
+import {resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
 import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
-  const {state,server,busy,error,refresh:reloadServer,instances,careError,careInstance,evolveInstance} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance} = useCompanions();
   const slots=companionGardenSlots(state);
   // Group alerts across the <=5 visible pets. No per-animal notifications,
   // polling, push permission or scheduled server work on the home scene.
@@ -43,6 +44,13 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
   ]:[];
   const conditionText:Record<string,string>={EXPERIENCE:'경험치',CARE_DAYS:'돌봄 날짜',HEALTH:'건강',SATIETY:'배부름',CLEANLINESS:'청결도',MAX_LEVEL:'최종 진화'};
   const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
+  const observedAnimation = useRef(farmAnimation);
+  const [runningAnimation,setRunningAnimation]=useState<RunningFarmAnimation|null>(null);
+  useEffect(()=>{
+    if(observedAnimation.current===farmAnimation)return;
+    observedAnimation.current=farmAnimation;
+    setRunningAnimation(farmAnimation&&!reduceMotion?{...farmAnimation,startedAt:elapsed}:null);
+  },[farmAnimation,elapsed,reduceMotion]);
   const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
   const agents = useRef(new Map<string,GardenAgent>());
   const previous = useRef(elapsed);
@@ -64,7 +72,15 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
   }
   if (!reduceMotion && delta > 0) {
     const snapshot = [...agents.current.entries()];
-    for (const [id,agent] of snapshot) agents.current.set(id,advanceGardenAgent(agent,elapsed,delta,bounds,snapshot.filter(([other])=>other!==id).map(([,a])=>a.position)));
+    for (const [id,agent] of snapshot) {
+      const slot=slots.find(item=>(item.instanceId??item.designId)===id);
+      const animal=instances?.find(item=>slot?.instanceId
+        ? item.instanceId===slot.instanceId : item.designId===slot?.designId);
+      const visual=resolveFarmSpriteVisual(animal,reduceMotion?null:runningAnimation,elapsed);
+      if(visual.pauseMovement&&agent.motion!=='held')continue;
+      agents.current.set(id,advanceGardenAgent(agent,elapsed,delta,bounds,
+        snapshot.filter(([other])=>other!==id).map(([,a])=>a.position)));
+    }
   }
   const update = (id: string, next: (agent: GardenAgent) => GardenAgent) => {
     const current = agents.current.get(id); if (!current) return;
@@ -94,8 +110,12 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         const name = BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===id)?.name ?? '동물';
         const animal=instances?.find(item=>slot.instanceId
           ? item.instanceId===slot.instanceId:item.designId===id);
+        const visual=resolveFarmSpriteVisual(animal,reduceMotion?null:runningAnimation,elapsed);
+        const farmAction=agent.motion==='held'||(agent.motion==='walk'&&!visual.pauseMovement)
+          ? undefined : visual.action;
         return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
           evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
+          farmAction={farmAction} farmActionElapsedMs={visual.elapsedMs}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
           onRelease={dragged => {
