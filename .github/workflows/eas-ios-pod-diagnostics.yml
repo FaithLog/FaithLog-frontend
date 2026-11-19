@@ -41,6 +41,9 @@ jobs:
           eas whoami
           eas build:view 5b0953cd-b999-4052-91b6-d56c1b154a4b --json > /tmp/eas-ios-failed.json
 
+      - name: Install safe decompression helpers for EAS log downloads
+        run: python3 -m pip install --quiet --user brotli zstandard
+
       - name: Print sanitized CocoaPods failure excerpts
         run: |
           python3 - <<'PY'
@@ -63,7 +66,21 @@ jobs:
             if not url or not url.startswith('https://'):continue
             try:
               with urllib.request.urlopen(url,timeout=25) as response: raw=response.read()
-              print('Downloaded log header (hex):',raw[:12].hex())
+              print('Downloaded log header (hex):',raw[:12].hex(),'Content-Encoding:',response.headers.get('Content-Encoding'),'Content-Type:',response.headers.get('Content-Type'))
+              try:
+                import brotli
+                probe=brotli.decompress(raw)
+                print('Brotli decompression success, bytes',len(probe))
+                raw=probe
+              except Exception as exc:
+                print('Brotli skipped:',type(exc).__name__)
+              try:
+                import zstandard
+                probe=zstandard.ZstdDecompressor().decompress(raw)
+                print('Zstandard decompression success, bytes',len(probe))
+                raw=probe
+              except Exception as exc:
+                print('Zstd skipped:',type(exc).__name__)
               if raw[:2]==bytes.fromhex('1f8b'):raw=gzip.decompress(raw)
               raw_text=raw.decode('utf-8','replace')
             except Exception as exc:
