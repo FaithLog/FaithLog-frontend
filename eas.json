@@ -50,6 +50,9 @@
       "environment": "preview",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "GOOGLE_SERVICE_INFO_PLIST_PATH": "./fixtures/firebase/synthetic-ios-preview.plist"
       }
     }
   },
