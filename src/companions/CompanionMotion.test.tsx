@@ -326,6 +326,51 @@ it('refreshes only five-pet data once after equipping, not on background-only up
   expect(api.load).toHaveBeenCalledTimes(1);
 });
 
+it('refreshes equipped instances once after an in-flight equip save is followed by a background save',async()=>{
+  const data=snapshot();
+  data.inventory={'hope-rabbit:base':1};
+  data.backgrounds=['meadow'];
+  const pet={
+    instanceId:'12345678-1234-1234-1234-123456789abc',
+    designId:'hope-rabbit:base' as const,
+    level:1 as const,growthXp:0,totalEarnedXp:0,careDays:0,version:0,
+    stats:{satiety:100,cleanliness:100,joy:100,affection:100,health:100},
+    lastCaredAt:'2026-11-18T01:00:00Z',
+    nextEvolution:null,canEvolve:false,
+  };
+  let finishFirstSave: (() => void) | undefined;
+  const firstSave = new Promise<void>(resolve => {finishFirstSave = resolve;});
+  const api:CompanionServerApi={
+    load:vi.fn(async()=>({...data,garden:{...data.garden}})),
+    garden:vi.fn(async garden=>{
+      if (garden.version === 0) await firstSave;
+      data.garden={...garden,version:garden.version+1};
+      return data.garden;
+    }),
+    instances:vi.fn(async()=>data.garden.placements.length?[pet]:[]),
+    claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+  };
+  await act(async()=>{
+    tree=create(<CompanionProvider api={api}>
+      <CompanionGarden onOpen={vi.fn()}/><EquipProbe/>
+    </CompanionProvider>);
+  });
+  expect(api.instances).toHaveBeenCalledTimes(1);
+  const probe=()=>tree!.root.findByType('equipProbe' as React.ElementType);
+  await act(async()=>{await probe().props.perform({type:'equip',designId:'hope-rabbit:base'});});
+  await advance(900);
+  expect(api.garden).toHaveBeenCalledTimes(1);
+  expect(api.instances).toHaveBeenCalledTimes(1);
+  await act(async()=>{await probe().props.perform({type:'background',backgroundId:'meadow'});});
+  await act(async()=>{finishFirstSave?.();});
+  expect(api.instances).toHaveBeenCalledTimes(1);
+  await advance(900);
+  expect(api.garden).toHaveBeenCalledTimes(2);
+  expect(api.instances).toHaveBeenCalledTimes(2);
+  expect(api.load).toHaveBeenCalledTimes(1);
+  expect(probe().props.instances).toEqual([pet]);
+});
+
 
 it('separates two same-design pets by UUID for movement, care and evolution HUD', async()=>{
   const data=snapshot();
