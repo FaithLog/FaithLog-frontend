@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: FaithLog/FaithLog-backend
-          ref: 1703f139df4b1198cf8deeced1d4dd9f086e7d7f
+          ref: 1dbe664daf823d4c4272e322436d89f81923ef09
           path: backend-qa
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
@@ -76,6 +76,37 @@ jobs:
         run: python3 scripts/seed-companion-qa.py
       - name: Real frontend HTTP and page integration
         run: npm test -- src/companions/companionLiveApi.test.tsx
+      - name: Measure concurrent farm care and evolution
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/companion-isolated-load'
+        shell: bash
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          WITH password AS (SELECT crypt('synthetic-farm-only',gen_salt('bf',10)) AS hash)
+          INSERT INTO users(name,email,password_hash,role,is_active,token_version,created_at,updated_at)
+          SELECT 'Farm QA', 'perf-' || n || '@example.test', hash, 'USER', true, 0, now(), now()
+          FROM generate_series(1,300) n CROSS JOIN password;
+
+          INSERT INTO user_companions(user_id,design_id,quantity,acquired_at)
+          SELECT id,'david-lamb:base',5,now() FROM users WHERE email LIKE 'perf-%@example.test';
+
+          INSERT INTO user_gardens(user_id,version,updated_at)
+          SELECT id,0,now() FROM users WHERE email LIKE 'perf-%@example.test';
+
+          INSERT INTO garden_placements(user_id,slot,design_id,x,y,instance_id)
+          SELECT ci.user_id,row_number() OVER (PARTITION BY ci.user_id ORDER BY ci.id),
+                 ci.design_id,0.5,0.5,ci.id
+          FROM companion_instances ci JOIN users u ON u.id=ci.user_id
+          WHERE u.email LIKE 'perf-%@example.test';
+
+          
+          SQL
+          placed=$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM garden_placements gp JOIN users u ON u.id=gp.user_id WHERE u.email LIKE 'perf-%@example.test'")
+          test "$placed" -eq 1500
+          psql -X -v ON_ERROR_STOP=1 -c "UPDATE companion_instances SET growth_xp=300,total_earned_xp=300,care_days=3 WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'perf-%@example.test')"
+          node scripts/measure-companion-writes.mjs
+          saved=$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM companion_instances ci JOIN users u ON u.id=ci.user_id WHERE u.email LIKE 'perf-%@example.test' AND level=2 AND growth_xp=315 AND version=2")
+          test "$saved" -eq 550
+          echo "Verified $saved persisted instances with exactly one care and one evolution"
       - name: Stop backend
         if: always()
         run: if test -f /tmp/backend-qa.pid; then kill "$(cat /tmp/backend-qa.pid)" || true; fi
