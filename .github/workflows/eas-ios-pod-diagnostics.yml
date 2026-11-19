@@ -51,6 +51,11 @@ jobs:
           print('Build failure summary:',str(data.get('error',{}))[:450])
           files=data.get('logFiles') or []
           print('Build log files:',len(files))
+          from urllib.parse import urlsplit
+          for idx,item in enumerate(files):
+            print('Log descriptor',idx,'type',type(item).__name__)
+            if isinstance(item,dict): print('Log descriptor keys:',sorted(item.keys()))
+            if isinstance(item,str): print('Log descriptor host/scheme:',urlsplit(item).scheme,urlsplit(item).hostname,'chars',len(item))
           if not files:
             print('Available metadata keys:',sorted(data.keys()))
           for i,item in enumerate(files):
