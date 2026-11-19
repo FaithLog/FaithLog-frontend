@@ -17,7 +17,7 @@ import { getHighFidelityFarmMotion } from './highFidelityEvolution';
 
 export type BibleFriendFarmSpriteProps = BibleFriendDesignSpriteProps & {
   evolutionStage?: 0 | 1 | 2;
-  farmAction?: FarmVisualAction;
+  farmAction?: FarmVisualAction | 'wake';
   farmActionElapsedMs?: number;
   reduceMotion?: boolean;
 };
@@ -33,8 +33,9 @@ export function BibleFriendFarmSprite({
   const stageKey = evolutionStage === 2 ? 'stage2' : evolutionStage === 1 ? 'stage1' : undefined;
   const isEvolvedBase = !!stageKey && design.styleId === 'base' &&
     design.friendId !== 'jesus' && !friendProps.silhouette;
-  const frames = farmAction && !friendProps.silhouette ? FARM_ACTION_XML[farmAction] : undefined;
-  const frameIndex = farmAction
+  const frames = farmAction && farmAction !== 'wake' && !friendProps.silhouette
+    ? FARM_ACTION_XML[farmAction] : undefined;
+  const frameIndex = farmAction && farmAction !== 'wake'
     ? getFarmActionFrameIndex(farmAction, farmActionElapsedMs, reduceMotion) : 0;
   const actionXml: string | undefined = frames?.[frameIndex];
 
@@ -76,7 +77,7 @@ export function BibleFriendFarmSprite({
   const isEvolvedCostume = !!stageKey && design.styleId !== 'base' &&
     design.friendId !== 'jesus' && !friendProps.silhouette;
   if (isEvolvedCostume) {
-    const motion = getHighFidelityFarmMotion(farmAction, friendProps.motion);
+    const motion = getHighFidelityFarmMotion(farmAction === 'wake' ? 'play' : farmAction, friendProps.motion);
     const elapsedMs = farmAction ? farmActionElapsedMs : (friendProps.elapsedMs ?? 0);
     return (
       <View style={{width:size,height:size}}>
@@ -102,7 +103,7 @@ export function BibleFriendFarmSprite({
 
   return (
     <View style={{ width: size, height: size }}>
-      <BibleFriendDesignSprite {...friendProps} designId={designId} size={size} />
+      <BibleFriendDesignSprite {...friendProps} motion={farmAction === 'wake' ? 'happy' : friendProps.motion} designId={designId} size={size} />
       {stageXml ? (
         <SvgXml xml={stageXml} width={size} height={size} pointerEvents="none"
           style={{ position: 'absolute', left: 0, top: 0 }} />
