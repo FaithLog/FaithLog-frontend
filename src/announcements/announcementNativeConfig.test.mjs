@@ -11,9 +11,9 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 
 describe('announcement native media configuration', () => {
   it('pins Expo SDK-compatible media modules and requests photo-library access only', () => {
-    expect(packageJson.dependencies['expo-crypto']).toBe('~56.0.4');
-    expect(packageJson.dependencies['expo-image-manipulator']).toBe('~56.0.23');
-    expect(packageJson.dependencies['expo-image-picker']).toBe('~56.0.22');
+    expect(packageJson.dependencies['expo-crypto']).toBe('~58.0.6');
+    expect(packageJson.dependencies['expo-image-manipulator']).toBe('~58.0.14');
+    expect(packageJson.dependencies['expo-image-picker']).toBe('~58.0.10');
     expect(appConfig).toContain("'expo-image-picker'");
     expect(appConfig).toMatch(/cameraPermission:\s*false/);
     expect(appConfig).toMatch(/microphonePermission:\s*false/);
