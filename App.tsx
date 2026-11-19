@@ -1,3 +1,4 @@
+import {ApiProgress} from './src/api/ApiProgress';
 import {FaithLogApp} from './src/root/FaithLogApp';
 import {initializeNativeFirebaseAnalytics} from './src/analytics/nativeFirebaseAnalytics';
 import {initializeNativeFirebaseCrashlytics} from './src/crashlytics/nativeFirebaseCrashlytics';
@@ -12,6 +13,7 @@ export default function App() {
   return (
     <AppUpdateGate>
       <FaithLogApp />
+      <ApiProgress />
     </AppUpdateGate>
   );
 }
