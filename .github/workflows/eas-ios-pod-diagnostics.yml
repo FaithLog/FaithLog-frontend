@@ -68,6 +68,23 @@ jobs:
             except Exception as exc:
               print('Log',i,'unavailable:',type(exc).__name__)
               continue
+            print('Log',i,'bytes:',len(raw),'first line object keys:',
+              sorted(json.loads(raw_text.splitlines()[0]).keys()) if raw_text.strip().startswith('{') else 'non-JSON')
+            def scrub(value):
+              value=re.sub(r'https?://\\S+','[URL]',value)
+              return re.sub(r'(?i)(token|secret|password|credential|api_key)\\s*[:=]\\s*\\S+',r'\\1=[REDACTED]',value)
+            for sample_index in [0,1,2,-15,-10,-5,-3,-2,-1]:
+              rows=raw_text.splitlines()
+              if not rows:break
+              value=rows[sample_index]
+              try:
+                val=json.loads(value)
+                if isinstance(val,dict):
+                  if sample_index==0:print('Log row keys:',sorted(val.keys()))
+                  for key in ('msg','line','level','phase','message','text','payload','data'):
+                    if key in val:
+                      print(f'Sample {sample_index} {key}:',scrub(str(val[key]))[:420])
+              except json.JSONDecodeError:print(f'Sample {sample_index}:',scrub(value)[:420])
             lines=[]
             for rawline in raw_text.splitlines():
               try:
