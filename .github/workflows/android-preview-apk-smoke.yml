@@ -1,0 +1,84 @@
+name: Android Preview APK Emulator Startup QA (one-shot)
+
+on:
+  push:
+    branches:
+      - test/363-android-emulator-launch-qa
+    paths:
+      - .github/workflows/android-preview-apk-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk-launch:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 30
+    env:
+      CI: '1'
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout verified develop snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+
+      - name: Install app configuration and setup EAS
+        run: npm ci --no-audit --no-fund
+
+      - name: Expo authentication
+        uses: expo/expo-github-action@9da89d3617bb88139671bad31b09c65714c2ee06 # v9
+        with:
+          eas-version: 20.5.1
+
+      - name: Download exact signed internal preview APK
+        run: |
+          set -euo pipefail
+          test -n "$EXPO_TOKEN"
+          eas build:view 83710a5a-9fb9-480d-ae74-b15e8f7ddf51 --json >/tmp/eas-preview-android.json
+          node <<'NODE'
+          const fs=require('fs');
+          const info=JSON.parse(fs.readFileSync('/tmp/eas-preview-android.json','utf8'));
+          if(info.platform!=='ANDROID'||info.status!=='FINISHED'||!info.artifacts?.buildUrl)throw Error('Verified APK artifact unavailable');
+          const u=new URL(info.artifacts.buildUrl);
+          if(u.protocol!=='https:')throw Error('Unsafe APK download source');
+          fs.writeFileSync('/tmp/faithlog-apk-artifact-url',info.artifacts.buildUrl);
+          NODE
+          curl --fail --silent --show-error --location --retry 3 --max-time 240 \
+            --output /tmp/faithlog-preview.apk "$(cat /tmp/faithlog-apk-artifact-url)"
+          test "$(stat -c %s /tmp/faithlog-preview.apk)" -gt 1000000
+          unzip -tq /tmp/faithlog-preview.apk >/dev/null
+          echo "Validated Android APK from the exact successful preview build"
+
+      - name: Boot Android 15 emulator and smoke test launch
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r /tmp/faithlog-preview.apk
+            adb shell pm path com.faithlog.app
+            adb logcat -c
+            adb shell monkey -p com.faithlog.app -c android.intent.category.LAUNCHER 1
+            sleep 20
+            process="$(adb shell pidof com.faithlog.app | tr -d '\r')"
+            test -n "$process" || { echo "::error::FaithLog Android process not running"; adb logcat -d -s AndroidRuntime:E | tail -80; exit 1; }
+            echo "FaithLog process running on API 35 emulator"
+            if adb logcat -d -s AndroidRuntime:E | grep -A 12 'FATAL EXCEPTION' | grep -q 'com.faithlog.app'; then
+              echo "::error::AndroidRuntime fatal crash detected"
+              adb logcat -d -s AndroidRuntime:E | tail -80
+              exit 1
+            fi
+            adb exec-out screencap -p > /tmp/faithlog-preview-launch.png
+            test "$(stat -c %s /tmp/faithlog-preview-launch.png)" -gt 10000
+            echo "Preview APK installed and foreground-launch smoke passed"
