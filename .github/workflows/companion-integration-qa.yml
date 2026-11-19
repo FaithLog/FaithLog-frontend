@@ -76,6 +76,48 @@ jobs:
         run: python3 scripts/seed-companion-qa.py
       - name: Real frontend HTTP and page integration
         run: npm test -- src/companions/companionLiveApi.test.tsx
+      - name: Measure 50, 200 and 300 synthetic farm readers
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/companion-isolated-load'
+        shell: bash
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          WITH password AS (SELECT crypt('synthetic-farm-only',gen_salt('bf',10)) AS hash)
+          INSERT INTO users(name,email,password_hash,role,is_active,token_version,created_at,updated_at)
+          SELECT 'Farm QA', 'perf-' || n || '@example.test', hash, 'USER', true, 0, now(), now()
+          FROM generate_series(1,300) n CROSS JOIN password;
+
+          INSERT INTO user_companions(user_id,design_id,quantity,acquired_at)
+          SELECT id,'david-lamb:base',5,now() FROM users WHERE email LIKE 'perf-%@example.test';
+
+          INSERT INTO user_gardens(user_id,version,updated_at)
+          SELECT id,0,now() FROM users WHERE email LIKE 'perf-%@example.test';
+
+          INSERT INTO garden_placements(user_id,slot,design_id,x,y,instance_id)
+          SELECT ci.user_id,row_number() OVER (PARTITION BY ci.user_id ORDER BY ci.id),
+                 ci.design_id,0.5,0.5,ci.id
+          FROM companion_instances ci JOIN users u ON u.id=ci.user_id
+          WHERE u.email LIKE 'perf-%@example.test';
+
+          DO $ BEGIN
+            IF (SELECT count(*) FROM garden_placements gp JOIN users u ON u.id=gp.user_id
+                WHERE u.email LIKE 'perf-%@example.test') <> 1500 THEN
+              RAISE EXCEPTION 'Expected 1500 placed instances';
+            END IF;
+          END $;
+          SQL
+          cd backend-qa
+          python3 -c 'import json; print(json.dumps([dict(email=f"perf-{i}@example.test",password="synthetic-farm-only") for i in range(1,301)]))' > build/perf-farm-users.json
+          status=0
+          for users in 50 200 300; do
+            echo "::group::Farm readers: $users"
+            docker run --rm --network host --mount "type=bind,src=$PWD,dst=/work,readonly" -w /work \
+              grafana/k6:0.57.0 run --quiet --no-color \
+              -e BASE_URL=http://127.0.0.1:8080 -e ISOLATED_FIXTURE_ACK=yes \
+              -e PERF_USERS_FILE=build/perf-farm-users.json -e VUS="$users" -e DURATION=20s \
+              performance/k6/companion-farm-read/baseline.js || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
       - name: Stop backend
         if: always()
         run: if test -f /tmp/backend-qa.pid; then kill "$(cat /tmp/backend-qa.pid)" || true; fi
