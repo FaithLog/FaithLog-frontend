@@ -73,6 +73,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const [busy,setBusy]=useState(false);const [error,setError]=useState('');const lock=useRef(false);const alive=useRef(true);
  const gardenDirty = useRef(false);
  const gardenRevision = useRef(0);
+ const gardenInstancesDirty = useRef(false);
  const gardenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
  const [gardenSaving, setGardenSaving] = useState(false);
  const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
@@ -160,11 +161,15 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
       .sort((a,b)=>a.slot-b.slot).map(item=>item.instanceId??item.designId);
     const equippedChanged = previous.length !== updated.length ||
       previous.some((id,index)=>id!==updated[index]);
+    gardenInstancesDirty.current ||= equippedChanged;
     gardenDirty.current = revision !== gardenRevision.current;
     apply({...source.current!,garden});
     if (!gardenDirty.current) {
       setGardenSaving(false);
-      if (equippedChanged) await refreshInstances();
+      if (gardenInstancesDirty.current) {
+        gardenInstancesDirty.current = false;
+        await refreshInstances();
+      }
     }
   } catch {
     if (alive.current) {
@@ -173,6 +178,11 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
       gardenTimer.current = null;
       setGardenSaving(false);
       apply(source.current!);
+      if (gardenInstancesDirty.current) {
+        gardenInstancesDirty.current = false;
+        await refreshInstances();
+      }
+      if (!alive.current) return;
       setError('정원 변경을 저장하지 못했어요. 새로 확인한 뒤 다시 변경해주세요.');
     }
   } finally {
