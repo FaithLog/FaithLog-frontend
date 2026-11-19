@@ -18,7 +18,8 @@
     "hosting:prepare": "node scripts/prepare-content-link-hosting.js",
     "build:store": "eas build --platform all --profile production",
     "submit:ios": "eas submit --platform ios --profile production",
-    "submit:android": "eas submit --platform android --profile production"
+    "submit:android": "eas submit --platform android --profile production",
+    "eas-build-post-install": "node scripts/stage-ios-firebase-plist.js"
   },
   "expo": {
     "autolinking": {
