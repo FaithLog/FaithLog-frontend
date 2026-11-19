@@ -1,0 +1,63 @@
+name: Expo 58 Manifest Resolver (temporary)
+
+on:
+  push:
+    branches:
+      - build/363-expo58-firebase26-runtime
+    paths:
+      - package.json
+      - .github/workflows/expo58-manifest-resolver.yml
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    if: github.repository == 'FaithLog/FaithLog-frontend'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated upgrade branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: build/363-expo58-firebase26-runtime
+
+      - name: Setup supported Node 26 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+          cache: npm
+
+      - name: Resolve Expo and RNFirebase package metadata
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          CI=1 npx expo install --fix --npm
+          npm ci --no-audit --no-fund
+
+      - name: Verify peer dependency alignment
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+          const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const p=pkg.dependencies;
+          if(!p.expo.startsWith('~58.')||!p['react-native'].startsWith('0.88.')||p.react!=='19.3.0') throw Error('Expo/React/RN mismatch');
+          for(const name of ['app','analytics','crashlytics','messaging','remote-config']){
+            if(p['@react-native-firebase/'+name]!=='26.4.2')throw Error('Firebase version skew: '+name);
+          }
+          if(lock.packages[''].dependencies.expo!==p.expo)throw Error('Lock/manifest mismatch');
+          NODE
+          npm ls @react-native-firebase/app @react-native-firebase/analytics @react-native-firebase/crashlytics @react-native-firebase/messaging @react-native-firebase/remote-config expo react react-native --depth=0
+
+      - name: Commit regenerated Expo manifest and lockfile
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "build: #363 resolve Expo 58 native versions and npm lockfile"
+            git push origin HEAD:refs/heads/build/363-expo58-firebase26-runtime
+          fi
