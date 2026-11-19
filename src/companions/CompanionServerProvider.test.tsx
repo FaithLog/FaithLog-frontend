@@ -201,3 +201,46 @@ describe('sale availability cannot mislead owners of grown or placed pets',()=>{
    .map(item=>JSON.stringify(item.props.children)).join(' ')).toContain('실제 판매 가능 1마리');
  });
 });
+
+
+describe('farm animation events are server-authoritative',()=>{
+ it('emits an action only after a newer successful care response',async()=>{
+  const api=apiFor(snapshot());api.instances=vi.fn(async()=>[petState]);
+  let deliver!:(updated:CompanionInstance)=>void;
+  api.careInstance=vi.fn(async()=>new Promise<CompanionInstance>(resolve=>{deliver=resolve;}));
+  await mount(api);
+  let pending!:Promise<void>;
+  await act(async()=>{pending=current.careInstance!(petId,'FEED');await Promise.resolve();});
+  expect(current.farmAnimation).toBeNull();
+  await act(async()=>{
+   deliver({...petState,version:1,growthXp:15,totalEarnedXp:15});
+   await pending;
+  });
+  expect(current.farmAnimation).toMatchObject({instanceId:petId,action:'FEED',sequence:1});
+  expect(api.instances).toHaveBeenCalledTimes(1);
+ });
+ it('does not claim a successful animation on failed or unchanged mutation',async()=>{
+  const api=apiFor(snapshot());api.instances=vi.fn(async()=>[petState]);
+  api.careInstance=vi.fn(async()=>{throw new Error('offline');});
+  await mount(api);
+  await act(async()=>current.careInstance!(petId,'FEED'));
+  expect(current.farmAnimation).toBeNull();
+  api.careInstance=vi.fn(async()=>petState);
+  await act(async()=>current.careInstance!(petId,'FEED'));
+  expect(current.farmAnimation).toBeNull();
+ });
+ it('triggers evolution animation only if the confirmed level increases',async()=>{
+  const api=apiFor(snapshot());
+  const ready={...petState,canEvolve:true, nextEvolution:{
+   currentLevel:1 as const,nextLevel:2 as const,
+   threshold:{growthXp:300,distinctCareDays:2,health:50,satiety:40,cleanliness:40},
+   blockers:[],
+  }};
+  api.instances=vi.fn(async()=>[ready]);
+  api.evolveInstance=vi.fn(async()=>({...ready,level:2 as const,version:1,
+   growthXp:300,totalEarnedXp:300,canEvolve:false,nextEvolution:null}));
+  await mount(api);
+  await act(async()=>current.evolveInstance!(petId));
+  expect(current.farmAnimation).toMatchObject({instanceId:petId,action:'EVOLVE',sequence:1});
+ });
+});

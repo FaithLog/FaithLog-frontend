@@ -370,3 +370,55 @@ it('separates two same-design pets by UUID for movement, care and evolution HUD'
   expect(updatedLabel).toMatch(/100\s+XP/);
   expect(api.garden).not.toHaveBeenCalled();
 });
+
+
+it('plays successful care and sleep/wake only on the matching garden UUID without extra reads',async()=>{
+ const a='12345678-1234-1234-1234-123456789abc';
+ const b='12345678-1234-1234-1234-123456789abd';
+ const data=snapshot();
+ data.garden.placements=[
+  {slot:1,designId:'david-lamb:base',x:.2,y:.2,instanceId:a},
+  {slot:2,designId:'david-lamb:base',x:.7,y:.7,instanceId:b},
+ ];
+ const first={
+  instanceId:a,designId:'david-lamb:base' as const,level:2 as const,
+  growthXp:500,totalEarnedXp:500,careDays:5,version:0,
+  stats:{satiety:85,cleanliness:90,joy:90,affection:90,health:100},
+  lastCaredAt:'2026-11-18T01:00:00Z',nextEvolution:null,canEvolve:false,
+ };
+ let updated={...first};
+ const second={...first,instanceId:b};
+ const api:CompanionServerApi={
+  load:vi.fn(async()=>data),garden:vi.fn(),claim:vi.fn(),draw:vi.fn(),sell:vi.fn(),
+  instances:vi.fn(async()=>[first,second]),
+  careInstance:vi.fn(async (_id,_action,version)=>{
+   updated={...updated,version:version+1};
+   return updated;
+  }),
+ };
+ await act(async()=>{tree=create(
+  <CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>
+ );});
+ const sprite=(id:string)=>tree!.root.findAllByType('View' as React.ElementType)
+  .find(n=>n.props.testID===`garden-animal-${id}`)!
+  .findByType('FarmSprite' as React.ElementType);
+ const animal=tree!.root.findAllByType('View' as React.ElementType)
+  .find(n=>n.props.testID===`garden-animal-${a}`)!;
+ await act(async()=>animal.findByType('Pressable' as React.ElementType).props.onPress());
+ const button=(action:string)=>tree!.root.findAllByType('FarmCareButton' as React.ElementType)
+  .find(n=>n.props.action===action)!;
+ await act(async()=>button('feed').props.onPress());
+ expect(sprite(a).props.farmAction).toBe('feed');
+ expect(sprite(b).props.farmAction).toBeUndefined();
+ await advance(1200);
+ expect(sprite(a).props.farmAction).toBeUndefined();
+ await act(async()=>button('sleep').props.onPress());
+ expect(sprite(a).props.farmAction).toBe('sleep');
+ await advance(2640);
+ expect(sprite(a).props.farmAction).toBe('wake');
+ await advance(800);
+ expect(sprite(a).props.farmAction).toBeUndefined();
+ expect(api.instances).toHaveBeenCalledTimes(1);
+ expect(api.load).toHaveBeenCalledTimes(1);
+ expect(api.careInstance).toHaveBeenCalledTimes(2);
+});

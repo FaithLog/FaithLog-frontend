@@ -1,6 +1,7 @@
 import {AppState} from 'react-native';
 import type {CompanionServerApi, ServerSnapshot, CompanionInstance, CompanionCareAction, CompanionSaleAvailability} from './companionServerContract';
 import {FaithLogApiError} from '../api/apiError';
+import type {CompanionFarmAnimationEvent} from './companionFarmVisual';
 import {PERIOD_MISSION_IDS} from './companionServerContract';
 import {DAILY_MISSION_SERVER_IDS} from './dailyMissionContract';
 import type {BibleFriendDesignId} from '../characters/bibleFriendDesignCatalog';
@@ -10,6 +11,7 @@ import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dail
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
 type Context = {
+  farmAnimation?: CompanionFarmAnimationEvent | null;
   instances?: CompanionInstance[] | null;
   careError?: string;
   careInstance?: (instanceId:string,action:CompanionCareAction)=>Promise<void>;
@@ -75,6 +77,8 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const [gardenSaving, setGardenSaving] = useState(false);
  const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
  const [careError,setCareError] = useState('');
+ const [farmAnimation,setFarmAnimation] = useState<CompanionFarmAnimationEvent|null>(null);
+ const farmAnimationSequence = useRef(0);
  const instanceBusy = useRef(false);
  const instanceReadGeneration=useRef(0);
  const pendingOperation=useRef<{
@@ -240,8 +244,11 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
    const key=pending?.key??`pet-care-${Date.now()}-${Math.random().toString(36).slice(2)}`;
    pendingOperation.current={type:'CARE',id,action,version:found.version,key};
    const updated=await api.careInstance(id,action,found.version,key);
-   if(alive.current)setInstances(items=>items?.map(item=>item.instanceId!==id?item:
-     item.version>updated.version?item:updated)??null);
+   if(alive.current){
+    setInstances(items=>items?.map(item=>item.instanceId!==id?item:
+      item.version>updated.version?item:updated)??null);
+    if(updated.version>found.version)setFarmAnimation({instanceId:id,action,sequence:++farmAnimationSequence.current});
+   }
    pendingOperation.current=null;
   }catch(e){
    const definitive=e instanceof FaithLogApiError &&
@@ -273,8 +280,13 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
    const key=pending?.key??`pet-evolve-${Date.now()}-${Math.random().toString(36).slice(2)}`;
    pendingOperation.current={type:'EVOLVE',id,version:found.version,key};
    const updated=await api.evolveInstance(id,found.version,key);
-   if(alive.current)setInstances(items=>items?.map(item=>item.instanceId!==id?item:
-     item.version>updated.version?item:updated)??null);
+   if(alive.current){
+    setInstances(items=>items?.map(item=>item.instanceId!==id?item:
+      item.version>updated.version?item:updated)??null);
+    if(updated.level>found.level&&updated.version>found.version){
+     setFarmAnimation({instanceId:id,action:'EVOLVE',sequence:++farmAnimationSequence.current});
+    }
+   }
    pendingOperation.current=null;
   }catch(e){
    const definitive=e instanceof FaithLogApiError &&
@@ -298,7 +310,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  },[api]);
 
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{gardenSaving,instances,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{gardenSaving,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);
