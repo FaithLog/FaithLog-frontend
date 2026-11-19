@@ -80,3 +80,66 @@ describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP ada
   const wrong=createCompanionServerApi(fixtures[0]!.campus,async()=>token,memory());await expect(wrong.load()).rejects.toMatchObject({detail:{status:403}});
  },120_000);
 });
+
+
+describe.skipIf(!baseUrl)('real owned-instance care and evolution HTTP contract',()=>{
+ it('persists two UUID-distinct pets, five actions, evolution, cooldowns and ownership', async()=>{
+  const token=await login(2);
+  const owner=fixtures[2]!;
+  const api=createCompanionServerApi(owner.campus,async()=>token,memory());
+  const initial=await api.load();
+  const owned=await api.instancesByDesign!('david-lamb:base',0);
+  expect(owned).toHaveLength(2);
+  const readyPet=owned.find(pet=>pet.canEvolve);
+  const otherPet=owned.find(pet=>pet.instanceId!==readyPet?.instanceId);
+  expect(readyPet).toMatchObject({level:1,growthXp:300,careDays:3});
+  expect(otherPet).toMatchObject({level:1,growthXp:0});
+  expect(readyPet!.instanceId).not.toBe(otherPet!.instanceId);
+
+  const garden=await api.garden({
+   version:initial.garden.version,backgroundId:null,
+   placements:[
+    {slot:1,designId:'david-lamb:base',x:0.2,y:0.4,instanceId:readyPet!.instanceId},
+    {slot:2,designId:'david-lamb:base',x:0.8,y:0.4,instanceId:otherPet!.instanceId},
+   ],
+  });
+  expect(garden.placements.map(p=>p.instanceId)).toEqual([readyPet!.instanceId,otherPet!.instanceId]);
+  expect((await api.instances!()).map(p=>p.instanceId)).toEqual([readyPet!.instanceId,otherPet!.instanceId]);
+
+  const evolved=await api.evolveInstance!(readyPet!.instanceId,readyPet!.version,'qa-361-evolve');
+  expect(evolved).toMatchObject({level:2,version:readyPet!.version+1,growthXp:300});
+  const replay=await api.evolveInstance!(readyPet!.instanceId,readyPet!.version,'qa-361-evolve');
+  expect(replay).toEqual(evolved);
+  await expect(api.evolveInstance!(readyPet!.instanceId,readyPet!.version,'qa-361-evolve-stale'))
+   .rejects.toMatchObject({detail:{status:409}});
+
+  let current=evolved;
+  let firstFeed:typeof evolved|undefined;
+  for(const action of ['FEED','PET','PLAY','CLEAN','SLEEP'] as const){
+   const updated=await api.careInstance!(
+    readyPet!.instanceId,action,current.version,`qa-361-care-${action}`);
+   expect(updated.version).toBe(current.version+1);
+   expect(updated.level).toBe(2);
+   expect(updated.growthXp).toBeGreaterThanOrEqual(current.growthXp);
+   if(action==='FEED'){
+    expect(updated.stats.satiety).toBeGreaterThanOrEqual(current.stats.satiety);
+    firstFeed=updated;
+   }
+   if(action==='CLEAN')expect(updated.stats.cleanliness).toBeGreaterThanOrEqual(current.stats.cleanliness);
+   current=updated;
+  }
+  expect(await api.careInstance!(readyPet!.instanceId,'FEED',evolved.version,'qa-361-care-FEED'))
+   .toEqual(firstFeed);
+  await expect(api.careInstance!(readyPet!.instanceId,'FEED',current.version,'qa-361-care-too-soon'))
+   .rejects.toMatchObject({detail:{status:409}});
+
+  const visible=await api.instances!();
+  expect(visible).toHaveLength(2);
+  expect(visible[0]).toMatchObject({instanceId:readyPet!.instanceId,level:2,version:current.version});
+  expect(visible[1]).toMatchObject({instanceId:otherPet!.instanceId,level:1});
+  const anotherToken=await login(1);
+  const another=createCompanionServerApi(fixtures[1]!.campus,async()=>anotherToken,memory());
+  await expect(another.careInstance!(readyPet!.instanceId,'FEED',current.version,'qa-361-other-owner'))
+   .rejects.toMatchObject({detail:{status:403}});
+ },120_000);
+});
