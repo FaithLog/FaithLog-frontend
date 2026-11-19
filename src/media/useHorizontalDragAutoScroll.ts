@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef} from 'react';
-import type {LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, View} from 'react-native';
+import type {LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ViewInstance} from 'react-native';
 
 type Direction = -1 | 0 | 1;
 
@@ -30,7 +30,7 @@ export function useHorizontalDragAutoScroll({
   onReorderAtEdge: (localId: string, direction: -1 | 1) => void;
 }) {
   const listRef = useRef<ScrollableListHandle | null>(null);
-  const viewportRef = useRef<View | null>(null);
+  const viewportRef = useRef<ViewInstance | null>(null);
   const viewportMetricsRef = useRef({left: 0, width: 0});
   const contentWidthRef = useRef(0);
   const scrollOffsetRef = useRef(0);
