@@ -44,6 +44,13 @@
       "ios": {
         "simulator": false
       }
+    },
+    "preview-simulator": {
+      "extends": "preview",
+      "environment": "preview",
+      "ios": {
+        "simulator": true
+      }
     }
   },
   "submit": {
