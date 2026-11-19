@@ -1,3 +1,4 @@
+import {withApiProgress} from './apiProgressState';
 import type {
   ApiEnvelope,
   ApiError,
@@ -1448,11 +1449,11 @@ export async function apiRequest<T>(
       options.authSessionGeneration ?? getAuthSessionGeneration(),
   };
 
-  return executeRequestWithAuth(
+  return withApiProgress(() => executeRequestWithAuth(
     requestOptions,
     guardAuthSession,
     (effectiveOptions) => executeApiRequest<T>(path, effectiveOptions),
-  );
+  ));
 }
 
 export function authenticatedTransportRequest<T>({
