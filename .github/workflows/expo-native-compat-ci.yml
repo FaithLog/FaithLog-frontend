@@ -56,8 +56,38 @@ jobs:
       - name: Produce iOS JS bundle
         run: npx expo export --platform ios --output-dir /tmp/faithlog-expo-ios
 
-      - name: Generate Android native project (no credentials)
+      - name: Prepare disposable Firebase config for prebuild-only smoke test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,plistlib,tempfile
+          from pathlib import Path
+          temp=Path(tempfile.mkdtemp(prefix='faithlog-native-config-qa-'))
+          android={
+            "project_info":{"project_number":"123456789012","project_id":"faithlog-qa-synthetic","storage_bucket":"faithlog-qa-synthetic.appspot.com"},
+            "client":[{
+              "client_info":{"mobilesdk_app_id":"1:123456789012:android:001122334455","android_client_info":{"package_name":"com.faithlog.app"}},
+              "oauth_client":[],"api_key":[{"current_key":"fake-test-only-key"}],
+              "services":{"appinvite_service":{"other_platform_oauth_client":[]}}
+            }],
+            "configuration_version":"1"
+          }
+          (temp/'google-services.json').write_text(json.dumps(android))
+          ios={
+            "API_KEY":"fake-test-only-key","GCM_SENDER_ID":"123456789012",
+            "GOOGLE_APP_ID":"1:123456789012:ios:001122334455","PROJECT_ID":"faithlog-qa-synthetic",
+            "BUNDLE_ID":"com.faithlog.app","PLIST_VERSION":"1",
+            "IS_ANALYTICS_ENABLED":False,"IS_ADS_ENABLED":False
+          }
+          with (temp/'GoogleService-Info.plist').open('wb') as out:plistlib.dump(ios,out)
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+            out.write('GOOGLE_SERVICES_JSON_PATH='+str(temp/'google-services.json')+'\\n')
+            out.write('GOOGLE_SERVICE_INFO_PLIST_PATH='+str(temp/'GoogleService-Info.plist')+'\\n')
+            out.write('EXPO_PUBLIC_APP_ENV=preview\\n')
+          PY
+
+      - name: Generate Android native project (synthetic Firebase only)
         run: npx expo prebuild --platform android --clean --no-install
 
-      - name: Generate iOS native project (no credentials)
+      - name: Generate iOS native project (synthetic Firebase only)
         run: npx expo prebuild --platform ios --clean --no-install
