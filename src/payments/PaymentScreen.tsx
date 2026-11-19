@@ -231,7 +231,7 @@ export function PaymentScreen({
             size: PAGE_SIZE,
             sort: toChargeSort(sort),
             status,
-          }), (data) => data.items.length === 0, isCurrentListRequest);
+          }), (data) => data.items.length === 0, isCurrentListRequest, charges.totalPages);
         if (!fallback) return;
         const fallbackPage = fallback.page;
         if (!isCurrentListRequest()) return;
