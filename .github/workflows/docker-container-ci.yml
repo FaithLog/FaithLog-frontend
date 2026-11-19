@@ -1,0 +1,39 @@
+name: Docker Container CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - Dockerfile
+      - package.json
+      - package-lock.json
+      - .github/workflows/docker-container-ci.yml
+  push:
+    branches: [develop, main]
+    paths:
+      - Dockerfile
+      - package.json
+      - package-lock.json
+      - .github/workflows/docker-container-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build pinned runtime with npm ci
+        run: docker build --pull --tag faithlog-frontend:qa .
+
+      - name: Smoke test Node runtime and installed Expo
+        run: |
+          docker run --rm --entrypoint node faithlog-frontend:qa --version | grep -E '^v26[.]'
+          docker run --rm --entrypoint node faithlog-frontend:qa -e "require('expo/package.json'); require('react-native/package.json'); process.stdout.write('ok\\n')" | grep ok
+
+      - name: Typecheck inside Docker
+        run: docker run --rm --entrypoint npm faithlog-frontend:qa run typecheck
