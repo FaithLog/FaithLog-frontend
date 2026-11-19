@@ -142,4 +142,35 @@ describe.skipIf(!baseUrl)('real owned-instance care and evolution HTTP contract'
   await expect(another.careInstance!(readyPet!.instanceId,'FEED',current.version,'qa-361-other-owner'))
    .rejects.toMatchObject({detail:{status:403}});
  },120_000);
+
+ it('persists final evolution through a fresh client and blocks further evolution',async()=>{
+  const owner=fixtures[3]!;
+  const token=await login(3);
+  const api=createCompanionServerApi(owner.campus,async()=>token,memory());
+  const initial=await api.load();
+  const [pet]=await api.instancesByDesign!('david-lamb:base',0);
+  expect(pet).toMatchObject({level:1,growthXp:1000,careDays:10,canEvolve:true});
+  const id=pet!.instanceId;
+  await api.garden({
+   version:initial.garden.version,backgroundId:null,
+   placements:[{slot:1,designId:'david-lamb:base',instanceId:id,x:0.5,y:0.5}],
+  });
+
+  const levelTwo=await api.evolveInstance!(id,pet!.version,'qa-368-level-two');
+  expect(levelTwo).toMatchObject({level:2,canEvolve:true});
+  const levelThree=await api.evolveInstance!(id,levelTwo.version,'qa-368-level-three');
+  expect(levelThree).toMatchObject({
+   level:3,growthXp:1000,version:levelTwo.version+1,canEvolve:false,
+  });
+  expect(await api.evolveInstance!(id,levelTwo.version,'qa-368-level-three')).toEqual(levelThree);
+  await expect(api.evolveInstance!(id,levelThree.version,'qa-368-beyond-final'))
+   .rejects.toMatchObject({detail:{status:409}});
+
+  const freshToken=await login(3);
+  const fresh=createCompanionServerApi(owner.campus,async()=>freshToken,memory());
+  expect(await fresh.instances!()).toMatchObject([
+   {instanceId:id,level:3,version:levelThree.version,canEvolve:false},
+  ]);
+ },120_000);
+
 });

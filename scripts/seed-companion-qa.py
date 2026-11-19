@@ -13,7 +13,7 @@ def sql(statement):
 
 sql('CREATE EXTENSION IF NOT EXISTS pgcrypto')
 fixtures = []
-for index in range(3):
+for index in range(4):
     email = f'companion-qa-{index}@example.test'
     user = int(sql(f"INSERT INTO users(name,email,password_hash,role,is_active,token_version,created_at,updated_at) VALUES('QA','{email}',crypt('test-only-password',gen_salt('bf',10)),'USER',true,0,now(),now()) RETURNING id"))
     campus = int(sql(f"INSERT INTO campuses(name,invite_code,is_active,created_at,updated_at) VALUES('QA','companion-qa-{index}',true,now(),now()) RETURNING id"))
@@ -36,6 +36,12 @@ sql(f"UPDATE companion_instances SET growth_xp=300,total_earned_xp=300,"
 assert sql(f"SELECT count(*) FROM companion_instances WHERE user_id={third['user']} AND design_id='david-lamb:base'") == '2', 'Two owned instances required'
 assert sql(f"SELECT count(*) FROM companion_instances WHERE user_id={third['user']} AND growth_xp=300") == '1', 'One evolution-ready pet required'
 
+# A separate pet meets both thresholds so this flow does not depend on the care test.
+fourth = fixtures[3]
+sql(f"INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES({fourth['user']},'david-lamb:base',1,now())")
+sql(f"UPDATE companion_instances SET growth_xp=1000,total_earned_xp=1000,"
+    f"care_days=10,health=90,satiety=90,cleanliness=90 WHERE user_id={fourth['user']}")
+
 # Match MissionWindow: the most recently closed month, including its final week.
 today = dt.datetime.now(ZoneInfo('Asia/Seoul')).date()
 last = today.replace(day=1) - dt.timedelta(days=1)
@@ -52,4 +58,4 @@ while day <= last:
     day += dt.timedelta(days=7)
 with open(os.environ['GITHUB_ENV'], 'a') as output:
     output.write('FAITHLOG_QA_FIXTURES=' + json.dumps(fixtures, separators=(',', ':')) + '\n')
-print('Seeded two isolated QA accounts')
+print('Seeded four isolated QA accounts')
