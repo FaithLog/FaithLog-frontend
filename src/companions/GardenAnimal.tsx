@@ -64,7 +64,7 @@ export function GardenAnimal(props: Props) {
         <BibleFriendFarmSprite designId={designId} evolutionStage={evolutionStage}
           motion={reduceMotion ? 'idle' : farmAction ? 'idle' : agent.motion}
           elapsedMs={reduceMotion ? 0 : Math.max(0,elapsed-agent.motionSince)}
-          farmAction={farmAction} farmActionElapsedMs={farmActionElapsedMs}
+          {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={farmActionElapsedMs}
           reduceMotion={reduceMotion} size={GARDEN_ANIMAL_SIZE}/>
       ) : (
         <BibleFriendDesignSprite designId={designId}
