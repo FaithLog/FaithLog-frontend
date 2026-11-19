@@ -81,9 +81,9 @@ jobs:
           }
           with (temp/'GoogleService-Info.plist').open('wb') as out:plistlib.dump(ios,out)
           with open(os.environ['GITHUB_ENV'],'a') as out:
-            out.write('GOOGLE_SERVICES_JSON_PATH='+str(temp/'google-services.json')+'\\n')
-            out.write('GOOGLE_SERVICE_INFO_PLIST_PATH='+str(temp/'GoogleService-Info.plist')+'\\n')
-            out.write('EXPO_PUBLIC_APP_ENV=preview\\n')
+            out.write('GOOGLE_SERVICES_JSON_PATH='+str(temp/'google-services.json')+'\n')
+            out.write('GOOGLE_SERVICE_INFO_PLIST_PATH='+str(temp/'GoogleService-Info.plist')+'\n')
+            out.write('EXPO_PUBLIC_APP_ENV=preview\n')
           PY
 
       - name: Generate Android native project (synthetic Firebase only)
