@@ -201,6 +201,13 @@ export function DevotionScreen({
         return;
       }
 
+      const penaltyRules = fetchPenaltyRules(accessToken, campusId).then(
+        (rules) => ({status: 'success' as const, rules}),
+        (error: unknown) => ({
+          status: 'error' as const,
+          error: toApiError(error, '벌금 규칙을 불러오지 못했습니다.'),
+        }),
+      );
       const preload = preloadedWeekly.current;
       const weekly = preload?.scopeKey === requestedScopeKey
         ? preload.weekly
@@ -223,19 +230,9 @@ export function DevotionScreen({
       setLateMinutesText(String(Math.max(0, weekly.saturdayLateMinutes)));
       setSaveFeedback(null);
       setSubmitConfirmVisible(false);
-      try {
-        const rules = await fetchPenaltyRules(accessToken, campusId);
-
-        if (requestId === latestRequest.current) {
-          setPenaltyRuleState({status: 'success', rules});
-        }
-      } catch (penaltyRuleError) {
-        if (requestId === latestRequest.current) {
-          setPenaltyRuleState({
-            status: 'error',
-            error: toApiError(penaltyRuleError, '벌금 규칙을 불러오지 못했습니다.'),
-          });
-        }
+      const ruleState = await penaltyRules;
+      if (requestId === latestRequest.current) {
+        setPenaltyRuleState(ruleState);
       }
     } catch (error) {
       if (requestId !== latestRequest.current) {
