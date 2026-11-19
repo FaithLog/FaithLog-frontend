@@ -5,7 +5,7 @@ on:
     branches:
       - test/371-eas-ios-preview-recheck
     paths:
-      - .github/workflows/eas-preview-native-qa.yml
+      - .github/workflows/eas-ios-pods-fix-qa.yml
 
 permissions:
   contents: read
