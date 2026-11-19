@@ -103,7 +103,7 @@ export function BibleFriendFarmSprite({
 
   return (
     <View style={{ width: size, height: size }}>
-      <BibleFriendDesignSprite {...friendProps} motion={farmAction === 'wake' ? 'happy' : friendProps.motion} designId={designId} size={size} />
+      <BibleFriendDesignSprite {...friendProps} {...(farmAction === 'wake' ? {motion:'happy' as const} : {})} designId={designId} size={size} />
       {stageXml ? (
         <SvgXml xml={stageXml} width={size} height={size} pointerEvents="none"
           style={{ position: 'absolute', left: 0, top: 0 }} />
