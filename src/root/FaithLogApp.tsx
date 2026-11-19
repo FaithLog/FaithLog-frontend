@@ -23,6 +23,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   StatusBar,
@@ -941,7 +942,7 @@ export function FaithLogApp() {
 
   useEffect(() => {
     let active = true;
-    const handleUrl = (rawUrl: string | null) => {
+    const handleUrl = (rawUrl: string | null | undefined) => {
       if (!active || !rawUrl) return;
       const target = parseContentDeepLink(rawUrl);
       if (!target) return;
@@ -2011,7 +2012,7 @@ function AuthenticatedShellContent({
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance' | 'companions'>('dashboard');
   const [companionPage, setCompanionPage] = useState<CompanionPage>('manage');
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
-  const companionScrollRef = useRef<ScrollView>(null);
+  const companionScrollRef = useRef<ScrollViewInstance>(null);
   const [companionDragging, setCompanionDragging] = useState(false);
   const [shepherdAttendanceHome, setShepherdAttendanceHome] = useState<{campusId: number; data: ShepherdAttendanceHome} | null>(null);
   const [profileView, setProfileView] = useState<

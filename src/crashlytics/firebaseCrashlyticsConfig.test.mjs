@@ -15,7 +15,7 @@ const crashlyticsSource = fs.readFileSync(
 
 describe('Firebase Crashlytics native configuration', () => {
   it('uses the matching React Native Firebase package and Expo config plugin', () => {
-    expect(packageJson.dependencies['@react-native-firebase/crashlytics']).toBe('25.1.0');
+    expect(packageJson.dependencies['@react-native-firebase/crashlytics']).toBe('26.4.2');
     expect(appConfig).toContain("'@react-native-firebase/crashlytics'");
   });
 

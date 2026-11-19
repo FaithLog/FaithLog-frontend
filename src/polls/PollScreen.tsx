@@ -1994,7 +1994,7 @@ function ResultsPanel({
             {actionError ? <ActionErrorCard error={actionError} /> : null}
           </View>
         )}
-        renderItem={null}
+        renderItem={() => null}
       />
     );
   }

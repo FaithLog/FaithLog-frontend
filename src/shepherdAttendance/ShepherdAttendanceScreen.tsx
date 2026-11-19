@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInputInstance,
   View,
 } from 'react-native';
 import {FaithLogApiError} from '../api/apiError';
@@ -37,9 +38,9 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
   const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
-  const meetingInputRef = useRef<TextInput>(null);
-  const holyWaveInputRef = useRef<TextInput>(null);
-  const otherWorshipInputRef = useRef<TextInput>(null);
+  const meetingInputRef = useRef<TextInputInstance>(null);
+  const holyWaveInputRef = useRef<TextInputInstance>(null);
+  const otherWorshipInputRef = useRef<TextInputInstance>(null);
 
   const load = async () => {
     setLoading(true); setError(null);
@@ -128,7 +129,7 @@ export function ShepherdAttendanceScreen({api, campusId, getAccessToken, initial
   </ScrollView>;
 }
 
-function CountField({inputAccessibilityLabel, inputAccessoryViewID, inputRef, label, onChange, onSubmitEditing, returnKeyType, value}: {inputAccessibilityLabel: string; inputAccessoryViewID: string; inputRef: RefObject<TextInput | null>; label: string; onChange: (value: string) => void; onSubmitEditing: () => void; returnKeyType: 'done' | 'next'; value: string}) { return <View style={styles.countField}><Text numberOfLines={1} style={styles.countLabel}>{label}</Text><TextInput accessibilityLabel={inputAccessibilityLabel} inputAccessoryViewID={Platform.OS === 'ios' ? inputAccessoryViewID : undefined} keyboardType="number-pad" maxLength={7} onChangeText={(text) => onChange(text.replace(/[^0-9]/g, ''))} onSubmitEditing={onSubmitEditing} ref={inputRef} returnKeyType={returnKeyType} selectTextOnFocus submitBehavior={returnKeyType === 'done' ? 'blurAndSubmit' : 'submit'} style={[styles.input, styles.countInput]} value={value} /></View>; }
+function CountField({inputAccessibilityLabel, inputAccessoryViewID, inputRef, label, onChange, onSubmitEditing, returnKeyType, value}: {inputAccessibilityLabel: string; inputAccessoryViewID: string; inputRef: RefObject<TextInputInstance | null>; label: string; onChange: (value: string) => void; onSubmitEditing: () => void; returnKeyType: 'done' | 'next'; value: string}) { return <View style={styles.countField}><Text numberOfLines={1} style={styles.countLabel}>{label}</Text><TextInput accessibilityLabel={inputAccessibilityLabel} inputAccessoryViewID={Platform.OS === 'ios' ? inputAccessoryViewID : undefined} keyboardType="number-pad" maxLength={7} onChangeText={(text) => onChange(text.replace(/[^0-9]/g, ''))} onSubmitEditing={onSubmitEditing} ref={inputRef} returnKeyType={returnKeyType} selectTextOnFocus submitBehavior={returnKeyType === 'done' ? 'blurAndSubmit' : 'submit'} style={[styles.input, styles.countInput]} value={value} /></View>; }
 function CountKeyboardAccessory({accessibilityLabel, label, nativeID, onPress}: {accessibilityLabel: string; label: string; nativeID: string; onPress: () => void}) { return <InputAccessoryView nativeID={nativeID}><View style={styles.keyboardAccessory}><Pressable accessibilityLabel={accessibilityLabel} accessibilityRole="button" onPress={onPress} style={({pressed}) => [styles.keyboardAccessoryButton, pressed ? styles.keyboardAccessoryButtonPressed : null]}><Text style={styles.keyboardAccessoryText}>{label}</Text></Pressable></View></InputAccessoryView>; }
 function SubmittedValue({label, value}: {label: string; value: number}) { return <View style={styles.submittedValue}><Text style={styles.submittedValueLabel}>{label}</Text><Text style={styles.submittedValueNumber}>{value}명</Text></View>; }
 function fromReport(report: ShepherdAttendanceHome['groups'][number]['report']): AttendanceInput { return report ? {smallGroupMeetingCount: String(report.smallGroupMeetingCount), holyWaveCount: String(report.holyWaveCount), otherWorshipCount: String(report.otherWorshipCount), note: report.note ?? ''} : emptyInput; }

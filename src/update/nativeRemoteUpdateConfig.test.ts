@@ -6,6 +6,12 @@ const {application, firebaseRemoteConfig, reactNative, remoteConfigInstance} = v
     getValue: vi.fn(),
     setConfigSettings: vi.fn(),
     setDefaults: vi.fn(),
+    set settings(values: {fetchTimeoutMillis: number; minimumFetchIntervalMillis: number}) {
+      void instance.setConfigSettings(values);
+    },
+    set defaultConfig(values: Record<string, string>) {
+      void instance.setDefaults(values);
+    },
   };
   return {
     application: {nativeBuildVersion: '35' as string | null},
@@ -24,7 +30,11 @@ const {application, firebaseRemoteConfig, reactNative, remoteConfigInstance} = v
 
 vi.mock('expo-application', () => application);
 vi.mock('react-native', () => reactNative);
-vi.mock('@react-native-firebase/remote-config', () => ({default: firebaseRemoteConfig}));
+vi.mock('@react-native-firebase/remote-config', () => ({
+  getRemoteConfig: firebaseRemoteConfig,
+  fetchAndActivate: (_instance: unknown) => remoteConfigInstance.fetchAndActivate(),
+  getValue: (_instance: unknown, key: string) => remoteConfigInstance.getValue(key),
+}));
 
 import {loadNativeUpdateRequirement} from './nativeRemoteUpdateConfig';
 import {DEFAULT_REMOTE_UPDATE_VALUES} from './updateConfig';
@@ -66,7 +76,7 @@ describe('loadNativeUpdateRequirement', () => {
       await loadNativeUpdateRequirement();
 
       expect(remoteConfigInstance.setConfigSettings).toHaveBeenCalledWith({
-        fetchTimeMillis: 10_000,
+        fetchTimeoutMillis: 10_000,
         minimumFetchIntervalMillis: 15 * 60 * 1_000,
       });
     },
@@ -80,7 +90,7 @@ describe('loadNativeUpdateRequirement', () => {
       await loadNativeUpdateRequirement({bypassCache: true});
 
       expect(remoteConfigInstance.setConfigSettings).toHaveBeenCalledWith({
-        fetchTimeMillis: 10_000,
+        fetchTimeoutMillis: 10_000,
         minimumFetchIntervalMillis: 0,
       });
     },

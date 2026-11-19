@@ -7,6 +7,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   View,
@@ -49,7 +50,7 @@ export function YearlyRecapScreen({
   const firstFrameReported = useRef(false);
   const layoutReadyRef = useRef(false);
   const modalShownRef = useRef(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const viewportHeightRef = useRef(0);
   const modalVisible = visible && accessibilityPreferencesReady;
   const motionDisabled =

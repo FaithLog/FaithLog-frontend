@@ -12,8 +12,8 @@ describe('Remote Config force-update integration', () => {
     const packageJson = JSON.parse(read('package.json'));
     const appConfig = read('app.config.js');
 
-    expect(packageJson.dependencies['expo-application']).toBe('~56.0.3');
-    expect(packageJson.dependencies['@react-native-firebase/remote-config']).toBe('^25.1.0');
+    expect(packageJson.dependencies['expo-application']).toBe('~58.1.1');
+    expect(packageJson.dependencies['@react-native-firebase/remote-config']).toBe('26.4.2');
     expect(appConfig).toContain("'@react-native-firebase/app'");
     expect(appConfig).toContain("'@react-native-firebase/analytics'");
     expect(appConfig).toContain("'@react-native-firebase/messaging'");

@@ -1,4 +1,4 @@
-import remoteConfig from '@react-native-firebase/remote-config';
+import {fetchAndActivate, getRemoteConfig, getValue} from '@react-native-firebase/remote-config';
 import * as Application from 'expo-application';
 import {NativeModules, Platform} from 'react-native';
 
@@ -29,22 +29,22 @@ export async function loadNativeUpdateRequirement(
   }
 
   try {
-    const instance = remoteConfig();
+    const instance = getRemoteConfig();
     try {
-      await instance.setConfigSettings({
-        fetchTimeMillis: REMOTE_CONFIG_FETCH_TIMEOUT_MS,
+      instance.settings = {
+        fetchTimeoutMillis: REMOTE_CONFIG_FETCH_TIMEOUT_MS,
         minimumFetchIntervalMillis: bypassCache ? 0 : REMOTE_CONFIG_MINIMUM_FETCH_INTERVAL_MS,
-      });
+      };
     } catch {
       // The fetch can still use SDK defaults or the last activated cache.
     }
 
     const reader: RemoteUpdateValueReader = {
       async setDefaults(values) {
-        await instance.setDefaults(values);
+        instance.defaultConfig = values;
       },
-      fetchAndActivate: () => instance.fetchAndActivate(),
-      getString: (key) => instance.getValue(key).asString(),
+      fetchAndActivate: () => fetchAndActivate(instance),
+      getString: (key) => getValue(instance, key).asString(),
     };
     const snapshot = await readRemoteUpdateConfig(reader);
 

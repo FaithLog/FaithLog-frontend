@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ViewInstance,
 } from 'react-native';
 
 import {getAdminChargeContractCapabilities} from '../api/client';
@@ -39,7 +40,7 @@ export function ChargeStatusConfirmSheet({
   onConfirm,
   target,
 }: ChargeStatusConfirmSheetProps) {
-  const titleRef = useRef<View>(null);
+  const titleRef = useRef<ViewInstance>(null);
   const visible = target !== null;
   const confirmation = target
     ? getAdminChargeStatusConfirmation(
@@ -53,7 +54,7 @@ export function ChargeStatusConfirmSheet({
     if (!visible) return;
     const timeout = setTimeout(() => {
       const tag = findNodeHandle(titleRef.current);
-      if (tag !== null) AccessibilityInfo.setAccessibilityFocus(tag);
+      if (typeof tag === 'number') AccessibilityInfo.setAccessibilityFocus(tag);
     }, 0);
     return () => clearTimeout(timeout);
   }, [visible]);

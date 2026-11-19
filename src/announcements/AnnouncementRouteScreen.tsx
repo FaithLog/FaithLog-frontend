@@ -458,7 +458,7 @@ export function AnnouncementDetailScreen({
           {documentNotice ? <Text accessibilityRole="alert" style={styles.date}>{documentNotice}</Text> : null}
           </View>
         }
-        renderItem={null}
+        renderItem={() => null}
         showsVerticalScrollIndicator={false}
       />
       <AnnouncementImageViewer

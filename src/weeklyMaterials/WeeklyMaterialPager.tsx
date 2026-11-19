@@ -5,6 +5,7 @@ import {
   type NativeSyntheticEvent,
   Pressable,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   View,
@@ -30,7 +31,7 @@ export function WeeklyMaterialPager({
   renderWeek: (weekStartDate: string) => ReactNode;
   selectedWeekStartDate: string;
 }) {
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const contentReadyCenterPendingRef = useRef(true);
   const userDragInProgressRef = useRef(false);
   const [pageWidth, setPageWidth] = useState(1);

@@ -8,9 +8,8 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  type TextInputSubmitEditingEventData,
+  type TextInputSubmitEditingEvent,
   View,
-  type NativeSyntheticEvent,
 } from 'react-native';
 
 import {colors, control, radius, spacing, typography} from '../theme';
@@ -373,7 +372,7 @@ export function TextField({
   label: string;
   onChangeText: (value: string) => void;
   onSubmitEditing?:
-    | ((event: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => void)
+    | ((event: TextInputSubmitEditingEvent) => void)
     | undefined;
   placeholder?: string | undefined;
   returnKeyType?: ReturnKeyTypeOptions;
