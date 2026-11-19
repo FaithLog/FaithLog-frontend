@@ -32,7 +32,7 @@ jobs:
 
       - name: Smoke test Node runtime and installed Expo
         run: |
-          docker run --rm --entrypoint node faithlog-frontend:qa --version | grep -E '^v26\\.'
+          docker run --rm --entrypoint node faithlog-frontend:qa --version | grep -E '^v26[.]'
           docker run --rm --entrypoint node faithlog-frontend:qa -e "require('expo/package.json'); require('react-native/package.json'); process.stdout.write('ok\\n')" | grep ok
 
       - name: Typecheck inside Docker
