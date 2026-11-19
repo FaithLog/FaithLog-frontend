@@ -8,6 +8,8 @@ on:
       - .github/workflows/eas-ios-simulator-qa.yml
       - eas.json
       - fixtures/firebase/synthetic-ios-preview.plist
+      - package.json
+      - scripts/stage-ios-firebase-plist.js
 
 permissions:
   contents: read
