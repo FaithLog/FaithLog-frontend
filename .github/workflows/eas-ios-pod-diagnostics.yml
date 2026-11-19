@@ -26,6 +26,9 @@ jobs:
         with:
           node-version: 26.12.1
 
+      - name: Install project dependencies to resolve app config
+        run: npm ci --no-audit --no-fund
+
       - name: Setup EAS CLI
         uses: expo/expo-github-action@9da89d3617bb88139671bad31b09c65714c2ee06 # v9
         with:
@@ -35,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$EXPO_TOKEN"
+          eas whoami
           eas build:view 5b0953cd-b999-4052-91b6-d56c1b154a4b --json > /tmp/eas-ios-failed.json
 
       - name: Print sanitized CocoaPods failure excerpts
