@@ -6,6 +6,8 @@ on:
       - test/371-ios-simulator-native-qa
     paths:
       - .github/workflows/eas-ios-simulator-qa.yml
+      - eas.json
+      - fixtures/firebase/synthetic-ios-preview.plist
 
 permissions:
   contents: read
