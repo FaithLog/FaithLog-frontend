@@ -17,6 +17,21 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   if(mutation)throw new Error('이전 거래를 처리하고 있어요.');mutation=true;
   try{if(await pending())throw new Error('이전 거래 결과를 먼저 새로 확인해주세요.');const key=`${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;const p={key,kind,body};await storage.set(JSON.stringify(p));return await execute(p);}finally{mutation=false;}
  };
+ async function loadInventory():Promise<ServerSnapshot['inventory']>{
+  const inventory:ServerSnapshot['inventory']={};
+  for(let page=0;page<100;page++){
+   const result=await request(`/api/v1/companions/me/inventory?page=${page}&size=100`,v=>{
+    const r=object(v);
+    return{items:array(r.items).map(x=>{
+     const d=object(x);
+     return{id:designId(d.designId),quantity:integer(d.quantity,1)};
+    }),total:integer(r.total)};
+   });
+   for(const item of result.items)inventory[item.id]=item.quantity;
+   if((page+1)*100>=result.total)return inventory;
+  }
+  throw new Error('보유 목록이 너무 커요.');
+ }
  return {
   async load(){
    if(mutation)throw new Error('거래 처리 중이에요.');const old=await pending();if(old){mutation=true;try{await execute(old);}finally{mutation=false;}}
@@ -30,8 +45,11 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
     request('/api/v1/companions/me/draws?page=0',v=>array(v).map(x=>{const r=object(x);return{result:parseOperation(r.result),createdAt:date(r.createdAt)};})),
     request('/api/v1/companions/catalog',v=>array(v).map(x=>designId(object(x).designId))),
    ]);
-   const inventory:ServerSnapshot['inventory']={};for(let page=0;page<100;page++){const result=await request(`/api/v1/companions/me/inventory?page=${page}&size=100`,v=>{const r=object(v);return{items:array(r.items).map(x=>{const d=object(x);return{id:designId(d.designId),quantity:integer(d.quantity,1)};}),total:integer(r.total)};});for(const item of result.items)inventory[item.id]=item.quantity;if((page+1)*100>=result.total)break;if(page===99)throw new Error('보유 목록이 너무 커요.');}
-   const balance=await request('/api/v1/points/me/wallet',v=>integer(object(v).balance));pool=pools[0]??null;
+   const [inventory,balance]=await Promise.all([
+    loadInventory(),
+    request('/api/v1/points/me/wallet',v=>integer(object(v).balance)),
+   ]);
+   pool=pools[0]??null;
    return{balance,inventory,garden,daily:dailyResult,attendance,periods,backgrounds,pool,prices,history,catalog};
   },
   garden:(garden:Garden)=>request('/api/v1/companions/me/garden',parseGarden,'PUT',
