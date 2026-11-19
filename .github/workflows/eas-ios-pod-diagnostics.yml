@@ -1,0 +1,83 @@
+name: EAS iOS Pods Failure Diagnostics (one-shot)
+
+on:
+  push:
+    branches:
+      - test/363-eas-preview-native-qa
+    paths:
+      - .github/workflows/eas-ios-pod-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-pods:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 12
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout EAS source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@9da89d3617bb88139671bad31b09c65714c2ee06 # v9
+        with:
+          eas-version: 20.5.1
+
+      - name: Retrieve failed build metadata
+        run: |
+          set -euo pipefail
+          test -n "$EXPO_TOKEN"
+          eas build:view 5b0953cd-b999-4052-91b6-d56c1b154a4b --json > /tmp/eas-ios-failed.json
+
+      - name: Print sanitized CocoaPods failure excerpts
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,re,gzip
+          from pathlib import Path
+          data=json.loads(Path('/tmp/eas-ios-failed.json').read_text())
+          print('Build status:',data.get('status'))
+          print('Build failure summary:',str(data.get('error',{}))[:450])
+          files=data.get('logFiles') or []
+          print('Build log files:',len(files))
+          if not files:
+            print('Available metadata keys:',sorted(data.keys()))
+          for i,item in enumerate(files):
+            url=item if isinstance(item,str) else item.get('url') if isinstance(item,dict) else None
+            if not url or not url.startswith('https://'):continue
+            try:
+              with urllib.request.urlopen(url,timeout=25) as response: raw=response.read()
+              if raw[:2]==b'\\x1f\\x8b':raw=gzip.decompress(raw)
+              raw_text=raw.decode('utf-8','replace')
+            except Exception as exc:
+              print('Log',i,'unavailable:',type(exc).__name__)
+              continue
+            lines=[]
+            for rawline in raw_text.splitlines():
+              try:
+                row=json.loads(rawline)
+                if isinstance(row,dict):rawline=str(row.get('message',row.get('text',rawline)))
+              except (json.JSONDecodeError,TypeError):pass
+              lines.append(rawline)
+            match=re.compile(r'pod install|cocoapods|\[!\]|error:|failed|fatal|cannot find|could not|unable|incompatible|version|firebase|reanimated|hermes|react-native|integrat',re.I)
+            hits=[j for j,line in enumerate(lines) if match.search(line)]
+            if hits:
+              starts=set()
+              for j in hits[-45:]:
+                for k in range(max(0,j-1),min(len(lines),j+2)):starts.add(k)
+              print('Log',i,'matching excerpts:',min(len(starts),150))
+              for k in sorted(starts)[-150:]:
+                line=lines[k]
+                line=re.sub(r'https?://\\S+','[URL]',line)
+                line=re.sub(r'(?i)(token|secret|password|credential|api_key)\\s*[:=]\\s*\\S+',r'\\1=[REDACTED]',line)
+                print(f'[{i}:{k}] {line[:550]}')
+            else:
+              print('Log',i,'no matching errors; lines:',len(lines))
+          PY
