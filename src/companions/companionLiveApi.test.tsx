@@ -57,14 +57,14 @@ describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP ada
   await api.claim('prayer');await api.claim('prayer');s=await api.load();expect(s.balance).toBe(1060);
   const monday=s.periods.missions.find(m=>m.mission==='WEEKLY_SUBMISSION')!.periodStart;
   await saveWeeklyDevotion(token,f.campus,monday,{submit:true,saturdayLateMinutes:0,dailyChecks:[{recordDate:today,quietTimeChecked:false,prayerChecked:true,bibleReadingChecked:false}]});
-  await api.claim('submission');s=await api.load();expect(s.balance).toBe(1160);
+  await api.claim('submission');s=await api.load();expect(s.balance).toBe(1180);
   const initialQuantity=Object.values(s.inventory).reduce((sum,n)=>sum+(n??0),0);const initialHistory=s.history.length;
   const actualFetch=globalThis.fetch;let drop=true;const keys:string[]=[];
   vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(!url.startsWith(baseUrl!))throw new Error('Non-QA network blocked');const response=await actualFetch(input,init);if(url.endsWith('/companions/me/draws')&&init?.method==='POST'){keys.push(new Headers(init.headers).get('Idempotency-Key')!);if(drop){drop=false;throw new TypeError('test-only lost response after commit');}}return response;});
   await expect(api.draw(1)).rejects.toBeDefined();expect(await storage.get()).not.toBeNull();
   const reloaded=createCompanionServerApi(f.campus,async()=>token,storage);s=await reloaded.load();
-  expect(s.balance).toBe(1060);expect(Object.values(s.inventory).reduce((sum,n)=>sum+(n??0),0)).toBe(initialQuantity+1);expect(s.history).toHaveLength(initialHistory+1);expect(keys).toHaveLength(2);expect(keys[0]).toBe(keys[1]);expect(await storage.get()).toBeNull();
-  const result=await reloaded.draw(10);expect(result.designIds).toHaveLength(10);s=await reloaded.load();expect(s.balance).toBe(60);expect(s.history).toHaveLength(initialHistory+2);
+  expect(s.balance).toBe(1080);expect(Object.values(s.inventory).reduce((sum,n)=>sum+(n??0),0)).toBe(initialQuantity+1);expect(s.history).toHaveLength(initialHistory+1);expect(keys).toHaveLength(2);expect(keys[0]).toBe(keys[1]);expect(await storage.get()).toBeNull();
+  const result=await reloaded.draw(10);expect(result.designIds).toHaveLength(10);s=await reloaded.load();expect(s.balance).toBe(80);expect(s.history).toHaveLength(initialHistory+2);
  },120_000);
  it('renders actual server missions, persists a claimed monthly reward after remount and isolates accounts',async()=>{
   const token=await login(1);const f=fixtures[1]!;const storage=memory();const api=createCompanionServerApi(f.campus,async()=>token,storage);
