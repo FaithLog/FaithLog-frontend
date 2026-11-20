@@ -55,6 +55,8 @@ describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP ada
   await expect(api.claim('prayer')).rejects.toMatchObject({detail:{status:409}});
   const today=s.daily.recordDate;await saveDevotionDailyCheck(token,f.campus,today,{quietTimeChecked:false,prayerChecked:true,bibleReadingChecked:false});
   await api.claim('prayer');await api.claim('prayer');s=await api.load();expect(s.balance).toBe(1060);
+  expect(s.periods.missions.find(m=>m.mission==='WEEKLY_NO_PENALTY')?.points).toBe(100);
+  expect(s.periods.missions.find(m=>m.mission==='WEEKLY_PRAYER_TOPIC')).toMatchObject({points:50,status:'INCOMPLETE'});
   const monday=s.periods.missions.find(m=>m.mission==='WEEKLY_SUBMISSION')!.periodStart;
   await saveWeeklyDevotion(token,f.campus,monday,{submit:true,saturdayLateMinutes:0,dailyChecks:[{recordDate:today,quietTimeChecked:false,prayerChecked:true,bibleReadingChecked:false}]});
   await api.claim('submission');s=await api.load();expect(s.balance).toBe(1180);
