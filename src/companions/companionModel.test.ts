@@ -25,8 +25,8 @@ describe('companion preview economy', () => {
     expect(companionReducer(replaced, {type:'replace',outgoingId:'hope-rabbit:base',incomingId:'jonah-whale:unique'})).toBe(replaced);
   });
 
-  it('keeps agreed mission rewards at 100/200/500 and 100 points per draw', () => {
-    for (const [period, total] of [['daily', 100], ['weekly', 200], ['monthly', 500]] as const) {
+  it('keeps agreed mission rewards at 100/330/2500 and 100 points per draw', () => {
+    for (const [period, total] of [['daily', 100], ['weekly', 330], ['monthly', 2500]] as const) {
       expect(MISSIONS.filter(m => m.period === period).reduce((sum, m) => sum + m.points, 0)).toBe(total);
     }
     const state = createCompanionDemoState();

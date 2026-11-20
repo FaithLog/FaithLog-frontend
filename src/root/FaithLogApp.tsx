@@ -2654,7 +2654,7 @@ function AuthenticatedShellContent({
               initialPage={companionPage}
               onScrollTop={() => companionScrollRef.current?.scrollTo({y: 0, animated: true})}
               onBack={() => setUserHomeView('dashboard')}
-              onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {if(target==='devotion'&&recordDate)setDevotionInitialDate(recordDate);setUserHomeView('dashboard'); setRoute(target);}}}
+              onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {if(target==='devotion'&&recordDate)setDevotionInitialDate(recordDate);setUserHomeView('dashboard');if(target==='prayers')openPrayers('input');else setRoute(target);}}}
             />
           ) : userHomeView === 'monthlyCalendar' ? (
             <MonthlyCalendarScreen

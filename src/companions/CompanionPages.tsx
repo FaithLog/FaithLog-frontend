@@ -11,7 +11,7 @@ import {companionStyles as s} from './companionStyles';
 export function CompanionPages({initialPage, onBack, onActivity, onScrollTop = () => {}}: {
   onScrollTop?: () => void;
   initialPage: CompanionPage; onBack: () => void;
-  onActivity: (route: 'calendar' | 'devotion' | 'polls', recordDate?: string) => void;
+  onActivity: (route: 'calendar' | 'devotion' | 'polls' | 'prayers', recordDate?: string) => void;
 }) {
   const [page, setPage] = useState(initialPage);
   const {state,server,busy,error,refresh,gardenSaving} = useCompanions();
