@@ -25,6 +25,12 @@ describe('farm runtime animation selection',()=>{
   expect(resolveFarmSpriteVisual(pet,event('SLEEP'),3000)).toMatchObject({action:'wake',elapsedMs:0,pauseMovement:true});
   expect(resolveFarmSpriteVisual(pet,event('SLEEP'),3760).action).toBeUndefined();
  });
+ it('keeps a dormant animal still until the server confirms waking',()=>{
+  expect(resolveFarmSpriteVisual({...pet,dormant:true},null,2000))
+   .toEqual({action:'sleep',elapsedMs:0,pauseMovement:true});
+  expect(resolveFarmSpriteVisual(pet,event('WAKE'),440)).toMatchObject({action:'wake',pauseMovement:true});
+  expect(resolveFarmSpriteVisual(pet,event('WAKE'),1120).pauseMovement).toBe(false);
+ });
  it('uses evolution motion only after a confirmed evolution event',()=>{
   expect(resolveFarmSpriteVisual(pet,event('EVOLVE'),500).action).toBe('evolve');
   expect(resolveFarmSpriteVisual(pet,event('EVOLVE'),2100).action).toBeUndefined();

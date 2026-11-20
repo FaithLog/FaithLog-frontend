@@ -12,11 +12,11 @@ import {GardenAnimal} from './GardenAnimal';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
 import {FarmMessMarker} from './FarmMessMarker';
 import {resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
-import {advanceGardenAgent, chooseGardenTarget, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
+import {advanceGardenAgent, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards} = useCompanions();
   const slots=companionGardenSlots(state);
   // Group alerts across the <=5 visible pets. No per-animal notifications,
   // polling, push permission or scheduled server work on the home scene.
@@ -24,13 +24,15 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     ||item.stats.satiety<25||item.stats.cleanliness<25);
   const [selectedKey,setSelectedKey] = useState<string|null>(null);
   const [growthExpanded,setGrowthExpanded]=useState(false);
-  const [baseAppearance,setBaseAppearance]=useState<ReadonlySet<string>>(() => new Set());
   const selectedSlot=slots.find(p=>(p.instanceId??p.designId)===selectedKey);
   const selected=selectedSlot
     ? instances?.find(item=>selectedSlot.instanceId
       ? item.instanceId===selectedSlot.instanceId : item.designId===selectedSlot.designId)
     : null;
-  const appearanceLabel=selected && baseAppearance.has(selected.instanceId)
+  useEffect(()=>{
+    if(selectedKey)void loadShards?.();
+  },[selectedKey,loadShards]);
+  const appearanceLabel=selected && baseAppearance?.has(selected.instanceId)
     ? '진화 외형으로 보기' : '기본 외형으로 보기';
   const activeDesign=selectedSlot
     ? BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===selectedSlot.designId):null;
@@ -117,7 +119,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         const farmAction=agent.motion==='held'||(agent.motion==='walk'&&!visual.pauseMovement)
           ? undefined : visual.action;
         return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
-          evolutionStage={animal && (!baseAppearance.has(animal.instanceId) || farmAction==='evolve')
+          evolutionStage={animal && (!baseAppearance?.has(animal.instanceId) || farmAction==='evolve')
             ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
           {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
@@ -128,8 +130,8 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
               update(key,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
-          onReact={() => {setSelectedKey(key);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
-        {animal && animal.stats.cleanliness<35 && <Pressable
+          onReact={() => {setSelectedKey(key);if(animal?.dormant)void wakeInstance?.(animal.instanceId);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
+        {animal && !animal.dormant && animal.stats.cleanliness<35 && <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${name} 주변 청소하기`}
           accessibilityHint="청소가 필요한 흔적을 치웁니다. 청소 쿨타임이 적용돼요."
@@ -207,16 +209,19 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           {selected.level===3?'최종 진화까지 완료했어요.':'이 캐릭터는 추가 진화 단계가 없어요.'}
         </Text>}
       </View>:null}
-      {selected.level>1 && <Button size="compact" accessibilityLabel={appearanceLabel} onPress={() => setBaseAppearance(current => {
-        const next = new Set(current);
-        if (!next.delete(selected.instanceId)) next.add(selected.instanceId);
-        return next;
-      })}>
+      {selected.level>1 && toggleAppearance && <Button size="compact" accessibilityLabel={appearanceLabel}
+        onPress={() => toggleAppearance(selected.instanceId)}>
         {appearanceLabel}
       </Button>}
+      {selected.dormant?<Text style={styles.helper}>휴면 중 · 동물을 누르거나 밥을 주면 깨어나요.</Text>:null}
+      {shardBalance!==null&&shardBalance!==undefined&&selected.designId!=='jesus:miracle'&&boostWithShards?
+        <Button size="compact" variant="secondary" accessibilityLabel="성장 조각으로 XP 올리기" disabled={busy||!!selected.dormant||shardBalance<10}
+          onPress={()=>void boostWithShards(selected.instanceId)}>
+          성장 XP +20 · 조각 10개 사용 ({shardBalance}개 보유)
+        </Button>:null}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
       <View style={styles.careActions}>
-        {(['feed','pet','play','clean','sleep'] as const).map(action=><FarmCareButton
+        {(['feed','pet','play','clean','sleep'] as const).filter(action=>!selected.dormant||action==='feed').map(action=><FarmCareButton
           key={action} action={action}
           disabled={busy||!careInstance||(selected.stats.health===0&&(action==='pet'||action==='play'))}
           onPress={()=>void careInstance?.(selected.instanceId,action.toUpperCase() as CompanionCareAction)}/>)}

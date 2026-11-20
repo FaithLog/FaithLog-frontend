@@ -1,7 +1,7 @@
 import type {CompanionCareAction, CompanionInstance} from './companionServerContract';
 import {FARM_ACTION_TIMELINE, type FarmVisualAction} from '../characters/farmMotionTimeline';
 
-export type FarmMutation = CompanionCareAction | 'EVOLVE';
+export type FarmMutation = CompanionCareAction | 'EVOLVE' | 'WAKE';
 export type CompanionFarmAnimationEvent = {
  instanceId:string;action:FarmMutation;sequence:number;
 };
@@ -32,6 +32,8 @@ export function resolveFarmSpriteVisual(
    if(animation.action==='SLEEP'){
     if(age<SLEEP_MS)return{action:'sleep',elapsedMs:age,pauseMovement:true};
     if(age<SLEEP_MS+WAKE_MS)return{action:'wake',elapsedMs:age-SLEEP_MS,pauseMovement:true};
+   }else if(animation.action==='WAKE'){
+    if(age<WAKE_MS)return{action:'wake',elapsedMs:age,pauseMovement:true};
    }else if(animation.action==='EVOLVE'){
     if(age<EVOLVE_MS)return{action:'evolve',elapsedMs:age,pauseMovement:true};
    }else{
@@ -42,6 +44,7 @@ export function resolveFarmSpriteVisual(
    }
   }
  }
+ if(instance.dormant)return{action:'sleep',elapsedMs:0,pauseMovement:true};
  const {health,satiety,cleanliness}=instance.stats;
  if(health===0)return{action:'faint',elapsedMs:elapsed,pauseMovement:true};
  if(health<25)return{action:'sick',elapsedMs:elapsed,pauseMovement:true};

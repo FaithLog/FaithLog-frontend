@@ -62,6 +62,19 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   },
   draw:count=>{if(!pool)throw new Error('뽑기 정보를 새로 확인해주세요.');return mutate('draws',{poolVersion:pool.poolVersion,count});},
   sell:(designId,quantity)=>mutate('sales',{designId,quantity}),
+  recordGardenVisit:async()=>{
+   try{await request('/api/v1/companions/me/instances/visit',object,'POST');}
+   catch(e){if(!(e instanceof FaithLogApiError)||e.detail.status!==404)throw e;}
+  },
+  wakeInstance:id=>request(`/api/v1/companions/me/instances/${encodeURIComponent(id)}/wake`,parseCompanionInstance,'POST'),
+  growthShards:()=>request('/api/v1/companions/me/growth-shards',v=>integer(object(v).balance)),
+  exchangeShard:(id,key)=>request('/api/v1/companions/me/growth-shards/exchanges',v=>{
+   const result=object(v);
+   return {balance:integer(result.balance),awarded:integer(result.awarded,1)};
+  },'POST',{designId:id},key),
+  boostWithShards:(id,expectedVersion,key)=>request(
+   `/api/v1/companions/me/instances/${encodeURIComponent(id)}/growth-shard-boost`,
+   parseCompanionInstance,'POST',{expectedVersion},key),
   saleAvailability:(selected)=>request(
      `/api/v1/companions/me/sales/availability?designId=${encodeURIComponent(selected)}`,
      v=>{const r=object(v);const design=designId(r.designId);
