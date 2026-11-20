@@ -7,7 +7,7 @@ export type MissionPeriod = 'daily' | 'weekly' | 'monthly';
 export type MissionStatus = 'incomplete' | 'ready' | 'settling';
 export type MissionDefinition = Readonly<{
   id: string; period: MissionPeriod; label: string; points: number;
-  destination: 'calendar' | 'devotion' | 'polls' | null;
+  destination: 'calendar' | 'devotion' | 'polls' | 'prayers' | null;
 }>;
 export const DRAW_COST = 100;
 export const MAX_GARDEN_FRIENDS = 5;
@@ -22,9 +22,10 @@ export const MISSIONS: readonly MissionDefinition[] = [
   {id: 'bible', period: 'daily', label: '말씀 읽기', points: 30, destination: 'calendar'},
   {id: 'submission', period: 'weekly', label: '경건 체크 제출', points: 100, destination: 'devotion'},
   {id: 'vote', period: 'weekly', label: '투표 참여', points: 50, destination: 'polls'},
-  {id: 'weekly-no-penalty', period: 'weekly', label: '전주 벌금 없음', points: 50, destination: null},
-  {id: 'monthly-no-penalty', period: 'monthly', label: '월간 벌금 없음', points: 200, destination: null},
-  {id: 'all-submissions', period: 'monthly', label: '경건 체크 모두 제출', points: 300, destination: null},
+  {id: 'weekly-no-penalty', period: 'weekly', label: '전주 벌금 없음', points: 100, destination: null},
+  {id: 'weekly-prayer-topic', period: 'weekly', label: '기도제목 작성', points: 50, destination: 'prayers'},
+  {id: 'monthly-no-penalty', period: 'monthly', label: '월간 벌금 없음', points: 2000, destination: null},
+  {id: 'all-submissions', period: 'monthly', label: '경건 체크 모두 제출', points: 500, destination: null},
 ];
 export const RARITY_LABELS: Readonly<Record<BibleFriendRarity, string>> = {
   COMMON: '일반', UNCOMMON: '고급', RARE: '희귀', EPIC: '에픽', UNIQUE: '유니크', MIRACLE: '미라클',

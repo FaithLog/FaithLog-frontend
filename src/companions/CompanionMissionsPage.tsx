@@ -7,7 +7,7 @@ import {getDemoMissionStatus, getMissionPeriodKeys, MISSIONS, type MissionPeriod
 import {useCompanions} from './CompanionProvider';
 import {companionStyles as s} from './companionStyles';
 
-export function CompanionMissionsPage({onActivity}: {onActivity: (route: 'calendar' | 'devotion' | 'polls', recordDate?: string) => void}) {
+export function CompanionMissionsPage({onActivity}: {onActivity: (route: 'calendar' | 'devotion' | 'polls' | 'prayers', recordDate?: string) => void}) {
  const {state,dispatch,daily,refreshDaily,claimDaily,server,busy,error,serverSnapshot,perform}=useCompanions();
  const [period,setPeriod]=useState<MissionPeriod>('daily');const [now,setNow]=useState(()=>new Date());
  useEffect(()=>{const refresh=()=>{setNow(new Date());void refreshDaily();};let timer:ReturnType<typeof setInterval>|undefined;
@@ -25,7 +25,7 @@ export function CompanionMissionsPage({onActivity}: {onActivity: (route: 'calend
   if(isDailyMission(mission.id))return daily.snapshot?.missions.find(m=>m.mission===DAILY_MISSION_SERVER_IDS[mission.id as keyof typeof DAILY_MISSION_SERVER_IDS])?.points ?? mission.points;
   return periodItem(mission.id)?.points ?? mission.points;
  };
- const missions=MISSIONS.filter(m=>m.period===period);const total=missions.reduce((sum,m)=>sum+pointsFor(m),0);
+ const missions=MISSIONS.filter(m=>m.period===period&&(m.id!=='weekly-prayer-topic'||!server||periodItem(m.id)));const total=missions.reduce((sum,m)=>sum+pointsFor(m),0);
  const earned=missions.filter(m=>claimed(m.id)).reduce((sum,m)=>sum+pointsFor(m),0);
  const ready=missions.filter(m=>statusFor(m.id)==='ready'&&!claimed(m.id));const readyPoints=ready.reduce((sum,m)=>sum+pointsFor(m),0);
  return <View style={s.page}>
@@ -41,7 +41,7 @@ export function CompanionMissionsPage({onActivity}: {onActivity: (route: 'calend
    <View style={s.between}><Text style={s.name}>{period==='daily'?'오늘의 미션':period==='weekly'?'주간 미션':'월간 미션'}</Text><Text style={s.caption}>{server&&period!=='daily'?'미션별 대상 기간 기준':`${keys[period]} 기준`}</Text></View>
    {missions.map(mission=>{const status=statusFor(mission.id);const done=claimed(mission.id);const item=periodItem(mission.id);
     return <View key={mission.id} style={s.missionRow}><View style={s.missionCopy}><Text style={s.name}>{done?'✓ ':''}{mission.label}</Text><Text style={s.eyebrow}>+{pointsFor(mission)}P</Text>{server&&item?<Text style={s.caption}>{item.periodStart} ~ {item.periodEnd}</Text>:null}<Text style={s.caption}>{done?'수령 완료':status==='settling'?'기간 종료 후 집계해요':status==='ready'?'완료했어요! 보상을 받아보세요':isDailyMission(mission.id)?'오늘 경건 체크를 저장해주세요':server?'아직 지급 조건을 충족하지 못했어요':'실천하고 포인트를 모아요'}</Text></View>
-     <View style={s.missionAction}>{!done&&status==='incomplete'&&mission.destination?<Button size="compact" fullWidth accessibilityLabel={`${mission.label} 하러 가기`} variant="secondary" onPress={()=>{if(mission.destination==='calendar')onActivity('calendar',keys.daily);else if(server&&item)onActivity(mission.destination!,item.periodStart);else onActivity(mission.destination!);}}>하러 가기</Button>:<Button size="compact" fullWidth accessibilityLabel={`${mission.label} ${done?'수령 완료':'보상 받기'}`} disabled={done||status!=='ready'||busy} variant={done||status!=='ready'?'secondary':'primary'} onPress={()=>void claim(mission)}>{done?'완료':status==='settling'?'집계 대기':'받기'}</Button>}</View>
+     <View style={s.missionAction}>{!done&&status==='incomplete'&&mission.destination?<Button size="compact" fullWidth accessibilityLabel={`${mission.label} 하러 가기`} variant="secondary" onPress={()=>{if(mission.destination==='calendar')onActivity('calendar',keys.daily);else if(mission.destination==='prayers')onActivity('prayers');else if(server&&item)onActivity(mission.destination!,item.periodStart);else onActivity(mission.destination!);}}>하러 가기</Button>:<Button size="compact" fullWidth accessibilityLabel={`${mission.label} ${done?'수령 완료':'보상 받기'}`} disabled={done||status!=='ready'||busy} variant={done||status!=='ready'?'secondary':'primary'} onPress={()=>void claim(mission)}>{done?'완료':status==='settling'?'집계 대기':'받기'}</Button>}</View>
     </View>;
    })}
   </View>
