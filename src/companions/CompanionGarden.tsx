@@ -24,6 +24,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     ||item.stats.satiety<25||item.stats.cleanliness<25);
   const [selectedKey,setSelectedKey] = useState<string|null>(null);
   const [growthExpanded,setGrowthExpanded]=useState(false);
+  const [baseAppearance,setBaseAppearance]=useState<ReadonlySet<string>>(() => new Set());
   const selectedSlot=slots.find(p=>(p.instanceId??p.designId)===selectedKey);
   const selected=selectedSlot
     ? instances?.find(item=>selectedSlot.instanceId
@@ -114,7 +115,8 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         const farmAction=agent.motion==='held'||(agent.motion==='walk'&&!visual.pauseMovement)
           ? undefined : visual.action;
         return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
-          evolutionStage={animal ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
+          evolutionStage={animal && (!baseAppearance.has(animal.instanceId) || farmAction==='evolve')
+            ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
           {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
@@ -203,6 +205,13 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           {selected.level===3?'최종 진화까지 완료했어요.':'이 캐릭터는 추가 진화 단계가 없어요.'}
         </Text>}
       </View>:null}
+      {selected.level>1 && <Button size="compact" onPress={() => setBaseAppearance(current => {
+        const next = new Set(current);
+        if (!next.delete(selected.instanceId)) next.add(selected.instanceId);
+        return next;
+      })}>
+        {baseAppearance.has(selected.instanceId) ? '진화 외형으로 보기' : '기본 외형으로 보기'}
+      </Button>}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
       <View style={styles.careActions}>
         {(['feed','pet','play','clean','sleep'] as const).map(action=><FarmCareButton
