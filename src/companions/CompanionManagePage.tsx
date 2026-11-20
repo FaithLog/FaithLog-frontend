@@ -32,7 +32,7 @@ function CompanionCardName({name, compact = false}: {name: string; compact?: boo
 }
 
 export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetails?: () => void}) {
-  const {state, dispatch, nextTransactionId,server,error,serverSnapshot,perform,instancesByDesign,saleAvailability} = useCompanions();
+  const {state, dispatch, nextTransactionId,server,error,serverSnapshot,perform,instancesByDesign,saleAvailability,shardBalance,loadShards,exchangeShard,busy,careError} = useCompanions();
   const [page, setPage] = useState(0);
   const [section, setSection] = useState<'friends' | 'backgrounds'>('friends');
   const [filter, setFilter] = useState<'owned' | 'duplicates' | 'all' | 'unequipped'>('owned');
@@ -43,6 +43,8 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
   const [replacementId, setReplacementId] = useState<BibleFriendDesignId | null>(null);
   const replacement = BIBLE_FRIEND_DESIGN_CATALOG.find(d => d.id === replacementId);
   const [quantity, setQuantity] = useState(1);
+  const [exchangeOpen,setExchangeOpen]=useState(false);
+  useEffect(()=>{void loadShards?.();},[loadShards]);
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState('');
   const [instancePage,setInstancePage]=useState(0);
@@ -101,6 +103,7 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
   },[selected,count,server,saleAvailability,serverSnapshot?.garden.version]);
   const maxSellable=server?(saleInfo?.ownedQuantity===count?saleInfo.sellableQuantity:0):Math.max(0,count-1);
   const quoteCandidate=selected?getSellQuote(state,selected,quantity,serverSnapshot?.prices??DEMO_SELL_PRICES):null;
+  const shardAward=design?{COMMON:1,UNCOMMON:2,RARE:4,EPIC:8,UNIQUE:16,MIRACLE:0}[design.rarity]:0;
   const quote=quoteCandidate&&quantity<=maxSellable&&!saleLoading&&!saleError?quoteCandidate:null;
   const canSelectIndividual=Boolean(server&&instancesByDesign&&!instanceUnsupported);
   const ownedCount = Object.values(state.inventory).filter(n => n && n > 0).length;
@@ -205,6 +208,10 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
       {server?<Text style={s.caption}>
         {saleLoading?'판매 가능 수량 확인 중…':saleError||`실제 판매 가능 ${maxSellable}마리 · 보유 ${count}마리`}
       </Text>:null}
+      {shardBalance!==null&&shardBalance!==undefined&&design.rarity!=='MIRACLE'&&exchangeShard?
+        <Button size="compact" variant="secondary" accessibilityLabel="중복 동물 성장 조각 교환" disabled={busy||maxSellable<1||saleLoading}
+          onPress={()=>setExchangeOpen(true)}>조각 {shardAward}개로 교환 ({shardBalance}개 보유)</Button>:null}
+      {careError?<Text style={s.caption} accessibilityRole="alert">{careError}</Text>:null}
       <Text style={s.caption}>{server ? '판매가' : '체험 판매가'} · {RARITY_LABELS[design.rarity]} 1마리 {(serverSnapshot?.prices ?? DEMO_SELL_PRICES)[design.rarity]}P</Text>
       {count > 1 ? <View style={s.row}><View style={[s.between, {flexGrow:1}]}><Button accessibilityLabel="판매 수량 줄이기" disabled={quantity <= 1||!!saleLoading} onPress={() => setQuantity(n => n - 1)} variant="secondary">−</Button><Text style={s.name}>{quantity}마리</Text><Button accessibilityLabel="판매 수량 늘리기" disabled={quantity >= maxSellable||!!saleError||saleLoading} onPress={() => setQuantity(n => n + 1)} variant="secondary">+</Button></View><Button size="compact" variant="ghost" accessibilityLabel="판매 가능한 중복 모두 선택" disabled={maxSellable<1||!!saleError||saleLoading} onPress={() => setQuantity(maxSellable)}>최대</Button></View> : null}
       <Button fullWidth accessibilityLabel="중복 동물 판매 확인" variant="secondary" disabled={!quote} onPress={() => {saleLock.current = false; setConfirming(true);}}>{quote ? `${quantity}마리 판매 · ${quote.points}P` : server&&saleLoading?'판매 가능 수량 확인 중…':'판매할 수 있는 중복 동물이 없어요'}</Button>
@@ -265,6 +272,17 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         </View>
       </View>
     </AppModal>
+    <DangerConfirmSheet visible={exchangeOpen && Boolean(design)} title="성장 조각으로 교환할까요?"
+      message={`${design?.name ?? ''} 중복 1마리를 성장 조각 ${shardAward}개로 교환해요.`}
+      dangerSummary="교환한 동물은 되돌릴 수 없어요." confirmLabel="교환하기"
+      onCancel={()=>setExchangeOpen(false)}
+      onConfirm={async()=>{
+        if(!selected||!exchangeShard)return;
+        const awarded=await exchangeShard(selected);
+        if(awarded===null)return;
+        setExchangeOpen(false);
+        setMessage(`성장 조각 ${awarded}개를 받았어요.`);
+      }}/>
     <DangerConfirmSheet visible={confirming && Boolean(design)} title="중복 친구를 판매할까요?" message={`${design?.name ?? ''} ${quantity}마리를 판매하고 ${server ? '포인트' : '체험 포인트'} ${quote?.points ?? 0}P를 받아요.`}
       dangerSummary="판매한 수량은 되돌릴 수 없어요. 마지막 한 마리는 유지돼요." confirmLabel="판매하기" onCancel={() => setConfirming(false)}
       onConfirm={async () => {

@@ -11,6 +11,13 @@ import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dail
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
 type Context = {
+  baseAppearance?: ReadonlySet<string>;
+  toggleAppearance?: (instanceId: string) => void;
+  wakeInstance?: (id: string) => Promise<void>;
+  shardBalance?: number | null;
+  loadShards?: () => Promise<void>;
+  exchangeShard?: (id: BibleFriendDesignId) => Promise<number | null>;
+  boostWithShards?: (id: string) => Promise<void>;
   farmAnimation?: CompanionFarmAnimationEvent | null;
   instances?: CompanionInstance[] | null;
   careError?: string;
@@ -76,6 +83,14 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const gardenInstancesDirty = useRef(false);
  const gardenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
  const [gardenSaving, setGardenSaving] = useState(false);
+ const [baseAppearance, setBaseAppearance] = useState<ReadonlySet<string>>(() => new Set());
+ const toggleAppearance = useCallback((instanceId: string) => {
+  setBaseAppearance(current => {
+   const next = new Set(current);
+   if (!next.delete(instanceId)) next.add(instanceId);
+   return next;
+  });
+ }, []);
  const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
  const [careError,setCareError] = useState('');
  const [farmAnimation,setFarmAnimation] = useState<CompanionFarmAnimationEvent|null>(null);
@@ -129,7 +144,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   }
   current.current=next;setState(next);
  },[]);
- const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{apply(await api.load());await refreshInstances();if(alive.current){lastSuccessfulRefreshAt.current=Date.now();setError('');}}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,refreshInstances]);
+ const refresh=useCallback(async()=>{if(lock.current)return;lock.current=true;setBusy(true);try{const [loaded]=await Promise.all([api.load(),api.recordGardenVisit?.().catch(()=>undefined)]);apply(loaded);await refreshInstances();if(alive.current){lastSuccessfulRefreshAt.current=Date.now();setError('');}}catch{if(alive.current)setError('서버 정보를 확인하지 못했어요. 새로 확인하면 이전 거래 결과도 복구해요.');}finally{lock.current=false;if(alive.current)setBusy(false);}},[api,apply,refreshInstances]);
  const flushGarden = useCallback(async function saveGarden(): Promise<void> {
   if (gardenTimer.current) clearTimeout(gardenTimer.current);
   gardenTimer.current = null;
@@ -319,8 +334,86 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   return api.instancesByDesign(designId,page);
  },[api]);
 
+ const wakeInstance=useCallback(async(id:string)=>{
+  if(!api.wakeInstance||lock.current||instanceBusy.current)return;
+  instanceBusy.current=true;
+  setBusy(true);
+  setCareError('');
+  try{
+   const previous=instances?.find(item=>item.instanceId===id);
+   const updated=await api.wakeInstance(id);
+   if(alive.current){
+    setInstances(items=>items?.map(item=>
+     item.instanceId===id&&item.version<=updated.version?updated:item)??null);
+    if(previous&&updated.version>previous.version){
+     setFarmAnimation({instanceId:id,action:'WAKE',sequence:++farmAnimationSequence.current});
+    }
+   }
+  }catch{
+   if(alive.current)setCareError('동물을 깨우지 못했어요. 다시 시도해주세요.');
+  }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
+ },[api,instances]);
+ const [shardBalance,setShardBalance]=useState<number|null>(null);
+ const pendingExchange=useRef<{id:BibleFriendDesignId;key:string}|null>(null);
+ const pendingBoost=useRef<{id:string;version:number;key:string}|null>(null);
+ const loadShards=useCallback(async()=>{
+  try {
+   const balance=await api.growthShards?.();
+   if(alive.current&&balance!==undefined)setShardBalance(balance);
+  }catch{
+   if(alive.current)setShardBalance(null);
+  }
+ },[api]);
+ const exchangeShard=useCallback(async(id:BibleFriendDesignId)=>{
+  if(!api.exchangeShard||lock.current||instanceBusy.current||gardenDirty.current)return null;
+  const pending=pendingExchange.current;
+  if(pending&&pending.id!==id){setCareError('이전 교환과 같은 동물로 다시 시도해주세요.');return null;}
+  const key=pending?.key??`shard-exchange-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  pendingExchange.current={id,key};
+  lock.current=true;
+  setBusy(true);
+  setCareError('');
+  try{
+   const result=await api.exchangeShard(id,key);
+   pendingExchange.current=null;
+   if(alive.current){
+    setShardBalance(result.balance);
+
+   }
+   await api.load().then(apply).catch(()=>undefined);
+   return result.awarded;
+  }catch(e){
+   if(e instanceof FaithLogApiError && (e.detail.status??0)>=400
+      && (e.detail.status??0)<500 && ![408,429].includes(e.detail.status??0))pendingExchange.current=null;
+   if(alive.current)setCareError('성장 조각 교환을 확인하지 못했어요. 다시 시도해주세요.');
+   return null;
+  }finally{lock.current=false;if(alive.current)setBusy(false);}
+ },[api,apply]);
+ const boostWithShards=useCallback(async(id:string)=>{
+  const animal=instances?.find(item=>item.instanceId===id);
+  if(!animal||!api.boostWithShards||lock.current||instanceBusy.current)return;
+  const pending=pendingBoost.current;
+  if(pending&&pending.id!==id){setCareError('이전 강화와 같은 동물로 다시 시도해주세요.');return;}
+  const operation=pending??{id,version:animal.version,key:`shard-boost-${Date.now()}-${Math.random().toString(36).slice(2)}`};
+  pendingBoost.current=operation;
+  instanceBusy.current=true;
+  setBusy(true);
+  setCareError('');
+  try{
+   const result=await api.boostWithShards(id,operation.version,operation.key);
+   pendingBoost.current=null;
+   if(alive.current)setInstances(items=>items?.map(item=>
+    item.instanceId===id&&item.version<=result.version?result:item)??null);
+   await loadShards();
+  }catch(e){
+   if(e instanceof FaithLogApiError && (e.detail.status??0)>=400
+      && (e.detail.status??0)<500 && ![408,429].includes(e.detail.status??0))pendingBoost.current=null;
+   if(alive.current)setCareError('강화에 실패했어요. 조각 잔액과 하루 사용 한도를 확인해주세요.');
+  }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
+ },[api,instances,loadShards]);
+
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{gardenSaving,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);

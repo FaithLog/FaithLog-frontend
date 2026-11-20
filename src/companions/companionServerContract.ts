@@ -18,13 +18,18 @@ export type CompanionEvolution = {
 export type CompanionInstance = {
  instanceId:string;designId:BibleFriendDesignId;level:1|2|3;
  growthXp:number;totalEarnedXp:number;careDays:number;stats:CompanionStats;
- lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;
+ lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;dormant?:boolean;
 };
 export type CompanionSaleAvailability = {designId:BibleFriendDesignId;ownedQuantity:number;sellableQuantity:number};
 export type CompanionServerApi = {
  load:()=>Promise<ServerSnapshot>;garden:(garden:Garden)=>Promise<Garden>;
  claim:(id:string)=>Promise<ClaimUpdate>;draw:(count:1|10)=>Promise<Operation>;
  sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>;
+ recordGardenVisit?:()=>Promise<void>;
+ wakeInstance?:(id:string)=>Promise<CompanionInstance>;
+ growthShards?:()=>Promise<number>;
+ exchangeShard?:(id:BibleFriendDesignId,key:string)=>Promise<{balance:number;awarded:number}>;
+ boostWithShards?:(id:string,version:number,key:string)=>Promise<CompanionInstance>;
  saleAvailability?:(id:BibleFriendDesignId)=>Promise<CompanionSaleAvailability>;
  // Optional for old server/demo mocks; never fabricate growth stats on 404.
  instances?:()=>Promise<CompanionInstance[]>;
@@ -96,5 +101,5 @@ export function parseCompanionInstance(value:unknown):CompanionInstance{
  if(r.canEvolve && (!nextEvolution || nextEvolution.blockers.length || level===3))throw new Error('Invalid evolution readiness');
  return{instanceId,designId:designId(r.designId),level:level as 1|2|3,
   growthXp,totalEarnedXp,careDays,stats:meters,
-  lastCaredAt:date(r.lastCaredAt),version,nextEvolution,canEvolve:r.canEvolve};
+  lastCaredAt:date(r.lastCaredAt),version,nextEvolution,canEvolve:r.canEvolve,...(r.dormant===true?{dormant:true}:{})};
 }

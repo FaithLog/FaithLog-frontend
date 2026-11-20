@@ -441,9 +441,12 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
    return updated;
   }),
  };
- await act(async()=>{tree=create(
-  <CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>
- );});
+ const renderGarden=(visible:boolean, key='account-one')=>(
+  <CompanionProvider api={api} key={key}>
+   {visible?<CompanionGarden onOpen={vi.fn()}/>:null}
+  </CompanionProvider>
+ );
+ await act(async()=>{tree=create(renderGarden(true));});
  const sprite=(id:string)=>tree!.root.findAllByType('View' as React.ElementType)
   .find(n=>n.props.testID===`garden-animal-${id}`)!
   .findByType('FarmSprite' as React.ElementType);
@@ -474,5 +477,15 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
  await act(async()=>appearanceButton('진화 외형으로 보기').props.onPress());
  expect(sprite(a).props.evolutionStage).toBe(1);
  expect(api.instances).toHaveBeenCalledTimes(1);
+ await act(async()=>appearanceButton('기본 외형으로 보기').props.onPress());
+ await act(async()=>tree!.update(renderGarden(false)));
+ await act(async()=>tree!.update(renderGarden(true)));
+ const reopenedAnimal=tree!.root.findAllByType('View' as React.ElementType)
+  .find(n=>n.props.testID===`garden-animal-${a}`)!;
+ expect(reopenedAnimal.findByType('Sprite' as React.ElementType).props.designId).toBe('david-lamb:base');
+ expect(sprite(b).props.evolutionStage).toBe(1);
+ expect(api.instances).toHaveBeenCalledTimes(1);
  expect(api.garden).not.toHaveBeenCalled();
+ await act(async()=>tree!.update(renderGarden(true,'account-two')));
+ expect(sprite(a).props.evolutionStage).toBe(1);
 });
