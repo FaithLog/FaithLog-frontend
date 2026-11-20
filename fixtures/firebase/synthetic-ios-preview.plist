@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>API_KEY</key><string>fake-test-only-api-key</string>
+  <key>GCM_SENDER_ID</key><string>123456789012</string>
+  <key>GOOGLE_APP_ID</key><string>1:123456789012:ios:001122334455</string>
+  <key>PROJECT_ID</key><string>faithlog-synthetic-preview</string>
+  <key>BUNDLE_ID</key><string>com.faithlog.app</string>
+  <key>PLIST_VERSION</key><string>1</string>
+  <key>IS_ANALYTICS_ENABLED</key><false/>
+  <key>IS_ADS_ENABLED</key><false/>
+</dict>
+</plist>

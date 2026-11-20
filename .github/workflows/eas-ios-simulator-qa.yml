@@ -1,0 +1,56 @@
+name: EAS iOS Simulator Native Compile QA (one-shot)
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  simulator-native:
+    if: github.head_ref == 'test/371-ios-simulator-native-qa' && github.event.pull_request.head.repo.full_name == github.repository
+    name: iOS Simulator native build
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 120
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout isolated iOS fix
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node.js 26 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+          cache: npm
+
+      - name: Verify exact installed source
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npx expo install --check
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@9da89d3617bb88139671bad31b09c65714c2ee06 # v9
+        with:
+          eas-version: 20.5.1
+
+      - name: Guard simulator preview profile (no Apple signing, no submit)
+        run: |
+          test -n "$EXPO_TOKEN" || { echo "::error::Missing preview Expo token"; exit 1; }
+          node - <<'NODE'
+          const e=require('./eas.json');
+          const p=e.build['preview-simulator'];
+          if(p.extends!=='preview'||p.environment!=='preview'||p.ios.simulator!==true)throw Error('Only iOS simulator preview supported');
+          if(e.build.preview.distribution!=='internal')throw Error('Original preview distribution changed');
+          NODE
+          eas whoami
+
+      - name: Build iOS simulator native app with dynamic Firebase SPM
+        run: eas build --profile preview-simulator --platform ios --non-interactive
