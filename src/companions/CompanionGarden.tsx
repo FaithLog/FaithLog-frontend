@@ -30,6 +30,8 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     ? instances?.find(item=>selectedSlot.instanceId
       ? item.instanceId===selectedSlot.instanceId : item.designId===selectedSlot.designId)
     : null;
+  const appearanceLabel=selected && baseAppearance.has(selected.instanceId)
+    ? '진화 외형으로 보기' : '기본 외형으로 보기';
   const activeDesign=selectedSlot
     ? BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===selectedSlot.designId):null;
   const xpFloor=selected?.level===3?1000:selected?.level===2?300:0;
@@ -205,12 +207,12 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
           {selected.level===3?'최종 진화까지 완료했어요.':'이 캐릭터는 추가 진화 단계가 없어요.'}
         </Text>}
       </View>:null}
-      {selected.level>1 && <Button size="compact" onPress={() => setBaseAppearance(current => {
+      {selected.level>1 && <Button size="compact" accessibilityLabel={appearanceLabel} onPress={() => setBaseAppearance(current => {
         const next = new Set(current);
         if (!next.delete(selected.instanceId)) next.add(selected.instanceId);
         return next;
       })}>
-        {baseAppearance.has(selected.instanceId) ? '진화 외형으로 보기' : '기본 외형으로 보기'}
+        {appearanceLabel}
       </Button>}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
       <View style={styles.careActions}>
