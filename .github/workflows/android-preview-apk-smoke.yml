@@ -1,17 +1,15 @@
 name: Android Preview APK Emulator Startup QA (one-shot)
 
 on:
-  push:
-    branches:
-      - test/363-android-emulator-launch-qa
-    paths:
-      - .github/workflows/android-preview-apk-smoke.yml
+  pull_request:
+    branches: [develop]
 
 permissions:
   contents: read
 
 jobs:
   android-apk-launch:
+    if: github.head_ref == 'test/363-android-emulator-launch-qa' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 30
