@@ -11,7 +11,7 @@ const buildPropertiesPlugin = [
       extraProguardRules: require('./plugins/androidExpoModulesV2KeepRules'),
     },
     ios: {
-      useFrameworks: 'static',
+      useFrameworks: 'dynamic',
     },
   },
 ];
