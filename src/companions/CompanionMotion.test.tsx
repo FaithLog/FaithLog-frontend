@@ -466,4 +466,13 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
  expect(api.instances).toHaveBeenCalledTimes(1);
  expect(api.load).toHaveBeenCalledTimes(1);
  expect(api.careInstance).toHaveBeenCalledTimes(2);
+ const appearanceButton=(label:string)=>tree!.root.findAllByType('Button' as React.ElementType)
+  .find(n=>n.props.children===label)!;
+ await act(async()=>appearanceButton('기본 외형으로 보기').props.onPress());
+ expect(animal.findByType('Sprite' as React.ElementType).props.designId).toBe('david-lamb:base');
+ expect(sprite(b).props.evolutionStage).toBe(1);
+ await act(async()=>appearanceButton('진화 외형으로 보기').props.onPress());
+ expect(sprite(a).props.evolutionStage).toBe(1);
+ expect(api.instances).toHaveBeenCalledTimes(1);
+ expect(api.garden).not.toHaveBeenCalled();
 });
