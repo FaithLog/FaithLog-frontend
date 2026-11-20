@@ -1,22 +1,15 @@
 name: EAS iOS Simulator Native Compile QA (one-shot)
 
 on:
-  push:
-    branches:
-      - test/371-ios-simulator-native-qa
-    paths:
-      - .github/workflows/eas-ios-simulator-qa.yml
-      - eas.json
-      - fixtures/firebase/synthetic-ios-preview.plist
-      - package.json
-      - scripts/stage-ios-firebase-plist.js
+  pull_request:
+    branches: [develop]
 
 permissions:
   contents: read
 
 jobs:
   simulator-native:
-    if: github.repository == 'FaithLog/FaithLog-frontend'
+    if: github.head_ref == 'test/371-ios-simulator-native-qa' && github.event.pull_request.head.repo.full_name == github.repository
     name: iOS Simulator native build
     runs-on: ubuntu-latest
     environment: preview
