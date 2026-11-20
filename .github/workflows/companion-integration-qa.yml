@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: FaithLog/FaithLog-backend
-          ref: 1703f139df4b1198cf8deeced1d4dd9f086e7d7f
+          ref: 093cc5482d8be8ce54a7758d0e6f78a3ad2fee5b
           path: backend-qa
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
