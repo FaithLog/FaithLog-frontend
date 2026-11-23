@@ -1,3 +1,4 @@
+import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations} from './GardenDecorations';
 import {GardenBackground} from './GardenBackground';
 import {Fragment, useEffect, useRef, useState} from 'react';
 import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
@@ -17,7 +18,18 @@ import {useCompanionMotion} from './useCompanionMotion';
 import {CompanionCareGifts} from './CompanionCareGifts';
 import {getCompanionCareBadges} from './companionCareBadges';
 
-export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
+export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
+  onOpen: (page: CompanionPage) => void;
+  onDragStateChange?: (dragging: boolean) => void;
+  decorationScope?: string;
+}) {
+  const decorations = useGardenDecorations(decorationScope);
+  const [decorationPreview, setDecorationPreview] = useState(decorations.layout);
+  const [editingDecorations, setEditingDecorations] = useState(false);
+  function closeDecorations() {
+    setDecorationPreview(null);
+    setEditingDecorations(false);
+  }
   const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift} = useCompanions();
   const slots=companionGardenSlots(state);
   // Group alerts across the <=5 visible pets. No per-animal notifications,
@@ -112,6 +124,7 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
       <GardenBackground id={state.backgroundId} />
+      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} />
       {slots.map(slot => {
         const id=slot.designId;
         const key=slot.instanceId??id;
@@ -260,6 +273,13 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       </View>
       {careError?<Text accessibilityRole="alert" style={styles.warning}>{careError}</Text>:null}
     </View>}
+    {editingDecorations && decorations.layout
+      ? <GardenDecorationEditor layout={decorations.layout} onPreview={setDecorationPreview}
+          onSave={decorations.save} onClose={closeDecorations} />
+      : decorations.layout && <Button size="compact" variant="ghost" accessibilityLabel="정원 꾸미기"
+          onPress={() => setEditingDecorations(true)}>정원 꾸미기</Button>}
+    {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
+      onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
     <View style={styles.menu}>
       <Text style={styles.balance}>{state.points.toLocaleString()} P</Text>
       <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <View key={page} style={styles.action}><Button fullWidth size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button></View>)}</View>
