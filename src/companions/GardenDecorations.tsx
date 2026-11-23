@@ -1,12 +1,12 @@
 import {useEffect, useRef, useState} from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import {Image, StyleSheet, Text, View, type ImageSourcePropType} from 'react-native';
 import {Button, Chip} from '../components/ui';
 import {colors, typography} from '../theme';
 
 const decorations = [
-  {id: 'flower', name: '화분', icon: '🪴'},
-  {id: 'lantern', name: '등불', icon: '🏮'},
-  {id: 'fountain', name: '분수', icon: '⛲'},
+  {id: 'flower', name: '화분', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/flower.png')},
+  {id: 'lantern', name: '등불', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/lantern.png')},
+  {id: 'fountain', name: '분수', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/fountain.png')},
 ] as const;
 type DecorationId = typeof decorations[number]['id'];
 type Layout = [DecorationId | null, DecorationId | null, DecorationId | null];
@@ -62,9 +62,12 @@ export function useGardenDecorations(scope?: string) {
 export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
   if (!layout) return null;
   return <View pointerEvents="none" accessible={false} style={styles.layer}>
-    {layout.map((id, index) => <View key={positions[index]} style={styles.slot}>
-      <Text accessible={false} style={styles.icon}>{decorations.find(item => item.id === id)?.icon}</Text>
-    </View>)}
+    {layout.map((id, index) => {
+      const decoration = decorations.find(item => item.id === id);
+      return <View key={positions[index]} style={styles.slot}>
+        {decoration && <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />}
+      </View>;
+    })}
   </View>;
 }
 
@@ -129,7 +132,7 @@ export function GardenDecorationEditor({layout, onPreview, onSave, onClose}: {
 const styles = StyleSheet.create({
   layer: {position:'absolute', top:5, left:12, right:12, flexDirection:'row'},
   slot: {flex:1, alignItems:'center'},
-  icon: {fontSize:23},
+  sprite: {width:42, height:42},
   editor: {padding:10, gap:8, borderRadius:12, borderWidth:1, borderColor:colors.borderSoft},
   heading: {...typography.body, color:colors.textPrimary, fontWeight:'600'},
   actions: {flexDirection:'row', flexWrap:'wrap', gap:6},
