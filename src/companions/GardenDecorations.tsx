@@ -71,7 +71,10 @@ export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
     {layout.map((id, index) => {
       const decoration = decorations.find(item => item.id === id);
       return <View key={positions[index]} style={styles.slot}>
-        {decoration && <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />}
+        {decoration && <>
+          <View style={styles.contactShadow} />
+          <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />
+        </>}
       </View>;
     })}
   </View>;
@@ -136,9 +139,10 @@ export function GardenDecorationEditor({layout, onPreview, onSave, onClose}: {
 }
 
 const styles = StyleSheet.create({
-  layer: {position:'absolute', top:5, left:12, right:12, flexDirection:'row'},
+  layer: {position:'absolute', top:'26%', left:12, right:12, flexDirection:'row'},
   slot: {flex:1, alignItems:'center'},
   sprite: {width:42, height:42},
+  contactShadow: {position:'absolute', bottom:1, width:30, height:7, borderRadius:8, backgroundColor:'rgba(38, 45, 29, 0.14)'},
   editor: {padding:10, gap:8, borderRadius:12, borderWidth:1, borderColor:colors.borderSoft},
   heading: {...typography.body, color:colors.textPrimary, fontWeight:'600'},
   actions: {flexDirection:'row', flexWrap:'wrap', gap:6},
