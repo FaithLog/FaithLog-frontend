@@ -146,6 +146,36 @@ describe.skipIf(!baseUrl)('real owned-instance care and evolution HTTP contract'
    .rejects.toMatchObject({detail:{status:403}});
  },120_000);
 
+ it('credits a care gift once and enforces the account daily limit', async()=>{
+  const owner=fixtures[3]!;
+  const token=await login(3);
+  const api=createCompanionServerApi(owner.campus,async()=>token,memory());
+  const [pet]=await api.instancesByDesign!('david-lamb:base',0);
+  const id=pet!.instanceId;
+  expect(await api.careGifts!(id)).toEqual([
+   {milestone:3,shards:1,status:'READY'},
+   {milestone:7,shards:2,status:'READY'},
+   {milestone:14,shards:3,status:'LOCKED'},
+  ]);
+  expect(await api.growthShards!()).toBe(0);
+
+  const claimed=await api.claimCareGift!(id,3);
+  expect(claimed).toEqual([
+   {milestone:3,shards:1,status:'CLAIMED'},
+   {milestone:7,shards:2,status:'TOMORROW'},
+   {milestone:14,shards:3,status:'LOCKED'},
+  ]);
+  expect(await api.claimCareGift!(id,3)).toEqual(claimed);
+  await expect(api.claimCareGift!(id,7)).rejects.toMatchObject({detail:{status:409}});
+  expect(await api.growthShards!()).toBe(1);
+  expect(await api.careGifts!(id)).toEqual(claimed);
+
+  const anotherToken=await login(1);
+  const another=createCompanionServerApi(fixtures[1]!.campus,async()=>anotherToken,memory());
+  await expect(another.careGifts!(id)).rejects.toMatchObject({detail:{status:403}});
+  await expect(another.claimCareGift!(id,3)).rejects.toMatchObject({detail:{status:403}});
+ },120_000);
+
  it('persists final evolution through a fresh client and blocks further evolution',async()=>{
   const owner=fixtures[3]!;
   const token=await login(3);
