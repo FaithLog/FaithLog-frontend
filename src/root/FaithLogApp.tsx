@@ -3334,7 +3334,8 @@ function UserHomeDashboard({
         </Text>
       </View>
 
-      {isCompanionPreviewEnabled() ? <CompanionGarden onOpen={onOpenCompanions} onDragStateChange={onCompanionDragChange} /> : null}
+      {isCompanionPreviewEnabled() ? <CompanionGarden onOpen={onOpenCompanions} onDragStateChange={onCompanionDragChange}
+        decorationScope={`faithlog.garden.decorations.${state.user.id}.${campusId}`} /> : null}
 
       {yearlyRecap ? (
         <YearlyRecapHomeCard
