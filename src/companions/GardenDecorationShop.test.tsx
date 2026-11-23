@@ -8,6 +8,7 @@ vi.mock('react-native', () => ({
   Image: () => null, Pressable: ({children}: {children: unknown}) => children,
   Text: 'Text', View: 'View', StyleSheet: {create: (value: unknown) => value},
 }));
+vi.mock('../components/IconexIcon', () => ({IconexIcon: () => null}));
 vi.mock('../components/ui', () => ({Button: () => null}));
 vi.mock('./gardenDecorationCatalog', async importOriginal => {
   const catalog = await importOriginal<typeof import('./gardenDecorationCatalog')>();

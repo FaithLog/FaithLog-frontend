@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
+import {IconexIcon} from '../components/IconexIcon';
 import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
 import {gardenShopCategories, gardenShopDecorations, type DecorationId} from './gardenDecorationCatalog';
@@ -22,23 +23,21 @@ export function GardenDecorationShop({points, onPreview, onClose}: {
   return <View style={styles.panel}>
     <View style={styles.row}>
       <Text accessibilityRole="header" style={styles.title}>정원 상점</Text>
-      <Text style={styles.points}>보유 {points.toLocaleString()} P</Text>
+      <View style={styles.wallet}>
+        <View accessible={false} importantForAccessibility="no-hide-descendants">
+          <IconexIcon color={colors.primary} name="coins" size={16} />
+        </View>
+        <Text style={styles.points}>보유 {points.toLocaleString()} P</Text>
+      </View>
       <Button size="compact" variant="ghost" accessibilityLabel="정원 상점 닫기" onPress={onClose}>닫기</Button>
     </View>
     <Text style={styles.caption}>소품을 눌러 정원에서 미리 보세요. 포인트 구매는 준비 중이에요.</Text>
     <View style={styles.row}>
-      {positions.map((position, index) => <Button key={position} size="compact"
-        accessibilityLabel={'미리보기 ' + position + ' 위치'}
-        variant={slot === index ? 'primary' : 'secondary'}
-        onPress={() => {
-          setSlot(index);
-          if (preview) onPreview(preview.id, index);
-        }}>{position}</Button>)}
-    </View>
-    <View style={styles.row}>
-      {gardenShopCategories.map(value => <Button key={value} size="compact" accessibilityLabel={value + " 소품 보기"}
-        variant={category === value ? 'primary' : 'secondary'}
-        onPress={() => {setCategory(value); setPage(0);}}>{value}</Button>)}
+      {gardenShopCategories.map(value => <View key={value} style={styles.category}>
+        <Button size="compact" fullWidth accessibilityLabel={value + ' 소품 보기'}
+          variant={category === value ? 'primary' : 'secondary'}
+          onPress={() => {setCategory(value); setPage(0);}}>{value}</Button>
+      </View>)}
     </View>
     <View style={styles.grid}>
       {items.slice(page * pageSize, (page + 1) * pageSize).map(item =>
@@ -50,12 +49,27 @@ export function GardenDecorationShop({points, onPreview, onClose}: {
           <Text style={styles.name}>{item.name}</Text>
         </Pressable>)}
     </View>
-    <View style={styles.row}>
+    <View style={[styles.row, styles.pagination]}>
       <Button size="compact" variant="ghost" accessibilityLabel="이전 소품" disabled={page === 0}
         onPress={() => setPage(value => value - 1)}>이전</Button>
       <Text style={styles.caption}>{page + 1} / {pages}</Text>
       <Button size="compact" variant="ghost" accessibilityLabel="다음 소품" disabled={page + 1 === pages}
         onPress={() => setPage(value => value + 1)}>다음</Button>
+    </View>
+    <View style={styles.preview}>
+      <Text accessibilityLiveRegion="polite" style={styles.caption}>
+        {preview ? `${preview.name} · ${positions[slot]}에 미리 보는 중` : '미리보기 위치'}
+      </Text>
+      <View style={styles.row}>
+        {positions.map((position, index) => <View key={position} style={styles.position}>
+          <Button size="compact" fullWidth accessibilityLabel={'미리보기 ' + position + ' 위치'}
+            variant={slot === index ? 'primary' : 'secondary'}
+            onPress={() => {
+              setSlot(index);
+              if (preview) onPreview(preview.id, index);
+            }}>{position}</Button>
+        </View>)}
+      </View>
     </View>
   </View>;
 }
@@ -64,11 +78,16 @@ const styles = StyleSheet.create({
   panel: {padding: 12, gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.surface},
   row: {flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6},
   title: {...typography.body, color: colors.textPrimary, fontWeight: '700', flexGrow: 1},
+  wallet: {flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1},
+  category: {flexBasis: '21%', flexGrow: 1, minWidth: 48},
+  position: {flexBasis: '28%', flexGrow: 1, minWidth: 64},
+  pagination: {justifyContent: 'space-between'},
+  preview: {gap: 6, paddingTop: 8, borderTopWidth: 1, borderColor: colors.borderSoft},
   points: {...typography.caption, color: colors.primary, fontWeight: '700'},
   caption: {...typography.caption, color: colors.textSecondary},
   grid: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},
-  card: {width: '31%', minHeight: 84, padding: 6, gap: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft},
-  selected: {borderColor: colors.primary, borderWidth: 2},
+  card: {width: '31%', minHeight: 84, padding: 6, gap: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 2, borderColor: colors.borderSoft},
+  selected: {borderColor: colors.primary},
   pressed: {opacity: 0.72},
   image: {width: 46, height: 46},
   name: {...typography.caption, color: colors.textPrimary, textAlign: 'center'},
