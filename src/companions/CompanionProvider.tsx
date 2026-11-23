@@ -15,6 +15,8 @@ type Context = {
   toggleAppearance?: (instanceId: string) => void;
   wakeInstance?: (id: string) => Promise<void>;
   shardBalance?: number | null;
+  careGifts?: NonNullable<CompanionServerApi['careGifts']>;
+  claimCareGift?: NonNullable<CompanionServerApi['claimCareGift']>;
   loadShards?: () => Promise<void>;
   exchangeShard?: (id: BibleFriendDesignId) => Promise<number | null>;
   boostWithShards?: (id: string) => Promise<void>;
@@ -364,6 +366,12 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
    if(alive.current)setShardBalance(null);
   }
  },[api]);
+ const claimCareGift=useCallback(async(id:string,milestone:number)=>{
+  if(!api.claimCareGift)throw new Error('돌봄 선물을 받을 수 없어요.');
+  const gifts=await api.claimCareGift(id,milestone);
+  await loadShards();
+  return gifts;
+ },[api,loadShards]);
  const exchangeShard=useCallback(async(id:BibleFriendDesignId)=>{
   if(!api.exchangeShard||lock.current||instanceBusy.current||gardenDirty.current)return null;
   const pending=pendingExchange.current;
@@ -413,7 +421,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  },[api,instances,loadShards]);
 
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);

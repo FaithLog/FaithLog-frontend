@@ -24,6 +24,17 @@ describe('reward responses without unrelated reloads',()=>{
   expect(await api().claim('submission')).toEqual({balance:1100,periods});
   expect(request).toHaveBeenCalledTimes(1);
  });
+ it('parses care gifts and sends a claim to the selected instance and milestone',async()=>{
+  const gifts=[{milestone:3,shards:1,status:'CLAIMED'},{milestone:7,shards:2,status:'TOMORROW'}];
+  request.mockImplementation(async(_path,options)=>options.responseParser(gifts));
+  const client=api();
+  await expect(client.careGifts!('pet-id')).resolves.toEqual(gifts);
+  await expect(client.claimCareGift!('pet-id',3)).resolves.toEqual(gifts);
+  expect(request.mock.calls.map(([path, options])=>[path,options.method])).toEqual([
+   ['/api/v1/companions/me/instances/pet-id/care-gifts','GET'],
+   ['/api/v1/companions/me/instances/pet-id/care-gifts/3/claim','POST'],
+  ]);
+ });
  it('does not report successful credit when the wallet confirmation fails',async()=>{
   request.mockImplementation(async(path,options)=>{if(path.endsWith('/wallet'))throw new Error('offline');return options.responseParser(daily);});
   await expect(api().claim('prayer')).rejects.toThrow('offline');

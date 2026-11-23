@@ -14,9 +14,11 @@ import {FarmMessMarker} from './FarmMessMarker';
 import {resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
 import {advanceGardenAgent, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
+import {CompanionCareGifts} from './CompanionCareGifts';
+import {getCompanionCareBadges} from './companionCareBadges';
 
 export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: CompanionPage) => void; onDragStateChange?: (dragging: boolean) => void}) {
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift} = useCompanions();
   const slots=companionGardenSlots(state);
   // Group alerts across the <=5 visible pets. No per-animal notifications,
   // polling, push permission or scheduled server work on the home scene.
@@ -36,6 +38,8 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
     ? '진화 외형으로 보기' : '기본 외형으로 보기';
   const activeDesign=selectedSlot
     ? BIBLE_FRIEND_DESIGN_CATALOG.find(d=>d.id===selectedSlot.designId):null;
+  const careBadges = selected && !selected.designId.startsWith('jesus:')
+    ? getCompanionCareBadges(selected.careDays) : null;
   const xpFloor=selected?.level===3?1000:selected?.level===2?300:0;
   const nextTarget=selected?.nextEvolution?.threshold?.growthXp ?? xpFloor;
   const xpPct=nextTarget>xpFloor?Math.max(0,Math.min(100,((selected?.growthXp??0)-xpFloor)/(nextTarget-xpFloor)*100)):100;
@@ -190,6 +194,24 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       {growthExpanded?<View style={styles.growthDetails} testID="companion-growth-details">
         <Text style={styles.careName}>성장 기록</Text>
         <Text style={styles.helper}>누적 획득 {selected.totalEarnedXp.toLocaleString()} XP · 돌봄한 날짜 {selected.careDays}일</Text>
+        {careBadges && <View style={styles.badgeProgress}>
+          <Text style={styles.careName}>돌봄 배지</Text>
+          {careBadges.earned && <View style={styles.rewardIconRow}>
+            <FarmHudIcon name={`care-badge-${careBadges.earned.careDays}`} size={28}/>
+            <Text style={styles.badgeLabel}>{careBadges.earned.label}</Text>
+          </View>}
+          {careBadges.next
+            ? <View style={styles.rewardIconRow}>
+                <FarmHudIcon name={`care-badge-${careBadges.next.careDays}`} size={24}/>
+                <Text style={[styles.helper, styles.rewardCopy]}>
+                  다음 배지 · {careBadges.next.label} ({selected.careDays}/{careBadges.next.careDays}일)
+                </Text>
+              </View>
+            : <Text style={styles.helper}>모든 돌봄 배지를 모았어요.</Text>}
+        </View>}
+        {careBadges && careGifts && claimCareGift &&
+          <CompanionCareGifts key={selected.instanceId} id={selected.instanceId}
+            careDays={selected.careDays} load={careGifts} claim={claimCareGift}/>}
         {threshold?<>
           <View style={styles.previewRow}>
             <BibleFriendFarmSprite designId={selected.designId}
@@ -208,6 +230,8 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
         </>:<Text style={styles.helper}>
           {selected.level===3?'최종 진화까지 완료했어요.':'이 캐릭터는 추가 진화 단계가 없어요.'}
         </Text>}
+        <Button size="compact" variant="secondary" accessibilityLabel="성장 기록에서 경건 미션 보기"
+          onPress={() => onOpen('missions')}>경건 미션 보기</Button>
       </View>:null}
       {selected.level>1 && toggleAppearance && <Button size="compact" accessibilityLabel={appearanceLabel}
         onPress={() => toggleAppearance(selected.instanceId)}>
@@ -215,10 +239,15 @@ export function CompanionGarden({onOpen, onDragStateChange}: {onOpen: (page: Com
       </Button>}
       {selected.dormant?<Text style={styles.helper}>휴면 중 · 동물을 누르거나 밥을 주면 깨어나요.</Text>:null}
       {shardBalance!==null&&shardBalance!==undefined&&selected.designId!=='jesus:miracle'&&boostWithShards?
-        <Button size="compact" variant="secondary" accessibilityLabel="성장 조각으로 XP 올리기" disabled={busy||!!selected.dormant||shardBalance<10}
-          onPress={()=>void boostWithShards(selected.instanceId)}>
-          성장 XP +20 · 조각 10개 사용 ({shardBalance}개 보유)
-        </Button>:null}
+        <View style={styles.rewardIconRow}>
+          <FarmHudIcon name="growth-shard" size={24}/>
+          <View style={styles.rewardCopy}>
+            <Button size="compact" variant="secondary" accessibilityLabel="성장 조각으로 XP 올리기" disabled={busy||!!selected.dormant||shardBalance<10}
+              onPress={()=>void boostWithShards(selected.instanceId)}>
+              성장 XP +20 · 조각 10개 사용 ({shardBalance}개 보유)
+            </Button>
+          </View>
+        </View>:null}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
       <View style={styles.careActions}>
         {(['feed','pet','play','clean','sleep'] as const).filter(action=>!selected.dormant||action==='feed').map(action=><FarmCareButton
@@ -261,6 +290,10 @@ const styles = StyleSheet.create({
   xpTrack:{height:8,borderRadius:8,backgroundColor:colors.borderSoft,overflow:'hidden'},
   xpFill:{height:8,borderRadius:8,backgroundColor:colors.primary},
   careActions:{flexDirection:'row',flexWrap:'wrap',gap:6},
+  rewardIconRow:{flexDirection:'row',alignItems:'center',gap:6},
+  rewardCopy:{flex:1,minWidth:0},
+  badgeProgress:{gap:4},
+  badgeLabel:{...typography.caption,color:colors.primary,fontWeight:'700'},
   growthDetails:{borderColor:colors.borderSoft,borderWidth:1,borderRadius:12,padding:10,gap:8},
   messSpot:{position:'absolute',width:40,height:40,alignItems:'center',justifyContent:'center'},
   previewRow:{flexDirection:'row',alignItems:'center',gap:8},

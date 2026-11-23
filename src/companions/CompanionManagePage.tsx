@@ -1,3 +1,4 @@
+import {FarmHudIcon} from './FarmHudAssets';
 import {AppModal} from '../components/AppModal';
 import {GardenBackground} from './GardenBackground';
 import {GARDEN_BACKGROUNDS} from './gardenBackgrounds';
@@ -209,8 +210,11 @@ export function CompanionManagePage({onRevealDetails = () => {}}: {onRevealDetai
         {saleLoading?'판매 가능 수량 확인 중…':saleError||`실제 판매 가능 ${maxSellable}마리 · 보유 ${count}마리`}
       </Text>:null}
       {shardBalance!==null&&shardBalance!==undefined&&design.rarity!=='MIRACLE'&&exchangeShard?
-        <Button size="compact" variant="secondary" accessibilityLabel="중복 동물 성장 조각 교환" disabled={busy||maxSellable<1||saleLoading}
-          onPress={()=>setExchangeOpen(true)}>조각 {shardAward}개로 교환 ({shardBalance}개 보유)</Button>:null}
+        <View style={s.row}>
+          <FarmHudIcon name="growth-shard" size={24}/>
+          <Button size="compact" variant="secondary" accessibilityLabel="중복 동물 성장 조각 교환" disabled={busy||maxSellable<1||saleLoading}
+            onPress={()=>setExchangeOpen(true)}>조각 {shardAward}개로 교환 ({shardBalance}개 보유)</Button>
+        </View>:null}
       {careError?<Text style={s.caption} accessibilityRole="alert">{careError}</Text>:null}
       <Text style={s.caption}>{server ? '판매가' : '체험 판매가'} · {RARITY_LABELS[design.rarity]} 1마리 {(serverSnapshot?.prices ?? DEMO_SELL_PRICES)[design.rarity]}P</Text>
       {count > 1 ? <View style={s.row}><View style={[s.between, {flexGrow:1}]}><Button accessibilityLabel="판매 수량 줄이기" disabled={quantity <= 1||!!saleLoading} onPress={() => setQuantity(n => n - 1)} variant="secondary">−</Button><Text style={s.name}>{quantity}마리</Text><Button accessibilityLabel="판매 수량 늘리기" disabled={quantity >= maxSellable||!!saleError||saleLoading} onPress={() => setQuantity(n => n + 1)} variant="secondary">+</Button></View><Button size="compact" variant="ghost" accessibilityLabel="판매 가능한 중복 모두 선택" disabled={maxSellable<1||!!saleError||saleLoading} onPress={() => setQuantity(maxSellable)}>최대</Button></View> : null}

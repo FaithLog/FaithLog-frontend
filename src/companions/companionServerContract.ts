@@ -21,12 +21,20 @@ export type CompanionInstance = {
  lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;dormant?:boolean;
 };
 export type CompanionSaleAvailability = {designId:BibleFriendDesignId;ownedQuantity:number;sellableQuantity:number};
+export type CompanionCareGift = {
+ milestone: number;
+ shards: number;
+ status: 'LOCKED' | 'READY' | 'TOMORROW' | 'CLAIMED';
+};
+
 export type CompanionServerApi = {
  load:()=>Promise<ServerSnapshot>;garden:(garden:Garden)=>Promise<Garden>;
  claim:(id:string)=>Promise<ClaimUpdate>;draw:(count:1|10)=>Promise<Operation>;
  sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>;
  recordGardenVisit?:()=>Promise<void>;
  wakeInstance?:(id:string)=>Promise<CompanionInstance>;
+ careGifts?:(id:string)=>Promise<CompanionCareGift[]>;
+ claimCareGift?:(id:string,milestone:number)=>Promise<CompanionCareGift[]>;
  growthShards?:()=>Promise<number>;
  exchangeShard?:(id:BibleFriendDesignId,key:string)=>Promise<{balance:number;awarded:number}>;
  boostWithShards?:(id:string,version:number,key:string)=>Promise<CompanionInstance>;

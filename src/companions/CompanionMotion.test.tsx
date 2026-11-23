@@ -201,8 +201,9 @@ it('shows only server-backed care gauges and sends the chosen instance version',
     careInstance:vi.fn(async()=>response),
     evolveInstance:vi.fn(),
   };
+  const openPage=vi.fn();
   await act(async()=>{
-    tree=create(<CompanionProvider api={api}><CompanionGarden onOpen={vi.fn()}/></CompanionProvider>);
+    tree=create(<CompanionProvider api={api}><CompanionGarden onOpen={openPage}/></CompanionProvider>);
   });
   // A tap is only a greeting until the user selects the animal.
   expect(tree!.root.findAllByType('FarmHudGauge' as React.ElementType)).toHaveLength(0);
@@ -218,6 +219,10 @@ it('shows only server-backed care gauges and sends the chosen instance version',
   expect(tree!.root.findAllByType('FarmSprite' as React.ElementType)).toHaveLength(2);
   expect(tree!.root.findAllByType('View' as React.ElementType)
     .filter(node=>node.props.testID==='companion-growth-details')).toHaveLength(1);
+  const missions=tree!.root.findAllByType('Button' as React.ElementType)
+    .find(node=>node.props.accessibilityLabel==='성장 기록에서 경건 미션 보기')!;
+  await act(async()=>missions.props.onPress());
+  expect(openPage).toHaveBeenCalledWith('missions');
   const feed=tree!.root.findAllByType('FarmCareButton' as React.ElementType)
     .find(item=>item.props.action==='feed')!;
   await act(async()=>feed.props.onPress());

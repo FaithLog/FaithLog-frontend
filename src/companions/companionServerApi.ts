@@ -3,7 +3,18 @@ import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
 import {isDailyMission} from './dailyMissionContract';
 import {isGardenBackgroundId} from './gardenBackgrounds';
-import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionSaleAvailability,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
+import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionCareGift,type CompanionSaleAvailability,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
+
+function parseCareGifts(value: unknown): CompanionCareGift[] {
+ return array(value).map(item => {
+  const row = object(item);
+  const {status} = row;
+  if (status !== 'LOCKED' && status !== 'READY' && status !== 'TOMORROW' && status !== 'CLAIMED') {
+   throw new Error('Invalid care gift status');
+  }
+  return {milestone: integer(row.milestone, 1), shards: integer(row.shards, 1), status};
+ });
+}
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
  const daily=createDailyMissionApi(campusId,getToken);let pool:ServerSnapshot['pool']=null;let mutation=false;
@@ -67,6 +78,10 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
    catch(e){if(!(e instanceof FaithLogApiError)||e.detail.status!==404)throw e;}
   },
   wakeInstance:id=>request(`/api/v1/companions/me/instances/${encodeURIComponent(id)}/wake`,parseCompanionInstance,'POST'),
+  careGifts:id=>request(`/api/v1/companions/me/instances/${encodeURIComponent(id)}/care-gifts`,parseCareGifts),
+  claimCareGift:(id,milestone)=>request(
+   `/api/v1/companions/me/instances/${encodeURIComponent(id)}/care-gifts/${encodeURIComponent(milestone)}/claim`,
+   parseCareGifts,'POST'),
   growthShards:()=>request('/api/v1/companions/me/growth-shards',v=>integer(object(v).balance)),
   exchangeShard:(id,key)=>request('/api/v1/companions/me/growth-shards/exchanges',v=>{
    const result=object(v);

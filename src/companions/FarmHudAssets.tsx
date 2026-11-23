@@ -28,6 +28,11 @@ export const FARM_HUD_ICONS = {
   'badge-lv1': require('../../assets/companions/farm-hud/badge-lv1.png') as ImageSourcePropType,
   'badge-lv2': require('../../assets/companions/farm-hud/badge-lv2.png') as ImageSourcePropType,
   'badge-lv3': require('../../assets/companions/farm-hud/badge-lv3.png') as ImageSourcePropType,
+  'growth-shard': require('../../assets/companions/farm-hud/growth-shard.png') as ImageSourcePropType,
+  'care-gift': require('../../assets/companions/farm-hud/care-gift.png') as ImageSourcePropType,
+  'care-badge-3': require('../../assets/companions/farm-hud/care-badge-3.png') as ImageSourcePropType,
+  'care-badge-7': require('../../assets/companions/farm-hud/care-badge-7.png') as ImageSourcePropType,
+  'care-badge-14': require('../../assets/companions/farm-hud/care-badge-14.png') as ImageSourcePropType,
 } as const;
 
 export type FarmHudIconName = keyof typeof FARM_HUD_ICONS;
