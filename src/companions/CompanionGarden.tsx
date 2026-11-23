@@ -1,3 +1,4 @@
+import {GardenDecorationShop} from './GardenDecorationShop';
 import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations} from './GardenDecorations';
 import {GardenBackground} from './GardenBackground';
 import {Fragment, useEffect, useRef, useState} from 'react';
@@ -24,11 +25,11 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
   decorationScope?: string;
 }) {
   const decorations = useGardenDecorations(decorationScope);
-  const [decorationPreview, setDecorationPreview] = useState(decorations.layout);
-  const [editingDecorations, setEditingDecorations] = useState(false);
+  const [decorationPreview, setDecorationPreview] = useState<typeof decorations.layout>(null);
+  const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | null>(null);
   function closeDecorations() {
     setDecorationPreview(null);
-    setEditingDecorations(false);
+    setDecorationPanel(null);
   }
   const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift} = useCompanions();
   const slots=companionGardenSlots(state);
@@ -165,6 +166,22 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
       })}
       {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
+    {decorationPanel === 'edit' && decorations.layout
+      ? <GardenDecorationEditor layout={decorations.layout} onPreview={setDecorationPreview}
+          onSave={decorations.save} onClose={closeDecorations} />
+      : decorationPanel === 'shop'
+        ? <GardenDecorationShop points={state.points} onClose={closeDecorations}
+            onPreview={(id, slot) => {
+              const preview: NonNullable<typeof decorations.layout> = [...(decorations.layout ?? [null, null, null])];
+              preview[slot] = id;
+              setDecorationPreview(preview);
+            }} />
+        : <View style={styles.actions}>
+          {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => setDecorationPanel('edit')}>정원 꾸미기</Button>}
+          <Button size="compact" variant="primary" accessibilityLabel="정원 상점 열기" onPress={() => setDecorationPanel('shop')}>정원 상점</Button>
+        </View>}
+    {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
+      onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
     {needsAttention.length>0?<View style={styles.attentionRow} testID="companion-attention-banner">
       <Text style={styles.helper}>돌봄이 필요한 동물 {needsAttention.length}마리 · 건강과 배부름·청결도를 확인해주세요.</Text>
       <Button variant="secondary" size="compact" accessibilityLabel="돌봄 필요한 동물 보기"
@@ -273,13 +290,6 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
       </View>
       {careError?<Text accessibilityRole="alert" style={styles.warning}>{careError}</Text>:null}
     </View>}
-    {editingDecorations && decorations.layout
-      ? <GardenDecorationEditor layout={decorations.layout} onPreview={setDecorationPreview}
-          onSave={decorations.save} onClose={closeDecorations} />
-      : decorations.layout && <Button size="compact" variant="ghost" accessibilityLabel="정원 꾸미기"
-          onPress={() => setEditingDecorations(true)}>정원 꾸미기</Button>}
-    {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
-      onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
     <View style={styles.menu}>
       <Text style={styles.balance}>{state.points.toLocaleString()} P</Text>
       <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <View key={page} style={styles.action}><Button fullWidth size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button></View>)}</View>

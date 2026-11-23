@@ -1,21 +1,11 @@
 import {useEffect, useRef, useState} from 'react';
-import {Image, StyleSheet, Text, View, type ImageSourcePropType} from 'react-native';
+import {Image, StyleSheet, Text, View} from 'react-native';
+import {freeDecorations, gardenDecorations, type DecorationId} from './gardenDecorationCatalog';
 import {Button, Chip} from '../components/ui';
 import {colors, typography} from '../theme';
 
-const decorations = [
-  {id: 'flower', name: '화분', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/flower.png')},
-  {id: 'lantern', name: '등불', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/lantern.png')},
-  {id: 'fountain', name: '분수', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/fountain.png')},
-  {id: 'bench', name: '나무 벤치', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/bench.png')},
-  {id: 'birdhouse', name: '새집', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/birdhouse.png')},
-  {id: 'fence', name: '하얀 울타리', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/fence.png')},
-  {id: 'stepping-stone', name: '잎사귀 디딤돌', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/stepping-stone.png')},
-  {id: 'sign', name: '하트 표지판', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/sign.png')},
-  {id: 'watering-can', name: '물뿌리개', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/watering-can.png')},
-] as const;
-type DecorationId = typeof decorations[number]['id'];
-type Layout = [DecorationId | null, DecorationId | null, DecorationId | null];
+export type GardenDecorationLayout = [DecorationId | null, DecorationId | null, DecorationId | null];
+type Layout = GardenDecorationLayout;
 const positions = ['왼쪽', '가운데', '오른쪽'] as const;
 const emptyLayout: Layout = [null, null, null];
 
@@ -23,7 +13,7 @@ export function parseGardenDecorations(value: string | null): Layout {
   let parsed: unknown;
   try {parsed = value === null ? null : JSON.parse(value);} catch {return emptyLayout;}
   if (!Array.isArray(parsed) || parsed.length !== positions.length) return emptyLayout;
-  const read = (index: number) => decorations.find(item => item.id === parsed[index])?.id ?? null;
+  const read = (index: number) => freeDecorations.find(item => item.id === parsed[index])?.id ?? null;
   return [read(0), read(1), read(2)];
 }
 
@@ -69,7 +59,7 @@ export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
   if (!layout) return null;
   return <View pointerEvents="none" accessible={false} style={styles.layer}>
     {layout.map((id, index) => {
-      const decoration = decorations.find(item => item.id === id);
+      const decoration = gardenDecorations.find(item => item.id === id);
       return <View key={positions[index]} style={styles.slot}>
         {decoration && <>
           <View style={styles.contactShadow} />
@@ -122,7 +112,7 @@ export function GardenDecorationEditor({layout, onPreview, onSave, onClose}: {
         accessibilityLabel={`장식 ${position} 위치 선택`} onPress={() => setSlot(index)}>{position}</Button>)}
     </View>
     <View style={styles.actions}>
-      {decorations.map(item => <Button key={item.id} size="compact"
+      {freeDecorations.map(item => <Button key={item.id} size="compact"
         variant={draft[slot] === item.id ? 'primary' : 'secondary'} disabled={saving}
         accessibilityLabel={`${positions[slot]}에 ${item.name} 배치`} onPress={() => select(item.id)}>{item.name}</Button>)}
       <Button size="compact" variant="ghost" disabled={saving || draft[slot] === null}
