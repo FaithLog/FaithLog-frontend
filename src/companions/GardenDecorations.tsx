@@ -7,6 +7,12 @@ const decorations = [
   {id: 'flower', name: '화분', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/flower.png')},
   {id: 'lantern', name: '등불', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/lantern.png')},
   {id: 'fountain', name: '분수', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/fountain.png')},
+  {id: 'bench', name: '나무 벤치', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/bench.png')},
+  {id: 'birdhouse', name: '새집', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/birdhouse.png')},
+  {id: 'fence', name: '하얀 울타리', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/fence.png')},
+  {id: 'stepping-stone', name: '잎사귀 디딤돌', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/stepping-stone.png')},
+  {id: 'sign', name: '하트 표지판', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/sign.png')},
+  {id: 'watering-can', name: '물뿌리개', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/watering-can.png')},
 ] as const;
 type DecorationId = typeof decorations[number]['id'];
 type Layout = [DecorationId | null, DecorationId | null, DecorationId | null];
