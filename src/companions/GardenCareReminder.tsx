@@ -44,10 +44,12 @@ export function GardenCareReminder({api}: {api: NonNullable<CompanionServerApi['
     <Text style={styles.caption}>돌봄이 필요한 동물이 있으면 저녁 7시에 알려드려요. 기기에서 앱 알림을 허용해 주세요.</Text>
     {failed && <Text accessibilityRole="alert" style={styles.caption}>알림 설정을 확인하지 못했어요.</Text>}
     {enabled === null
-      ? <Button size="compact" variant="secondary" disabled={busy} onPress={() => void run(api.load)}>
+      ? <Button size="compact" variant="secondary" disabled={busy} accessibilityLabel="돌봄 알림 설정 다시 확인"
+          onPress={() => void run(api.load)}>
           {busy ? '알림 설정 확인 중…' : '알림 설정 다시 확인'}
         </Button>
       : <Button size="compact" variant="secondary" disabled={busy}
+          accessibilityLabel={enabled ? '돌봄 알림 끄기' : '돌봄 알림 켜기'}
           onPress={() => void run(() => api.setEnabled(!enabled))}>
           {enabled ? '돌봄 알림 끄기' : '돌봄 알림 켜기'}
         </Button>}
