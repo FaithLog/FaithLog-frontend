@@ -282,3 +282,30 @@ describe.skipIf(!baseUrl)('real friend garden HTTP contract', () => {
   await expect(visitorApi.friendGardens!.visit(owner.user)).rejects.toMatchObject({detail: {status: 404}});
  }, 120_000);
 });
+
+describe.skipIf(!baseUrl)('real garden expedition HTTP contract', () => {
+ it('claims a ready expedition once and starts another account with a placed animal', async () => {
+  const owner = await login(1);
+  const api = createCompanionServerApi(fixtures[1]!.campus, async () => owner, memory());
+  const ready = await api.expedition!.load();
+  expect(ready).toMatchObject({state: 'READY', reward: 1});
+  expect((await api.expedition!.claim(ready.id!)).state).toBe('CLAIMED');
+  expect((await api.expedition!.claim(ready.id!)).state).toBe('CLAIMED');
+  expect(await api.growthShards!()).toBe(1);
+
+  const otherUser = await login(5);
+  const otherApi = createCompanionServerApi(fixtures[5]!.campus, async () => otherUser, memory());
+  await expect(otherApi.expedition!.claim(ready.id!)).rejects.toMatchObject({detail: {status: 409}});
+  const [pet] = await otherApi.instancesByDesign!('david-lamb:base', 0);
+  if (!pet) throw new Error('Expected QA pet');
+  const {garden} = await otherApi.load();
+  if (garden.placements.length === 0) {
+   await otherApi.garden({...garden, placements: [
+    {slot: 1, designId: pet.designId, instanceId: pet.instanceId, x: .5, y: .5},
+   ]});
+  }
+  const started = await otherApi.expedition!.start(pet.instanceId);
+  expect(started).toMatchObject({state: 'EXPLORING', designId: pet.designId, reward: 1});
+  await expect(otherApi.expedition!.claim(started.id!)).rejects.toMatchObject({detail: {status: 409}});
+ }, 120_000);
+});

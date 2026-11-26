@@ -1,3 +1,4 @@
+import type {GardenExpeditionApi} from './gardenExpeditionContract';
 import type {FriendGardenApi} from './friendGardenContract';
 import {BIBLE_FRIEND_DESIGN_CATALOG, BIBLE_FRIEND_RARITIES, type BibleFriendDesignId, type BibleFriendRarity} from '../characters/bibleFriendDesignCatalog';
 import {isGardenBackgroundId, type GardenBackgroundId} from './gardenBackgrounds';
@@ -33,6 +34,7 @@ export type GardenShopSnapshot = {
   items: {id: string; price: number; owned: boolean}[];
 };
 export type CompanionServerApi = {
+  expedition?: GardenExpeditionApi;
   friendGardens?: FriendGardenApi;
   loadGardenShop?: () => Promise<GardenShopSnapshot>;
   purchaseGardenDecoration?: (id: string, expectedPrice: number) => Promise<GardenShopSnapshot>;

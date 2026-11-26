@@ -56,6 +56,8 @@ if today < close(last):
 day = last.replace(day=1)
 day += dt.timedelta(days=(-day.weekday()) % 7)
 second = fixtures[1]
+sql(f"INSERT INTO garden_expeditions(user_id,id,design_id,started_on,ready_at) VALUES({second['user']},'45d5f71f-5d02-4d99-98b1-4e9f420db1b5','david-lamb:base',(now() AT TIME ZONE 'Asia/Seoul')::date,now()-interval '1 minute')")
+
 while day <= last:
     end = day + dt.timedelta(days=6)
     sql(f"INSERT INTO weekly_devotion_records(campus_id,user_id,week_start_date,week_end_date,quiet_time_count,prayer_count,bible_reading_count,saturday_late_minutes,submitted_at,created_at,updated_at) VALUES({second['campus']},{second['user']},'{day}','{end}',5,5,5,0,now()-interval '1 minute',now(),now())")
