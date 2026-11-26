@@ -34,6 +34,7 @@ export type GardenShopSnapshot = {
   items: {id: string; price: number; owned: boolean}[];
 };
 export type CompanionServerApi = {
+  careReminder?: {load(): Promise<boolean>; setEnabled(enabled: boolean): Promise<boolean>};
   expedition?: GardenExpeditionApi;
   friendGardens?: FriendGardenApi;
   loadGardenShop?: () => Promise<GardenShopSnapshot>;

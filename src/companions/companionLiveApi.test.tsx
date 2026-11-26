@@ -44,6 +44,19 @@ afterEach(async()=>{if(tree)await act(async()=>tree!.unmount());tree=undefined;v
 beforeAll(()=>{if(baseUrl){vi.stubEnv('EXPO_PUBLIC_API_BASE_URL',baseUrl);vi.stubEnv('EXPO_PUBLIC_APP_ENV','local');vi.stubEnv('EXPO_PUBLIC_MOCK_MODE','false');}});
 afterAll(()=>vi.unstubAllEnvs());
 describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP adapter',()=>{
+ it('persists care reminder opt-in and isolates accounts', async () => {
+  const token = await login(0);
+  const owner = createCompanionServerApi(fixtures[0]!.campus, async () => token, memory());
+  const otherToken = await login(1);
+  const other = createCompanionServerApi(fixtures[1]!.campus, async () => otherToken, memory());
+  expect(await owner.careReminder!.load()).toBe(false);
+  expect(await owner.careReminder!.setEnabled(true)).toBe(true);
+  expect(await owner.careReminder!.load()).toBe(true);
+  expect(await other.careReminder!.load()).toBe(false);
+  expect(await owner.careReminder!.setEnabled(false)).toBe(false);
+  expect(await owner.careReminder!.load()).toBe(false);
+ });
+
  it('settles sales/attendance/calendar/submission and restores timed-out draws with the same key',async()=>{
   const token=await login(0);const f=fixtures[0]!;const storage=memory();const api=createCompanionServerApi(f.campus,async()=>token,storage);
   const fetchSnapshot = globalThis.fetch;

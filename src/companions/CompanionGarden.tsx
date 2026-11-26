@@ -1,3 +1,4 @@
+import {GardenCareReminder} from './GardenCareReminder';
 import {GardenExpeditionCard} from './GardenExpeditionCard';
 import {GardenPhotoPanel} from './GardenPhotoPanel';
 import {GardenPhotoFrame, gardenPhotoRuntime, type GardenPhotoCapture} from './gardenPhotoFrame';
@@ -47,7 +48,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     setDecorationPreview(null);
     setDecorationPanel(null);
   }
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration,expedition} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration,expedition,careReminder} = useCompanions();
   const catalog = shop?.scope === decorationScope ? shop?.data : null;
   const ownedIds = new Set(catalog?.items.filter(item => item.owned).map(item => item.id));
   useEffect(() => {
@@ -275,6 +276,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         </View>}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
+    {mode === 'management' && careReminder && <GardenCareReminder api={careReminder} />}
     {needsAttention.length > 0 && <View style={styles.attentionRow} testID="companion-attention-banner">
       <Text style={styles.helper}>돌봄이 필요한 동물 {needsAttention.length}마리</Text>
       {needsAttention.map(({key, name, reasons}) => <Button key={key} variant="secondary" size="compact"

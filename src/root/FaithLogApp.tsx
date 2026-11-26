@@ -429,6 +429,7 @@ export function FaithLogApp() {
   const [notificationPollTarget, setNotificationPollTarget] = useState<PollOpenTarget | null>(null);
   const [notificationWeeklyMaterialTarget, setNotificationWeeklyMaterialTarget] =
     useState<NotificationWeeklyMaterialTarget | null>(null);
+  const [gardenOpenRequest, setGardenOpenRequest] = useState<{generation: number; key: number} | null>(null);
   const initialAuthenticatedRouteAppliedRef = useRef(false);
   const initialNotificationOpenHandledRef = useRef(false);
   const notificationOpenSequenceRef = useRef(0);
@@ -874,6 +875,9 @@ export function FaithLogApp() {
               setNotificationPollTarget(null);
               setNotificationWeeklyMaterialTarget(null);
             }
+            setGardenOpenRequest(target.params.openGarden && isCompanionPreviewEnabled()
+              ? {generation: requestGeneration, key: requestSequence}
+              : null);
             setRoute(target.route);
           },
           intent: campusNavigationIntent,
@@ -1008,6 +1012,7 @@ export function FaithLogApp() {
                 announcementOpenRequestKey={announcementOpenRequestKey}
                 campusNavigation={campusNavigationIntentRef.current}
                 entryTarget={entryTarget}
+                gardenOpenRequestKey={gardenOpenRequest?.generation === getAuthSessionGeneration() ? gardenOpenRequest.key : null}
                 notificationPollTarget={notificationPollTarget}
                 notificationWeeklyMaterialTarget={notificationWeeklyMaterialTarget}
                 onNotificationPollTargetHandled={() => setNotificationPollTarget(null)}
@@ -1980,6 +1985,7 @@ function AuthenticatedShellContent({
   announcementOpenRequestKey,
   campusNavigation,
   entryTarget,
+  gardenOpenRequestKey = null,
   notificationPollTarget = null,
   notificationWeeklyMaterialTarget = null,
   onNotificationPollTargetHandled = () => {},
@@ -1997,6 +2003,7 @@ function AuthenticatedShellContent({
   campusNavigation: CampusNavigationIntentCoordinator;
   entryTarget: EntryTarget | null;
   notificationPollTarget?: PollOpenTarget | null;
+  gardenOpenRequestKey?: number | null;
   notificationWeeklyMaterialTarget?: NotificationWeeklyMaterialTarget | null;
   onNotificationPollTargetHandled?: () => void;
   onNotificationWeeklyMaterialTargetHandled?: () => void;
@@ -2011,6 +2018,11 @@ function AuthenticatedShellContent({
   const androidShellInsets = useAndroidShellLayoutInsets();
   const [userHomeView, setUserHomeView] = useState<'dashboard' | 'monthlyCalendar' | 'shepherdAttendance' | 'companions'>('dashboard');
   const [companionPage, setCompanionPage] = useState<CompanionPage>('manage');
+  useEffect(() => {
+    if (gardenOpenRequestKey === null) return;
+    setCompanionPage('manage');
+    setUserHomeView('companions');
+  }, [gardenOpenRequestKey]);
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
   const companionScrollRef = useRef<ScrollViewInstance>(null);
   const [companionDragging, setCompanionDragging] = useState(false);
@@ -2651,6 +2663,7 @@ function AuthenticatedShellContent({
         ) : route === 'userHome' ? (
           userHomeView === 'companions' && isCompanionPreviewEnabled() ? (
             <CompanionPages
+              key={`companion-page-${gardenOpenRequestKey ?? 'manual'}`}
               initialPage={companionPage}
               decorationScope={`faithlog.garden.decorations.${state.user.id}.${state.selectedCampus.campusId}`}
               onDragStateChange={setCompanionDragging}

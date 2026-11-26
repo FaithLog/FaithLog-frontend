@@ -15,6 +15,7 @@ export type PushRouteParams = Partial<{
   weekStartDate: string;
   announcementId: number;
   categoryId: number;
+  openGarden: boolean;
 }>;
 
 export type ValidPushNavigationTarget = {
@@ -106,6 +107,12 @@ export function parsePushNotificationOpenPayload(
 ): PushNavigationTarget {
   if (!isRecord(payload)) {
     return {status: 'invalid', reason: 'payloadNotObject'};
+  }
+
+  if (payload.eventType === 'GARDEN_CARE_REMINDER') {
+    return Object.keys(payload).length === 1
+      ? {status: 'valid', route: 'userHome', params: {openGarden: true}}
+      : {status: 'invalid', reason: 'unknownParam'};
   }
 
   if (payload.eventType === 'ANNOUNCEMENT_PUBLISHED') {
