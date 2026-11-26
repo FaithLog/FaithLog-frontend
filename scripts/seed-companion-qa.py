@@ -57,6 +57,9 @@ day = last.replace(day=1)
 day += dt.timedelta(days=(-day.weekday()) % 7)
 second = fixtures[1]
 sql(f"INSERT INTO garden_expeditions(user_id,id,design_id,started_on,ready_at) VALUES({second['user']},'45d5f71f-5d02-4d99-98b1-4e9f420db1b5','david-lamb:base',(now() AT TIME ZONE 'Asia/Seoul')::date,now()-interval '1 minute')")
+season_month = 12 if today.month in (1, 2, 12) else 3 if today.month <= 5 else 6 if today.month <= 8 else 9
+season_start = dt.date(today.year - int(today.month <= 2), season_month, 1)
+sql(f"INSERT INTO garden_season_progress(user_id, season_start, completed) VALUES({second['user']},'{season_start}',2)")
 
 while day <= last:
     end = day + dt.timedelta(days=6)

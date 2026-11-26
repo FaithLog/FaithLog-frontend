@@ -1,4 +1,4 @@
-import type {GardenExpedition} from './gardenExpeditionContract';
+import type {GardenExpedition, GardenSeason} from './gardenExpeditionContract';
 import type {CampusGardenGoal, FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
 import {apiRequest} from '../api/client';
 import {FaithLogApiError} from '../api/apiError';
@@ -30,6 +30,15 @@ function parseGardenShop(value: unknown): GardenShopSnapshot {
   };
 }
 
+function parseGardenSeason(value: unknown): GardenSeason {
+ const row = object(value);
+ const {name, claimed} = row;
+ if ((name !== 'SPRING' && name !== 'SUMMER' && name !== 'AUTUMN' && name !== 'WINTER')
+   || typeof claimed !== 'boolean') throw new Error('Invalid garden season');
+ return {name, claimed, startsOn: date(row.startsOn), endsOn: date(row.endsOn),
+  completed: integer(row.completed), target: integer(row.target, 1), reward: integer(row.reward, 1)};
+}
+
 function parseExpedition(value: unknown): GardenExpedition {
  const row = object(value);
  const {state} = row;
@@ -40,7 +49,8 @@ function parseExpedition(value: unknown): GardenExpedition {
  const readyAt = row.readyAt === null ? null : date(row.readyAt);
  const design = row.designId === null ? null : designId(row.designId);
  if (state !== 'AVAILABLE' && (!id || !readyAt || !design)) throw new Error('Missing expedition details');
- return {state, id, readyAt, designId: design, reward: integer(row.reward, 1)};
+ return {state, id, readyAt, designId: design, reward: integer(row.reward, 1),
+  ...(row.season ? {season: parseGardenSeason(row.season)} : {})};
 }
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
@@ -79,6 +89,7 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
  const expeditionPath = '/api/v1/companions/me/garden/expedition';
  return {
   expedition: {
+   claimSeason: start => request(`${expeditionPath}/seasons/${encodeURIComponent(start)}/claim`, parseExpedition, 'POST'),
    load: () => request(expeditionPath, parseExpedition),
    start: instanceId => request(expeditionPath, parseExpedition, 'POST', {instanceId}),
    claim: id => request(`${expeditionPath}/${encodeURIComponent(id)}/claim`, parseExpedition, 'POST'),
