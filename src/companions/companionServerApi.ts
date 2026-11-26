@@ -1,3 +1,4 @@
+import type {FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
 import {apiRequest} from '../api/client';
 import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
@@ -43,7 +44,49 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   }
   throw new Error('보유 목록이 너무 커요.');
  }
+ const friendsPath = `/api/v1/campuses/${encodeURIComponent(campusId)}/friend-gardens`;
+ const parseVisibility = (value: unknown) => {
+  const {visible} = object(value);
+  if (typeof visible !== 'boolean') throw new Error('Invalid garden visibility');
+  return visible;
+ };
  return {
+  friendGardens: {
+   list: (after = 0) => request(`${friendsPath}?after=${encodeURIComponent(after)}`, value => {
+    const row = object(value);
+    return {
+     visible: parseVisibility(row),
+     items: array(row.items).map(item => {
+      const friend = object(item);
+      return {userId: integer(friend.userId, 1), name: string(friend.name)};
+     }),
+     nextCursor: row.nextCursor === null ? null : integer(row.nextCursor, after + 1),
+    } satisfies FriendGardenPage;
+   }),
+   setVisibility: visible => request(`${friendsPath}/me/visibility`, parseVisibility, 'PUT', {visible}),
+   visit: ownerId => request(`${friendsPath}/${encodeURIComponent(ownerId)}`, value => {
+    const row = object(value);
+    const backgroundId = typeof row.backgroundId === 'string' && isGardenBackgroundId(row.backgroundId)
+      ? row.backgroundId : 'default';
+    const coordinate = (value: unknown) => {
+     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+      throw new Error('Invalid garden coordinate');
+     }
+     return value;
+    };
+    return {
+     name: string(row.name),
+     backgroundId,
+     animals: array(row.animals).map(item => {
+      const animal = object(item);
+      const level = integer(animal.level, 1);
+      if (level > 3) throw new Error('Invalid animal stage');
+      return {designId: designId(animal.designId), x: coordinate(animal.x), y: coordinate(animal.y),
+       stage: (level - 1) as 0 | 1 | 2};
+     }),
+    } satisfies FriendGardenVisit;
+   }),
+  },
   async load(){
    if(mutation)throw new Error('거래 처리 중이에요.');const old=await pending();if(old){mutation=true;try{await execute(old);}finally{mutation=false;}}
    const [garden,dailyResult,attendance,periods,backgrounds,pools,prices,history,catalog]=await Promise.all([
