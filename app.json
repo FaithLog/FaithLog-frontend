@@ -17,6 +17,7 @@
       "bundleIdentifier": "com.faithlog.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryAddUsageDescription": "정원 단체 사진을 사진 보관함에 저장하려면 추가 권한이 필요합니다.",
         "UIBackgroundModes": [
           "remote-notification"
         ]

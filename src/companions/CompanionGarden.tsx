@@ -1,3 +1,5 @@
+import {GardenPhotoPanel} from './GardenPhotoPanel';
+import {GardenPhotoFrame, gardenPhotoRuntime, type GardenPhotoCapture} from './gardenPhotoFrame';
 import {FriendGardenPanel} from './FriendGardenPanel';
 import {GardenDecorationShop} from './GardenDecorationShop';
 import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations, type GardenDecorationLayout} from './GardenDecorations';
@@ -31,7 +33,9 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
   const previewOnly = mode === 'home';
   const decorations = useGardenDecorations(decorationScope);
   const [decorationPreview, setDecorationPreview] = useState<typeof decorations.layout>(null);
-  const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | 'friends' | null>(null);
+  const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | 'friends' | 'photo' | null>(null);
+  const photoMode = decorationPanel === 'photo';
+  const photoRef = useRef<GardenPhotoCapture | null>(null);
   const [shop, setShop] = useState<{scope: string | undefined; data: GardenShopSnapshot} | null>(null);
   const [shopLoading, setShopLoading] = useState(false);
   const [shopFailed, setShopFailed] = useState(false);
@@ -152,6 +156,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     dragCallback.current?.(false);
   }, [foreground]);
   return <View style={styles.section}>
+    <GardenPhotoFrame enabled={mode === "management"} captureRef={photoRef}>
     <View onLayout={event => {
       const width = event.nativeEvent.layout.width;
       if (width <= 0 || width === bounds.width) return;
@@ -174,9 +179,9 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         const visual=resolveFarmSpriteVisual(animal,reduceMotion?null:runningAnimation,elapsed);
         const farmAction=agent.motion==='held'||(agent.motion==='walk'&&!visual.pauseMovement)
           ? undefined : visual.action;
-        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion} previewOnly={previewOnly}
+        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion} previewOnly={previewOnly || photoMode}
           evolutionStage={animal && (!baseAppearance?.has(animal.instanceId) || farmAction==='evolve')
-            ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
+            ? (animal.level-1) as 0|1|2 : 0} selected={!photoMode && selectedKey===key && !!selected}
           {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
           onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
@@ -186,8 +191,8 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
               update(key,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
-          onReact={() => {if (!previewOnly) {setSelectedKey(key);if(animal?.dormant)void wakeInstance?.(animal.instanceId);}update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
-        {!previewOnly && animal && !animal.dormant && animal.stats.cleanliness<35 && <Pressable
+          onReact={() => {if (!previewOnly && !photoMode) {setSelectedKey(key);if(animal?.dormant)void wakeInstance?.(animal.instanceId);}update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
+        {!previewOnly && !photoMode && animal && !animal.dormant && animal.stats.cleanliness<35 && <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${name} 주변 청소하기`}
           accessibilityHint="청소가 필요한 흔적을 치웁니다. 청소 쿨타임이 적용돼요."
@@ -202,8 +207,9 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         </Pressable>}
         </Fragment>;
       })}
-      {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
+      {!photoMode && slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
+    </GardenPhotoFrame>
     {previewOnly ? <Button variant="secondary" size="compact" accessibilityLabel="동물 관리 페이지 열기"
       onPress={() => onOpen('manage')}>동물 관리</Button> : <>
     {mode === 'management' && slots.length > 0 && <View style={styles.selector}>
@@ -242,9 +248,13 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
             }} : {})} />
         : decorationPanel === 'friends' && friendGardens
           ? <FriendGardenPanel api={friendGardens} onClose={closeDecorations} />
-          : <View style={styles.actions}>
+          : photoMode
+            ? <GardenPhotoPanel captureRef={photoRef} onClose={closeDecorations} />
+            : <View style={styles.actions}>
           {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => {setDecorationPanel('edit'); void reloadShop();}}>정원 꾸미기</Button>}
           <Button size="compact" variant="primary" accessibilityLabel="정원 상점 열기" onPress={() => {setDecorationPanel('shop'); void reloadShop();}}>정원 상점</Button>
+          {mode === 'management' && gardenPhotoRuntime && <Button size="compact" variant="secondary" accessibilityLabel="정원 단체 사진 열기"
+            onPress={() => setDecorationPanel('photo')}>단체 사진</Button>}
           {friendGardens && <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 열기" onPress={() => setDecorationPanel('friends')}>친구 농장</Button>}
         </View>}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
