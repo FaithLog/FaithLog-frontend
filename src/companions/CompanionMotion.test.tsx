@@ -10,7 +10,7 @@ const native = vi.hoisted(() => ({
 vi.mock('react-native', async () => {
   const {createElement} = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(name, props, children);
-  return {Platform:{OS:'ios'}, PanResponder:{create:(config: Record<string, unknown>)=>({panHandlers:{onResponderGrant:config.onPanResponderGrant,onResponderMove:config.onPanResponderMove,onResponderRelease:config.onPanResponderRelease,onResponderTerminate:config.onPanResponderTerminate}})}, Image: host('Image'), View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s},
+  return {Platform:{OS:'ios'}, PanResponder:{create:(config: Record<string, unknown>)=>({panHandlers:{onResponderGrant:config.onPanResponderGrant,onResponderMove:config.onPanResponderMove,onResponderRelease:config.onPanResponderRelease,onResponderTerminate:config.onPanResponderTerminate}})}, ScrollView: host('ScrollView'), Image: host('Image'), View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s},
     AppState: {currentState: 'active', addEventListener: (_key: string, cb: (v: string) => void) => {native.appListener = cb; return {remove: () => {native.removals++;}};}},
     AccessibilityInfo: {isReduceMotionEnabled: async () => native.reduce, addEventListener: (_key: string, cb: (v: boolean) => void) => {native.motionListener = cb; return {remove: () => {native.removals++;}};}}};
 });
@@ -108,6 +108,30 @@ describe('companion motion lifecycle', () => {
     expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('happy');
     await advance(900);
     expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).not.toBe('happy');
+  });
+  it('keeps home greetings and links to management without exposing care or drag controls', async () => {
+    const open = vi.fn();
+    await act(async () => {tree = create(<CompanionProvider><CompanionGarden mode="home" onOpen={open} /></CompanionProvider>);});
+    const buttons = tree!.root.findAllByType('Button' as React.ElementType);
+    expect(buttons.map(button => button.props.accessibilityLabel)).toEqual(['동물 관리 페이지 열기']);
+    const animal = tree!.root.findAllByType('View' as React.ElementType).find(node =>
+      node.props.testID === 'garden-animal-david-lamb:base');
+    expect(animal?.props.onResponderGrant).toBeUndefined();
+    const greeting = tree!.root.findAllByType('Pressable' as React.ElementType)[0]!;
+    expect(greeting.props.accessibilityActions).toEqual([]);
+    await act(async () => greeting.props.onPress());
+    expect(tree!.root.findAllByType('Sprite' as React.ElementType)[0]!.props.motion).toBe('happy');
+    await act(async () => buttons[0]!.props.onPress());
+    expect(open).toHaveBeenCalledWith('manage');
+  });
+
+  it('offers a horizontal roster in management and retains the garden shop', async () => {
+    await act(async () => {tree = create(<CompanionProvider><CompanionGarden mode="management" onOpen={vi.fn()} /></CompanionProvider>);});
+    const roster = tree!.root.findByType('ScrollView' as React.ElementType);
+    expect(roster.props.horizontal).toBe(true);
+    expect(roster.findAllByType('Pressable' as React.ElementType)).toHaveLength(5);
+    expect(tree!.root.findAllByType('Button' as React.ElementType)
+      .some(button => button.props.accessibilityLabel === '정원 상점 열기')).toBe(true);
   });
   it('captures a drag, clamps it and releases scrolling without persisting the position',async()=>{
     const drag=vi.fn();

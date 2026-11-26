@@ -26,6 +26,7 @@ const auth=vi.hoisted(()=>({token:''}));
 vi.mock('../api/tokenStorage',()=>({getAuthSessionGeneration:()=>1,getStoredAuthSession:async()=>({generation:1,accessToken:auth.token,refreshToken:null}),isAccessTokenOwnedByAuthSession:async()=>true,isAuthSessionRequestAllowed:()=>true,isAuthSessionGenerationCurrent:()=>true,saveTokens:vi.fn()}));
 import {createCompanionServerApi} from './companionServerApi';
 import {CompanionProvider} from './CompanionProvider';
+vi.mock('./CompanionGarden', () => ({CompanionGarden: () => null}));
 import {CompanionPages} from './CompanionPages';
 import {saveDevotionDailyCheck,saveWeeklyDevotion} from '../api/client';
 import type {PendingStorage} from './companionServerContract';
