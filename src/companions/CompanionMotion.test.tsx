@@ -280,6 +280,12 @@ it('shows a mess only for a server-confirmed low-cleanliness animal and removes 
   expect(cleaning).toBeDefined();
   expect(tree!.root.findAllByType('View' as React.ElementType)
     .filter(node=>node.props.testID==='companion-attention-banner')).toHaveLength(1);
+  const careAlert = tree!.root.findAllByType('Button' as React.ElementType)
+    .find(node => String(node.props.accessibilityLabel ?? '').endsWith('확인할 상태 청결도'));
+  expect(careAlert).toBeDefined();
+  await act(async () => careAlert!.props.onPress());
+  expect(tree!.root.findAllByType('View' as React.ElementType)
+    .filter(node => node.props.testID === 'selected-companion-care-panel')).toHaveLength(1);
   await act(async()=>cleaning!.props.onPress());
   expect(api.careInstance).toHaveBeenCalledWith(id,'CLEAN',0,expect.stringMatching(/^pet-care-/));
   expect(tree!.root.findAllByType('Pressable' as React.ElementType)
