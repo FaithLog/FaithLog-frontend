@@ -1,4 +1,4 @@
-import type {FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
+import type {CampusGardenGoal, FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
 import {apiRequest} from '../api/client';
 import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
@@ -64,6 +64,13 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
  };
  return {
   friendGardens: {
+   weeklyGoal: () => request(`${friendsPath}/weekly-goal`, value => {
+    const row = object(value);
+    if (typeof row.contributed !== 'boolean') throw new Error('Invalid garden contribution');
+    return {startsOn: date(row.startsOn), endsOn: date(row.endsOn),
+     target: integer(row.target, 1), participants: integer(row.participants),
+     contributed: row.contributed} satisfies CampusGardenGoal;
+   }),
    list: (after = 0) => request(`${friendsPath}?after=${encodeURIComponent(after)}`, value => {
     const row = object(value);
     return {
