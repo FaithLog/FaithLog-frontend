@@ -1,3 +1,4 @@
+import type {GardenExpedition} from './gardenExpeditionContract';
 import type {CampusGardenGoal, FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
 import {apiRequest} from '../api/client';
 import {FaithLogApiError} from '../api/apiError';
@@ -27,6 +28,19 @@ function parseGardenShop(value: unknown): GardenShopSnapshot {
       return {id: string(item.id), price: integer(item.price, 1), owned: item.owned};
     }),
   };
+}
+
+function parseExpedition(value: unknown): GardenExpedition {
+ const row = object(value);
+ const {state} = row;
+ if (state !== 'AVAILABLE' && state !== 'EXPLORING' && state !== 'READY' && state !== 'CLAIMED') {
+  throw new Error('Invalid expedition status');
+ }
+ const id = row.id === null ? null : string(row.id);
+ const readyAt = row.readyAt === null ? null : date(row.readyAt);
+ const design = row.designId === null ? null : designId(row.designId);
+ if (state !== 'AVAILABLE' && (!id || !readyAt || !design)) throw new Error('Missing expedition details');
+ return {state, id, readyAt, designId: design, reward: integer(row.reward, 1)};
 }
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
@@ -62,7 +76,13 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   if (typeof visible !== 'boolean') throw new Error('Invalid garden visibility');
   return visible;
  };
+ const expeditionPath = '/api/v1/companions/me/garden/expedition';
  return {
+  expedition: {
+   load: () => request(expeditionPath, parseExpedition),
+   start: instanceId => request(expeditionPath, parseExpedition, 'POST', {instanceId}),
+   claim: id => request(`${expeditionPath}/${encodeURIComponent(id)}/claim`, parseExpedition, 'POST'),
+  },
   friendGardens: {
    weeklyGoal: () => request(`${friendsPath}/weekly-goal`, value => {
     const row = object(value);

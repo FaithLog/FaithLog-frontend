@@ -1,3 +1,4 @@
+import {GardenExpeditionCard} from './GardenExpeditionCard';
 import {GardenPhotoPanel} from './GardenPhotoPanel';
 import {GardenPhotoFrame, gardenPhotoRuntime, type GardenPhotoCapture} from './gardenPhotoFrame';
 import {FriendGardenPanel} from './FriendGardenPanel';
@@ -46,7 +47,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     setDecorationPreview(null);
     setDecorationPanel(null);
   }
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration,expedition} = useCompanions();
   const catalog = shop?.scope === decorationScope ? shop?.data : null;
   const ownedIds = new Set(catalog?.items.filter(item => item.owned).map(item => item.id));
   useEffect(() => {
@@ -365,6 +366,8 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
           </View>
         </View>:null}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
+      {mode === 'management' && expedition && <GardenExpeditionCard api={expedition}
+        instanceId={selected.instanceId} onClaimed={() => void loadShards?.()} />}
       {careError?<Text accessibilityRole="alert" style={styles.warning}>{careError}</Text>:null}
     </View>}
     {mode !== 'management' && <View style={styles.menu}>
