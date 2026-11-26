@@ -1,5 +1,7 @@
 import {GardenDecorationShop} from './GardenDecorationShop';
-import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations} from './GardenDecorations';
+import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations, type GardenDecorationLayout} from './GardenDecorations';
+import type {DecorationId} from './gardenDecorationCatalog';
+import type {GardenShopSnapshot} from './companionServerContract';
 import {GardenBackground} from './GardenBackground';
 import {Fragment, useEffect, useRef, useState} from 'react';
 import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
@@ -27,11 +29,44 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
   const decorations = useGardenDecorations(decorationScope);
   const [decorationPreview, setDecorationPreview] = useState<typeof decorations.layout>(null);
   const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | null>(null);
+  const [shop, setShop] = useState<{scope: string | undefined; data: GardenShopSnapshot} | null>(null);
+  const [shopLoading, setShopLoading] = useState(false);
+  const [shopFailed, setShopFailed] = useState(false);
+  const [suggestion, setSuggestion] = useState<{id: DecorationId; slot: number} | null>(null);
+  const shopRequest = useRef(0);
   function closeDecorations() {
+    setSuggestion(null);
     setDecorationPreview(null);
     setDecorationPanel(null);
   }
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,loadGardenShop,purchaseGardenDecoration} = useCompanions();
+  const catalog = shop?.scope === decorationScope ? shop?.data : null;
+  const ownedIds = new Set(catalog?.items.filter(item => item.owned).map(item => item.id));
+  useEffect(() => {
+    return () => {shopRequest.current++;};
+  }, [decorationScope, loadGardenShop]);
+
+  async function reloadShop() {
+    if (!loadGardenShop) return;
+    const request = ++shopRequest.current;
+    setShopLoading(true);
+    setShopFailed(false);
+    try {
+      const data = await loadGardenShop();
+      if (request === shopRequest.current) setShop({scope: decorationScope, data});
+    } catch {
+      if (request === shopRequest.current) setShopFailed(true);
+    } finally {
+      if (request === shopRequest.current) setShopLoading(false);
+    }
+  }
+
+  function previewDecoration(id: DecorationId, slot: number) {
+    const preview: GardenDecorationLayout = [...(decorations.layout ?? [null, null, null])];
+    preview[slot] = id;
+    setDecorationPreview(preview);
+  }
+
   const slots=companionGardenSlots(state);
   // Group alerts across the <=5 visible pets. No per-animal notifications,
   // polling, push permission or scheduled server work on the home scene.
@@ -167,18 +202,27 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
       {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
     {decorationPanel === 'edit' && decorations.layout
-      ? <GardenDecorationEditor layout={decorations.layout} onPreview={setDecorationPreview}
+      ? <GardenDecorationEditor layout={decorations.layout} ownedIds={ownedIds}
+          initialSlot={suggestion?.slot ?? 0} {...(suggestion ? {suggestedId: suggestion.id} : {})}
+          onPreview={setDecorationPreview}
           onSave={decorations.save} onClose={closeDecorations} />
       : decorationPanel === 'shop'
-        ? <GardenDecorationShop points={state.points} onClose={closeDecorations}
-            onPreview={(id, slot) => {
-              const preview: NonNullable<typeof decorations.layout> = [...(decorations.layout ?? [null, null, null])];
-              preview[slot] = id;
-              setDecorationPreview(preview);
-            }} />
+        ? <GardenDecorationShop points={state.points} catalog={catalog ?? null} loading={shopLoading}
+            loadFailed={shopFailed} onReload={() => void reloadShop()} onClose={closeDecorations}
+            onPreview={previewDecoration}
+            {...(purchaseGardenDecoration ? {onPurchase: async (id: string, price: number) => {
+              const request = ++shopRequest.current;
+              const data = await purchaseGardenDecoration(id, price);
+              if (request === shopRequest.current) setShop({scope: decorationScope, data});
+            }} : {})}
+            {...(decorations.layout ? {onPlace: (id: DecorationId, slot: number) => {
+              setSuggestion({id, slot});
+              previewDecoration(id, slot);
+              setDecorationPanel('edit');
+            }} : {})} />
         : <View style={styles.actions}>
-          {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => setDecorationPanel('edit')}>정원 꾸미기</Button>}
-          <Button size="compact" variant="primary" accessibilityLabel="정원 상점 열기" onPress={() => setDecorationPanel('shop')}>정원 상점</Button>
+          {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => {setDecorationPanel('edit'); void reloadShop();}}>정원 꾸미기</Button>}
+          <Button size="compact" variant="primary" accessibilityLabel="정원 상점 열기" onPress={() => {setDecorationPanel('shop'); void reloadShop();}}>정원 상점</Button>
         </View>}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}

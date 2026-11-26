@@ -18,6 +18,34 @@ vi.mock('./gardenDecorationCatalog', async importOriginal => {
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('garden decoration shop', () => {
+  it('confirms the price before charging and lets an owned item be placed', async () => {
+    let tree!: ReactTestRenderer;
+    const onPurchase = vi.fn(async () => undefined);
+    const onPlace = vi.fn();
+    const item = {id: 'lamb-shelter', price: 300, owned: false};
+    const render = (owned: boolean) => <GardenDecorationShop points={500}
+      catalog={{balance: owned ? 200 : 500, items: [{...item, owned}]}}
+      onPurchase={onPurchase} onPlace={onPlace} onPreview={vi.fn()} onClose={vi.fn()} />;
+    await act(async () => {tree = create(render(false));});
+    const press = async (label: string) => {
+      const target = tree.root.findAllByType(Button).find(node => node.props.accessibilityLabel === label);
+      expect(target?.props.disabled).not.toBe(true);
+      await act(async () => target!.props.onPress());
+    };
+    try {
+      await act(async () => tree.root.findAllByType(Pressable)[0]!.props.onPress());
+      await press('포인트로 구매하기');
+      expect(onPurchase).not.toHaveBeenCalled();
+      await press('포인트 구매 확정');
+      expect(onPurchase).toHaveBeenCalledExactlyOnceWith('lamb-shelter', 300);
+      await act(async () => tree.update(render(true)));
+      await press('보유 소품 배치하기');
+      expect(onPlace).toHaveBeenCalledExactlyOnceWith('lamb-shelter', 1);
+    } finally {
+      await act(async () => tree.unmount());
+    }
+  });
+
   it('browses categories and pages and previews one item in the selected position', async () => {
     let tree!: ReactTestRenderer;
     const preview = vi.fn();

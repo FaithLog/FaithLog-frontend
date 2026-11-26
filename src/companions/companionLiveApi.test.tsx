@@ -207,3 +207,27 @@ describe.skipIf(!baseUrl)('real owned-instance care and evolution HTTP contract'
  },120_000);
 
 });
+
+describe.skipIf(!baseUrl)('real garden shop HTTP contract', () => {
+ it('debits once and restores purchased ownership across new sessions', async () => {
+  const token = await login(1);
+  const campus = fixtures[1]!.campus;
+  const api = createCompanionServerApi(campus, async () => token, memory());
+  const initial = await api.loadGardenShop!();
+  const id = 'seed-dish';
+  expect(initial.items).toHaveLength(50);
+  expect(initial.items.find(item => item.id === id)).toEqual({id, price: 100, owned: false});
+  await expect(api.purchaseGardenDecoration!(id, 200)).rejects.toMatchObject({detail: {status: 409}});
+  expect((await api.loadGardenShop!()).balance).toBe(initial.balance);
+  const purchased = await api.purchaseGardenDecoration!(id, 100);
+  expect(purchased.balance).toBe(initial.balance - 100);
+  expect(purchased.items.find(item => item.id === id)?.owned).toBe(true);
+  const freshToken = await login(1);
+  const fresh = createCompanionServerApi(campus, async () => freshToken, memory());
+  expect(await fresh.loadGardenShop!()).toEqual(purchased);
+  expect(await fresh.purchaseGardenDecoration!(id, 100)).toEqual(purchased);
+  const otherToken = await login(0);
+  const other = createCompanionServerApi(fixtures[0]!.campus, async () => otherToken, memory());
+  expect((await other.loadGardenShop!()).items.find(item => item.id === id)?.owned).toBe(false);
+ }, 120_000);
+});

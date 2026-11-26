@@ -27,7 +27,13 @@ export type CompanionCareGift = {
  status: 'LOCKED' | 'READY' | 'TOMORROW' | 'CLAIMED';
 };
 
+export type GardenShopSnapshot = {
+  balance: number;
+  items: {id: string; price: number; owned: boolean}[];
+};
 export type CompanionServerApi = {
+  loadGardenShop?: () => Promise<GardenShopSnapshot>;
+  purchaseGardenDecoration?: (id: string, expectedPrice: number) => Promise<GardenShopSnapshot>;
  load:()=>Promise<ServerSnapshot>;garden:(garden:Garden)=>Promise<Garden>;
  claim:(id:string)=>Promise<ClaimUpdate>;draw:(count:1|10)=>Promise<Operation>;
  sell:(id:BibleFriendDesignId,quantity:number)=>Promise<Operation>;
