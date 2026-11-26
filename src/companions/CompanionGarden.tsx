@@ -76,10 +76,25 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
   }
 
   const slots=companionGardenSlots(state);
-  // Group alerts across the <=5 visible pets. No per-animal notifications,
-  // polling, push permission or scheduled server work on the home scene.
-  const needsAttention=(instances??[]).filter(item=>item.stats.health<25
-    ||item.stats.satiety<25||item.stats.cleanliness<25);
+  const needsAttention = slots.flatMap(slot => {
+    const animal = instances?.find(item => slot.instanceId
+      ? item.instanceId === slot.instanceId
+      : item.designId === slot.designId);
+    if (!animal) return [];
+    const {health, satiety, cleanliness} = animal.stats;
+    const reasons = [
+      health < 25 ? '건강' : null,
+      satiety < 25 ? '배부름' : null,
+      cleanliness < 25 ? '청결도' : null,
+    ].filter(Boolean);
+    if (!reasons.length) return [];
+    return [{
+      key: slot.instanceId ?? slot.designId,
+      name: BIBLE_FRIEND_DESIGN_CATALOG.find(design => design.id === slot.designId)?.name ?? '나의 동물',
+      reasons,
+      lowestStat: Math.min(health, satiety, cleanliness),
+    }];
+  }).sort((first, second) => first.lowestStat - second.lowestStat);
   const [selectedKey,setSelectedKey] = useState<string|null>(null);
   const [growthExpanded,setGrowthExpanded]=useState(false);
   const selectedSlot=slots.find(p=>(p.instanceId??p.designId)===selectedKey);
@@ -260,15 +275,14 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         </View>}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
-    {needsAttention.length>0?<View style={styles.attentionRow} testID="companion-attention-banner">
-      <Text style={styles.helper}>돌봄이 필요한 동물 {needsAttention.length}마리 · 건강과 배부름·청결도를 확인해주세요.</Text>
-      <Button variant="secondary" size="compact" accessibilityLabel="돌봄 필요한 동물 보기"
-        onPress={()=>{
-          const target=needsAttention[0];
-          const slot=slots.find(p=>p.instanceId===target?.instanceId);
-          if(slot)setSelectedKey(slot.instanceId??slot.designId);
-        }}>돌보기</Button>
-    </View>:null}
+    {needsAttention.length > 0 && <View style={styles.attentionRow} testID="companion-attention-banner">
+      <Text style={styles.helper}>돌봄이 필요한 동물 {needsAttention.length}마리</Text>
+      {needsAttention.map(({key, name, reasons}) => <Button key={key} variant="secondary" size="compact"
+        accessibilityLabel={`${name} 돌보기, 확인할 상태 ${reasons.join(', ')}`}
+        onPress={() => setSelectedKey(key)}>
+        {`${name} · ${reasons.join(' · ')}`}
+      </Button>)}
+    </View>}
     {selected && <View style={styles.careCard} testID="selected-companion-care-panel">
       <View style={styles.careTitle}>
         <FarmHudIcon name={selected.level===1?'badge-lv1':selected.level===2?'badge-lv2':'badge-lv3'} size={34}/>
