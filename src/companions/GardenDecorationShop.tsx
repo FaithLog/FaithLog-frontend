@@ -1,5 +1,7 @@
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
+import type {GardenShopSnapshot} from './companionServerContract';
+import {FaithLogApiError} from '../api/apiError';
 import {IconexIcon} from '../components/IconexIcon';
 import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
@@ -8,8 +10,14 @@ import {gardenShopCategories, gardenShopDecorations, type DecorationId} from './
 const pageSize = 6;
 const positions = ['왼쪽', '가운데', '오른쪽'] as const;
 
-export function GardenDecorationShop({points, onPreview, onClose}: {
+export function GardenDecorationShop({points, catalog, loading, loadFailed, onReload, onPurchase, onPlace, onPreview, onClose}: {
   points: number;
+  catalog?: GardenShopSnapshot | null;
+  loading?: boolean;
+  loadFailed?: boolean;
+  onReload?: () => void;
+  onPurchase?: (id: string, price: number) => Promise<void>;
+  onPlace?: (id: DecorationId, slot: number) => void;
   onPreview: (id: DecorationId, slot: number) => void;
   onClose: () => void;
 }) {
@@ -17,6 +25,35 @@ export function GardenDecorationShop({points, onPreview, onClose}: {
   const [page, setPage] = useState(0);
   const [slot, setSlot] = useState(1);
   const [preview, setPreview] = useState<typeof gardenShopDecorations[number] | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+  const [message, setMessage] = useState('');
+  const purchaseLock = useRef(false);
+  const offer = catalog?.items.find(item => item.id === preview?.id);
+  const balance = catalog?.balance ?? points;
+
+  async function purchase() {
+    if (!offer || !onPurchase || purchaseLock.current) return;
+    purchaseLock.current = true;
+    setPurchasing(true);
+    setMessage('');
+    try {
+      await onPurchase(offer.id, offer.price);
+      setConfirming(false);
+      setMessage('구매했어요. 원하는 위치에 배치해 보세요.');
+    } catch (error) {
+      const code = error instanceof FaithLogApiError ? error.detail.code : '';
+      setConfirming(false);
+      setMessage(code === 'COMPANION_INSUFFICIENT_POINTS'
+        ? '포인트가 부족해요.'
+        : '구매 결과를 확인하지 못했어요. 상품 정보를 다시 확인해 주세요.');
+      onReload?.();
+    } finally {
+      purchaseLock.current = false;
+      setPurchasing(false);
+    }
+  }
+
   const items = gardenShopDecorations.filter(item => item.category === category);
   const pages = Math.ceil(items.length / pageSize);
 
@@ -27,11 +64,14 @@ export function GardenDecorationShop({points, onPreview, onClose}: {
         <View accessible={false} importantForAccessibility="no-hide-descendants">
           <IconexIcon color={colors.primary} name="coins" size={16} />
         </View>
-        <Text style={styles.points}>보유 {points.toLocaleString()} P</Text>
+        <Text style={styles.points}>보유 {balance.toLocaleString()} P</Text>
       </View>
-      <Button size="compact" variant="ghost" accessibilityLabel="정원 상점 닫기" onPress={onClose}>닫기</Button>
+      <Button size="compact" variant="ghost" disabled={purchasing} accessibilityLabel="정원 상점 닫기" onPress={onClose}>닫기</Button>
     </View>
-    <Text style={styles.caption}>소품을 눌러 정원에서 미리 보세요. 포인트 구매는 준비 중이에요.</Text>
+    <Text style={styles.caption}>소품을 눌러 정원에서 미리 보세요.</Text>
+    {loading && <Text accessibilityLiveRegion="polite" style={styles.caption}>상품 정보를 확인하고 있어요…</Text>}
+    {loadFailed && <Button variant="secondary" size="compact" accessibilityLabel="상품 정보 다시 확인"
+      onPress={() => onReload?.()}>상품 정보 다시 확인</Button>}
     <View style={styles.row}>
       {gardenShopCategories.map(value => <View key={value} style={styles.category}>
         <Button size="compact" fullWidth accessibilityLabel={value + ' 소품 보기'}
@@ -40,14 +80,17 @@ export function GardenDecorationShop({points, onPreview, onClose}: {
       </View>)}
     </View>
     <View style={styles.grid}>
-      {items.slice(page * pageSize, (page + 1) * pageSize).map(item =>
-        <Pressable key={item.id} accessibilityRole="button"
-          accessibilityLabel={item.name + ' 미리보기'} accessibilityState={{selected: preview?.id === item.id}}
+      {items.slice(page * pageSize, (page + 1) * pageSize).map(item => {
+        const entry = catalog?.items.find(offer => offer.id === item.id);
+        return <Pressable key={item.id} accessibilityRole="button"
+          disabled={purchasing} accessibilityLabel={item.name + ' 미리보기'} accessibilityState={{selected: preview?.id === item.id}}
           style={({pressed}) => [styles.card, preview?.id === item.id && styles.selected, pressed && styles.pressed]}
-          onPress={() => {setPreview(item); onPreview(item.id, slot);}}>
+          onPress={() => {setPreview(item); setConfirming(false); setMessage(''); onPreview(item.id, slot);}}>
           <Image accessible={false} resizeMode="contain" style={styles.image} source={item.source()} />
           <Text style={styles.name}>{item.name}</Text>
-        </Pressable>)}
+          {entry && <Text style={styles.points}>{entry.owned ? '보유 중' : `${entry.price} P`}</Text>}
+        </Pressable>;
+      })}
     </View>
     <View style={[styles.row, styles.pagination]}>
       <Button size="compact" variant="ghost" accessibilityLabel="이전 소품" disabled={page === 0}
@@ -70,6 +113,19 @@ export function GardenDecorationShop({points, onPreview, onClose}: {
             }}>{position}</Button>
         </View>)}
       </View>
+      {preview && offer?.owned && onPlace && <Button size="compact" accessibilityLabel="보유 소품 배치하기"
+        onPress={() => onPlace(preview.id, slot)}>배치하기</Button>}
+      {offer && !offer.owned && onPurchase && !loadFailed && <>
+        {confirming && <Text style={styles.caption}>구매 후 {(balance - offer.price).toLocaleString()} P</Text>}
+        <Button size="compact" disabled={loading || purchasing || balance < offer.price}
+          accessibilityLabel={confirming ? '포인트 구매 확정' : '포인트로 구매하기'}
+          onPress={() => confirming ? void purchase() : setConfirming(true)}>
+          {purchasing ? '구매 중…' : balance < offer.price ? '포인트 부족' : confirming ? `${offer.price} P로 구매 확정` : `${offer.price} P로 구매`}
+        </Button>
+        {confirming && <Button size="compact" variant="ghost" disabled={purchasing} accessibilityLabel="구매 취소"
+          onPress={() => setConfirming(false)}>구매 취소</Button>}
+      </>}
+      {message !== '' && <Text accessibilityLiveRegion="polite" style={styles.caption}>{message}</Text>}
     </View>
   </View>;
 }

@@ -4,7 +4,7 @@ import {FaithLogApiError} from '../api/apiError';
 import {createDailyMissionApi} from './dailyMissionApi';
 import {isDailyMission} from './dailyMissionContract';
 import {isGardenBackgroundId} from './gardenBackgrounds';
-import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionCareGift,type CompanionSaleAvailability,type CompanionServerApi,type Garden,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
+import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionCareGift,type CompanionSaleAvailability,type CompanionServerApi,type Garden,type GardenShopSnapshot,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
 
 function parseCareGifts(value: unknown): CompanionCareGift[] {
  return array(value).map(item => {
@@ -15,6 +15,18 @@ function parseCareGifts(value: unknown): CompanionCareGift[] {
   }
   return {milestone: integer(row.milestone, 1), shards: integer(row.shards, 1), status};
  });
+}
+
+function parseGardenShop(value: unknown): GardenShopSnapshot {
+  const row = object(value);
+  return {
+    balance: integer(row.balance),
+    items: array(row.items).map(value => {
+      const item = object(value);
+      if (typeof item.owned !== 'boolean') throw new Error('Invalid decoration ownership');
+      return {id: string(item.id), price: integer(item.price, 1), owned: item.owned};
+    }),
+  };
 }
 
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
@@ -92,6 +104,11 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
     } satisfies FriendGardenVisit;
    }),
   },
+  loadGardenShop: () => request('/api/v1/companions/me/garden/decorations', parseGardenShop),
+  purchaseGardenDecoration: (id, expectedPrice) => request(
+    `/api/v1/companions/me/garden/decorations/${encodeURIComponent(id)}/purchase`,
+    parseGardenShop, 'POST', {expectedPrice},
+  ),
   async load(){
    if(mutation)throw new Error('거래 처리 중이에요.');const old=await pending();if(old){mutation=true;try{await execute(old);}finally{mutation=false;}}
    const [garden,dailyResult,attendance,periods,backgrounds,pools,prices,history,catalog]=await Promise.all([

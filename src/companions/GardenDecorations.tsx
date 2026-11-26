@@ -13,7 +13,7 @@ export function parseGardenDecorations(value: string | null): Layout {
   let parsed: unknown;
   try {parsed = value === null ? null : JSON.parse(value);} catch {return emptyLayout;}
   if (!Array.isArray(parsed) || parsed.length !== positions.length) return emptyLayout;
-  const read = (index: number) => freeDecorations.find(item => item.id === parsed[index])?.id ?? null;
+  const read = (index: number) => gardenDecorations.find(item => item.id === parsed[index])?.id ?? null;
   return [read(0), read(1), read(2)];
 }
 
@@ -70,14 +70,24 @@ export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
   </View>;
 }
 
-export function GardenDecorationEditor({layout, onPreview, onSave, onClose}: {
+export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, suggestedId, onPreview, onSave, onClose}: {
   layout: Layout;
+  ownedIds?: ReadonlySet<string>;
+  initialSlot?: number;
+  suggestedId?: DecorationId;
   onPreview: (layout: Layout) => void;
   onSave: (layout: Layout) => Promise<void>;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState(layout);
-  const [slot, setSlot] = useState(0);
+  const [draft, setDraft] = useState<Layout>(() => {
+    const initial: Layout = [...layout];
+    if (suggestedId && ownedIds?.has(suggestedId)) initial[initialSlot] = suggestedId;
+    return initial;
+  });
+  const [slot, setSlot] = useState(initialSlot);
+  const available = ownedIds
+    ? [...freeDecorations, ...gardenDecorations.filter(item => ownedIds.has(item.id))]
+    : freeDecorations;
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState(false);
   const locked = useRef(false);
@@ -112,7 +122,7 @@ export function GardenDecorationEditor({layout, onPreview, onSave, onClose}: {
         accessibilityLabel={`장식 ${position} 위치 선택`} onPress={() => setSlot(index)}>{position}</Button>)}
     </View>
     <View style={styles.actions}>
-      {freeDecorations.map(item => <Button key={item.id} size="compact"
+      {available.map(item => <Button key={item.id} size="compact"
         variant={draft[slot] === item.id ? 'primary' : 'secondary'} disabled={saving}
         accessibilityLabel={`${positions[slot]}에 ${item.name} 배치`} onPress={() => select(item.id)}>{item.name}</Button>)}
       <Button size="compact" variant="ghost" disabled={saving || draft[slot] === null}

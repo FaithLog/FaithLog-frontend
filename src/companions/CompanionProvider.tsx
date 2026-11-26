@@ -16,6 +16,8 @@ type Context = {
   toggleAppearance?: (instanceId: string) => void;
   wakeInstance?: (id: string) => Promise<void>;
   shardBalance?: number | null;
+  loadGardenShop?: NonNullable<CompanionServerApi['loadGardenShop']>;
+  purchaseGardenDecoration?: NonNullable<CompanionServerApi['purchaseGardenDecoration']>;
   careGifts?: NonNullable<CompanionServerApi['careGifts']>;
   claimCareGift?: NonNullable<CompanionServerApi['claimCareGift']>;
   loadShards?: () => Promise<void>;
@@ -421,8 +423,24 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
   }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
  },[api,instances,loadShards]);
 
+ const purchaseGardenDecoration = useCallback(async (id: string, price: number) => {
+  if (!api.purchaseGardenDecoration || lock.current || !source.current) {
+    throw new Error('이전 요청이 끝난 뒤 다시 시도해 주세요.');
+  }
+  lock.current = true;
+  setBusy(true);
+  try {
+    const result = await api.purchaseGardenDecoration(id, price);
+    if (source.current) apply({...source.current, balance: result.balance});
+    return result;
+  } finally {
+    lock.current = false;
+    if (alive.current) setBusy(false);
+  }
+ }, [api, apply]);
+
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);
