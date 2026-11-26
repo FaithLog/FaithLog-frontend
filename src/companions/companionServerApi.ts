@@ -86,8 +86,18 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   if (typeof visible !== 'boolean') throw new Error('Invalid garden visibility');
   return visible;
  };
+ const careReminderPath = '/api/v1/companions/me/garden/care-reminders';
+ const parseCareReminder = (value: unknown) => {
+  const {enabled} = object(value);
+  if (typeof enabled !== 'boolean') throw new Error('Invalid care reminder preference');
+  return enabled;
+ };
  const expeditionPath = '/api/v1/companions/me/garden/expedition';
  return {
+  careReminder: {
+   load: () => request(careReminderPath, parseCareReminder),
+   setEnabled: enabled => request(careReminderPath, parseCareReminder, 'PUT', {enabled}),
+  },
   expedition: {
    claimSeason: start => request(`${expeditionPath}/seasons/${encodeURIComponent(start)}/claim`, parseExpedition, 'POST'),
    load: () => request(expeditionPath, parseExpedition),

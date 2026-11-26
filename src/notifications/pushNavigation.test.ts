@@ -393,3 +393,11 @@ function restoreEnvironment(key: string, value: string | undefined) {
 
   process.env[key] = value;
 }
+
+it('accepts only the dedicated garden care reminder event', () => {
+  expect(parsePushNotificationOpenPayload({eventType: 'GARDEN_CARE_REMINDER'})).toEqual({
+    status: 'valid', route: 'userHome', params: {openGarden: true},
+  });
+  expect(parsePushNotificationOpenPayload({eventType: 'GARDEN_CARE_REMINDER', campusId: '3'}))
+    .toEqual({status: 'invalid', reason: 'unknownParam'});
+});
