@@ -4,7 +4,7 @@ import type {DecorationId} from './gardenDecorationCatalog';
 import type {GardenShopSnapshot} from './companionServerContract';
 import {GardenBackground} from './GardenBackground';
 import {Fragment, useEffect, useRef, useState} from 'react';
-import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
+import {Alert, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {FarmCareButton,FarmHudGauge,FarmHudIcon} from './FarmHudAssets';
 import type {CompanionCareAction} from './companionServerContract';
 import {BIBLE_FRIEND_DESIGN_CATALOG} from '../characters/bibleFriendDesignCatalog';
@@ -21,11 +21,13 @@ import {useCompanionMotion} from './useCompanionMotion';
 import {CompanionCareGifts} from './CompanionCareGifts';
 import {getCompanionCareBadges} from './companionCareBadges';
 
-export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
+export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mode}: {
+  mode?: 'home' | 'management';
   onOpen: (page: CompanionPage) => void;
   onDragStateChange?: (dragging: boolean) => void;
   decorationScope?: string;
 }) {
+  const previewOnly = mode === 'home';
   const decorations = useGardenDecorations(decorationScope);
   const [decorationPreview, setDecorationPreview] = useState<typeof decorations.layout>(null);
   const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | null>(null);
@@ -171,7 +173,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
         const visual=resolveFarmSpriteVisual(animal,reduceMotion?null:runningAnimation,elapsed);
         const farmAction=agent.motion==='held'||(agent.motion==='walk'&&!visual.pauseMovement)
           ? undefined : visual.action;
-        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion}
+        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion} previewOnly={previewOnly}
           evolutionStage={animal && (!baseAppearance?.has(animal.instanceId) || farmAction==='evolve')
             ? (animal.level-1) as 0|1|2 : 0} selected={selectedKey===key && !!selected}
           {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
@@ -183,8 +185,8 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
               update(key,a=>releaseGardenAgent(a,elapsed,reduceMotion));
             } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
-          onReact={() => {setSelectedKey(key);if(animal?.dormant)void wakeInstance?.(animal.instanceId);update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
-        {animal && !animal.dormant && animal.stats.cleanliness<35 && <Pressable
+          onReact={() => {if (!previewOnly) {setSelectedKey(key);if(animal?.dormant)void wakeInstance?.(animal.instanceId);}update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
+        {!previewOnly && animal && !animal.dormant && animal.stats.cleanliness<35 && <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${name} 주변 청소하기`}
           accessibilityHint="청소가 필요한 흔적을 치웁니다. 청소 쿨타임이 적용돼요."
@@ -201,6 +203,23 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
       })}
       {slots.length === 0 ? <View style={styles.empty}><Text style={styles.helper}>동물 관리에서 함께할 친구를 골라주세요</Text></View> : null}
     </View>
+    {previewOnly ? <Button variant="secondary" size="compact" accessibilityLabel="동물 관리 페이지 열기"
+      onPress={() => onOpen('manage')}>동물 관리</Button> : <>
+    {mode === 'management' && slots.length > 0 && <View style={styles.selector}>
+      <Text style={styles.careName}>돌볼 동물 선택</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.selectorRow}>
+        {slots.map((slot, index) => {
+          const key = slot.instanceId ?? slot.designId;
+          const name = BIBLE_FRIEND_DESIGN_CATALOG.find(design => design.id === slot.designId)?.name ?? '동물';
+          return <Pressable key={key} accessibilityRole="button" accessibilityLabel={`${index + 1}번 ${name} 선택`}
+            accessibilityState={{selected: selectedKey === key}} style={[styles.petCard, selectedKey === key && styles.activePetCard]}
+            onPress={() => setSelectedKey(key)}>
+            <BibleFriendFarmSprite designId={slot.designId} size={44} reduceMotion />
+            <Text numberOfLines={2} style={styles.petName}>{name}</Text>
+          </Pressable>;
+        })}
+      </ScrollView>
+    </View>}
     {decorationPanel === 'edit' && decorations.layout
       ? <GardenDecorationEditor layout={decorations.layout} ownedIds={ownedIds}
           initialSlot={suggestion?.slot ?? 0} {...(suggestion ? {suggestedId: suggestion.id} : {})}
@@ -243,6 +262,15 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
           <Text style={styles.helper}>내 동물의 상태 · 누적 {selected.totalEarnedXp.toLocaleString()} XP</Text>
         </View>
         <Button variant="ghost" size="compact" accessibilityLabel="동물 돌봄 패널 닫기" onPress={()=>setSelectedKey(null)}>닫기</Button>
+      </View>
+      <View style={styles.careActions}>
+        {(['feed','pet','play','clean','sleep'] as const).filter(action=>!selected.dormant||action==='feed').map(action=><FarmCareButton
+          key={action} action={action}
+          disabled={busy||!careInstance||(selected.stats.health===0&&(action==='pet'||action==='play'))}
+          onPress={()=>void careInstance?.(selected.instanceId,action.toUpperCase() as CompanionCareAction)}/>)}
+        <FarmCareButton action="evolve" disabled={busy||!selected.canEvolve||!evolveInstance}
+          onPress={() => Alert.alert('진화하기',`${activeDesign?.name??'동물'}을(를) 다음 단계로 진화시킬까요?`,
+            [{text:'취소',style:'cancel'},{text:'진화',onPress:()=>void evolveInstance?.(selected.instanceId)}])}/>
       </View>
       <View style={styles.meters}>
         <View style={styles.meter}><FarmHudGauge kind="hunger" label="배부름" value={selected.stats.satiety}/></View>
@@ -323,27 +351,24 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope}: {
           </View>
         </View>:null}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
-      <View style={styles.careActions}>
-        {(['feed','pet','play','clean','sleep'] as const).filter(action=>!selected.dormant||action==='feed').map(action=><FarmCareButton
-          key={action} action={action}
-          disabled={busy||!careInstance||(selected.stats.health===0&&(action==='pet'||action==='play'))}
-          onPress={()=>void careInstance?.(selected.instanceId,action.toUpperCase() as CompanionCareAction)}/>)}
-        <FarmCareButton action="evolve" disabled={busy||!selected.canEvolve||!evolveInstance}
-          onPress={() => Alert.alert('진화하기',`${activeDesign?.name??'동물'}을(를) 다음 단계로 진화시킬까요?`,
-            [{text:'취소',style:'cancel'},{text:'진화',onPress:()=>void evolveInstance?.(selected.instanceId)}])}/>
-      </View>
       {careError?<Text accessibilityRole="alert" style={styles.warning}>{careError}</Text>:null}
     </View>}
-    <View style={styles.menu}>
+    {mode !== 'management' && <View style={styles.menu}>
       <Text style={styles.balance}>{state.points.toLocaleString()} P</Text>
       <View style={styles.actions}>{([['manage','동물 관리'],['missions','미션'],['draw','뽑기']] as const).map(([page,label]) => <View key={page} style={styles.action}><Button fullWidth size="compact" variant="ghost" accessibilityLabel={`${label} 페이지 열기`} onPress={()=>onOpen(page)}>{label}</Button></View>)}</View>
-    </View>
+    </View>}
     {server&&error?<Button size="compact" accessibilityLabel="정원 서버 정보 새로 확인" disabled={busy} onPress={()=>void reloadServer()}>정원 새로 확인</Button>:null}
-    <Text style={styles.helper}>{server ? '친구들을 끌어서 옮겨보세요' : '끌어서 옮겨보세요 · 체험 모드'}</Text>
+    <Text style={styles.helper}>{server ? '정원에서 동물을 잠시 옮기려면 끌어 보세요.' : '끌어서 옮겨보세요 · 체험 모드'}</Text>
+    </>}
   </View>;
 }
 const styles = StyleSheet.create({
   section:{gap:8},
+  selector:{gap:6},
+  selectorRow:{gap:8},
+  petCard:{width:92,minHeight:84,padding:6,alignItems:'center',borderWidth:1,borderColor:colors.borderSoft,borderRadius:12,backgroundColor:colors.surface},
+  activePetCard:{borderColor:colors.primary},
+  petName:{...typography.caption,color:colors.textPrimary,textAlign:'center'},
   space:{height:GARDEN_HEIGHT,overflow:'hidden',borderRadius:12},
   menu:{gap:8},
   actions:{flexDirection:'row',flexWrap:'wrap',gap:8},

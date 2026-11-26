@@ -8,6 +8,7 @@ import {DRAG_THRESHOLD, GARDEN_ANIMAL_SIZE, type GardenAgent, type GardenPoint} 
 
 type Props = {
   designId: BibleFriendDesignId; name: string; agent: GardenAgent; elapsed: number; reduceMotion: boolean;
+  previewOnly?: boolean;
   evolutionStage?: 0|1|2; selected?: boolean; instanceId?:string;
   farmAction?:FarmRuntimeAction; farmActionElapsedMs?:number;
   onGrab: () => void; onMove: (point: GardenPoint) => void;
@@ -44,14 +45,15 @@ export function GardenAnimal(props: Props) {
   }), []);
   const {agent, elapsed, reduceMotion, designId, name, onReact, onMove, onRelease, evolutionStage = 0, selected = false, farmAction, farmActionElapsedMs = 0} = props;
   const lifted = agent.motion === 'held';
-  return <View {...responder.panHandlers}
-    style={[styles.animal, {left:agent.position.x,top:agent.position.y,zIndex:lifted ? 1000 : Math.round(agent.position.y)}, Platform.OS === 'web' ? styles.webTouch : null,selected ? styles.selected : null]}
+  return <View {...(props.previewOnly ? {} : responder.panHandlers)}
+    style={[styles.animal, {left:agent.position.x,top:agent.position.y,zIndex:lifted ? 1000 : Math.round(agent.position.y)}, Platform.OS === 'web' && !props.previewOnly ? styles.webTouch : null,selected ? styles.selected : null]}
     testID={`garden-animal-${props.instanceId??designId}`}>
     <Pressable
     accessibilityRole="button" accessibilityLabel={`${name} 인사하기`}
-    accessibilityHint="누르면 인사하고, 끌어서 위치를 옮길 수 있어요. 접근성 동작으로도 이동할 수 있어요."
-    accessibilityActions={[{name:'moveLeft',label:'왼쪽으로 이동'},{name:'moveRight',label:'오른쪽으로 이동'},{name:'moveUp',label:'위로 이동'},{name:'moveDown',label:'아래로 이동'}]}
+    accessibilityHint={props.previewOnly ? "누르면 인사해요." : "누르면 인사하고, 끌어서 위치를 옮길 수 있어요. 접근성 동작으로도 이동할 수 있어요."}
+    accessibilityActions={props.previewOnly ? [] : [{name:'moveLeft',label:'왼쪽으로 이동'},{name:'moveRight',label:'오른쪽으로 이동'},{name:'moveUp',label:'위로 이동'},{name:'moveDown',label:'아래로 이동'}]}
     onAccessibilityAction={event => {
+      if (props.previewOnly) return;
       const offsets: Record<string, GardenPoint> = {moveLeft:{x:-20,y:0},moveRight:{x:20,y:0},moveUp:{x:0,y:-20},moveDown:{x:0,y:20}};
       const offset = offsets[event.nativeEvent.actionName]; if (!offset) return;
       onMove({x: agent.position.x + offset.x, y: agent.position.y + offset.y}); onRelease(true);

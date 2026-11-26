@@ -2652,6 +2652,8 @@ function AuthenticatedShellContent({
           userHomeView === 'companions' && isCompanionPreviewEnabled() ? (
             <CompanionPages
               initialPage={companionPage}
+              decorationScope={`faithlog.garden.decorations.${state.user.id}.${state.selectedCampus.campusId}`}
+              onDragStateChange={setCompanionDragging}
               onScrollTop={() => companionScrollRef.current?.scrollTo({y: 0, animated: true})}
               onBack={() => setUserHomeView('dashboard')}
               onActivity={(target, recordDate) => {if (target === 'calendar') {setCalendarInitialDate(recordDate ?? getMissionPeriodKeys(new Date()).daily); setUserHomeView('monthlyCalendar');} else {if(target==='devotion'&&recordDate)setDevotionInitialDate(recordDate);setUserHomeView('dashboard');if(target==='prayers')openPrayers('input');else setRoute(target);}}}
@@ -2688,7 +2690,6 @@ function AuthenticatedShellContent({
             />
           ) : (
             <UserHomeDashboard
-              onCompanionDragChange={setCompanionDragging}
               onOpenCompanions={(page) => {setCompanionPage(page); setUserHomeView('companions');}}
               onOpenAnnouncements={() => {
                 setAnnouncementInitialId(null);
@@ -3066,7 +3067,6 @@ function CampusDetailScreen({
 }
 
 function UserHomeDashboard({
-  onCompanionDragChange,
   onOpenCompanions,
   canOpenAdminMode,
   onOpenAdminMode,
@@ -3086,7 +3086,6 @@ function UserHomeDashboard({
   state,
   yearlyRecap,
 }: {
-  onCompanionDragChange: (dragging: boolean) => void;
   onOpenCompanions: (page: CompanionPage) => void;
   canOpenAdminMode: boolean;
   onOpenAdminMode: () => void;
@@ -3334,7 +3333,7 @@ function UserHomeDashboard({
         </Text>
       </View>
 
-      {isCompanionPreviewEnabled() ? <CompanionGarden onOpen={onOpenCompanions} onDragStateChange={onCompanionDragChange}
+      {isCompanionPreviewEnabled() ? <CompanionGarden mode="home" onOpen={onOpenCompanions}
         decorationScope={`faithlog.garden.decorations.${state.user.id}.${campusId}`} /> : null}
 
       {yearlyRecap ? (

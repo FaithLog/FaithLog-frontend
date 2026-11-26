@@ -24,6 +24,7 @@ vi.mock('./CompanionDrawScene', () => ({CompanionDrawScene: (props: {onComplete:
 import type {DailyMissionApi, DailyMissionSnapshot} from './dailyMissionContract';
 import {getMissionPeriodKeys} from './companionModel';
 import {CompanionProvider} from './CompanionProvider';
+vi.mock('./CompanionGarden', () => ({CompanionGarden: () => null}));
 import {CompanionPages} from './CompanionPages';
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 let tree: ReactTestRenderer | undefined;
