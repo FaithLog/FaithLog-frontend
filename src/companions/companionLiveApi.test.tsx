@@ -241,7 +241,8 @@ describe.skipIf(!baseUrl)('real friend garden HTTP contract', () => {
    return createCompanionServerApi(owner.campus, async () => token, memory());
   };
   let ownerApi = await as(5);
-  const animal = (await ownerApi.instances!())[0]!;
+  const [animal] = await ownerApi.instancesByDesign!('david-lamb:base', 0);
+  if (!animal) throw new Error('Expected the seeded owned animal');
   const initial = await ownerApi.load();
   await ownerApi.garden({...initial.garden, placements: [
    {slot: 1, designId: animal.designId, instanceId: animal.instanceId, x: .5, y: .5},
