@@ -64,6 +64,9 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
     } satisfies FriendGardenPage;
    }),
    setVisibility: visible => request(`${friendsPath}/me/visibility`, parseVisibility, 'PUT', {visible}),
+   help: (ownerId, slot, action) => request(`${friendsPath}/${encodeURIComponent(ownerId)}/help`, value => {
+    if (object(value).helped !== true) throw new Error('Invalid garden help result');
+   }, 'POST', {slot, action}),
    visit: ownerId => request(`${friendsPath}/${encodeURIComponent(ownerId)}`, value => {
     const row = object(value);
     const backgroundId = typeof row.backgroundId === 'string' && isGardenBackgroundId(row.backgroundId)
@@ -81,7 +84,9 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
       const animal = object(item);
       const level = integer(animal.level, 1);
       if (level > 3) throw new Error('Invalid animal stage');
-      return {designId: designId(animal.designId), x: coordinate(animal.x), y: coordinate(animal.y),
+      const slot = integer(animal.slot, 1);
+      if (slot > 5) throw new Error('Invalid garden slot');
+      return {slot, designId: designId(animal.designId), x: coordinate(animal.x), y: coordinate(animal.y),
        stage: (level - 1) as 0 | 1 | 2};
      }),
     } satisfies FriendGardenVisit;

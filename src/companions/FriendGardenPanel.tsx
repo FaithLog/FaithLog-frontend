@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
+import {FaithLogApiError} from '../api/apiError';
 import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
 import {GardenBackground} from './GardenBackground';
@@ -9,6 +10,9 @@ import type {FriendGardenApi, FriendGardenPage, FriendGardenVisit} from './frien
 export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose: () => void}) {
   const [page, setPage] = useState<FriendGardenPage | null>(null);
   const [visit, setVisit] = useState<FriendGardenVisit | null>(null);
+  const [ownerId, setOwnerId] = useState<number | null>(null);
+  const [slot, setSlot] = useState<number | null>(null);
+  const [helped, setHelped] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const request = useRef(0);
@@ -25,8 +29,12 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
     try {
       const value = await work();
       if (ticket === request.current) apply(value);
-    } catch {
-      if (ticket === request.current) setError(failure);
+    } catch (cause) {
+      if (ticket === request.current) {
+        const code = cause instanceof FaithLogApiError ? cause.detail.code : '';
+        setError(code === 'COMPANION_FRIEND_HELP_LIMIT' ? '오늘 줄 수 있는 도움을 썼거나, 이 동물이 이미 도움을 받았어요.'
+          : code === 'COMPANION_CARE_UNAVAILABLE' ? '이 동물은 지금 그 도움이 필요하지 않아요.' : failure);
+      }
     } finally {
       if (ticket === request.current) {
         locked.current = false;
@@ -52,13 +60,31 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
     {visit ? <>
       <View style={styles.scene}>
         <GardenBackground id={visit.backgroundId} />
-        <View style={styles.animalBounds}>{visit.animals.map((animal, index) => <View key={index} pointerEvents="none" style={[
+        <View style={styles.animalBounds}>{visit.animals.map(animal => <View key={animal.slot} pointerEvents="none" style={[
           styles.animal, {left: `${animal.x * 100}%`, top: `${animal.y * 100}%`},
         ]}>
           <BibleFriendFarmSprite designId={animal.designId} evolutionStage={animal.stage} size={56} reduceMotion />
+          <Text style={styles.slotNumber}>{animal.slot}</Text>
         </View>)}</View>
       </View>
-      <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 목록으로" onPress={() => setVisit(null)}>목록으로</Button>
+      {visit.animals.length > 0 && <>
+        <Text style={styles.caption}>{helped ? '오늘의 도움을 보냈어요.' : '하루 한 번 친구 동물을 도울 수 있어요.'}</Text>
+        <View style={styles.row}>
+          {visit.animals.map(animal => <Button key={animal.slot} size="compact"
+            variant={slot === animal.slot ? 'primary' : 'secondary'} disabled={busy || helped}
+            accessibilityLabel={`${animal.slot}번 동물 선택`} onPress={() => setSlot(animal.slot)}>
+            {`${animal.slot}번`}
+          </Button>)}
+        </View>
+        {ownerId !== null && slot !== null && !helped && <View style={styles.row}>
+          {(['FEED', 'CLEAN'] as const).map(action => <Button key={action} size="compact" disabled={busy}
+            accessibilityLabel={action === 'FEED' ? '먹이 도움 보내기' : '청소 도움 보내기'}
+            onPress={() => void perform(() => api.help(ownerId, slot, action), () => setHelped(true), '도움 결과를 확인하지 못했어요.')}>
+            {action === 'FEED' ? '먹이 주기' : '청소하기'}
+          </Button>)}
+        </View>}
+      </>}
+      <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 목록으로" disabled={busy} onPress={() => {setVisit(null); setSlot(null); setError('');}}>목록으로</Button>
     </> : page ? <>
       <View style={styles.row}>
         <Text style={styles.caption}>{page.visible ? '같은 캠퍼스에 공개 중' : '내 농장은 비공개예요'}</Text>
@@ -73,7 +99,7 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
         <Text style={styles.name}>{friend.name}</Text>
         <Button size="compact" variant="secondary" disabled={busy}
           accessibilityLabel={friend.name + '님 농장 방문'}
-          onPress={() => void perform(() => api.visit(friend.userId), setVisit, '지금은 이 농장을 방문할 수 없어요.')}>방문</Button>
+          onPress={() => void perform(() => api.visit(friend.userId), data => {setOwnerId(friend.userId); setVisit(data);}, '지금은 이 농장을 방문할 수 없어요.')}>방문</Button>
       </View>)}
       <View style={styles.row}>
         <Button size="compact" variant="ghost" disabled={busy} accessibilityLabel="친구 농장 새로고침"
@@ -96,4 +122,5 @@ const styles = StyleSheet.create({
   scene: {height:144, overflow:'hidden', borderRadius:10},
   animalBounds: {position:'absolute', left:0, top:0, right:56, bottom:56},
   animal: {position:'absolute'},
+  slotNumber: {...typography.caption, position:'absolute', top:0, right:0, minWidth:18, textAlign:'center', borderRadius:9, color:colors.primary, backgroundColor:colors.surface},
 });
