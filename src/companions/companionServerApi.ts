@@ -149,7 +149,7 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   ),
   async load(){
    if(mutation)throw new Error('거래 처리 중이에요.');const old=await pending();if(old){mutation=true;try{await execute(old);}finally{mutation=false;}}
-   const [garden,dailyResult,attendance,periods,backgrounds,pools,prices,history,catalog]=await Promise.all([
+   const [garden,dailyResult,attendance,periods,backgrounds,pools,prices,history,catalog,inventory]=await Promise.all([
     request('/api/v1/companions/me/garden',parseGarden),daily.load(),
     request('/api/v1/points/me/attendance',parseAttendance),
     request(`/api/v1/campuses/${encodeURIComponent(campusId)}/missions/me?includePrayerTopic=true`,parsePeriods),
@@ -158,11 +158,9 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
     request('/api/v1/companions/sale-prices',v=>{const result={MIRACLE:1000000} as ServerSnapshot['prices'];for(const x of array(v)){const r=object(x);result[rarity(r.rarity)]=integer(r.unitPrice,1);}if(Object.keys(result).length!==6)throw new Error('Invalid prices');return result;}),
     request('/api/v1/companions/me/draws?page=0',v=>array(v).map(x=>{const r=object(x);return{result:parseOperation(r.result),createdAt:date(r.createdAt)};})),
     request('/api/v1/companions/catalog',v=>array(v).map(x=>designId(object(x).designId))),
-   ]);
-   const [inventory,balance]=await Promise.all([
     loadInventory(),
-    request('/api/v1/points/me/wallet',v=>integer(object(v).balance)),
    ]);
+   const balance=await request('/api/v1/points/me/wallet',v=>integer(object(v).balance));
    pool=pools[0]??null;
    return{balance,inventory,garden,daily:dailyResult,attendance,periods,backgrounds,pool,prices,history,catalog};
   },
