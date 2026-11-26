@@ -11,6 +11,7 @@ import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dail
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
 type Context = {
+  friendGardens?: NonNullable<CompanionServerApi['friendGardens']>;
   baseAppearance?: ReadonlySet<string>;
   toggleAppearance?: (instanceId: string) => void;
   wakeInstance?: (id: string) => Promise<void>;
@@ -439,7 +440,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  }, [api, apply]);
 
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);

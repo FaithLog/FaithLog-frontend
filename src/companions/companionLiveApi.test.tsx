@@ -232,3 +232,48 @@ describe.skipIf(!baseUrl)('real garden shop HTTP contract', () => {
   expect((await other.loadGardenShop!()).items.find(item => item.id === id)?.owned).toBe(false);
  }, 120_000);
 });
+
+describe.skipIf(!baseUrl)('real friend garden HTTP contract', () => {
+ it('keeps gardens private by default and lets a campus member help once after opt-in', async () => {
+  const owner = fixtures[5]!;
+  const as = async (index: number) => {
+   const token = await login(index);
+   return createCompanionServerApi(owner.campus, async () => token, memory());
+  };
+  let ownerApi = await as(5);
+  const [animal] = await ownerApi.instancesByDesign!('david-lamb:base', 0);
+  if (!animal) throw new Error('Expected the seeded owned animal');
+  const initial = await ownerApi.load();
+  await ownerApi.garden({...initial.garden, placements: [
+   {slot: 1, designId: animal.designId, instanceId: animal.instanceId, x: .5, y: .5},
+  ]});
+  expect((await ownerApi.friendGardens!.list()).visible).toBe(false);
+
+  let visitorApi = await as(4);
+  expect((await visitorApi.friendGardens!.list()).items).toEqual([]);
+  await expect(visitorApi.friendGardens!.visit(owner.user)).rejects.toMatchObject({detail: {status: 404}});
+  const outsiderApi = await as(0);
+  await expect(outsiderApi.friendGardens!.list()).rejects.toMatchObject({detail: {status: 403}});
+
+  ownerApi = await as(5);
+  expect(await ownerApi.friendGardens!.setVisibility(true)).toBe(true);
+  visitorApi = await as(4);
+  const visitorBalance = (await visitorApi.loadGardenShop!()).balance;
+  expect((await visitorApi.friendGardens!.list()).items.map(item => item.userId)).toContain(owner.user);
+  expect((await visitorApi.friendGardens!.visit(owner.user)).animals).toEqual([
+   {slot: 1, designId: animal.designId, stage: 0, x: .5, y: .5},
+  ]);
+  await visitorApi.friendGardens!.help(owner.user, 1, 'FEED');
+  await expect(visitorApi.friendGardens!.help(owner.user, 1, 'CLEAN')).rejects.toMatchObject({
+   detail: {status: 409, code: 'COMPANION_FRIEND_HELP_LIMIT'},
+  });
+  expect((await visitorApi.loadGardenShop!()).balance).toBe(visitorBalance);
+  ownerApi = await as(5);
+  const updated = (await ownerApi.instances!()).find(item => item.instanceId === animal.instanceId)!;
+  expect(updated.stats.satiety).toBeGreaterThan(animal.stats.satiety);
+  expect(updated.growthXp).toBe(animal.growthXp);
+  expect(await ownerApi.friendGardens!.setVisibility(false)).toBe(false);
+  visitorApi = await as(4);
+  await expect(visitorApi.friendGardens!.visit(owner.user)).rejects.toMatchObject({detail: {status: 404}});
+ }, 120_000);
+});

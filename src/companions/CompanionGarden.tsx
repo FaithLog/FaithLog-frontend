@@ -1,3 +1,4 @@
+import {FriendGardenPanel} from './FriendGardenPanel';
 import {GardenDecorationShop} from './GardenDecorationShop';
 import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations, type GardenDecorationLayout} from './GardenDecorations';
 import type {DecorationId} from './gardenDecorationCatalog';
@@ -30,7 +31,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
   const previewOnly = mode === 'home';
   const decorations = useGardenDecorations(decorationScope);
   const [decorationPreview, setDecorationPreview] = useState<typeof decorations.layout>(null);
-  const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | null>(null);
+  const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | 'friends' | null>(null);
   const [shop, setShop] = useState<{scope: string | undefined; data: GardenShopSnapshot} | null>(null);
   const [shopLoading, setShopLoading] = useState(false);
   const [shopFailed, setShopFailed] = useState(false);
@@ -41,7 +42,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     setDecorationPreview(null);
     setDecorationPanel(null);
   }
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,loadGardenShop,purchaseGardenDecoration} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration} = useCompanions();
   const catalog = shop?.scope === decorationScope ? shop?.data : null;
   const ownedIds = new Set(catalog?.items.filter(item => item.owned).map(item => item.id));
   useEffect(() => {
@@ -239,9 +240,12 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
               previewDecoration(id, slot);
               setDecorationPanel('edit');
             }} : {})} />
-        : <View style={styles.actions}>
+        : decorationPanel === 'friends' && friendGardens
+          ? <FriendGardenPanel api={friendGardens} onClose={closeDecorations} />
+          : <View style={styles.actions}>
           {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => {setDecorationPanel('edit'); void reloadShop();}}>정원 꾸미기</Button>}
           <Button size="compact" variant="primary" accessibilityLabel="정원 상점 열기" onPress={() => {setDecorationPanel('shop'); void reloadShop();}}>정원 상점</Button>
+          {friendGardens && <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 열기" onPress={() => setDecorationPanel('friends')}>친구 농장</Button>}
         </View>}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}

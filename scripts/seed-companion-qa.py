@@ -13,12 +13,16 @@ def sql(statement):
 
 sql('CREATE EXTENSION IF NOT EXISTS pgcrypto')
 fixtures = []
-for index in range(4):
+for index in range(6):
     email = f'companion-qa-{index}@example.test'
     user = int(sql(f"INSERT INTO users(name,email,password_hash,role,is_active,token_version,created_at,updated_at) VALUES('QA','{email}',crypt('test-only-password',gen_salt('bf',10)),'USER',true,0,now(),now()) RETURNING id"))
     campus = int(sql(f"INSERT INTO campuses(name,invite_code,is_active,created_at,updated_at) VALUES('QA','companion-qa-{index}',true,now(),now()) RETURNING id"))
     sql(f"INSERT INTO campus_members(campus_id,user_id,campus_role,status,joined_at,created_at,updated_at) VALUES({campus},{user},'MEMBER','ACTIVE','2025-01-01',now(),now())")
     fixtures.append(dict(user=user, campus=campus, email=email))
+visitor, owner = fixtures[4:6]
+sql(f"INSERT INTO campus_members(campus_id,user_id,campus_role,status,joined_at,created_at,updated_at) VALUES({owner['campus']},{visitor['user']},'MEMBER','ACTIVE',now(),now(),now())")
+sql(f"INSERT INTO user_companions(user_id,design_id,quantity,acquired_at) VALUES({owner['user']},'david-lamb:base',1,now())")
+sql(f"UPDATE companion_instances SET satiety=40,cleanliness=40 WHERE user_id={owner['user']}")
 first = fixtures[0]
 for fixture in fixtures:
     assert sql(f"SELECT balance FROM point_wallets WHERE user_id={fixture['user']}") == '1000', 'V32 starter grant required'
