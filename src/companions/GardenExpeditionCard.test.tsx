@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 async function mount(load: () => Promise<GardenExpedition>) {
-  const api = {load, start: vi.fn(), claim: vi.fn()};
+  const api = {load, start: vi.fn(), claim: vi.fn(), claimSeason: vi.fn()};
   await act(async () => {
     tree = create(<GardenExpeditionCard api={api} instanceId="pet" onClaimed={vi.fn()} />);
   });

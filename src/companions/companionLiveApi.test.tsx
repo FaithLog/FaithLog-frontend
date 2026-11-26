@@ -293,8 +293,17 @@ describe.skipIf(!baseUrl)('real garden expedition HTTP contract', () => {
   expect((await api.expedition!.claim(ready.id!)).state).toBe('CLAIMED');
   expect(await api.growthShards!()).toBe(1);
 
+  const season = ready.season!;
+  expect(season).toMatchObject({completed: 2, target: 3, claimed: false});
+  expect((await api.expedition!.load()).season).toMatchObject({completed: 3, claimed: false});
+  await expect(api.expedition!.claimSeason('2020-12-01')).rejects.toMatchObject({detail: {status: 409}});
+  expect((await api.expedition!.claimSeason(season.startsOn)).season?.claimed).toBe(true);
+  expect((await api.expedition!.claimSeason(season.startsOn)).season?.claimed).toBe(true);
+  expect(await api.growthShards!()).toBe(2);
+
   const otherUser = await login(5);
   const otherApi = createCompanionServerApi(fixtures[5]!.campus, async () => otherUser, memory());
+  await expect(otherApi.expedition!.claimSeason(season.startsOn)).rejects.toMatchObject({detail: {status: 409}});
   await expect(otherApi.expedition!.claim(ready.id!)).rejects.toMatchObject({detail: {status: 409}});
   const [pet] = await otherApi.instancesByDesign!('david-lamb:base', 0);
   if (!pet) throw new Error('Expected QA pet');
