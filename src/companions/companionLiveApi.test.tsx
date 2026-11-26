@@ -254,6 +254,7 @@ describe.skipIf(!baseUrl)('real friend garden HTTP contract', () => {
   await expect(visitorApi.friendGardens!.visit(owner.user)).rejects.toMatchObject({detail: {status: 404}});
   const outsiderApi = await as(0);
   await expect(outsiderApi.friendGardens!.list()).rejects.toMatchObject({detail: {status: 403}});
+  await expect(outsiderApi.friendGardens!.weeklyGoal()).rejects.toMatchObject({detail: {status: 403}});
 
   ownerApi = await as(5);
   expect(await ownerApi.friendGardens!.setVisibility(true)).toBe(true);
@@ -263,11 +264,15 @@ describe.skipIf(!baseUrl)('real friend garden HTTP contract', () => {
   expect((await visitorApi.friendGardens!.visit(owner.user)).animals).toEqual([
    {slot: 1, designId: animal.designId, stage: 0, x: .5, y: .5},
   ]);
+  const goal = await visitorApi.friendGardens!.weeklyGoal();
+  expect(goal).toMatchObject({target: 5, participants: 0, contributed: false});
   await visitorApi.friendGardens!.help(owner.user, 1, 'FEED');
+  expect(await visitorApi.friendGardens!.weeklyGoal()).toEqual({...goal, participants: 1, contributed: true});
   await expect(visitorApi.friendGardens!.help(owner.user, 1, 'CLEAN')).rejects.toMatchObject({
    detail: {status: 409, code: 'COMPANION_FRIEND_HELP_LIMIT'},
   });
   expect((await visitorApi.loadGardenShop!()).balance).toBe(visitorBalance);
+  expect((await visitorApi.friendGardens!.weeklyGoal()).participants).toBe(1);
   ownerApi = await as(5);
   const updated = (await ownerApi.instances!()).find(item => item.instanceId === animal.instanceId)!;
   expect(updated.stats.satiety).toBeGreaterThan(animal.stats.satiety);

@@ -1,13 +1,15 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
 import {FaithLogApiError} from '../api/apiError';
 import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
 import {GardenBackground} from './GardenBackground';
-import type {FriendGardenApi, FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
+import type {CampusGardenGoal, FriendGardenApi, FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
 
 export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose: () => void}) {
+  const [goal, setGoal] = useState<CampusGardenGoal | null>(null);
+  const goalRequest = useRef(0);
   const [page, setPage] = useState<FriendGardenPage | null>(null);
   const [visit, setVisit] = useState<FriendGardenVisit | null>(null);
   const [ownerId, setOwnerId] = useState<number | null>(null);
@@ -18,7 +20,15 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
   const request = useRef(0);
   const locked = useRef(false);
 
-
+  const refreshGoal = useCallback(async () => {
+    const ticket = ++goalRequest.current;
+    try {
+      const result = await api.weeklyGoal();
+      if (ticket === goalRequest.current) setGoal(result);
+    } catch {
+      if (ticket === goalRequest.current) setGoal(null);
+    }
+  }, [api]);
 
   async function perform<T>(work: () => Promise<T>, apply: (result: T) => void, failure: string) {
     if (locked.current) return;
@@ -45,8 +55,9 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
 
   useEffect(() => {
     void perform(() => api.list(), setPage, '농장 목록을 불러오지 못했어요.');
-    return () => {request.current++; locked.current = false;};
-  }, [api]);
+    void refreshGoal();
+    return () => {request.current++; goalRequest.current++; locked.current = false;};
+  }, [api, refreshGoal]);
 
   const load = (after = 0) => perform(() => api.list(after), setPage, '농장 목록을 불러오지 못했어요.');
 
@@ -79,13 +90,29 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
         {ownerId !== null && slot !== null && !helped && <View style={styles.row}>
           {(['FEED', 'CLEAN'] as const).map(action => <Button key={action} size="compact" disabled={busy}
             accessibilityLabel={action === 'FEED' ? '먹이 도움 보내기' : '청소 도움 보내기'}
-            onPress={() => void perform(() => api.help(ownerId, slot, action), () => setHelped(true), '도움 결과를 확인하지 못했어요.')}>
+            onPress={() => void perform(() => api.help(ownerId, slot, action), () => {setHelped(true); void refreshGoal();}, '도움 결과를 확인하지 못했어요.')}>
             {action === 'FEED' ? '먹이 주기' : '청소하기'}
           </Button>)}
         </View>}
       </>}
       <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 목록으로" disabled={busy} onPress={() => {setVisit(null); setSlot(null); setError('');}}>목록으로</Button>
     </> : page ? <>
+      {goal && <View style={styles.goal}>
+        <View style={styles.row}>
+          <Text accessibilityRole="header" style={styles.name}>이번 주 캠퍼스 돌봄 목표</Text>
+          <Text style={styles.caption}>{goal.participants >= goal.target ? '목표 달성' : `${goal.participants} / ${goal.target}명`}</Text>
+        </View>
+        <View accessibilityRole="progressbar" accessibilityLabel="캠퍼스 돌봄 목표 진행률"
+          accessibilityValue={{min: 0, max: goal.target, now: Math.min(goal.participants, goal.target)}}
+          style={styles.goalTrack}>
+          <View style={[styles.goalFill, {width: `${Math.min(goal.participants / goal.target, 1) * 100}%`}]} />
+        </View>
+        <Text style={styles.caption}>
+          {goal.startsOn.slice(5).replace('-', '/')}–{goal.endsOn.slice(5).replace('-', '/')} · {goal.contributed
+            ? '이번 주 목표에 참여했어요.' : '친구 동물을 도우면 한 명으로 집계돼요.'}
+        </Text>
+      </View>}
+
       <View style={styles.row}>
         <Text style={styles.caption}>{page.visible ? '같은 캠퍼스에 공개 중' : '내 농장은 비공개예요'}</Text>
         <Button size="compact" variant="secondary" disabled={busy} accessibilityLabel="내 농장 공개 설정"
@@ -103,7 +130,7 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
       </View>)}
       <View style={styles.row}>
         <Button size="compact" variant="ghost" disabled={busy} accessibilityLabel="친구 농장 새로고침"
-          onPress={() => void load()}>새로고침</Button>
+          onPress={() => {void load(); void refreshGoal();}}>새로고침</Button>
         {page.nextCursor !== null && <Button size="compact" variant="secondary" disabled={busy}
           accessibilityLabel="다음 친구 농장 목록" onPress={() => void load(page.nextCursor ?? 0)}>다음 목록</Button>}
       </View>
@@ -117,6 +144,9 @@ const styles = StyleSheet.create({
   row: {flexDirection:'row', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8},
   title: {...typography.body, color:colors.textPrimary, fontWeight:'700', flexShrink:1},
   caption: {...typography.caption, color:colors.textSecondary},
+  goal: {gap: 6, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft},
+  goalTrack: {height: 8, borderRadius: 4, backgroundColor: colors.borderSoft, overflow: 'hidden'},
+  goalFill: {height: '100%', backgroundColor: colors.primary},
   name: {...typography.body, color:colors.textPrimary, flexShrink:1},
   friend: {borderTopWidth:1, borderColor:colors.borderSoft, paddingTop:6},
   scene: {height:144, overflow:'hidden', borderRadius:10},
