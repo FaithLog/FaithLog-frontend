@@ -54,7 +54,11 @@ describe('garden decorations', () => {
       expect(button).toBeDefined();
       await act(async () => {button!.props.onPress();});
     };
+    const saveButton = () => tree!.root.findAllByType(Button).find(button =>
+      button.props.accessibilityLabel === '정원 장식 저장')!;
+    expect(saveButton().props.disabled).toBe(true);
     await press('장식을 가운데 위치로 옮기기');
+    expect(saveButton().props.disabled).toBe(false);
     expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
     await press('가운데·오른쪽 장식 맞바꾸기');
     expect(preview).toHaveBeenLastCalledWith([null,'lantern','flower']);
@@ -73,8 +77,13 @@ describe('garden decorations', () => {
     expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
     await press('정원 장식 변경 되돌리기');
     expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
+    expect(saveButton().props.disabled).toBe(true);
     await press('정원 장식 저장');
-    expect(save).toHaveBeenCalledExactlyOnceWith(['flower',null,'lantern']);
+    expect(save).not.toHaveBeenCalled();
+    await press('되돌린 정원 장식 변경 다시 적용하기');
+    expect(saveButton().props.disabled).toBe(false);
+    await press('정원 장식 저장');
+    expect(save).toHaveBeenCalledExactlyOnceWith([null,'flower','lantern']);
     expect(close).toHaveBeenCalledOnce();
   });
 
