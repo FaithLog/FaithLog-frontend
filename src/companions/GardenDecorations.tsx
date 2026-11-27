@@ -108,6 +108,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     return initial;
   });
   const [slot, setSlot] = useState(initialSlot);
+  const hasUnsavedChanges = draft.some((id, index) => id !== layout[index]);
   const available = ownedIds
     ? [...freeDecorations, ...gardenDecorations.filter(item => ownedIds.has(item.id))]
     : freeDecorations;
@@ -160,7 +161,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
   }
 
   async function save() {
-    if (locked.current) return;
+    if (locked.current || !hasUnsavedChanges) return;
     locked.current = true;
     setSaving(true);
     setFailure(false);
@@ -195,7 +196,10 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
       <Button size="compact" variant="ghost" disabled={saving || draft[slot] === null}
         accessibilityLabel="선택한 장식 지우기" onPress={() => select(null)}>비우기</Button>
     </View>
-    {failure && <Chip label="장식을 저장하지 못했어요. 다시 시도해 주세요." tone="danger"/>}
+    {hasUnsavedChanges && <Text accessibilityLiveRegion="polite" style={styles.saveStatus}>
+      저장하지 않은 변경이 있어요.
+    </Text>}
+    {failure && hasUnsavedChanges && <Chip label="장식을 저장하지 못했어요. 다시 시도해 주세요." tone="danger"/>}
     <View style={styles.actions}>
       {history.length > 0 && <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="정원 장식 변경 되돌리기" onPress={undo}>되돌리기</Button>}
@@ -203,7 +207,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
         accessibilityLabel="되돌린 정원 장식 변경 다시 적용하기" onPress={redo}>다시 적용</Button>}
       <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="정원 꾸미기 취소" onPress={onClose}>취소</Button>
-      <Button size="compact" disabled={saving}
+      <Button size="compact" disabled={saving || !hasUnsavedChanges}
         accessibilityLabel="정원 장식 저장" onPress={() => void save()}>{saving ? '저장 중…' : '저장'}</Button>
     </View>
   </View>;
@@ -216,5 +220,6 @@ const styles = StyleSheet.create({
   contactShadow: {position:'absolute', bottom:1, width:30, height:7, borderRadius:8, backgroundColor:'rgba(38, 45, 29, 0.14)'},
   editor: {padding:10, gap:8, borderRadius:12, borderWidth:1, borderColor:colors.borderSoft},
   heading: {...typography.body, color:colors.textPrimary, fontWeight:'600'},
+  saveStatus: {...typography.caption, color:colors.textSecondary},
   actions: {flexDirection:'row', flexWrap:'wrap', gap:6},
 });
