@@ -8,7 +8,13 @@ const storage = vi.hoisted(() => ({
   setItemAsync: vi.fn(async (_key: string, _value: string) => undefined),
 }));
 vi.mock('expo-secure-store', () => storage);
-vi.mock('react-native', () => ({View:'View', Text:'Text', StyleSheet:{create:(value: unknown)=>value}}));
+const back = vi.hoisted(() => ({handler: null as (() => boolean) | null}));
+vi.mock('react-native', () => ({
+  BackHandler: {addEventListener: (_event: string, handler: () => boolean) => {
+    back.handler = handler;
+    return {remove: () => {back.handler = null;}};
+  }},
+  View:'View', Text:'Text', StyleSheet:{create:(value: unknown)=>value}}));
 vi.mock('../components/ui', () => ({Button: () => null, Chip: () => null}));
 
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,9 +46,12 @@ describe('garden decorations', () => {
     expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
     await press('정원 꾸미기 취소');
     expect(close).not.toHaveBeenCalled();
-    await press('정원 꾸미기 계속하기');
+    await act(async () => {expect(back.handler?.()).toBe(true);});
+    expect(close).not.toHaveBeenCalled();
     expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
-    await press('정원 꾸미기 취소');
+    await act(async () => {expect(back.handler?.()).toBe(true);});
+    await press('정원 꾸미기 계속하기');
+    await act(async () => {expect(back.handler?.()).toBe(true);});
     await press('저장하지 않은 장식 변경 버리기');
     expect(close).toHaveBeenCalledOnce();
     expect(save).not.toHaveBeenCalled();

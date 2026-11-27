@@ -1,5 +1,5 @@
-import {useEffect, useRef, useState} from 'react';
-import {Image, StyleSheet, Text, View} from 'react-native';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {BackHandler, Image, StyleSheet, Text, View} from 'react-native';
 import {freeDecorations, gardenDecorations, type DecorationId} from './gardenDecorationCatalog';
 import {Button, Chip} from '../components/ui';
 import {colors, typography} from '../theme';
@@ -177,6 +177,21 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     }
   }
 
+  const requestClose = useCallback(() => {
+    if (locked.current) return;
+    if (confirmDiscard) setConfirmDiscard(false);
+    else if (hasUnsavedChanges) setConfirmDiscard(true);
+    else onClose();
+  }, [confirmDiscard, hasUnsavedChanges, onClose]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      requestClose();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [requestClose]);
+
   if (confirmDiscard) return <View style={styles.editor}>
     <Text accessibilityRole="header" style={styles.heading}>변경을 버릴까요?</Text>
     <Text style={styles.saveStatus}>저장하지 않은 장식 배치가 사라져요.</Text>
@@ -218,10 +233,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
       {redoHistory.length > 0 && <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="되돌린 정원 장식 변경 다시 적용하기" onPress={redo}>다시 적용</Button>}
       <Button size="compact" variant="ghost" disabled={saving}
-        accessibilityLabel="정원 꾸미기 취소" onPress={() => {
-          if (hasUnsavedChanges) setConfirmDiscard(true);
-          else onClose();
-        }}>취소</Button>
+        accessibilityLabel="정원 꾸미기 취소" onPress={requestClose}>취소</Button>
       <Button size="compact" disabled={saving || !hasUnsavedChanges}
         accessibilityLabel="정원 장식 저장" onPress={() => void save()}>{saving ? '저장 중…' : '저장'}</Button>
     </View>
