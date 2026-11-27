@@ -113,6 +113,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     ? [...freeDecorations, ...gardenDecorations.filter(item => ownedIds.has(item.id))]
     : freeDecorations;
   const [saving, setSaving] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [failure, setFailure] = useState(false);
   const locked = useRef(false);
   const [history, setHistory] = useState<Array<{layout: Layout; slot: number}>>([]);
@@ -176,6 +177,17 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     }
   }
 
+  if (confirmDiscard) return <View style={styles.editor}>
+    <Text accessibilityRole="header" style={styles.heading}>변경을 버릴까요?</Text>
+    <Text style={styles.saveStatus}>저장하지 않은 장식 배치가 사라져요.</Text>
+    <View style={styles.actions}>
+      <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기 계속하기"
+        onPress={() => setConfirmDiscard(false)}>편집 계속</Button>
+      <Button size="compact" variant="danger" accessibilityLabel="저장하지 않은 장식 변경 버리기"
+        onPress={onClose}>변경 버리기</Button>
+    </View>
+  </View>;
+
   return <View style={styles.editor}>
     <Text style={styles.heading}>장식 위치</Text>
     <View style={styles.actions}>
@@ -206,7 +218,10 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
       {redoHistory.length > 0 && <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="되돌린 정원 장식 변경 다시 적용하기" onPress={redo}>다시 적용</Button>}
       <Button size="compact" variant="ghost" disabled={saving}
-        accessibilityLabel="정원 꾸미기 취소" onPress={onClose}>취소</Button>
+        accessibilityLabel="정원 꾸미기 취소" onPress={() => {
+          if (hasUnsavedChanges) setConfirmDiscard(true);
+          else onClose();
+        }}>취소</Button>
       <Button size="compact" disabled={saving || !hasUnsavedChanges}
         accessibilityLabel="정원 장식 저장" onPress={() => void save()}>{saving ? '저장 중…' : '저장'}</Button>
     </View>

@@ -39,6 +39,11 @@ describe('garden decorations', () => {
     await press('오른쪽에 등불 배치');
     expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
     await press('정원 꾸미기 취소');
+    expect(close).not.toHaveBeenCalled();
+    await press('정원 꾸미기 계속하기');
+    expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
+    await press('정원 꾸미기 취소');
+    await press('저장하지 않은 장식 변경 버리기');
     expect(close).toHaveBeenCalledOnce();
     expect(save).not.toHaveBeenCalled();
   });
