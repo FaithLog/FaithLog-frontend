@@ -43,6 +43,27 @@ describe('garden decorations', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('moves into an empty slot, swaps occupied slots, and saves the previewed layout', async () => {
+    const preview = vi.fn();
+    const save = vi.fn(async () => undefined);
+    const close = vi.fn();
+    await act(async () => {tree = create(<GardenDecorationEditor layout={['flower',null,'lantern']}
+      onPreview={preview} onSave={save} onClose={close}/>);});
+    const press = async (label: string) => {
+      const button = tree!.root.findAllByType(Button).find(button => button.props.accessibilityLabel === label);
+      expect(button).toBeDefined();
+      await act(async () => {button!.props.onPress();});
+    };
+    await press('장식을 가운데 위치로 옮기기');
+    expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
+    await press('가운데·오른쪽 장식 맞바꾸기');
+    expect(preview).toHaveBeenLastCalledWith([null,'lantern','flower']);
+    expect(save).not.toHaveBeenCalled();
+    await press('정원 장식 저장');
+    expect(save).toHaveBeenCalledExactlyOnceWith([null,'lantern','flower']);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('writes and restores the layout for the current account and campus', async () => {
     const scope = 'faithlog.garden.decorations.7.8';
     let state: ReturnType<typeof useGardenDecorations> | undefined;
