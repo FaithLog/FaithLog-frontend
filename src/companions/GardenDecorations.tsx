@@ -116,9 +116,12 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
   const locked = useRef(false);
   const [history, setHistory] = useState<Array<{layout: Layout; slot: number}>>([]);
 
+  const [redoHistory, setRedoHistory] = useState<typeof history>([]);
+
   function applyEdit(layout: Layout, nextSlot: number) {
     if (layout.every((id, index) => id === draft[index])) return;
     setHistory(previous => [...previous, {layout: draft, slot}]);
+    setRedoHistory([]);
     setDraft(layout);
     setSlot(nextSlot);
     onPreview(layout);
@@ -140,9 +143,20 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     const previous = history.at(-1);
     if (!previous) return;
     setHistory(history.slice(0, -1));
+    setRedoHistory(next => [...next, {layout: draft, slot}]);
     setDraft(previous.layout);
     setSlot(previous.slot);
     onPreview(previous.layout);
+  }
+
+  function redo() {
+    const next = redoHistory.at(-1);
+    if (!next) return;
+    setRedoHistory(redoHistory.slice(0, -1));
+    setHistory(previous => [...previous, {layout: draft, slot}]);
+    setDraft(next.layout);
+    setSlot(next.slot);
+    onPreview(next.layout);
   }
 
   async function save() {
@@ -185,6 +199,8 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     <View style={styles.actions}>
       {history.length > 0 && <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="정원 장식 변경 되돌리기" onPress={undo}>되돌리기</Button>}
+      {redoHistory.length > 0 && <Button size="compact" variant="ghost" disabled={saving}
+        accessibilityLabel="되돌린 정원 장식 변경 다시 적용하기" onPress={redo}>다시 적용</Button>}
       <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="정원 꾸미기 취소" onPress={onClose}>취소</Button>
       <Button size="compact" disabled={saving}
