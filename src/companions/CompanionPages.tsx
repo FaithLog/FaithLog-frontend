@@ -19,6 +19,11 @@ export function CompanionPages({initialPage, onBack, onActivity, onScrollTop = (
   const [page, setPage] = useState(initialPage);
   const [manageView, setManageView] = useState<'garden' | 'collection'>('garden');
   const {state,server,busy,error,refresh,gardenSaving} = useCompanions();
+  const leaveEditor = useRef<((navigate: () => void) => void) | null>(null);
+  const navigateFromGarden = (navigate: () => void) => {
+    if (leaveEditor.current) leaveEditor.current(navigate);
+    else navigate();
+  };
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
   useEffect(() => {
@@ -28,20 +33,23 @@ export function CompanionPages({initialPage, onBack, onActivity, onScrollTop = (
   return <View style={s.page}>
     {server && (busy || error) ? <View style={s.notice}><Text accessibilityLiveRegion="polite" style={s.caption}>{busy?'서버 정보 확인 중…':error}</Text>{error&&!busy?<Button accessibilityLabel="동물 서버 정보 새로 확인" onPress={()=>void refresh()} variant="secondary">새로 확인</Button>:null}</View>:null}
     {server && gardenSaving ? <Text accessibilityLiveRegion="polite" style={s.caption}>정원 변경사항 자동 저장 중…</Text> : null}
-    <View style={s.between}><Button accessibilityLabel="친구 페이지에서 홈으로 돌아가기" size="compact" variant="ghost" onPress={onBack}>‹ 홈으로</Button><View style={s.wallet}><Text accessibilityLiveRegion="polite" style={s.eyebrow}>{state.points.toLocaleString()} P</Text></View></View>
+    <View style={s.between}><Button accessibilityLabel="친구 페이지에서 홈으로 돌아가기" size="compact" variant="ghost" onPress={() => navigateFromGarden(onBack)}>‹ 홈으로</Button><View style={s.wallet}><Text accessibilityLiveRegion="polite" style={s.eyebrow}>{state.points.toLocaleString()} P</Text></View></View>
     <View style={s.stack}><Text style={s.title}>{page === 'manage' ? '나의 작은 정원' : page === 'missions' ? '매일 쌓이는 작은 실천' : '새로운 친구 만나기'}</Text><Text style={s.caption}>{page === 'manage' ? '동물을 돌보고 정원을 꾸며 보세요.' : page === 'missions' ? '미션을 완료하고 뽑기에 쓸 포인트를 모아요.' : '어떤 친구가 기다리고 있을까요?'}</Text></View>
-    <View style={s.tabBar}>{([['manage', '동물 관리'], ['missions', '미션'], ['draw', '뽑기']] as const).map(([key, title]) => <View key={key} style={s.tab}><Button fullWidth accessibilityLabel={`${title} 화면 이동`} size="compact" variant={key === page ? 'primary' : 'secondary'} onPress={() => {setPage(key); onScrollTop();}}>{title}</Button></View>)}</View>
+    <View style={s.tabBar}>{([['manage', '동물 관리'], ['missions', '미션'], ['draw', '뽑기']] as const).map(([key, title]) => <View key={key} style={s.tab}><Button fullWidth accessibilityLabel={`${title} 화면 이동`} size="compact" variant={key === page ? 'primary' : 'secondary'} onPress={() => {
+      if (key === page) {onScrollTop(); return;}
+      navigateFromGarden(() => {setPage(key); onScrollTop();});
+    }}>{title}</Button></View>)}</View>
     {page === 'manage' ? <>
       {decorationScope && <View style={s.tabBar}>
         <View style={s.tab}><Button fullWidth size="compact" variant={manageView === 'garden' ? 'primary' : 'secondary'}
           accessibilityLabel="정원과 돌봄 보기" onPress={() => {setManageView('garden'); onScrollTop();}}>정원·돌봄</Button></View>
         <View style={s.tab}><Button fullWidth size="compact" variant={manageView === 'collection' ? 'primary' : 'secondary'}
-          accessibilityLabel="도감과 배치 보기" onPress={() => {setManageView('collection'); onScrollTop();}}>도감·배치</Button></View>
+          accessibilityLabel="도감과 배치 보기" onPress={() => navigateFromGarden(() => {setManageView('collection'); onScrollTop();})}>도감·배치</Button></View>
       </View>}
       {decorationScope && manageView === 'garden'
-        ? <CompanionGarden key={decorationScope} mode="management" decorationScope={decorationScope}
+        ? <CompanionGarden key={decorationScope} mode="management" decorationScope={decorationScope} leaveEditorRef={leaveEditor}
             {...(onDragStateChange ? {onDragStateChange} : {})}
-            onOpen={next => {setPage(next); onScrollTop();}} />
+            onOpen={next => navigateFromGarden(() => {setPage(next); onScrollTop();})} />
         : <CompanionManagePage onRevealDetails={onScrollTop} />}
     </> : page === 'missions' ? <CompanionMissionsPage onActivity={onActivity} /> : <CompanionDrawPage onManage={() => {setPage('manage'); onScrollTop();}} onMissions={() => {setPage('missions'); onScrollTop();}} />}
     <Text style={s.caption}>{server ? '포인트와 친구·정원은 계정에 저장돼요.' : '체험 모드 · 포인트와 보유 목록은 현재 로그인 세션에서만 유지돼요.'}</Text>
