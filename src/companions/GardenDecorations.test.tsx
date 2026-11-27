@@ -61,7 +61,13 @@ describe('garden decorations', () => {
     expect(save).not.toHaveBeenCalled();
     await press('정원 장식 변경 되돌리기');
     expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
+    await press('되돌린 정원 장식 변경 다시 적용하기');
+    expect(preview).toHaveBeenLastCalledWith([null,'lantern','flower']);
+    await press('정원 장식 변경 되돌리기');
+    expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
     await press('선택한 장식 지우기');
+    expect(tree!.root.findAllByType(Button).some(button =>
+      button.props.accessibilityLabel === '되돌린 정원 장식 변경 다시 적용하기')).toBe(false);
     expect(preview).toHaveBeenLastCalledWith([null,null,'lantern']);
     await press('정원 장식 변경 되돌리기');
     expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
