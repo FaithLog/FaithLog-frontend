@@ -109,6 +109,24 @@ describe('garden decorations', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it('keeps the preview after a failed save and closes only after a successful retry', async () => {
+    const preview = vi.fn();
+    const save = vi.fn().mockRejectedValueOnce(new Error('storage unavailable')).mockResolvedValueOnce(undefined);
+    const close = vi.fn();
+    await act(async () => {tree = create(<GardenDecorationEditor layout={['flower',null,null]}
+      onPreview={preview} onSave={save} onClose={close}/>);});
+    const button = (label: string) => tree!.root.findAllByType(Button).find(node =>
+      node.props.accessibilityLabel === label)!;
+    await act(async () => {button('장식을 가운데 위치로 옮기기').props.onPress();});
+    await act(async () => {button('정원 장식 저장').props.onPress();});
+    expect(close).not.toHaveBeenCalled();
+    expect(button('정원 장식 저장').props.children).toBe('다시 저장');
+    expect(preview).toHaveBeenLastCalledWith([null,'flower',null]);
+    await act(async () => {button('정원 장식 저장').props.onPress();});
+    expect(save.mock.calls).toEqual([[[null,'flower',null]],[[null,'flower',null]]]);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('updates both mounted gardens after saving and ignores a stale storage read', async () => {
     const scope = 'faithlog.garden.decorations.7.8';
     let finishRead!: (value: string) => void;

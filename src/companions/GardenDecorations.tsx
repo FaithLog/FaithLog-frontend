@@ -126,6 +126,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     if (layout.every((id, index) => id === draft[index])) return;
     setHistory(previous => [...previous, {layout: draft, slot}]);
     setRedoHistory([]);
+    setFailure(false);
     setDraft(layout);
     setSlot(nextSlot);
     onPreview(layout);
@@ -148,6 +149,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     if (!previous) return;
     setHistory(history.slice(0, -1));
     setRedoHistory(next => [...next, {layout: draft, slot}]);
+    setFailure(false);
     setDraft(previous.layout);
     setSlot(previous.slot);
     onPreview(previous.layout);
@@ -158,6 +160,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     if (!next) return;
     setRedoHistory(redoHistory.slice(0, -1));
     setHistory(previous => [...previous, {layout: draft, slot}]);
+    setFailure(false);
     setDraft(next.layout);
     setSlot(next.slot);
     onPreview(next.layout);
@@ -258,7 +261,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
       <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="정원 꾸미기 취소" onPress={requestClose}>취소</Button>
       <Button size="compact" disabled={saving || !hasUnsavedChanges}
-        accessibilityLabel="정원 장식 저장" onPress={() => void save()}>{saving ? '저장 중…' : '저장'}</Button>
+        accessibilityLabel="정원 장식 저장" onPress={() => void save()}>{saving ? '저장 중…' : failure ? '다시 저장' : '저장'}</Button>
     </View>
   </View>;
 }
