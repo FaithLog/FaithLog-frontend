@@ -476,8 +476,14 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
    return updated;
   }),
  };
+ let savedAppearance: ReadonlySet<string> = new Set();
+ const accountAppearance = {
+  load: async () => savedAppearance,
+  save: async (value: ReadonlySet<string>) => {savedAppearance = value;},
+ };
+ const otherAppearance = {load: async () => new Set<string>(), save: vi.fn(async () => {})};
  const renderGarden=(visible:boolean, key='account-one')=>(
-  <CompanionProvider api={api} key={key}>
+  <CompanionProvider api={api} key={key} appearanceStorage={key === 'account-one' ? accountAppearance : otherAppearance}>
    {visible?<CompanionGarden onOpen={vi.fn()}/>:null}
   </CompanionProvider>
  );
@@ -523,4 +529,9 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
  expect(api.garden).not.toHaveBeenCalled();
  await act(async()=>tree!.update(renderGarden(true,'account-two')));
  expect(sprite(a).props.evolutionStage).toBe(1);
+ await act(async()=>tree!.update(renderGarden(true)));
+ const restoredAnimal=tree!.root.findAllByType('View' as React.ElementType)
+  .find(n=>n.props.testID===`garden-animal-${a}`)!;
+ expect(restoredAnimal.findByType('Sprite' as React.ElementType).props.designId).toBe('david-lamb:base');
+ expect(sprite(b).props.evolutionStage).toBe(1);
 });
