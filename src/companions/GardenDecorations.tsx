@@ -114,19 +114,35 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState(false);
   const locked = useRef(false);
-  const select = (id: DecorationId | null) => {
+  const [history, setHistory] = useState<Array<{layout: Layout; slot: number}>>([]);
+
+  function applyEdit(layout: Layout, nextSlot: number) {
+    if (layout.every((id, index) => id === draft[index])) return;
+    setHistory(previous => [...previous, {layout: draft, slot}]);
+    setDraft(layout);
+    setSlot(nextSlot);
+    onPreview(layout);
+  }
+
+  function select(id: DecorationId | null) {
     const result: Layout = [...draft];
     result[slot] = id;
-    setDraft(result);
-    onPreview(result);
-  };
+    applyEdit(result, slot);
+  }
 
   function move(target: number) {
     const result: Layout = [...draft];
     [result[slot], result[target]] = [result[target] ?? null, result[slot] ?? null];
-    setDraft(result);
-    setSlot(target);
-    onPreview(result);
+    applyEdit(result, target);
+  }
+
+  function undo() {
+    const previous = history.at(-1);
+    if (!previous) return;
+    setHistory(history.slice(0, -1));
+    setDraft(previous.layout);
+    setSlot(previous.slot);
+    onPreview(previous.layout);
   }
 
   async function save() {
@@ -167,6 +183,8 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     </View>
     {failure && <Chip label="장식을 저장하지 못했어요. 다시 시도해 주세요." tone="danger"/>}
     <View style={styles.actions}>
+      {history.length > 0 && <Button size="compact" variant="ghost" disabled={saving}
+        accessibilityLabel="정원 장식 변경 되돌리기" onPress={undo}>되돌리기</Button>}
       <Button size="compact" variant="ghost" disabled={saving}
         accessibilityLabel="정원 꾸미기 취소" onPress={onClose}>취소</Button>
       <Button size="compact" disabled={saving}
