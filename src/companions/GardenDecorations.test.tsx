@@ -64,6 +64,27 @@ describe('garden decorations', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it('updates both mounted gardens after saving and ignores a stale storage read', async () => {
+    const scope = 'faithlog.garden.decorations.7.8';
+    let finishRead!: (value: string) => void;
+    storage.getItemAsync.mockImplementationOnce(() => new Promise(resolve => {finishRead = resolve;}));
+    const states = new Map<string, ReturnType<typeof useGardenDecorations>>();
+    function Probe({name, storageKey}: {name: string; storageKey: string}) {
+      states.set(name, useGardenDecorations(storageKey));
+      return null;
+    }
+    await act(async () => {tree = create(<>
+      <Probe name="home" storageKey={scope}/>
+      <Probe name="manage" storageKey={scope}/>
+      <Probe name="other" storageKey="faithlog.garden.decorations.7.9"/>
+    </>);});
+    await act(async () => {await states.get('manage')!.save(['flower',null,'lantern']);});
+    await act(async () => {finishRead('[null,null,null]');});
+    expect(states.get('home')!.layout).toEqual(['flower',null,'lantern']);
+    expect(states.get('manage')!.layout).toEqual(['flower',null,'lantern']);
+    expect(states.get('other')!.layout).toEqual([null,null,null]);
+  });
+
   it('writes and restores the layout for the current account and campus', async () => {
     const scope = 'faithlog.garden.decorations.7.8';
     let state: ReturnType<typeof useGardenDecorations> | undefined;

@@ -8,6 +8,8 @@ export type GardenDecorationLayout = [DecorationId | null, DecorationId | null, 
 type Layout = GardenDecorationLayout;
 const positions = ['왼쪽', '가운데', '오른쪽'] as const;
 const emptyLayout: Layout = [null, null, null];
+const layoutListeners = new Map<string, Set<(layout: Layout) => void>>();
+const pendingSaves = new Map<string, Promise<void>>();
 
 export function parseGardenDecorations(value: string | null): Layout {
   let parsed: unknown;
@@ -21,29 +23,50 @@ export function useGardenDecorations(scope?: string) {
   const [stored, setStored] = useState<{scope: string | undefined; layout: Layout} | null>(null);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const generation = useRef(0);
   useEffect(() => {
-    const current = ++generation.current;
     if (!scope) return;
+    let active = true;
+    let receivedSave = false;
+    const listeners = layoutListeners.get(scope) ?? new Set();
+    layoutListeners.set(scope, listeners);
+    const update = (layout: Layout) => {
+      receivedSave = true;
+      setStored({scope, layout});
+      setError('');
+    };
+    listeners.add(update);
+
     const load = async () => {
       try {
         const storage = await import('expo-secure-store');
         const value = await storage.getItemAsync(scope);
-        if (current === generation.current) setStored({scope, layout: parseGardenDecorations(value)});
+        if (active && !receivedSave) setStored({scope, layout: parseGardenDecorations(value)});
       } catch {
-        if (current === generation.current) setError('장식 배치를 불러오지 못했어요.');
+        if (active && !receivedSave) setError('장식 배치를 불러오지 못했어요.');
       }
     };
     void load();
-    return () => {generation.current++;};
+    return () => {
+      active = false;
+      listeners.delete(update);
+      if (!listeners.size) layoutListeners.delete(scope);
+    };
   }, [scope, retry]);
 
   async function save(layout: Layout) {
     if (!scope) return;
-    const current = generation.current;
-    const storage = await import('expo-secure-store');
-    await storage.setItemAsync(scope, JSON.stringify(layout));
-    if (current === generation.current) setStored({scope, layout});
+    const prior = pendingSaves.get(scope) ?? Promise.resolve();
+    const write = prior.catch(() => undefined).then(async () => {
+      const storage = await import('expo-secure-store');
+      await storage.setItemAsync(scope, JSON.stringify(layout));
+      layoutListeners.get(scope)?.forEach(listener => listener(layout));
+    });
+    pendingSaves.set(scope, write);
+    try {
+      await write;
+    } finally {
+      if (pendingSaves.get(scope) === write) pendingSaves.delete(scope);
+    }
   }
 
   return {
