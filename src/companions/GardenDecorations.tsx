@@ -98,6 +98,14 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     onPreview(result);
   };
 
+  function move(target: number) {
+    const result: Layout = [...draft];
+    [result[slot], result[target]] = [result[target] ?? null, result[slot] ?? null];
+    setDraft(result);
+    setSlot(target);
+    onPreview(result);
+  }
+
   async function save() {
     if (locked.current) return;
     locked.current = true;
@@ -121,6 +129,12 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
         variant={index === slot ? 'primary' : 'secondary'} disabled={saving}
         accessibilityLabel={`장식 ${position} 위치 선택`} onPress={() => setSlot(index)}>{position}</Button>)}
     </View>
+    {draft[slot] && <View style={styles.actions}>
+      {positions.map((position, index) => index === slot ? null : <Button key={position} size="compact"
+        variant="secondary" disabled={saving}
+        accessibilityLabel={draft[index] ? `${positions[slot]}·${position} 장식 맞바꾸기` : `장식을 ${position} 위치로 옮기기`}
+        onPress={() => move(index)}>{draft[index] ? `${position} 장식과 교체` : `${position} 위치로 이동`}</Button>)}
+    </View>}
     <View style={styles.actions}>
       {available.map(item => <Button key={item.id} size="compact"
         variant={draft[slot] === item.id ? 'primary' : 'secondary'} disabled={saving}
