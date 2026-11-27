@@ -43,7 +43,7 @@ describe('garden decorations', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it('moves into an empty slot, swaps occupied slots, and saves the previewed layout', async () => {
+  it('moves and swaps decorations, undoes edits in order, and saves the previewed layout', async () => {
     const preview = vi.fn();
     const save = vi.fn(async () => undefined);
     const close = vi.fn();
@@ -59,8 +59,16 @@ describe('garden decorations', () => {
     await press('가운데·오른쪽 장식 맞바꾸기');
     expect(preview).toHaveBeenLastCalledWith([null,'lantern','flower']);
     expect(save).not.toHaveBeenCalled();
+    await press('정원 장식 변경 되돌리기');
+    expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
+    await press('선택한 장식 지우기');
+    expect(preview).toHaveBeenLastCalledWith([null,null,'lantern']);
+    await press('정원 장식 변경 되돌리기');
+    expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
+    await press('정원 장식 변경 되돌리기');
+    expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
     await press('정원 장식 저장');
-    expect(save).toHaveBeenCalledExactlyOnceWith([null,'lantern','flower']);
+    expect(save).toHaveBeenCalledExactlyOnceWith(['flower',null,'lantern']);
     expect(close).toHaveBeenCalledOnce();
   });
 
