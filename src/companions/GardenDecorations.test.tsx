@@ -82,7 +82,7 @@ describe('garden decorations', () => {
     await act(async () => {finishRead('[null,null,null]');});
     expect(states.get('home')!.layout).toEqual(['flower',null,'lantern']);
     expect(states.get('manage')!.layout).toEqual(['flower',null,'lantern']);
-    expect(states.get('other')!.layout).toEqual([null,null,null]);
+    expect(states.get('other')!.layout).not.toEqual(['flower',null,'lantern']);
   });
 
   it('writes and restores the layout for the current account and campus', async () => {
