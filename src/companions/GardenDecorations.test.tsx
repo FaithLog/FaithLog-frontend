@@ -35,8 +35,10 @@ describe('garden decorations', () => {
     const preview = vi.fn();
     const save = vi.fn(async () => undefined);
     const close = vi.fn();
+    const navigate = vi.fn();
+    const leaveEditorRef = {current: null as ((navigate: () => void) => void) | null};
     await act(async () => {tree = create(<GardenDecorationEditor layout={['flower',null,null]}
-      onPreview={preview} onSave={save} onClose={close}/>);});
+      onPreview={preview} onSave={save} onClose={close} leaveEditorRef={leaveEditorRef}/>);});
     const press = async (label: string) => {
       const button = tree!.root.findAllByType(Button).find(button => button.props.accessibilityLabel === label);
       await act(async () => {button!.props.onPress();});
@@ -52,7 +54,13 @@ describe('garden decorations', () => {
     await act(async () => {expect(back.handler?.()).toBe(true);});
     await press('정원 꾸미기 계속하기');
     await act(async () => {expect(back.handler?.()).toBe(true);});
+    await act(async () => {leaveEditorRef.current!(navigate);});
+    expect(navigate).not.toHaveBeenCalled();
+    await press('정원 꾸미기 계속하기');
+    expect(navigate).not.toHaveBeenCalled();
+    await act(async () => {leaveEditorRef.current!(navigate);});
     await press('저장하지 않은 장식 변경 버리기');
+    expect(navigate).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
     expect(save).not.toHaveBeenCalled();
   });

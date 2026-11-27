@@ -8,7 +8,7 @@ import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations, typ
 import type {DecorationId} from './gardenDecorationCatalog';
 import type {GardenShopSnapshot} from './companionServerContract';
 import {GardenBackground} from './GardenBackground';
-import {Fragment, useEffect, useRef, useState} from 'react';
+import {Fragment, useEffect, useRef, useState, type Ref} from 'react';
 import {Alert, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {FarmCareButton,FarmHudGauge,FarmHudIcon} from './FarmHudAssets';
 import type {CompanionCareAction} from './companionServerContract';
@@ -26,11 +26,12 @@ import {useCompanionMotion} from './useCompanionMotion';
 import {CompanionCareGifts} from './CompanionCareGifts';
 import {getCompanionCareBadges} from './companionCareBadges';
 
-export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mode}: {
+export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mode, leaveEditorRef}: {
   mode?: 'home' | 'management';
   onOpen: (page: CompanionPage) => void;
   onDragStateChange?: (dragging: boolean) => void;
   decorationScope?: string;
+  leaveEditorRef?: Ref<(navigate: () => void) => void>;
 }) {
   const previewOnly = mode === 'home';
   const decorations = useGardenDecorations(decorationScope);
@@ -248,7 +249,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       ? <GardenDecorationEditor layout={decorations.layout} ownedIds={ownedIds}
           initialSlot={suggestion?.slot ?? 0} {...(suggestion ? {suggestedId: suggestion.id} : {})}
           onPreview={setDecorationPreview}
-          onSave={decorations.save} onClose={closeDecorations} />
+          onSave={decorations.save} onClose={closeDecorations} {...(leaveEditorRef ? {leaveEditorRef} : {})} />
       : decorationPanel === 'shop'
         ? <GardenDecorationShop points={state.points} catalog={catalog ?? null} loading={shopLoading}
             loadFailed={shopFailed} onReload={() => void reloadShop()} onClose={closeDecorations}

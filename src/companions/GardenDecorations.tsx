@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useImperativeHandle, type Ref, useRef, useState} from 'react';
 import {BackHandler, Image, StyleSheet, Text, View} from 'react-native';
 import {freeDecorations, gardenDecorations, type DecorationId} from './gardenDecorationCatalog';
 import {Button, Chip} from '../components/ui';
@@ -93,7 +93,7 @@ export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
   </View>;
 }
 
-export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, suggestedId, onPreview, onSave, onClose}: {
+export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, suggestedId, onPreview, onSave, onClose, leaveEditorRef}: {
   layout: Layout;
   ownedIds?: ReadonlySet<string>;
   initialSlot?: number;
@@ -101,6 +101,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
   onPreview: (layout: Layout) => void;
   onSave: (layout: Layout) => Promise<void>;
   onClose: () => void;
+  leaveEditorRef?: Ref<(navigate: () => void) => void>;
 }) {
   const [draft, setDraft] = useState<Layout>(() => {
     const initial: Layout = [...layout];
@@ -113,6 +114,7 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     ? [...freeDecorations, ...gardenDecorations.filter(item => ownedIds.has(item.id))]
     : freeDecorations;
   const [saving, setSaving] = useState(false);
+  const pendingNavigation = useRef<(() => void) | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [failure, setFailure] = useState(false);
   const locked = useRef(false);
@@ -177,12 +179,28 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     }
   }
 
-  const requestClose = useCallback(() => {
+  const continueEditing = useCallback(() => {
+    pendingNavigation.current = null;
+    setConfirmDiscard(false);
+  }, []);
+
+  const requestLeave = useCallback((navigate: () => void) => {
     if (locked.current) return;
-    if (confirmDiscard) setConfirmDiscard(false);
-    else if (hasUnsavedChanges) setConfirmDiscard(true);
-    else onClose();
-  }, [confirmDiscard, hasUnsavedChanges, onClose]);
+    if (!hasUnsavedChanges) {
+      onClose();
+      navigate();
+      return;
+    }
+    pendingNavigation.current = navigate;
+    setConfirmDiscard(true);
+  }, [hasUnsavedChanges, onClose]);
+
+  useImperativeHandle(leaveEditorRef, () => requestLeave, [requestLeave]);
+
+  const requestClose = useCallback(() => {
+    if (confirmDiscard) continueEditing();
+    else requestLeave(() => {});
+  }, [confirmDiscard, continueEditing, requestLeave]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -197,9 +215,14 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
     <Text style={styles.saveStatus}>저장하지 않은 장식 배치가 사라져요.</Text>
     <View style={styles.actions}>
       <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기 계속하기"
-        onPress={() => setConfirmDiscard(false)}>편집 계속</Button>
+        onPress={continueEditing}>편집 계속</Button>
       <Button size="compact" variant="danger" accessibilityLabel="저장하지 않은 장식 변경 버리기"
-        onPress={onClose}>변경 버리기</Button>
+        onPress={() => {
+          const navigate = pendingNavigation.current;
+          pendingNavigation.current = null;
+          onClose();
+          navigate?.();
+        }}>변경 버리기</Button>
     </View>
   </View>;
 
