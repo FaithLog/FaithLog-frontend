@@ -1,5 +1,5 @@
 import {CompanionGarden} from './CompanionGarden';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {BackHandler, Text, View} from 'react-native';
 import {Button} from '../components/ui';
 import {CompanionDrawPage} from './CompanionDrawPage';
@@ -19,10 +19,12 @@ export function CompanionPages({initialPage, onBack, onActivity, onScrollTop = (
   const [page, setPage] = useState(initialPage);
   const [manageView, setManageView] = useState<'garden' | 'collection'>('garden');
   const {state,server,busy,error,refresh,gardenSaving} = useCompanions();
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
   useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {onBack(); return true;});
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {onBackRef.current(); return true;});
     return () => sub.remove();
-  }, [onBack]);
+  }, []);
   return <View style={s.page}>
     {server && (busy || error) ? <View style={s.notice}><Text accessibilityLiveRegion="polite" style={s.caption}>{busy?'서버 정보 확인 중…':error}</Text>{error&&!busy?<Button accessibilityLabel="동물 서버 정보 새로 확인" onPress={()=>void refresh()} variant="secondary">새로 확인</Button>:null}</View>:null}
     {server && gardenSaving ? <Text accessibilityLiveRegion="polite" style={s.caption}>정원 변경사항 자동 저장 중…</Text> : null}
