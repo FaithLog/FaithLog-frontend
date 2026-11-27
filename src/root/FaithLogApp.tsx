@@ -1,4 +1,5 @@
 import {createCompanionServerApi} from '../companions/companionServerApi';
+import {companionAppearanceStorage} from '../companions/companionAppearanceStorage';
 import {companionPendingStorage} from '../companions/companionPendingStorage';
 import {pickValidationFieldErrors} from '../api/validationErrors';
 import {
@@ -1975,7 +1976,8 @@ function StatusCard({
 function AuthenticatedShell(props: ComponentProps<typeof AuthenticatedShellContent>) {
   const campusId = props.state.selectedCampus.campusId;
   const api = useMemo(() => createCompanionServerApi(campusId, () => resolveCurrentAccessToken(() => undefined),companionPendingStorage(props.state.user.id)), [campusId,props.state.user.id]);
-  return <CompanionProvider {...(isCompanionPreviewEnabled()?{api}:{})} key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
+  const appearanceStorage = useMemo(() => companionAppearanceStorage(props.state.user.id), [props.state.user.id]);
+  return <CompanionProvider {...(isCompanionPreviewEnabled()?{api,appearanceStorage}:{})} key={`${getAuthSessionGeneration()}:${props.state.user.id}:${props.state.selectedCampus.campusId}`}>
     <AuthenticatedShellContent {...props} />
   </CompanionProvider>;
 }

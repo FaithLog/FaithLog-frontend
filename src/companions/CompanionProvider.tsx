@@ -1,3 +1,4 @@
+import type {CompanionAppearanceStorage} from './companionAppearanceStorage';
 import {AppState} from 'react-native';
 import type {CompanionServerApi, ServerSnapshot, CompanionInstance, CompanionCareAction, CompanionSaleAvailability} from './companionServerContract';
 import {FaithLogApiError} from '../api/apiError';
@@ -77,10 +78,10 @@ function DemoProvider({children, dailyApi}: PropsWithChildren<{dailyApi?: DailyM
   const nextTransactionId = (kind: string) => `${kind}-${++sequence.current}`;
   return <CompanionContext.Provider value={{state, dispatch, nextTransactionId,daily,refreshDaily,claimDaily,server:false,busy:false,error:'',serverSnapshot:null,refresh:refreshDaily}}>{children}</CompanionContext.Provider>;
 }
-export function CompanionProvider({children,dailyApi,api}:PropsWithChildren<{dailyApi?:DailyMissionApi;api?:CompanionServerApi}>) {
- return api?<ServerProvider api={api}>{children}</ServerProvider>:<DemoProvider {...(dailyApi?{dailyApi}:{})}>{children}</DemoProvider>;
+export function CompanionProvider({children,dailyApi,api,appearanceStorage}:PropsWithChildren<{dailyApi?:DailyMissionApi;api?:CompanionServerApi;appearanceStorage?:CompanionAppearanceStorage}>) {
+ return api?<ServerProvider api={api} {...(appearanceStorage ? {appearanceStorage} : {})}>{children}</ServerProvider>:<DemoProvider {...(dailyApi?{dailyApi}:{})}>{children}</DemoProvider>;
 }
-function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi}>) {
+function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:CompanionServerApi;appearanceStorage?:CompanionAppearanceStorage}>) {
  const empty:CompanionState={points:0,dailyAwardedPoints:0,backgroundId:'default',inventory:{},equipped:[],gardenPositions:{},claimed:[],transactions:[]};
  const [state,setState]=useState(empty);const current=useRef(state);
  const [snapshot,setSnapshot]=useState<ServerSnapshot|null>(null);const source=useRef<ServerSnapshot|null>(null);
@@ -90,14 +91,32 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  const gardenInstancesDirty = useRef(false);
  const gardenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
  const [gardenSaving, setGardenSaving] = useState(false);
- const [baseAppearance, setBaseAppearance] = useState<ReadonlySet<string>>(() => new Set());
+ const [baseAppearance,setBaseAppearance] = useState<ReadonlySet<string>>(() => new Set());
+ const [appearanceReady,setAppearanceReady] = useState(!appearanceStorage);
+ const appearance = useRef<ReadonlySet<string>>(baseAppearance);
+ const canSaveAppearance = useRef(false);
+ useEffect(() => {
+  if (!appearanceStorage) return;
+  let active = true;
+  canSaveAppearance.current = false;
+  setAppearanceReady(false);
+  const finish = (value: ReadonlySet<string>, loaded: boolean) => {
+   if (!active) return;
+   appearance.current = value;
+   canSaveAppearance.current = loaded;
+   setBaseAppearance(value);
+   setAppearanceReady(true);
+  };
+  void appearanceStorage.load().then(value => finish(value, true), () => finish(new Set(), false));
+  return () => {active = false;};
+ }, [appearanceStorage]);
  const toggleAppearance = useCallback((instanceId: string) => {
-  setBaseAppearance(current => {
-   const next = new Set(current);
-   if (!next.delete(instanceId)) next.add(instanceId);
-   return next;
-  });
- }, []);
+  const next = new Set(appearance.current);
+  if (!next.delete(instanceId)) next.add(instanceId);
+  appearance.current = next;
+  setBaseAppearance(next);
+  if (appearanceStorage && canSaveAppearance.current) void appearanceStorage.save(next).catch(() => undefined);
+ }, [appearanceStorage]);
  const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
  const [careError,setCareError] = useState('');
  const [farmAnimation,setFarmAnimation] = useState<CompanionFarmAnimationEvent|null>(null);
@@ -442,7 +461,7 @@ function ServerProvider({children,api}:PropsWithChildren<{api:CompanionServerApi
  }, [api, apply]);
 
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{...(api.careReminder ? {careReminder: api.careReminder} : {}),...(api.expedition ? {expedition: api.expedition} : {}),...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,toggleAppearance,instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{...(api.careReminder ? {careReminder: api.careReminder} : {}),...(api.expedition ? {expedition: api.expedition} : {}),...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,...(appearanceReady ? {toggleAppearance} : {}),instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);
