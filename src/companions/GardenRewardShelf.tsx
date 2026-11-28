@@ -1,7 +1,7 @@
 import {useRef, useState} from 'react';
 import {Image, StyleSheet, Text, TextInput, View} from 'react-native';
 import {Button} from '../components/ui';
-import {colors} from '../theme';
+import {colors, radius} from '../theme';
 import {companionStyles as styles} from './companionStyles';
 import {rewardBackgrounds, rewardDecorations, rewardIcons} from './gardenRewardAssets';
 import type {DecorationId} from './gardenDecorationCatalog';
@@ -61,10 +61,20 @@ export function GardenRewardShelf({rewards, selectBackground, refresh, onPlace}:
           accessibilityLabel={`${item.name} 배치하기`} onPress={() => onPlace(item.id)}>배치하기</Button>}
       </View>)}
     </View>}
-    {backgrounds.map(item => <Button key={item.id} size="compact" variant={rewards.backgroundId === item.id ? 'primary' : 'secondary'}
-      accessibilityLabel={`${item.name} 배경 적용`} disabled={busy || rewards.backgroundId === item.id} onPress={() => void apply(item.id)}>
-      {rewards.backgroundId === item.id ? `${item.name} · 적용 중` : item.name}
-    </Button>)}
+    {backgrounds.length > 0 && <View style={styles.stack}>
+      <Text style={styles.name}>해금한 배경</Text>
+      {backgrounds.map(item => {
+        const selected = rewards.backgroundId === item.id;
+        return <View key={item.id} style={styles.stack}>
+          <Image accessible={false} source={item.source()} resizeMode="cover" style={rewardShelfStyles.backgroundPreview} />
+          <Button size="compact" variant={selected ? 'primary' : 'secondary'}
+            accessibilityLabel={selected ? `${item.name} 배경 적용 중` : `${item.name} 배경 적용`}
+            disabled={busy || selected} onPress={() => void apply(item.id)}>
+            {selected ? `${item.name} · 적용 중` : item.name}
+          </Button>
+        </View>;
+      })}
+    </View>}
     {rewards.backgroundId && <Button size="compact" variant="ghost" disabled={busy} accessibilityLabel="보상 배경 해제"
       onPress={() => void apply(null)}>기존 정원 배경으로 돌아가기</Button>}
     {failed && <Text accessibilityRole="alert" style={styles.caption}>배경을 적용하지 못했어요. 다시 시도해 주세요.</Text>}
@@ -107,4 +117,5 @@ const rewardShelfStyles = StyleSheet.create({
   decoration: {flexDirection: 'row', alignItems: 'center', gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 144},
   decorationIcon: {width: 32, height: 32},
   label: {flexShrink: 1},
+  backgroundPreview: {width: '100%', height: 88, borderRadius: radius.item},
 });
