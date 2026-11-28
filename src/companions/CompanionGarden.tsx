@@ -350,7 +350,12 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     </View>}
     {selected && <View style={styles.careCard} testID="selected-companion-care-panel">
       <View style={styles.careTitle}>
-        <FarmHudIcon name={selected.level===1?'badge-lv1':selected.level===2?'badge-lv2':'badge-lv3'} size={34}/>
+        {mode === 'management' && (selected.affectionPeak ?? 0) >= 60 && !selected.designId.startsWith('jesus:')
+          ? <View accessible accessibilityRole="image" accessibilityLabel="친밀도 보상 동물 프로필 아이콘">
+              <BibleFriendFarmSprite designId={selected.designId} size={34} reduceMotion
+                evolutionStage={baseAppearance?.has(selected.instanceId) ? 0 : selected.level === 3 ? 2 : selected.level === 2 ? 1 : 0} />
+            </View>
+          : <FarmHudIcon name={selected.level===1?'badge-lv1':selected.level===2?'badge-lv2':'badge-lv3'} size={34}/>}
         <View style={styles.careTitleCopy}>
           <Text style={styles.careName}>{selected.nickname ?? activeDesign?.name ?? '나의 동물'} · Lv.{selected.level}</Text>
           <Text style={styles.helper}>내 동물의 상태 · 누적 {selected.totalEarnedXp.toLocaleString()} XP</Text>
