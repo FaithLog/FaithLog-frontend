@@ -16,7 +16,7 @@ vi.mock('react-native', async () => {
     AccessibilityInfo: {isReduceMotionEnabled: async () => native.reduce, addEventListener: (_key: string, cb: (v: boolean) => void) => {native.motionListener = cb; return {remove: () => {native.removals++;}};}}};
 });
 vi.mock('expo-secure-store', () => ({
-  getItemAsync: async () => '[null,null,null]',
+  getItemAsync: async (key: string) => key.endsWith('.facility') ? '[null,null,"hay-feeder"]' : '[null,null,null]',
   setItemAsync: async () => undefined,
 }));
 vi.mock('./GardenDecorations', async importOriginal => ({
@@ -543,6 +543,52 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
   .find(n=>n.props.testID===`garden-animal-${a}`)!;
  expect(restoredAnimal.findByType('Sprite' as React.ElementType).props.designId).toBe('david-lamb:base');
  expect(sprite(b).props.evolutionStage).toBe(1);
+});
+
+it('walks the selected animal to its feeding facility before playing the care animation', async () => {
+  await import('expo-secure-store');
+  const firstId = '12345678-1234-1234-1234-123456789abc';
+  const secondId = '12345678-1234-1234-1234-123456789abd';
+  const data = snapshot();
+  data.garden.placements = [
+    {slot: 1, designId: 'david-lamb:base', instanceId: firstId, x: .1, y: .4},
+    {slot: 2, designId: 'david-lamb:base', instanceId: secondId, x: .4, y: .8},
+  ];
+  const first = {
+    instanceId: firstId, designId: 'david-lamb:base' as const, level: 2 as const,
+    growthXp: 500, totalEarnedXp: 500, careDays: 5, version: 0,
+    stats: {satiety: 60, cleanliness: 90, joy: 90, affection: 90, health: 100},
+    lastCaredAt: '2026-11-18T01:00:00Z', nextEvolution: null, canEvolve: false,
+  };
+  const second = {...first, instanceId: secondId};
+  const careInstance = vi.fn(async () => ({...first, version: 1}));
+  const api: CompanionServerApi = {
+    load: vi.fn(async () => data), garden: vi.fn(), claim: vi.fn(), draw: vi.fn(), sell: vi.fn(),
+    instances: vi.fn(async () => [first, second]), careInstance,
+  };
+  await act(async () => {tree = create(<CompanionProvider api={api}>
+    <CompanionGarden mode="management" decorationScope="faithlog.garden.decorations.facility" onOpen={() => {}}/>
+  </CompanionProvider>);});
+  const animal = (id: string) => tree!.root.findAllByType('View' as React.ElementType)
+    .find(node => node.props.testID === `garden-animal-${id}`)!;
+  const sprite = (id: string) => animal(id).findByType('FarmSprite' as React.ElementType);
+  const position = (id: string) => animal(id).props.style[1].left;
+  const select = tree!.root.findAllByType('Pressable' as React.ElementType)
+    .find(node => String(node.props.accessibilityLabel ?? '').startsWith('1번 '))!;
+  await act(async () => {select.props.onPress();});
+  const start = position(firstId);
+  const feed = tree!.root.findAllByType('FarmCareButton' as React.ElementType)
+    .find(node => node.props.action === 'feed')!;
+  await act(async () => {feed.props.onPress();});
+  await advance(240);
+  expect(position(firstId)).toBeGreaterThan(start);
+  expect(sprite(firstId).props.motion).toBe('walk');
+  expect(sprite(firstId).props.farmAction).toBeUndefined();
+  await advance(560);
+  expect(sprite(firstId).props.farmAction).toBe('feed');
+  expect(sprite(secondId).props.farmAction).toBeUndefined();
+  expect(careInstance).toHaveBeenCalledOnce();
+  expect(api.garden).not.toHaveBeenCalled();
 });
 
 it('shows a confirmation after saving a garden decoration and clears it when editing again', async () => {
