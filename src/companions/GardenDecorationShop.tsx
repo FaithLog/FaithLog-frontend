@@ -7,6 +7,8 @@ import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
 import {gardenShopCategories, gardenShopDecorations, type DecorationId} from './gardenDecorationCatalog';
 
+import {getCareFacilityLabel} from './gardenFacilityCare';
+
 const pageSize = 6;
 const positions = ['왼쪽', '가운데', '오른쪽'] as const;
 
@@ -31,6 +33,7 @@ export function GardenDecorationShop({points, catalog, loading, loadFailed, onRe
   const [message, setMessage] = useState('');
   const purchaseLock = useRef(false);
   const offer = catalog?.items.find(item => item.id === preview?.id);
+  const facilityLabel = preview && getCareFacilityLabel(preview.id);
   const balance = catalog?.balance ?? points;
 
   async function purchase() {
@@ -114,6 +117,9 @@ export function GardenDecorationShop({points, catalog, loading, loadFailed, onRe
         onPress={() => setPage(visiblePage + 1)}>다음</Button>
     </View>}
     <View style={styles.preview}>
+      {facilityLabel && <Text accessibilityLiveRegion="polite" style={styles.caption}>
+        {`${facilityLabel} · 정원에 배치하면 해당 돌봄을 할 때 동물이 찾아가요.`}
+      </Text>}
       <Text accessibilityLiveRegion="polite" style={styles.caption}>
         {preview ? `${preview.name} · ${positions[slot]}에 미리 보는 중` : '미리보기 위치'}
       </Text>

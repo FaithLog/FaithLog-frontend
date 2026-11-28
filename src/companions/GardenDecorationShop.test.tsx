@@ -1,5 +1,5 @@
 import {act, create, type ReactTestRenderer} from 'react-test-renderer';
-import {Image, Pressable} from 'react-native';
+import {Image, Pressable, Text} from 'react-native';
 import {describe, expect, it, vi} from 'vitest';
 import {Button} from '../components/ui';
 import {GardenDecorationShop} from './GardenDecorationShop';
@@ -34,6 +34,7 @@ describe('garden decoration shop', () => {
     };
     try {
       await act(async () => tree.root.findAllByType(Pressable)[0]!.props.onPress());
+      expect(tree.root.findAllByType(Text).some(node => String(node.props.children).startsWith('수면 시설'))).toBe(true);
       await press('포인트로 구매하기');
       expect(onPurchase).not.toHaveBeenCalled();
       await press('포인트 구매 확정');
@@ -93,6 +94,7 @@ describe('garden decoration shop', () => {
       await pressButton('미리보기 오른쪽 위치');
       await act(async () => tree.root.findAllByType(Pressable)[0]!.props.onPress());
       expect(preview).toHaveBeenLastCalledWith('olive-sapling', 2);
+      expect(tree.root.findAllByType(Text).some(node => String(node.props.children).includes('동물이 찾아가요'))).toBe(false);
       await pressButton('미리보기 왼쪽 위치');
       expect(preview).toHaveBeenLastCalledWith('olive-sapling', 0);
       await pressButton('정원 상점 닫기');
