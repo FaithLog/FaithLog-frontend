@@ -3,7 +3,8 @@ import {Image, StyleSheet, Text, TextInput, View} from 'react-native';
 import {Button} from '../components/ui';
 import {colors} from '../theme';
 import {companionStyles as styles} from './companionStyles';
-import {rewardBackgrounds, rewardIcons} from './gardenRewardAssets';
+import {rewardBackgrounds, rewardDecorations, rewardIcons} from './gardenRewardAssets';
+import type {DecorationId} from './gardenDecorationCatalog';
 import type {GardenRewards} from './companionServerContract';
 
 export function GardenRewardBackground({id}: {id?: string | null}) {
@@ -12,15 +13,19 @@ export function GardenRewardBackground({id}: {id?: string | null}) {
   return <Image accessible={false} source={background.source()} resizeMode="cover" style={StyleSheet.absoluteFill} />;
 }
 
-export function GardenRewardShelf({rewards, selectBackground, refresh}: {
+export function GardenRewardShelf({rewards, selectBackground, refresh, onPlace}: {
   rewards: GardenRewards;
   selectBackground: (id: string | null) => Promise<void>;
   refresh: () => void;
+  onPlace?: (id: DecorationId) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const lock = useRef(false);
   const backgrounds = rewardBackgrounds.filter(item => rewards.items.some(owned => owned.kind === 'BACKGROUND' && owned.id === item.id));
+  const decorations = rewardDecorations.filter(item =>
+    rewards.items.some(owned => owned.kind === 'DECORATION' && owned.id === item.id));
+
   async function apply(id: string | null) {
     if (lock.current) return;
     lock.current = true;
@@ -41,6 +46,17 @@ export function GardenRewardShelf({rewards, selectBackground, refresh}: {
       <Image accessible={false} source={rewardIcons.craftMaterial()} style={{width: 30, height: 30}} />
       <Text style={styles.caption}>꾸미기 재료 {rewards.supplies.craftMaterials}개</Text>
     </View>
+    {decorations.length > 0 && <View style={styles.stack}>
+      <Text style={styles.name}>해금한 장식</Text>
+      {decorations.map(item => <View key={item.id} style={styles.between}>
+        <View style={styles.row}>
+          <Image accessible={false} source={item.source()} style={{width: 32, height: 32}} />
+          <Text style={styles.caption}>{item.name}</Text>
+        </View>
+        {onPlace && <Button size="compact" variant="secondary" disabled={busy}
+          accessibilityLabel={`${item.name} 배치하기`} onPress={() => onPlace(item.id)}>배치하기</Button>}
+      </View>)}
+    </View>}
     {backgrounds.map(item => <Button key={item.id} size="compact" variant={rewards.backgroundId === item.id ? 'primary' : 'secondary'}
       accessibilityLabel={`${item.name} 배경 적용`} disabled={busy || rewards.backgroundId === item.id} onPress={() => void apply(item.id)}>
       {rewards.backgroundId === item.id ? `${item.name} · 적용 중` : item.name}

@@ -19,6 +19,14 @@ vi.mock('expo-secure-store', () => ({
   getItemAsync: async (key: string) => key.endsWith('.facility') ? '["seed-dish",null,"hay-feeder"]' : '[null,null,null]',
   setItemAsync: async () => undefined,
 }));
+vi.mock('./gardenRewardAssets', async importOriginal => {
+  const assets = await importOriginal<typeof import('./gardenRewardAssets')>();
+  return {
+    ...assets,
+    rewardDecorations: assets.rewardDecorations.map(item => ({...item, source: () => 1})),
+    rewardIcons: {snack: () => 1, craftMaterial: () => 1, community: () => 1},
+  };
+});
 vi.mock('./gardenDecorationCatalog', async importOriginal => {
   const catalog = await importOriginal<typeof import('./gardenDecorationCatalog')>();
   return {...catalog, gardenDecorations: catalog.gardenDecorations.map(item => ({...item, source: () => 1}))};
@@ -614,4 +622,30 @@ it('shows a confirmation after saving a garden decoration and clears it when edi
   expect(hasConfirmation()).toBe(true);
   await press('정원 꾸미기');
   expect(hasConfirmation()).toBe(false);
+});
+
+it('opens the placement editor from an earned decoration and waits for an explicit save', async () => {
+  await import('expo-secure-store');
+  const api: CompanionServerApi = {
+    load: vi.fn(async () => snapshot()), garden: vi.fn(), claim: vi.fn(), draw: vi.fn(), sell: vi.fn(),
+    gardenRewards: {
+      load: async () => ({
+        items: [{id: 'bond-david-lamb', kind: 'DECORATION'}],
+        supplies: {snacks: 0, craftMaterials: 0}, backgroundId: null,
+      }),
+      selectBackground: vi.fn(), rename: vi.fn(),
+    },
+  };
+  await act(async () => {tree = create(<CompanionProvider api={api}>
+    <CompanionGarden mode="management" decorationScope="faithlog.garden.decorations.7.8" onOpen={() => {}}/>
+  </CompanionProvider>);});
+  const button = (label: string) => tree!.root.findAllByType('Button' as React.ElementType)
+    .find(node => node.props.accessibilityLabel === label);
+  expect(button('작은 하프 배치하기')).toBeDefined();
+  expect(button('나무 방주 배치하기')).toBeUndefined();
+  await act(async () => {button('작은 하프 배치하기')!.props.onPress();});
+  expect(button('장식 왼쪽 위치 선택, 작은 하프')).toBeDefined();
+  expect(button('정원 장식 저장')?.props.disabled).toBe(false);
+  await act(async () => {button('정원 장식 저장')!.props.onPress();});
+  expect(button('작은 하프 배치하기')).toBeDefined();
 });
