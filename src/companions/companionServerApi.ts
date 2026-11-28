@@ -28,13 +28,13 @@ function parseGardenRewards(value: unknown): import('./companionServerContract')
    return {id: string(item.id), kind: item.kind};
   }),
   supplies: {snacks: integer(supplies.snacks), craftMaterials: integer(supplies.craftMaterials)},
-  backgroundId: row.backgroundId === null ? null : string(row.backgroundId),
+  backgroundId: row.backgroundId == null ? null : string(row.backgroundId),
  };
 }
 
 function parseGardenBond(value: unknown) {
  const row = object(value);
- return {peak: integer(row.peak), nickname: row.nickname === null ? null : string(row.nickname)};
+ return {peak: integer(row.peak), nickname: row.nickname == null ? null : string(row.nickname)};
 }
 
 function parseGardenShop(value: unknown): GardenShopSnapshot {

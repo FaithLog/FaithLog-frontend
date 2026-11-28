@@ -7,10 +7,11 @@ import type {GardenExpedition, GardenExpeditionApi} from './gardenExpeditionCont
 
 const seasonLabels = {SPRING: '봄', SUMMER: '여름', AUTUMN: '가을', WINTER: '겨울'};
 
-export function GardenExpeditionCard({api, instanceId, onClaimed}: {
+export function GardenExpeditionCard({api, instanceId, onClaimed, permanentRewards = false}: {
   api: GardenExpeditionApi;
   instanceId: string;
   onClaimed: () => void;
+  permanentRewards?: boolean;
 }) {
   const [status, setStatus] = useState<GardenExpedition | null>(null);
   const [busy, setBusy] = useState(true);
@@ -85,6 +86,7 @@ export function GardenExpeditionCard({api, instanceId, onClaimed}: {
       <Text accessibilityRole="header" style={styles.title}>{seasonLabels[season.name]} 정원 이벤트</Text>
       <Text style={styles.caption}>{season.startsOn.slice(5).replace('-', '/')}–{season.endsOn.slice(5).replace('-', '/')}
         {` · 탐험 보상 ${season.completed}/${season.target}회 수령`}</Text>
+      {permanentRewards && <Text style={styles.caption}>계절 장식과 배경도 함께 받아요.</Text>}
       {season.claimed
         ? <Text style={styles.caption}>이번 계절 보상을 받았어요.</Text>
         : season.completed >= season.target

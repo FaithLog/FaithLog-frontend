@@ -440,7 +440,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         <CompanionBondPanel key={selected.instanceId} peak={selected.affectionPeak} nickname={selected.nickname ?? null}
           rename={nickname => renameCompanion(selected.instanceId, nickname)} />}
       {mode === 'management' && expedition && <GardenExpeditionCard api={expedition}
-        instanceId={selected.instanceId} onClaimed={() => {void loadShards?.(); void refreshGardenRewards?.();}} />}
+        instanceId={selected.instanceId} permanentRewards={!!gardenRewards} onClaimed={() => {void loadShards?.(); void refreshGardenRewards?.();}} />}
       {careError?<Text accessibilityRole="alert" style={styles.warning}>{careError}</Text>:null}
     </View>}
     {mode !== 'management' && <View style={styles.menu}>
