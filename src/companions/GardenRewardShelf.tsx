@@ -41,17 +41,21 @@ export function GardenRewardShelf({rewards, selectBackground, refresh, onPlace}:
       <Button variant="ghost" size="compact" disabled={busy} accessibilityLabel="정원 보상 새로고침" onPress={refresh}>새로 확인</Button>
     </View>
     <View style={styles.row}>
-      <Image accessible={false} source={rewardIcons.snack()} style={{width: 30, height: 30}} />
-      <Text style={styles.caption}>간식 {rewards.supplies.snacks}개</Text>
-      <Image accessible={false} source={rewardIcons.craftMaterial()} style={{width: 30, height: 30}} />
-      <Text style={styles.caption}>꾸미기 재료 {rewards.supplies.craftMaterials}개</Text>
+      <View style={rewardShelfStyles.supply}>
+        <Image accessible={false} source={rewardIcons.snack()} style={rewardShelfStyles.supplyIcon} />
+        <Text style={[styles.caption, rewardShelfStyles.label]}>간식 {rewards.supplies.snacks}개</Text>
+      </View>
+      <View style={rewardShelfStyles.supply}>
+        <Image accessible={false} source={rewardIcons.craftMaterial()} style={rewardShelfStyles.supplyIcon} />
+        <Text style={[styles.caption, rewardShelfStyles.label]}>꾸미기 재료 {rewards.supplies.craftMaterials}개</Text>
+      </View>
     </View>
     {decorations.length > 0 && <View style={styles.stack}>
       <Text style={styles.name}>해금한 장식</Text>
       {decorations.map(item => <View key={item.id} style={styles.between}>
-        <View style={styles.row}>
-          <Image accessible={false} source={item.source()} style={{width: 32, height: 32}} />
-          <Text style={styles.caption}>{item.name}</Text>
+        <View style={rewardShelfStyles.decoration}>
+          <Image accessible={false} source={item.source()} style={rewardShelfStyles.decorationIcon} />
+          <Text style={[styles.caption, rewardShelfStyles.label]}>{item.name}</Text>
         </View>
         {onPlace && <Button size="compact" variant="secondary" disabled={busy}
           accessibilityLabel={`${item.name} 배치하기`} onPress={() => onPlace(item.id)}>배치하기</Button>}
@@ -96,3 +100,11 @@ export function CompanionBondPanel({peak, nickname, rename}: {
     {failed && <Text accessibilityRole="alert" style={styles.caption}>별명을 저장하지 못했어요.</Text>}
   </View>;
 }
+
+const rewardShelfStyles = StyleSheet.create({
+  supply: {flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%'},
+  supplyIcon: {width: 30, height: 30},
+  decoration: {flexDirection: 'row', alignItems: 'center', gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 144},
+  decorationIcon: {width: 32, height: 32},
+  label: {flexShrink: 1},
+});
