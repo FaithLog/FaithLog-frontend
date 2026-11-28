@@ -22,6 +22,7 @@ export function GardenDecorationShop({points, catalog, loading, loadFailed, onRe
   onClose: () => void;
 }) {
   const [category, setCategory] = useState<typeof gardenShopCategories[number]>('돌봄');
+  const [ownedOnly, setOwnedOnly] = useState(false);
   const [page, setPage] = useState(0);
   const [slot, setSlot] = useState(1);
   const [preview, setPreview] = useState<typeof gardenShopDecorations[number] | null>(null);
@@ -54,8 +55,11 @@ export function GardenDecorationShop({points, catalog, loading, loadFailed, onRe
     }
   }
 
-  const items = gardenShopDecorations.filter(item => item.category === category);
+  const offersById = new Map(catalog?.items.map(item => [item.id, item]));
+  const items = gardenShopDecorations.filter(item =>
+    item.category === category && (!ownedOnly || offersById.get(item.id)?.owned));
   const pages = Math.ceil(items.length / pageSize);
+  const visiblePage = Math.min(page, Math.max(0, pages - 1));
 
   return <View style={styles.panel}>
     <View style={styles.row}>
@@ -79,9 +83,19 @@ export function GardenDecorationShop({points, catalog, loading, loadFailed, onRe
           onPress={() => {setCategory(value); setPage(0);}}>{value}</Button>
       </View>)}
     </View>
+    <View style={styles.row}>
+      <Button size="compact" variant={ownedOnly ? 'primary' : 'secondary'}
+        accessibilityLabel={ownedOnly ? '전체 소품 보기' : '보유한 소품만 보기'}
+        disabled={purchasing || (!ownedOnly && !catalog)}
+        onPress={() => {setOwnedOnly(value => !value); setPage(0);}}>
+        {ownedOnly ? '전체 보기' : '보유한 소품만'}
+      </Button>
+    </View>
+    {ownedOnly && items.length === 0 &&
+      <Text accessibilityLiveRegion="polite" style={styles.caption}>이 분류에 보유한 소품이 없어요.</Text>}
     <View style={styles.grid}>
-      {items.slice(page * pageSize, (page + 1) * pageSize).map(item => {
-        const entry = catalog?.items.find(offer => offer.id === item.id);
+      {items.slice(visiblePage * pageSize, (visiblePage + 1) * pageSize).map(item => {
+        const entry = offersById.get(item.id);
         return <Pressable key={item.id} accessibilityRole="button"
           disabled={purchasing} accessibilityLabel={item.name + ' 미리보기'} accessibilityState={{selected: preview?.id === item.id}}
           style={({pressed}) => [styles.card, preview?.id === item.id && styles.selected, pressed && styles.pressed]}
@@ -92,13 +106,13 @@ export function GardenDecorationShop({points, catalog, loading, loadFailed, onRe
         </Pressable>;
       })}
     </View>
-    <View style={[styles.row, styles.pagination]}>
-      <Button size="compact" variant="ghost" accessibilityLabel="이전 소품" disabled={page === 0}
-        onPress={() => setPage(value => value - 1)}>이전</Button>
-      <Text style={styles.caption}>{page + 1} / {pages}</Text>
-      <Button size="compact" variant="ghost" accessibilityLabel="다음 소품" disabled={page + 1 === pages}
-        onPress={() => setPage(value => value + 1)}>다음</Button>
-    </View>
+    {pages > 1 && <View style={[styles.row, styles.pagination]}>
+      <Button size="compact" variant="ghost" accessibilityLabel="이전 소품" disabled={visiblePage === 0}
+        onPress={() => setPage(visiblePage - 1)}>이전</Button>
+      <Text style={styles.caption}>{visiblePage + 1} / {pages}</Text>
+      <Button size="compact" variant="ghost" accessibilityLabel="다음 소품" disabled={visiblePage + 1 >= pages}
+        onPress={() => setPage(visiblePage + 1)}>다음</Button>
+    </View>}
     <View style={styles.preview}>
       <Text accessibilityLiveRegion="polite" style={styles.caption}>
         {preview ? `${preview.name} · ${positions[slot]}에 미리 보는 중` : '미리보기 위치'}
