@@ -1,8 +1,7 @@
 import {useCallback, useEffect, useImperativeHandle, type Ref, useRef, useState} from 'react';
 import {BackHandler, Image, StyleSheet, Text, View} from 'react-native';
 import {freeDecorations, gardenDecorations, type DecorationId} from './gardenDecorationCatalog';
-import {FarmHudIcon} from './FarmHudAssets';
-import type {FacilityApproach} from './gardenFacilityCare';
+import type {ReactNode} from 'react';
 import {Button, Chip} from '../components/ui';
 import {colors, typography} from '../theme';
 
@@ -80,7 +79,7 @@ export function useGardenDecorations(scope?: string) {
 }
 
 /** The foreground stays available to animals and their existing gesture handlers. */
-export function GardenDecorationLayer({layout, activeFacility}: {layout: Layout | null; activeFacility?: FacilityApproach}) {
+export function GardenDecorationLayer({layout, activeFacility}: {layout: Layout | null; activeFacility?: {slot: number; cue: ReactNode}}) {
   if (!layout) return null;
   return <View pointerEvents="none" accessible={false} style={styles.layer}>
     {layout.map((id, index) => {
@@ -90,7 +89,7 @@ export function GardenDecorationLayer({layout, activeFacility}: {layout: Layout 
           <View style={styles.contactShadow} />
           <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />
           {activeFacility?.slot === index && <View style={styles.facilityCue}>
-            <FarmHudIcon name={activeFacility.icon} size={20} />
+            {activeFacility.cue}
           </View>}
         </>}
       </View>;

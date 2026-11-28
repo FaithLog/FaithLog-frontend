@@ -21,7 +21,7 @@ import {useCompanions} from './CompanionProvider';
 import {GardenAnimal} from './GardenAnimal';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
 import {FarmMessMarker} from './FarmMessMarker';
-import {resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
+import {isFacilityAnimationActive, resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
 import {advanceGardenAgent, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 import {CompanionCareGifts} from './CompanionCareGifts';
@@ -195,9 +195,8 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     dragCallback.current?.(false);
   }, [foreground]);
   const facility = runningAnimation?.facility;
-  const facilityAnimal = facility && instances?.find(item => item.instanceId === runningAnimation?.instanceId);
-  const facilityInUse = !reduceMotion && !decorationPanel && facility &&
-    (elapsed < facility.arrivalAt || resolveFarmSpriteVisual(facilityAnimal || undefined, runningAnimation, elapsed).pauseMovement);
+  const facilityInUse = !reduceMotion && !decorationPanel && facility && runningAnimation &&
+    isFacilityAnimationActive(runningAnimation.action, elapsed - facility.arrivalAt);
   return <View style={styles.section}>
     <GardenPhotoFrame enabled={mode === "management"} captureRef={photoRef}>
     <View onLayout={event => {
@@ -211,7 +210,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
       <GardenBackground id={state.backgroundId} />
-      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} {...(facilityInUse ? {activeFacility: facility} : {})} />
+      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} {...(facilityInUse ? {activeFacility: {slot: facility.slot, cue: <FarmHudIcon name={facility.icon} size={20} />}} : {})} />
       {slots.map(slot => {
         const id=slot.designId;
         const key=slot.instanceId??id;
