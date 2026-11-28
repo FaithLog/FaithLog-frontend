@@ -89,7 +89,10 @@ describe.skipIf(!baseUrl)('real develop backend + PostgreSQL + frontend HTTP ada
   expect(s.periods.missions.find(m=>m.mission==='WEEKLY_PRAYER_TOPIC')).toMatchObject({points:50,status:'INCOMPLETE'});
   const monday=s.periods.missions.find(m=>m.mission==='WEEKLY_SUBMISSION')!.periodStart;
   await saveWeeklyDevotion(token,f.campus,monday,{submit:true,saturdayLateMinutes:0,dailyChecks:[{recordDate:today,quietTimeChecked:false,prayerChecked:true,bibleReadingChecked:false}]});
+  const snacksBefore = (await api.gardenRewards!.load()).supplies.snacks;
   await api.claim('submission');s=await api.load();expect(s.balance).toBe(1180);
+  await api.claim('submission');
+  expect((await api.gardenRewards!.load()).supplies.snacks).toBe(snacksBefore + 1);
   const initialQuantity=Object.values(s.inventory).reduce((sum,n)=>sum+(n??0),0);const initialHistory=s.history.length;
   const actualFetch=globalThis.fetch;let drop=true;const keys:string[]=[];
   vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{const url=String(input);if(!url.startsWith(baseUrl!))throw new Error('Non-QA network blocked');const response=await actualFetch(input,init);if(url.endsWith('/companions/me/draws')&&init?.method==='POST'){keys.push(new Headers(init.headers).get('Idempotency-Key')!);if(drop){drop=false;throw new TypeError('test-only lost response after commit');}}return response;});
@@ -127,6 +130,10 @@ describe.skipIf(!baseUrl)('real owned-instance care and evolution HTTP contract'
   expect(readyPet).toMatchObject({level:1,growthXp:300,careDays:3});
   expect(otherPet).toMatchObject({level:1,growthXp:0});
   expect(readyPet!.instanceId).not.toBe(otherPet!.instanceId);
+  expect(readyPet?.affectionPeak).toBe(30);
+  expect(await api.gardenRewards!.rename(readyPet!.instanceId, '별빛')).toMatchObject({nickname: '별빛', peak: 30});
+  await expect(api.gardenRewards!.rename(otherPet!.instanceId, '아직 잠김')).rejects.toBeDefined();
+  expect((await api.instancesByDesign!('david-lamb:base', 0)).find(pet => pet.instanceId === readyPet!.instanceId)?.nickname).toBe('별빛');
 
   const garden=await api.garden({
    version:initial.garden.version,backgroundId:null,
@@ -328,9 +335,18 @@ describe.skipIf(!baseUrl)('real garden expedition HTTP contract', () => {
   expect((await api.expedition!.claimSeason(season.startsOn)).season?.claimed).toBe(true);
   expect((await api.expedition!.claimSeason(season.startsOn)).season?.claimed).toBe(true);
   expect(await api.growthShards!()).toBe(2);
+  const baseRewardId = `season-${season.name.toLowerCase()}`;
+  const rewards = await api.gardenRewards!.load();
+  expect(rewards.items).toEqual(expect.arrayContaining([
+   {id: `${baseRewardId}-background`, kind: 'BACKGROUND'},
+   {id: `${baseRewardId}-decoration`, kind: 'DECORATION'},
+  ]));
+  expect((await api.gardenRewards!.selectBackground(`${baseRewardId}-background`)).backgroundId)
+   .toBe(`${baseRewardId}-background`);
 
   const otherUser = await login(5);
   const otherApi = createCompanionServerApi(fixtures[5]!.campus, async () => otherUser, memory());
+  await expect(otherApi.gardenRewards!.selectBackground(`${baseRewardId}-background`)).rejects.toBeDefined();
   await expect(otherApi.expedition!.claimSeason(season.startsOn)).rejects.toMatchObject({detail: {status: 409}});
   await expect(otherApi.expedition!.claim(ready.id!)).rejects.toMatchObject({detail: {status: 409}});
   const [pet] = await otherApi.instancesByDesign!('david-lamb:base', 0);

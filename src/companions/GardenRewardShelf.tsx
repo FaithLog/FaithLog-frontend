@@ -1,0 +1,82 @@
+import {useRef, useState} from 'react';
+import {Image, StyleSheet, Text, TextInput, View} from 'react-native';
+import {Button} from '../components/ui';
+import {colors} from '../theme';
+import {companionStyles as styles} from './companionStyles';
+import {rewardBackgrounds, rewardIcons} from './gardenRewardAssets';
+import type {GardenRewards} from './companionServerContract';
+
+export function GardenRewardBackground({id}: {id?: string | null}) {
+  const background = rewardBackgrounds.find(item => item.id === id);
+  if (!background) return null;
+  return <Image accessible={false} source={background.source()} resizeMode="cover" style={StyleSheet.absoluteFill} />;
+}
+
+export function GardenRewardShelf({rewards, selectBackground, refresh}: {
+  rewards: GardenRewards;
+  selectBackground: (id: string | null) => Promise<void>;
+  refresh: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const lock = useRef(false);
+  const backgrounds = rewardBackgrounds.filter(item => rewards.items.some(owned => owned.kind === 'BACKGROUND' && owned.id === item.id));
+  async function apply(id: string | null) {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setFailed(false);
+    try {await selectBackground(id);} catch {setFailed(true);}
+    finally {lock.current = false; setBusy(false);}
+  }
+
+  return <View style={styles.card}>
+    <View style={styles.between}>
+      <Text accessibilityRole="header" style={styles.name}>정원 보상</Text>
+      <Button variant="ghost" size="compact" disabled={busy} accessibilityLabel="정원 보상 새로고침" onPress={refresh}>새로 확인</Button>
+    </View>
+    <View style={styles.row}>
+      <Image accessible={false} source={rewardIcons.snack()} style={{width: 30, height: 30}} />
+      <Text style={styles.caption}>간식 {rewards.supplies.snacks}개</Text>
+      <Image accessible={false} source={rewardIcons.craftMaterial()} style={{width: 30, height: 30}} />
+      <Text style={styles.caption}>꾸미기 재료 {rewards.supplies.craftMaterials}개</Text>
+    </View>
+    {backgrounds.map(item => <Button key={item.id} size="compact" variant={rewards.backgroundId === item.id ? 'primary' : 'secondary'}
+      accessibilityLabel={`${item.name} 배경 적용`} disabled={busy || rewards.backgroundId === item.id} onPress={() => void apply(item.id)}>
+      {rewards.backgroundId === item.id ? `${item.name} · 적용 중` : item.name}
+    </Button>)}
+    {rewards.backgroundId && <Button size="compact" variant="ghost" disabled={busy} accessibilityLabel="보상 배경 해제"
+      onPress={() => void apply(null)}>기존 정원 배경으로 돌아가기</Button>}
+    {failed && <Text accessibilityRole="alert" style={styles.caption}>배경을 적용하지 못했어요. 다시 시도해 주세요.</Text>}
+  </View>;
+}
+
+export function CompanionBondPanel({peak, nickname, rename}: {
+  peak: number; nickname: string | null; rename: (name: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(nickname ?? '');
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const lock = useRef(false);
+  async function save() {
+    if (lock.current || draft.trim() === (nickname ?? '')) return;
+    lock.current = true;
+    setSaving(true);
+    setFailed(false);
+    try {await rename(draft.trim());} catch {setFailed(true);}
+    finally {lock.current = false; setSaving(false);}
+  }
+  return <View style={styles.card}>
+    <Text accessibilityRole="header" style={styles.name}>친밀도 해금 · {peak}/100</Text>
+    <Text style={styles.caption}>{peak < 30 ? '친밀도 30에서 별명 해금' : peak < 60 ? '친밀도 60에서 고유 반응 해금'
+      : peak < 90 ? '친밀도 90에서 전용 장식 해금' : '전용 장식 해금 완료 · 정원 꾸미기에서 배치할 수 있어요.'}</Text>
+    {peak >= 30 && <View style={styles.row}>
+      <TextInput accessibilityLabel="동물 별명" placeholder="별명 입력" placeholderTextColor={colors.textSecondary}
+        value={draft} onChangeText={setDraft} maxLength={32} editable={!saving}
+        style={{borderWidth: 1, borderColor: colors.borderSoft, color: colors.textPrimary, padding: 8, flex: 1}} />
+      <Button size="compact" disabled={saving || draft.trim() === (nickname ?? '')} accessibilityLabel="동물 별명 저장"
+        onPress={() => void save()}>별명 저장</Button>
+    </View>}
+    {failed && <Text accessibilityRole="alert" style={styles.caption}>별명을 저장하지 못했어요.</Text>}
+  </View>;
+}

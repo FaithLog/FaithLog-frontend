@@ -38,6 +38,7 @@ sql(f"UPDATE companion_instances SET growth_xp=300,total_earned_xp=300,"
     f"WHERE id=(SELECT id FROM companion_instances WHERE user_id={third['user']} "
     f"AND design_id='david-lamb:base' ORDER BY acquired_at,id LIMIT 1)")
 assert sql(f"SELECT count(*) FROM companion_instances WHERE user_id={third['user']} AND design_id='david-lamb:base'") == '2', 'Two owned instances required'
+sql(f"UPDATE companion_instances SET affection_peak=30 WHERE user_id={third['user']} AND growth_xp=300")
 assert sql(f"SELECT count(*) FROM companion_instances WHERE user_id={third['user']} AND growth_xp=300") == '1', 'One evolution-ready pet required'
 
 # A separate pet meets both thresholds so this flow does not depend on the care test.

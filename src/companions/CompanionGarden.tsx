@@ -1,4 +1,5 @@
 import {GardenCareReminder} from './GardenCareReminder';
+import {CompanionBondPanel, GardenRewardBackground, GardenRewardShelf} from './GardenRewardShelf';
 import {GardenExpeditionCard} from './GardenExpeditionCard';
 import {GardenPhotoPanel} from './GardenPhotoPanel';
 import {GardenPhotoFrame, gardenPhotoRuntime, type GardenPhotoCapture} from './gardenPhotoFrame';
@@ -51,9 +52,12 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     setDecorationPreview(null);
     setDecorationPanel(null);
   }
-  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration,expedition,careReminder} = useCompanions();
+  const {state,server,busy,error,refresh:reloadServer,instances,farmAnimation,careError,careInstance,evolveInstance,baseAppearance,toggleAppearance,wakeInstance,shardBalance,loadShards,boostWithShards,careGifts,claimCareGift,friendGardens,loadGardenShop,purchaseGardenDecoration,expedition,careReminder,gardenRewards,refreshGardenRewards,selectRewardBackground,renameCompanion} = useCompanions();
   const catalog = shop?.scope === decorationScope ? shop?.data : null;
-  const ownedIds = new Set(catalog?.items.filter(item => item.owned).map(item => item.id));
+  const ownedIds = new Set([
+    ...(catalog?.items.filter(item => item.owned).map(item => item.id) ?? []),
+    ...(gardenRewards?.items.filter(item => item.kind === 'DECORATION').map(item => item.id) ?? []),
+  ]);
   useEffect(() => {
     return () => {shopRequest.current++;};
   }, [decorationScope, loadGardenShop]);
@@ -221,6 +225,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
       <GardenBackground id={state.backgroundId} />
+      {gardenRewards?.backgroundId && <GardenRewardBackground id={gardenRewards.backgroundId} />}
       <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} {...(facilityControl ? {facilityControl} : {})} {...(facilityInUse ? {activeFacility: {slot: facility.slot, cue: <FarmHudIcon name={facility.icon} size={20} />}} : {})} />
       {slots.map(slot => {
         const id=slot.designId;
@@ -232,7 +237,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         const visual=resolveFarmSpriteVisual(animal,reduceMotion?null:runningAnimation,elapsed);
         const farmAction=agent.motion==='held'||(agent.motion==='walk'&&!visual.pauseMovement)
           ? undefined : visual.action;
-        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion} previewOnly={previewOnly || photoMode}
+        return <Fragment key={key}><GardenAnimal {...(slot.instanceId?{instanceId:slot.instanceId}:{})} designId={id} name={animal?.nickname ?? name} agent={agent} elapsed={elapsed} reduceMotion={reduceMotion} previewOnly={previewOnly || photoMode}
           evolutionStage={animal && (!baseAppearance?.has(animal.instanceId) || farmAction==='evolve')
             ? (animal.level-1) as 0|1|2 : 0} selected={!photoMode && selectedKey===key && !!selected}
           {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
@@ -245,6 +250,11 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
             } else update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));
           }}
           onReact={() => {if (!previewOnly && !photoMode) {setSelectedKey(key);if(animal?.dormant)void wakeInstance?.(animal.instanceId);}update(key,a=>reactGardenAgent(a,elapsed,reduceMotion));}} />
+        {!photoMode && agent.motion === 'happy' && (animal?.affectionPeak ?? 0) >= 60 &&
+          <View pointerEvents="none" style={{position: 'absolute', left: agent.position.x + 44,
+            top: Math.max(0, agent.position.y - 10), zIndex: 1001}}>
+            <FarmHudIcon name="action-pet" size={24} />
+          </View>}
         {!previewOnly && !photoMode && animal && !animal.dormant && animal.stats.cleanliness<35 && <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${name} 주변 청소하기`}
@@ -304,7 +314,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
               setDecorationPanel('edit');
             }} : {})} />
         : decorationPanel === 'friends' && friendGardens
-          ? <FriendGardenPanel api={friendGardens} onClose={closeDecorations} />
+          ? <FriendGardenPanel api={friendGardens} onClose={closeDecorations} {...(refreshGardenRewards ? {onHelped: () => {void refreshGardenRewards(); void loadShards?.();}} : {})} />
           : photoMode
             ? <GardenPhotoPanel captureRef={photoRef} onClose={closeDecorations} />
             : <View style={styles.actions}>
@@ -316,6 +326,8 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
         </View>}
     {decorationPanel === null && decorationScope && savedDecorationScope === decorationScope &&
       <Text accessibilityLiveRegion="polite" style={styles.helper}>정원 장식 배치를 저장했어요.</Text>}
+    {mode === 'management' && !decorationPanel && gardenRewards && selectRewardBackground && refreshGardenRewards &&
+      <GardenRewardShelf rewards={gardenRewards} selectBackground={selectRewardBackground} refresh={() => void refreshGardenRewards()} />}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
     {mode === 'management' && careReminder && <GardenCareReminder api={careReminder} />}
@@ -331,7 +343,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       <View style={styles.careTitle}>
         <FarmHudIcon name={selected.level===1?'badge-lv1':selected.level===2?'badge-lv2':'badge-lv3'} size={34}/>
         <View style={styles.careTitleCopy}>
-          <Text style={styles.careName}>{activeDesign?.name ?? '나의 동물'} · Lv.{selected.level}</Text>
+          <Text style={styles.careName}>{selected.nickname ?? activeDesign?.name ?? '나의 동물'} · Lv.{selected.level}</Text>
           <Text style={styles.helper}>내 동물의 상태 · 누적 {selected.totalEarnedXp.toLocaleString()} XP</Text>
         </View>
         <Button variant="ghost" size="compact" accessibilityLabel="동물 돌봄 패널 닫기" onPress={()=>setSelectedKey(null)}>닫기</Button>
@@ -424,8 +436,11 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
           </View>
         </View>:null}
       {selected.stats.health===0?<Text style={styles.warning}>기절 상태예요. 먹이·청소·수면으로 회복시켜 주세요.</Text>:null}
+      {mode === 'management' && renameCompanion && selected.affectionPeak !== undefined && !selected.designId.startsWith('jesus:') &&
+        <CompanionBondPanel key={selected.instanceId} peak={selected.affectionPeak} nickname={selected.nickname ?? null}
+          rename={nickname => renameCompanion(selected.instanceId, nickname)} />}
       {mode === 'management' && expedition && <GardenExpeditionCard api={expedition}
-        instanceId={selected.instanceId} onClaimed={() => void loadShards?.()} />}
+        instanceId={selected.instanceId} permanentRewards={!!gardenRewards} onClaimed={() => {void loadShards?.(); void refreshGardenRewards?.();}} />}
       {careError?<Text accessibilityRole="alert" style={styles.warning}>{careError}</Text>:null}
     </View>}
     {mode !== 'management' && <View style={styles.menu}>
