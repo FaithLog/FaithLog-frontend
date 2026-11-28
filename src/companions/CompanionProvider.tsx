@@ -1,6 +1,6 @@
 import type {CompanionAppearanceStorage} from './companionAppearanceStorage';
 import {AppState} from 'react-native';
-import type {CompanionServerApi, ServerSnapshot, CompanionInstance, CompanionCareAction, CompanionSaleAvailability} from './companionServerContract';
+import type {CompanionServerApi, ServerSnapshot, CompanionInstance, CompanionCareAction, CompanionSaleAvailability, GardenRewards} from './companionServerContract';
 import {FaithLogApiError} from '../api/apiError';
 import type {CompanionFarmAnimationEvent} from './companionFarmVisual';
 import {PERIOD_MISSION_IDS} from './companionServerContract';
@@ -12,6 +12,10 @@ import type {DailyMissionApi, DailyMissionId, DailyMissionSnapshot} from './dail
 
 type DailyState = {snapshot: DailyMissionSnapshot | null; error: string; loading: boolean; claiming: boolean};
 type Context = {
+  gardenRewards?: GardenRewards | null;
+  refreshGardenRewards?: () => Promise<void>;
+  selectRewardBackground?: (id: string | null) => Promise<void>;
+  renameCompanion?: (id: string, nickname: string) => Promise<void>;
   careReminder?: NonNullable<CompanionServerApi['careReminder']>;
   expedition?: NonNullable<CompanionServerApi['expedition']>;
   friendGardens?: NonNullable<CompanionServerApi['friendGardens']>;
@@ -90,6 +94,31 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
  const gardenRevision = useRef(0);
  const gardenInstancesDirty = useRef(false);
  const gardenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const [gardenRewards,setGardenRewards] = useState<GardenRewards | null>(null);
+ const rewardRequest = useRef(0);
+ const rewardWrite = useRef(false);
+ const refreshGardenRewards = useCallback(async () => {
+  if (!api.gardenRewards || rewardWrite.current) return;
+  const ticket = ++rewardRequest.current;
+  try {
+   const rewards = await api.gardenRewards.load();
+   if (alive.current && ticket === rewardRequest.current) setGardenRewards(rewards);
+  } catch {
+   // The previous server does not expose this inventory.
+  }
+ }, [api]);
+ useEffect(() => {void refreshGardenRewards();}, [refreshGardenRewards]);
+ const selectRewardBackground = useCallback(async (id: string | null) => {
+  if (!api.gardenRewards || rewardWrite.current) return;
+  rewardWrite.current = true;
+  ++rewardRequest.current;
+  try {
+   const rewards = await api.gardenRewards.selectBackground(id);
+   if (alive.current) setGardenRewards(rewards);
+  } finally {
+   rewardWrite.current = false;
+  }
+ }, [api]);
  const [gardenSaving, setGardenSaving] = useState(false);
  const [baseAppearance,setBaseAppearance] = useState<ReadonlySet<string>>(() => new Set());
  const [appearanceReady,setAppearanceReady] = useState(!appearanceStorage);
@@ -118,6 +147,15 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
   if (appearanceStorage && canSaveAppearance.current) void appearanceStorage.save(next).catch(() => undefined);
  }, [appearanceStorage]);
  const [instances,setInstances] = useState<CompanionInstance[] | null>(null);
+ const renameCompanion = useCallback(async (id: string, nickname: string) => {
+  if (!api.gardenRewards) return;
+  const result = await api.gardenRewards.rename(id, nickname);
+  if (alive.current) {
+   ++instanceReadGeneration.current;
+   setInstances(values => values?.map(item => item.instanceId === id
+     ? {...item, affectionPeak: result.peak, nickname: result.nickname} : item) ?? null);
+  }
+ }, [api]);
  const [careError,setCareError] = useState('');
  const [farmAnimation,setFarmAnimation] = useState<CompanionFarmAnimationEvent|null>(null);
  const farmAnimationSequence = useRef(0);
@@ -273,12 +311,12 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
   // Drag positions are transient and never persisted by the server provider.
   if (action.type === 'move') return false;
   try{
-   if(action.type==='claim'){await operate(()=>api.claim(action.missionId),result=>({...source.current!,...result}));return true;}
+   if(action.type==='claim'){await operate(()=>api.claim(action.missionId),result=>({...source.current!,...result}));if(action.missionId in PERIOD_MISSION_IDS)void refreshGardenRewards();return true;}
    return await operate(async()=>{
    if(action.type==='sell'){await api.sell(action.designId,action.quantity);return true;}
    return false;
   });}catch{return false;}
- },[api,operate,error,flushGarden]);
+ },[api,operate,error,flushGarden,refreshGardenRewards]);
  const claimDaily=useCallback(async(ids:readonly DailyMissionId[])=>{for(const id of ids)if(!await perform({type:'claim',missionId:id,periodKey:'server',status:'ready'}))break;},[perform]);
  const executeDraw=useCallback(async(count:1|10)=>{const result=await operate(()=>api.draw(count));return result.designIds;},[api,operate]);
  const careInstance=useCallback(async(id:string,action:CompanionCareAction,facilitySlot?:number)=>{
@@ -298,6 +336,7 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
    if(alive.current){
     setInstances(items=>items?.map(item=>item.instanceId!==id?item:
       item.version>updated.version?item:updated)??null);
+    if((updated.affectionPeak ?? 0) >= 90 && (found.affectionPeak ?? 0) < 90)void refreshGardenRewards();
     if(updated.version>found.version)setFarmAnimation({instanceId:id,action,sequence:++farmAnimationSequence.current,...(facilitySlot === undefined ? {} : {facilitySlot})});
    }
    pendingOperation.current=null;
@@ -315,7 +354,7 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
     if(alive.current)setCareError('서버에서 돌봄 결과를 복구했어요.');
    }
   }finally{instanceBusy.current=false;if(alive.current)setBusy(false);}
- },[api,instances,error,refreshInstances]);
+ },[api,instances,error,refreshInstances,refreshGardenRewards]);
 
  const evolveInstance=useCallback(async(id:string)=>{
   if(!api.evolveInstance || !instances || instanceBusy.current || lock.current || error) return;
@@ -461,7 +500,7 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
  }, [api, apply]);
 
  const daily:DailyState={snapshot:snapshot?.daily??null,error,loading:busy,claiming:busy};
- return <CompanionContext.Provider value={{...(api.careReminder ? {careReminder: api.careReminder} : {}),...(api.expedition ? {expedition: api.expedition} : {}),...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,...(appearanceReady ? {toggleAppearance} : {}),instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
+ return <CompanionContext.Provider value={{...(api.gardenRewards ? {gardenRewards,refreshGardenRewards,selectRewardBackground,renameCompanion} : {}),...(api.careReminder ? {careReminder: api.careReminder} : {}),...(api.expedition ? {expedition: api.expedition} : {}),...(api.friendGardens ? {friendGardens: api.friendGardens} : {}),...(api.loadGardenShop && api.purchaseGardenDecoration ? {loadGardenShop: api.loadGardenShop, purchaseGardenDecoration} : {}),...(api.careGifts&&api.claimCareGift?{careGifts:api.careGifts,claimCareGift}:{}),gardenSaving,wakeInstance,shardBalance,loadShards,exchangeShard,boostWithShards,baseAppearance,...(appearanceReady ? {toggleAppearance} : {}),instances,farmAnimation,careError,careInstance,evolveInstance,...(api.instancesByDesign?{instancesByDesign}:{}),...(api.saleAvailability?{saleAvailability:api.saleAvailability}:{}),state,dispatch:action=>{void perform(action);},nextTransactionId:kind=>`${kind}-${Date.now()}`,daily,refreshDaily:refresh,claimDaily,server:true,busy,error,serverSnapshot:snapshot,refresh,executeDraw,perform}}>{children}</CompanionContext.Provider>;
 }
 export function useCompanions() {
   const value = useContext(CompanionContext);

@@ -20,7 +20,7 @@ export type CompanionEvolution = {
 export type CompanionInstance = {
  instanceId:string;designId:BibleFriendDesignId;level:1|2|3;
  growthXp:number;totalEarnedXp:number;careDays:number;stats:CompanionStats;
- lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;dormant?:boolean;
+ lastCaredAt:string;version:number;nextEvolution:CompanionEvolution|null;canEvolve:boolean;dormant?:boolean;affectionPeak?:number;nickname?:string|null;
 };
 export type CompanionSaleAvailability = {designId:BibleFriendDesignId;ownedQuantity:number;sellableQuantity:number};
 export type CompanionCareGift = {
@@ -33,7 +33,18 @@ export type GardenShopSnapshot = {
   balance: number;
   items: {id: string; price: number; owned: boolean}[];
 };
+export type GardenBond = {peak: number; nickname: string | null};
+export type GardenRewards = {
+  items: {id: string; kind: 'DECORATION' | 'BACKGROUND'}[];
+  supplies: {snacks: number; craftMaterials: number};
+  backgroundId: string | null;
+};
 export type CompanionServerApi = {
+  gardenRewards?: {
+    load(): Promise<GardenRewards>;
+    selectBackground(id: string | null): Promise<GardenRewards>;
+    rename(id: string, nickname: string): Promise<GardenBond>;
+  };
   careReminder?: {load(): Promise<boolean>; setEnabled(enabled: boolean): Promise<boolean>};
   expedition?: GardenExpeditionApi;
   friendGardens?: FriendGardenApi;
@@ -120,5 +131,5 @@ export function parseCompanionInstance(value:unknown):CompanionInstance{
  if(r.canEvolve && (!nextEvolution || nextEvolution.blockers.length || level===3))throw new Error('Invalid evolution readiness');
  return{instanceId,designId:designId(r.designId),level:level as 1|2|3,
   growthXp,totalEarnedXp,careDays,stats:meters,
-  lastCaredAt:date(r.lastCaredAt),version,nextEvolution,canEvolve:r.canEvolve,...(r.dormant===true?{dormant:true}:{})};
+  lastCaredAt:date(r.lastCaredAt),version,nextEvolution,canEvolve:r.canEvolve,...(r.affectionPeak == null ? {} : {affectionPeak: integer(r.affectionPeak)}),...(r.nickname === null || typeof r.nickname === 'string' ? {nickname:r.nickname} : {}),...(r.dormant===true?{dormant:true}:{})};
 }

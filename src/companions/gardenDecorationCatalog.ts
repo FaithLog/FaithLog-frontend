@@ -1,5 +1,7 @@
 import type {ImageSourcePropType} from 'react-native';
 
+import {rewardDecorations} from './gardenRewardAssets';
+
 export const freeDecorations = [
   {id: 'flower', name: '화분', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/flower.png')},
   {id: 'lantern', name: '등불', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/lantern.png')},
@@ -67,5 +69,5 @@ export const gardenShopDecorations = [
   {id: 'pastel-kite', name: '파스텔 연', category: '장식', source: (): ImageSourcePropType => require('../../assets/gardens/decorations/pastel-kite.png')},
 ] as const;
 
-export type DecorationId = typeof freeDecorations[number]['id'] | typeof gardenShopDecorations[number]['id'];
-export const gardenDecorations = [...freeDecorations, ...gardenShopDecorations];
+export type DecorationId = typeof freeDecorations[number]['id'] | typeof gardenShopDecorations[number]['id'] | typeof rewardDecorations[number]['id'];
+export const gardenDecorations = [...freeDecorations, ...gardenShopDecorations, ...rewardDecorations];

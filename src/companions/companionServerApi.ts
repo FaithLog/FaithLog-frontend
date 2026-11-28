@@ -18,6 +18,25 @@ function parseCareGifts(value: unknown): CompanionCareGift[] {
  });
 }
 
+function parseGardenRewards(value: unknown): import('./companionServerContract').GardenRewards {
+ const row = object(value);
+ const supplies = object(row.supplies);
+ return {
+  items: array(row.items).map(value => {
+   const item = object(value);
+   if (item.kind !== 'DECORATION' && item.kind !== 'BACKGROUND') throw new Error('Invalid reward kind');
+   return {id: string(item.id), kind: item.kind};
+  }),
+  supplies: {snacks: integer(supplies.snacks), craftMaterials: integer(supplies.craftMaterials)},
+  backgroundId: row.backgroundId === null ? null : string(row.backgroundId),
+ };
+}
+
+function parseGardenBond(value: unknown) {
+ const row = object(value);
+ return {peak: integer(row.peak), nickname: row.nickname === null ? null : string(row.nickname)};
+}
+
 function parseGardenShop(value: unknown): GardenShopSnapshot {
   const row = object(value);
   return {
@@ -92,11 +111,17 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
   if (typeof enabled !== 'boolean') throw new Error('Invalid care reminder preference');
   return enabled;
  };
+ const rewardsPath = '/api/v1/companions/me/garden/rewards';
  const expeditionPath = '/api/v1/companions/me/garden/expedition';
  return {
   careReminder: {
    load: () => request(careReminderPath, parseCareReminder),
    setEnabled: enabled => request(careReminderPath, parseCareReminder, 'PUT', {enabled}),
+  },
+  gardenRewards: {
+   load: () => request(rewardsPath, parseGardenRewards),
+   selectBackground: id => request(`${rewardsPath}/background`, parseGardenRewards, 'PUT', {id}),
+   rename: (id, nickname) => request(`${rewardsPath}/animals/${encodeURIComponent(id)}`, parseGardenBond, 'PUT', {nickname}),
   },
   expedition: {
    claimSeason: start => request(`${expeditionPath}/seasons/${encodeURIComponent(start)}/claim`, parseExpedition, 'POST'),

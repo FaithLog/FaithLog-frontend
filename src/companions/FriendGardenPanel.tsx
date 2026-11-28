@@ -4,10 +4,12 @@ import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
 import {FaithLogApiError} from '../api/apiError';
 import {Button} from '../components/ui';
 import {colors, typography} from '../theme';
+import {Image} from 'react-native';
+import {rewardIcons} from './gardenRewardAssets';
 import {GardenBackground} from './GardenBackground';
 import type {CampusGardenGoal, FriendGardenApi, FriendGardenPage, FriendGardenVisit} from './friendGardenContract';
 
-export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose: () => void}) {
+export function FriendGardenPanel({api, onClose, onHelped}: {api: FriendGardenApi; onClose: () => void; onHelped?: () => void}) {
   const [goal, setGoal] = useState<CampusGardenGoal | null>(null);
   const goalRequest = useRef(0);
   const [page, setPage] = useState<FriendGardenPage | null>(null);
@@ -90,7 +92,7 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
         {ownerId !== null && slot !== null && !helped && <View style={styles.row}>
           {(['FEED', 'CLEAN'] as const).map(action => <Button key={action} size="compact" disabled={busy}
             accessibilityLabel={action === 'FEED' ? '먹이 도움 보내기' : '청소 도움 보내기'}
-            onPress={() => void perform(() => api.help(ownerId, slot, action), () => {setHelped(true); void refreshGoal();}, '도움 결과를 확인하지 못했어요.')}>
+            onPress={() => void perform(() => api.help(ownerId, slot, action), () => {setHelped(true); void refreshGoal(); onHelped?.();}, '도움 결과를 확인하지 못했어요.')}>
             {action === 'FEED' ? '먹이 주기' : '청소하기'}
           </Button>)}
         </View>}
@@ -98,6 +100,10 @@ export function FriendGardenPanel({api, onClose}: {api: FriendGardenApi; onClose
       <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 목록으로" disabled={busy} onPress={() => {setVisit(null); setSlot(null); setError('');}}>목록으로</Button>
     </> : page ? <>
       {goal && <View style={styles.goal}>
+        {onHelped && goal.participants >= goal.target && <View style={styles.row}>
+          <Image accessible={false} source={rewardIcons.community()} style={{width: 24, height: 24}} />
+          <Text style={styles.caption}>공동 배경 해금 · 기여자 성장 조각 1개</Text>
+        </View>}
         <View style={styles.row}>
           <Text accessibilityRole="header" style={styles.name}>이번 주 캠퍼스 돌봄 목표</Text>
           <Text style={styles.caption}>{goal.participants >= goal.target ? '목표 달성' : `${goal.participants} / ${goal.target}명`}</Text>
