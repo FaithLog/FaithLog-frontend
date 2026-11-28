@@ -83,6 +83,13 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     setDecorationPreview(preview);
   }
 
+  function openDecorationPlacement(id: DecorationId, slot: number) {
+    setSavedDecorationScope(undefined);
+    setSuggestion({id, slot});
+    previewDecoration(id, slot);
+    setDecorationPanel('edit');
+  }
+
   const slots=companionGardenSlots(state);
   const needsAttention = slots.flatMap(slot => {
     const animal = instances?.find(item => slot.instanceId
@@ -307,12 +314,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
               const data = await purchaseGardenDecoration(id, price);
               if (request === shopRequest.current) setShop({scope: decorationScope, data});
             }} : {})}
-            {...(decorations.layout ? {onPlace: (id: DecorationId, slot: number) => {
-              setSavedDecorationScope(undefined);
-              setSuggestion({id, slot});
-              previewDecoration(id, slot);
-              setDecorationPanel('edit');
-            }} : {})} />
+            {...(decorations.layout ? {onPlace: openDecorationPlacement} : {})} />
         : decorationPanel === 'friends' && friendGardens
           ? <FriendGardenPanel api={friendGardens} onClose={closeDecorations} {...(refreshGardenRewards ? {onHelped: () => {void refreshGardenRewards(); void loadShards?.();}} : {})} />
           : photoMode
@@ -327,7 +329,14 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     {decorationPanel === null && decorationScope && savedDecorationScope === decorationScope &&
       <Text accessibilityLiveRegion="polite" style={styles.helper}>정원 장식 배치를 저장했어요.</Text>}
     {mode === 'management' && !decorationPanel && gardenRewards && selectRewardBackground && refreshGardenRewards &&
-      <GardenRewardShelf rewards={gardenRewards} selectBackground={selectRewardBackground} refresh={() => void refreshGardenRewards()} />}
+      <GardenRewardShelf rewards={gardenRewards} selectBackground={selectRewardBackground} refresh={() => void refreshGardenRewards()}
+        {...(decorations.layout ? {onPlace: (id: DecorationId) => {
+          const layout = decorations.layout;
+          if (!layout) return;
+          const placed = layout.indexOf(id);
+          const slot = placed >= 0 ? placed : Math.max(0, layout.indexOf(null));
+          openDecorationPlacement(id, slot);
+        }} : {})} />}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
     {mode === 'management' && careReminder && <GardenCareReminder api={careReminder} />}
