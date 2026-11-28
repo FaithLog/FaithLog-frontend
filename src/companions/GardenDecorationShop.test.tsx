@@ -46,6 +46,33 @@ describe('garden decoration shop', () => {
     }
   });
 
+  it('finds owned items across pages and handles categories without owned items', async () => {
+    const catalog = {balance: 500, items: [
+      {id: 'lamb-shelter', price: 300, owned: false},
+      {id: 'olive-sapling', price: 200, owned: true},
+    ]};
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<GardenDecorationShop points={500} catalog={catalog} onPreview={vi.fn()} onClose={vi.fn()} />);
+    });
+    const press = async (label: string) => {
+      const button = tree.root.findAllByType(Button).find(node => node.props.accessibilityLabel === label);
+      expect(button).toBeDefined();
+      await act(async () => {button!.props.onPress();});
+    };
+    try {
+      await press('다음 소품');
+      await press('보유한 소품만 보기');
+      expect(tree.root.findAllByType(Pressable)).toHaveLength(0);
+      await press('식물 소품 보기');
+      expect(tree.root.findAllByType(Pressable)).toHaveLength(1);
+      await press('전체 소품 보기');
+      expect(tree.root.findAllByType(Pressable)).toHaveLength(6);
+    } finally {
+      await act(async () => tree.unmount());
+    }
+  });
+
   it('browses categories and pages and previews one item in the selected position', async () => {
     let tree!: ReactTestRenderer;
     const preview = vi.fn();
