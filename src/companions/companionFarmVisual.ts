@@ -17,6 +17,13 @@ const ACTIONS:Record<CompanionCareAction,Exclude<FarmVisualAction,'evolve'>>={
 const SLEEP_MS=2600;
 const WAKE_MS=720;
 const EVOLVE_MS=FARM_ACTION_TIMELINE.evolve.frames*FARM_ACTION_TIMELINE.evolve.frameMs+350;
+export function isFacilityAnimationActive(action: FarmMutation, age: number): boolean {
+ if (action === 'SLEEP') return age < SLEEP_MS + WAKE_MS;
+ if (action !== 'FEED' && action !== 'PLAY') return false;
+ const timing = FARM_ACTION_TIMELINE[ACTIONS[action]];
+ return age < timing.frames * timing.frameMs + 250;
+}
+
 const NONE:FarmSpriteVisual={elapsedMs:0,pauseMovement:false};
 
 /** Pure local playback: no new timers, no API calls, no synthetic companion stats. */

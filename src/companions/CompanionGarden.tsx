@@ -4,6 +4,7 @@ import {GardenPhotoPanel} from './GardenPhotoPanel';
 import {GardenPhotoFrame, gardenPhotoRuntime, type GardenPhotoCapture} from './gardenPhotoFrame';
 import {FriendGardenPanel} from './FriendGardenPanel';
 import {GardenDecorationShop} from './GardenDecorationShop';
+import {advanceFacilityApproach, findCareFacility, type FacilityApproach} from './gardenFacilityCare';
 import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations, type GardenDecorationLayout} from './GardenDecorations';
 import type {DecorationId} from './gardenDecorationCatalog';
 import type {GardenShopSnapshot} from './companionServerContract';
@@ -20,7 +21,7 @@ import {useCompanions} from './CompanionProvider';
 import {GardenAnimal} from './GardenAnimal';
 import {BibleFriendFarmSprite} from '../characters/BibleFriendFarmSprite';
 import {FarmMessMarker} from './FarmMessMarker';
-import {resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
+import {isFacilityAnimationActive, resolveFarmSpriteVisual, type RunningFarmAnimation} from './companionFarmVisual';
 import {advanceGardenAgent, constrainGardenPoint, createGardenAgent, GARDEN_HEIGHT, normalizeGardenPoint, reactGardenAgent, releaseGardenAgent, restoreGardenPoint, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 import {useCompanionMotion} from './useCompanionMotion';
 import {CompanionCareGifts} from './CompanionCareGifts';
@@ -127,15 +128,29 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
   ]:[];
   const conditionText:Record<string,string>={EXPERIENCE:'경험치',CARE_DAYS:'돌봄 날짜',HEALTH:'건강',SATIETY:'배부름',CLEANLINESS:'청결도',MAX_LEVEL:'최종 진화'};
   const {elapsed, reduceMotion, foreground} = useCompanionMotion(true, 40);
+  const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
+  const agents = useRef(new Map<string,GardenAgent>());
   const observedAnimation = useRef(farmAnimation);
-  const [runningAnimation,setRunningAnimation]=useState<RunningFarmAnimation|null>(null);
+  const [runningAnimation,setRunningAnimation]=useState<(RunningFarmAnimation & {facility?: FacilityApproach}) | null>(null);
   useEffect(()=>{
     if(observedAnimation.current===farmAnimation)return;
     observedAnimation.current=farmAnimation;
-    setRunningAnimation(farmAnimation&&!reduceMotion?{...farmAnimation,startedAt:elapsed}:null);
-  },[farmAnimation,elapsed,reduceMotion]);
-  const [bounds, setBounds] = useState<GardenBounds>({width: 300,height:GARDEN_HEIGHT});
-  const agents = useRef(new Map<string,GardenAgent>());
+    if (!farmAnimation || reduceMotion) {
+      setRunningAnimation(null);
+      return;
+    }
+    const agent = agents.current.get(farmAnimation.instanceId);
+    const animal = instances?.find(item => item.instanceId === farmAnimation.instanceId);
+    const facility = agent && agent.motion !== 'held' && animal && animal.stats.health > 0 &&
+      !animal.designId.startsWith('jesus:') && !decorationPanel
+      ? findCareFacility(decorations.layout, farmAnimation.action, agent.position, bounds, elapsed)
+      : null;
+    setRunningAnimation({
+      ...farmAnimation,
+      startedAt: facility?.arrivalAt ?? elapsed,
+      ...(facility ? {facility} : {}),
+    });
+  }, [farmAnimation, elapsed, reduceMotion, instances, decorationPanel, decorations.layout, bounds]);
   const previous = useRef(elapsed);
   const dragCallback = useRef(onDragStateChange); dragCallback.current = onDragStateChange;
   const [, repaint] = useState(0);
@@ -159,6 +174,11 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       const slot=slots.find(item=>(item.instanceId??item.designId)===id);
       const animal=instances?.find(item=>slot?.instanceId
         ? item.instanceId===slot.instanceId : item.designId===slot?.designId);
+      const approach = runningAnimation?.instanceId === id ? runningAnimation.facility : undefined;
+      if (approach && agent.motion !== 'held' && elapsed - delta < approach.arrivalAt) {
+        agents.current.set(id, advanceFacilityApproach(agent, approach, elapsed, bounds));
+        continue;
+      }
       const visual=resolveFarmSpriteVisual(animal,reduceMotion?null:runningAnimation,elapsed);
       if(visual.pauseMovement&&agent.motion!=='held')continue;
       agents.current.set(id,advanceGardenAgent(agent,elapsed,delta,bounds,
@@ -174,6 +194,9 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     for (const [id,agent] of agents.current) if (agent.motion === 'held') agents.current.set(id,releaseGardenAgent(agent,previous.current,true));
     dragCallback.current?.(false);
   }, [foreground]);
+  const facility = runningAnimation?.facility;
+  const facilityInUse = !reduceMotion && !decorationPanel && facility && runningAnimation &&
+    isFacilityAnimationActive(runningAnimation.action, elapsed - facility.arrivalAt);
   return <View style={styles.section}>
     <GardenPhotoFrame enabled={mode === "management"} captureRef={photoRef}>
     <View onLayout={event => {
@@ -187,7 +210,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
       <GardenBackground id={state.backgroundId} />
-      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} />
+      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} {...(facilityInUse ? {activeFacility: {slot: facility.slot, cue: <FarmHudIcon name={facility.icon} size={20} />}} : {})} />
       {slots.map(slot => {
         const id=slot.designId;
         const key=slot.instanceId??id;
@@ -202,7 +225,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
           evolutionStage={animal && (!baseAppearance?.has(animal.instanceId) || farmAction==='evolve')
             ? (animal.level-1) as 0|1|2 : 0} selected={!photoMode && selectedKey===key && !!selected}
           {...(farmAction ? {farmAction} : {})} farmActionElapsedMs={visual.elapsedMs}
-          onGrab={() => {dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
+          onGrab={() => {if (runningAnimation?.instanceId === key && runningAnimation.facility) setRunningAnimation(null);dragCallback.current?.(true);update(key,a=>({...a,motion:'held',motionSince:elapsed}));}}
           onMove={(point:GardenPoint) => update(key,a=>({...a,position:constrainGardenPoint(point,bounds)}))}
           onRelease={dragged => {
             dragCallback.current?.(false);

@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useImperativeHandle, type Ref, useRef, useState} from 'react';
 import {BackHandler, Image, StyleSheet, Text, View} from 'react-native';
 import {freeDecorations, gardenDecorations, type DecorationId} from './gardenDecorationCatalog';
+import type {ReactNode} from 'react';
 import {Button, Chip} from '../components/ui';
 import {colors, typography} from '../theme';
 
@@ -78,7 +79,7 @@ export function useGardenDecorations(scope?: string) {
 }
 
 /** The foreground stays available to animals and their existing gesture handlers. */
-export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
+export function GardenDecorationLayer({layout, activeFacility}: {layout: Layout | null; activeFacility?: {slot: number; cue: ReactNode}}) {
   if (!layout) return null;
   return <View pointerEvents="none" accessible={false} style={styles.layer}>
     {layout.map((id, index) => {
@@ -87,6 +88,9 @@ export function GardenDecorationLayer({layout}: {layout: Layout | null}) {
         {decoration && <>
           <View style={styles.contactShadow} />
           <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />
+          {activeFacility?.slot === index && <View style={styles.facilityCue}>
+            {activeFacility.cue}
+          </View>}
         </>}
       </View>;
     })}
@@ -275,6 +279,7 @@ const styles = StyleSheet.create({
   layer: {position:'absolute', top:'26%', left:12, right:12, flexDirection:'row'},
   slot: {flex:1, alignItems:'center'},
   sprite: {width:42, height:42},
+  facilityCue: {position: 'absolute', top: -12, marginLeft: 32},
   contactShadow: {position:'absolute', bottom:1, width:30, height:7, borderRadius:8, backgroundColor:'rgba(38, 45, 29, 0.14)'},
   editor: {padding:10, gap:8, borderRadius:12, borderWidth:1, borderColor:colors.borderSoft},
   heading: {...typography.body, color:colors.textPrimary, fontWeight:'600'},
