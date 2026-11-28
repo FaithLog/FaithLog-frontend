@@ -43,7 +43,7 @@ describe('garden decorations', () => {
       const button = tree!.root.findAllByType(Button).find(button => button.props.accessibilityLabel === label);
       await act(async () => {button!.props.onPress();});
     };
-    await press('장식 오른쪽 위치 선택');
+    await press('장식 오른쪽 위치 선택, 비어 있음');
     await press('오른쪽에 등불 배치');
     expect(preview).toHaveBeenLastCalledWith(['flower',null,'lantern']);
     await press('정원 꾸미기 취소');
@@ -84,6 +84,8 @@ describe('garden decorations', () => {
     expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);
     await press('가운데·오른쪽 장식 맞바꾸기');
     expect(preview).toHaveBeenLastCalledWith([null,'lantern','flower']);
+    expect(tree!.root.findAllByType(Button).map(button => button.props.accessibilityLabel))
+      .toEqual(expect.arrayContaining(['장식 왼쪽 위치 선택, 비어 있음','장식 가운데 위치 선택, 등불']));
     expect(save).not.toHaveBeenCalled();
     await press('정원 장식 변경 되돌리기');
     expect(preview).toHaveBeenLastCalledWith([null,'flower','lantern']);

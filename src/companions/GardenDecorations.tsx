@@ -232,9 +232,14 @@ export function GardenDecorationEditor({layout, ownedIds, initialSlot = 0, sugge
   return <View style={styles.editor}>
     <Text style={styles.heading}>장식 위치</Text>
     <View style={styles.actions}>
-      {positions.map((position, index) => <Button key={position} size="compact"
-        variant={index === slot ? 'primary' : 'secondary'} disabled={saving}
-        accessibilityLabel={`장식 ${position} 위치 선택`} onPress={() => setSlot(index)}>{position}</Button>)}
+      {positions.map((position, index) => {
+        const name = gardenDecorations.find(item => item.id === draft[index])?.name ?? '비어 있음';
+        return <Button key={position} size="compact"
+          variant={index === slot ? 'primary' : 'secondary'} disabled={saving}
+          accessibilityLabel={`장식 ${position} 위치 선택, ${name}`} onPress={() => setSlot(index)}>
+          {`${position} · ${name}`}
+        </Button>;
+      })}
     </View>
     {draft[slot] && <View style={styles.actions}>
       {positions.map((position, index) => index === slot ? null : <Button key={position} size="compact"
