@@ -8,8 +8,16 @@ const facilities = {
   SLEEP: {ids: ['lamb-shelter', 'crescent-bed', 'blanket-basket'], icon: 'action-sleep', label: '수면 시설'},
 } as const;
 
+const facilityActions = ['FEED', 'PLAY', 'SLEEP'] as const;
+export type FacilityCareAction = typeof facilityActions[number];
+
+export function getCareFacilityAction(id: string): FacilityCareAction | undefined {
+  return facilityActions.find(action => facilities[action].ids.some(value => value === id));
+}
+
 export function getCareFacilityLabel(id: string): string | undefined {
-  return Object.values(facilities).find(facility => facility.ids.some(value => value === id))?.label;
+  const action = getCareFacilityAction(id);
+  return action ? facilities[action].label : undefined;
 }
 
 export type FacilityApproach = {
@@ -29,7 +37,7 @@ function destination(slot: number, bounds: GardenBounds): GardenPoint {
 }
 
 export function findCareFacility(layout: GardenDecorationLayout | null, action: FarmMutation,
-    origin: GardenPoint, bounds: GardenBounds, now: number): FacilityApproach | null {
+    origin: GardenPoint, bounds: GardenBounds, now: number, preferredSlot?: number): FacilityApproach | null {
   if (!layout || (action !== 'FEED' && action !== 'PLAY' && action !== 'SLEEP')) return null;
   const {ids, icon} = facilities[action];
   let best: FacilityApproach | null = null;
@@ -38,8 +46,8 @@ export function findCareFacility(layout: GardenDecorationLayout | null, action: 
     if (!id || !ids.some(facility => facility === id)) return;
     const point = destination(slot, bounds);
     const distance = Math.hypot(point.x - origin.x, point.y - origin.y);
-    if (distance >= shortest) return;
-    shortest = distance;
+    if (distance >= shortest && slot !== preferredSlot) return;
+    shortest = slot === preferredSlot ? -1 : distance;
     best = {slot, icon, origin, departureAt: now, arrivalAt: now + Math.ceil(distance / 0.26)};
   });
   return best;

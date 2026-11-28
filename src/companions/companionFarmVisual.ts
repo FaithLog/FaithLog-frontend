@@ -3,7 +3,7 @@ import {FARM_ACTION_TIMELINE, type FarmVisualAction} from '../characters/farmMot
 
 export type FarmMutation = CompanionCareAction | 'EVOLVE' | 'WAKE';
 export type CompanionFarmAnimationEvent = {
- instanceId:string;action:FarmMutation;sequence:number;
+ instanceId:string;action:FarmMutation;sequence:number;facilitySlot?:number;
 };
 export type RunningFarmAnimation = CompanionFarmAnimationEvent & {startedAt:number};
 export type FarmRuntimeAction = FarmVisualAction | 'wake';

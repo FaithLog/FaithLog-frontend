@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useImperativeHandle, type Ref, useRef, useState} from 'react';
-import {BackHandler, Image, StyleSheet, Text, View} from 'react-native';
+import {BackHandler, Image, Pressable, StyleSheet, Text, View} from 'react-native';
 import {freeDecorations, gardenDecorations, type DecorationId} from './gardenDecorationCatalog';
 import type {ReactNode} from 'react';
 import {Button, Chip} from '../components/ui';
@@ -79,16 +79,23 @@ export function useGardenDecorations(scope?: string) {
 }
 
 /** The foreground stays available to animals and their existing gesture handlers. */
-export function GardenDecorationLayer({layout, activeFacility}: {layout: Layout | null; activeFacility?: {slot: number; cue: ReactNode}}) {
+export function GardenDecorationLayer({layout, activeFacility, facilityControl}: {
+  layout: Layout | null;
+  activeFacility?: {slot: number; cue: ReactNode};
+  facilityControl?: (id: DecorationId, slot: number) => {label: string; press: () => void} | undefined;
+}) {
   if (!layout) return null;
-  return <View pointerEvents="none" accessible={false} style={styles.layer}>
+  return <View pointerEvents={facilityControl ? "box-none" : "none"} accessible={false} style={styles.layer}>
     {layout.map((id, index) => {
       const decoration = gardenDecorations.find(item => item.id === id);
-      return <View key={positions[index]} style={styles.slot}>
+      const control = decoration && facilityControl?.(decoration.id, index);
+      const sprite = decoration && <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />;
+      return <View key={positions[index]} pointerEvents="box-none" style={styles.slot}>
         {decoration && <>
-          <View style={styles.contactShadow} />
-          <Image accessible={false} source={decoration.source()} style={styles.sprite} resizeMode="contain" />
-          {activeFacility?.slot === index && <View style={styles.facilityCue}>
+          <View pointerEvents="none" style={styles.contactShadow} />
+          {control ? <Pressable accessibilityRole="button" accessibilityLabel={control.label}
+            hitSlop={2} onPress={control.press}>{sprite}</Pressable> : sprite}
+          {activeFacility?.slot === index && <View pointerEvents="none" style={styles.facilityCue}>
             {activeFacility.cue}
           </View>}
         </>}

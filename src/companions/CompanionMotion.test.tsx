@@ -16,13 +16,13 @@ vi.mock('react-native', async () => {
     AccessibilityInfo: {isReduceMotionEnabled: async () => native.reduce, addEventListener: (_key: string, cb: (v: boolean) => void) => {native.motionListener = cb; return {remove: () => {native.removals++;}};}}};
 });
 vi.mock('expo-secure-store', () => ({
-  getItemAsync: async (key: string) => key.endsWith('.facility') ? '[null,null,"hay-feeder"]' : '[null,null,null]',
+  getItemAsync: async (key: string) => key.endsWith('.facility') ? '["seed-dish",null,"hay-feeder"]' : '[null,null,null]',
   setItemAsync: async () => undefined,
 }));
-vi.mock('./GardenDecorations', async importOriginal => ({
-  ...await importOriginal<typeof import('./GardenDecorations')>(),
-  GardenDecorationLayer: () => null,
-}));
+vi.mock('./gardenDecorationCatalog', async importOriginal => {
+  const catalog = await importOriginal<typeof import('./gardenDecorationCatalog')>();
+  return {...catalog, gardenDecorations: catalog.gardenDecorations.map(item => ({...item, source: () => 1}))};
+});
 vi.mock('./GardenBackground', () => ({GardenBackground: () => React.createElement('GardenBackground')}));
 vi.mock('react-native-svg', async () => {
   const {createElement} = await import('react');
@@ -545,7 +545,7 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
  expect(sprite(b).props.evolutionStage).toBe(1);
 });
 
-it('walks the selected animal to its feeding facility before playing the care animation', async () => {
+it('walks the selected animal to the tapped feeding facility before playing the care animation', async () => {
   await import('expo-secure-store');
   const firstId = '12345678-1234-1234-1234-123456789abc';
   const secondId = '12345678-1234-1234-1234-123456789abd';
@@ -577,9 +577,10 @@ it('walks the selected animal to its feeding facility before playing the care an
     .find(node => String(node.props.accessibilityLabel ?? '').startsWith('1번 '))!;
   await act(async () => {select.props.onPress();});
   const start = position(firstId);
-  const feed = tree!.root.findAllByType('FarmCareButton' as React.ElementType)
-    .find(node => node.props.action === 'feed')!;
-  await act(async () => {feed.props.onPress();});
+  const feeder = tree!.root.findAllByType('Pressable' as React.ElementType)
+    .find(node => node.props.accessibilityLabel === '오른쪽 먹이 시설 이용하기')!;
+  expect(feeder).toBeDefined();
+  await act(async () => {feeder.props.onPress();});
   await advance(240);
   expect(position(firstId)).toBeGreaterThan(start);
   expect(sprite(firstId).props.motion).toBe('walk');
