@@ -19,6 +19,10 @@ vi.mock('expo-secure-store', () => ({
   getItemAsync: async () => '[null,null,null]',
   setItemAsync: async () => undefined,
 }));
+vi.mock('./GardenDecorations', async importOriginal => ({
+  ...await importOriginal<typeof import('./GardenDecorations')>(),
+  GardenDecorationLayer: () => null,
+}));
 vi.mock('./GardenBackground', () => ({GardenBackground: () => React.createElement('GardenBackground')}));
 vi.mock('react-native-svg', async () => {
   const {createElement} = await import('react');
