@@ -7,6 +7,8 @@ import {isDailyMission} from './dailyMissionContract';
 import {isGardenBackgroundId} from './gardenBackgrounds';
 import {array,date,designId,integer,object,parseGarden,parseOperation,parsePeriods,parseAttendance,parseCompanionInstance,PERIOD_MISSION_IDS,rarity,string,type CompanionCareGift,type CompanionSaleAvailability,type CompanionServerApi,type Garden,type GardenShopSnapshot,type PendingOperation,type PendingStorage,type ServerSnapshot} from './companionServerContract';
 
+const CATALOG_CACHE_MS = 60_000;
+
 function parseCareGifts(value: unknown): CompanionCareGift[] {
  return array(value).map(item => {
   const row = object(item);
@@ -75,6 +77,13 @@ function parseExpedition(value: unknown): GardenExpedition {
 export function createCompanionServerApi(campusId:number,getToken:()=>Promise<string|null>,storage:PendingStorage):CompanionServerApi {
  const daily=createDailyMissionApi(campusId,getToken);let pool:ServerSnapshot['pool']=null;let mutation=false;
  const request=async<T>(path:string,parser:(v:unknown)=>T,method:'GET'|'POST'|'PUT'='GET',body?:unknown,key?:string)=>{const accessToken=await getToken();if(!accessToken)throw new Error('인증이 필요해요.');return apiRequest<T>(path,{accessToken,method,body,responseParser:parser,...(key?{idempotencyKey:key}:{})});};
+ let catalogCache: {value: ServerSnapshot['catalog']; expiresAt: number} | undefined;
+ async function loadCatalog(): Promise<ServerSnapshot['catalog']> {
+  if (catalogCache && Date.now() < catalogCache.expiresAt) return catalogCache.value;
+  const value = await request('/api/v1/companions/catalog', v => array(v).map(x => designId(object(x).designId)));
+  catalogCache = {value, expiresAt: Date.now() + CATALOG_CACHE_MS};
+  return value;
+ }
  const execute=async(p:PendingOperation)=>{
   try{const result=await request(`/api/v1/companions/me/${p.kind}`,parseOperation,'POST',p.body,p.key);await storage.clear();return result;}
   catch(e){if(e instanceof FaithLogApiError&&e.detail.status&&e.detail.status>=400&&e.detail.status<500&&![408,429].includes(e.detail.status))await storage.clear();throw e;}
@@ -192,7 +201,7 @@ export function createCompanionServerApi(campusId:number,getToken:()=>Promise<st
     request('/api/v1/companions/draw-pools',v=>array(v).map(x=>{const r=object(x);const entries=array(r.entries).map(e=>{const p=object(e);return{designId:designId(p.designId),weight:integer(p.weight,1)};});const totalWeight=integer(r.totalWeight,1);if(entries.reduce((s,e)=>s+e.weight,0)!==totalWeight)throw new Error('Invalid weights');return{poolVersion:string(r.poolVersion),unitCost:integer(r.unitCost,1),totalWeight,entries};})),
     request('/api/v1/companions/sale-prices',v=>{const result={MIRACLE:1000000} as ServerSnapshot['prices'];for(const x of array(v)){const r=object(x);result[rarity(r.rarity)]=integer(r.unitPrice,1);}if(Object.keys(result).length!==6)throw new Error('Invalid prices');return result;}),
     request('/api/v1/companions/me/draws?page=0',v=>array(v).map(x=>{const r=object(x);return{result:parseOperation(r.result),createdAt:date(r.createdAt)};})),
-    request('/api/v1/companions/catalog',v=>array(v).map(x=>designId(object(x).designId))),
+    loadCatalog(),
    ]);
    const [snapshot,inventory,balance]=await Promise.all([
     snapshotRequests,
