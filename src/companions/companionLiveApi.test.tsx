@@ -130,6 +130,10 @@ describe.skipIf(!baseUrl)('real owned-instance care and evolution HTTP contract'
   expect(readyPet).toMatchObject({level:1,growthXp:300,careDays:3});
   expect(otherPet).toMatchObject({level:1,growthXp:0});
   expect(readyPet!.instanceId).not.toBe(otherPet!.instanceId);
+  expect(readyPet?.affectionPeak).toBe(30);
+  expect(await api.gardenRewards!.rename(readyPet!.instanceId, '별빛')).toMatchObject({nickname: '별빛', peak: 30});
+  await expect(api.gardenRewards!.rename(otherPet!.instanceId, '아직 잠김')).rejects.toBeDefined();
+  expect((await api.instancesByDesign!('david-lamb:base', 0)).find(pet => pet.instanceId === readyPet!.instanceId)?.nickname).toBe('별빛');
 
   const garden=await api.garden({
    version:initial.garden.version,backgroundId:null,

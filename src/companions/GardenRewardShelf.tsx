@@ -46,7 +46,7 @@ export function GardenRewardShelf({rewards, selectBackground, refresh}: {
       {rewards.backgroundId === item.id ? `${item.name} · 적용 중` : item.name}
     </Button>)}
     {rewards.backgroundId && <Button size="compact" variant="ghost" disabled={busy} accessibilityLabel="보상 배경 해제"
-      onPress={() => void apply(null)}>기본 배경으로 돌아가기</Button>}
+      onPress={() => void apply(null)}>기존 정원 배경으로 돌아가기</Button>}
     {failed && <Text accessibilityRole="alert" style={styles.caption}>배경을 적용하지 못했어요. 다시 시도해 주세요.</Text>}
   </View>;
 }
@@ -67,7 +67,7 @@ export function CompanionBondPanel({peak, nickname, rename}: {
     finally {lock.current = false; setSaving(false);}
   }
   return <View style={styles.card}>
-    <Text accessibilityRole="header" style={styles.name}>친밀도 해금 · 최고 {peak}</Text>
+    <Text accessibilityRole="header" style={styles.name}>친밀도 해금 · {peak}/100</Text>
     <Text style={styles.caption}>{peak < 30 ? '친밀도 30에서 별명 해금' : peak < 60 ? '친밀도 60에서 고유 반응 해금'
       : peak < 90 ? '친밀도 90에서 전용 장식 해금' : '전용 장식 해금 완료 · 정원 꾸미기에서 배치할 수 있어요.'}</Text>
     {peak >= 30 && <View style={styles.row}>
