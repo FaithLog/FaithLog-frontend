@@ -11,9 +11,14 @@ vi.mock('react-native', async () => {
   const {createElement} = await import('react');
   const host = (name: string) => ({children, ...props}: React.PropsWithChildren<Record<string, unknown>>) => createElement(name, props, children);
   return {Platform:{OS:'ios'}, PanResponder:{create:(config: Record<string, unknown>)=>({panHandlers:{onResponderGrant:config.onPanResponderGrant,onResponderMove:config.onPanResponderMove,onResponderRelease:config.onPanResponderRelease,onResponderTerminate:config.onPanResponderTerminate}})}, ScrollView: host('ScrollView'), Image: host('Image'), View: host('View'), Text: host('Text'), Pressable: host('Pressable'), StyleSheet: {create: (s: unknown) => s},
+    BackHandler: {addEventListener: () => ({remove: () => {}})},
     AppState: {currentState: 'active', addEventListener: (_key: string, cb: (v: string) => void) => {native.appListener = cb; return {remove: () => {native.removals++;}};}},
     AccessibilityInfo: {isReduceMotionEnabled: async () => native.reduce, addEventListener: (_key: string, cb: (v: boolean) => void) => {native.motionListener = cb; return {remove: () => {native.removals++;}};}}};
 });
+vi.mock('expo-secure-store', () => ({
+  getItemAsync: async () => '[null,null,null]',
+  setItemAsync: async () => undefined,
+}));
 vi.mock('./GardenBackground', () => ({GardenBackground: () => React.createElement('GardenBackground')}));
 vi.mock('react-native-svg', async () => {
   const {createElement} = await import('react');
@@ -534,4 +539,28 @@ it('plays successful care and sleep/wake only on the matching garden UUID withou
   .find(n=>n.props.testID===`garden-animal-${a}`)!;
  expect(restoredAnimal.findByType('Sprite' as React.ElementType).props.designId).toBe('david-lamb:base');
  expect(sprite(b).props.evolutionStage).toBe(1);
+});
+
+it('shows a confirmation after saving a garden decoration and clears it when editing again', async () => {
+  await import('expo-secure-store');
+  await act(async () => {
+    tree = create(<CompanionProvider>
+      <CompanionGarden mode="management" decorationScope="faithlog.garden.decorations.7.8" onOpen={() => {}}/>
+    </CompanionProvider>);
+  });
+  const press = async (label: string) => {
+    const button = tree!.root.findAllByType('Button' as React.ElementType)
+      .find(node => node.props.accessibilityLabel === label);
+    expect(button).toBeDefined();
+    await act(async () => {button!.props.onPress();});
+  };
+  const hasConfirmation = () => tree!.root.findAllByType('Text' as React.ElementType)
+    .some(node => node.props.children === '정원 장식 배치를 저장했어요.');
+  await press('정원 꾸미기');
+  await press('왼쪽에 등불 배치');
+  expect(hasConfirmation()).toBe(false);
+  await press('정원 장식 저장');
+  expect(hasConfirmation()).toBe(true);
+  await press('정원 꾸미기');
+  expect(hasConfirmation()).toBe(false);
 });

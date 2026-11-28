@@ -37,6 +37,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
   const decorations = useGardenDecorations(decorationScope);
   const [decorationPreview, setDecorationPreview] = useState<typeof decorations.layout>(null);
   const [decorationPanel, setDecorationPanel] = useState<'edit' | 'shop' | 'friends' | 'photo' | null>(null);
+  const [savedDecorationScope, setSavedDecorationScope] = useState<string>();
   const photoMode = decorationPanel === 'photo';
   const photoRef = useRef<GardenPhotoCapture | null>(null);
   const [shop, setShop] = useState<{scope: string | undefined; data: GardenShopSnapshot} | null>(null);
@@ -249,7 +250,10 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       ? <GardenDecorationEditor layout={decorations.layout} ownedIds={ownedIds}
           initialSlot={suggestion?.slot ?? 0} {...(suggestion ? {suggestedId: suggestion.id} : {})}
           onPreview={setDecorationPreview}
-          onSave={decorations.save} onClose={closeDecorations} {...(leaveEditorRef ? {leaveEditorRef} : {})} />
+          onSave={async layout => {
+            await decorations.save(layout);
+            setSavedDecorationScope(decorationScope);
+          }} onClose={closeDecorations} {...(leaveEditorRef ? {leaveEditorRef} : {})} />
       : decorationPanel === 'shop'
         ? <GardenDecorationShop points={state.points} catalog={catalog ?? null} loading={shopLoading}
             loadFailed={shopFailed} onReload={() => void reloadShop()} onClose={closeDecorations}
@@ -260,6 +264,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
               if (request === shopRequest.current) setShop({scope: decorationScope, data});
             }} : {})}
             {...(decorations.layout ? {onPlace: (id: DecorationId, slot: number) => {
+              setSavedDecorationScope(undefined);
               setSuggestion({id, slot});
               previewDecoration(id, slot);
               setDecorationPanel('edit');
@@ -269,12 +274,14 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
           : photoMode
             ? <GardenPhotoPanel captureRef={photoRef} onClose={closeDecorations} />
             : <View style={styles.actions}>
-          {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => {setDecorationPanel('edit'); void reloadShop();}}>정원 꾸미기</Button>}
+          {decorations.layout && <Button size="compact" variant="secondary" accessibilityLabel="정원 꾸미기" onPress={() => {setSavedDecorationScope(undefined); setDecorationPanel('edit'); void reloadShop();}}>정원 꾸미기</Button>}
           <Button size="compact" variant="primary" accessibilityLabel="정원 상점 열기" onPress={() => {setDecorationPanel('shop'); void reloadShop();}}>정원 상점</Button>
           {mode === 'management' && gardenPhotoRuntime && <Button size="compact" variant="secondary" accessibilityLabel="정원 단체 사진 열기"
             onPress={() => setDecorationPanel('photo')}>단체 사진</Button>}
           {friendGardens && <Button size="compact" variant="secondary" accessibilityLabel="친구 농장 열기" onPress={() => setDecorationPanel('friends')}>친구 농장</Button>}
         </View>}
+    {decorationPanel === null && decorationScope && savedDecorationScope === decorationScope &&
+      <Text accessibilityLiveRegion="polite" style={styles.helper}>정원 장식 배치를 저장했어요.</Text>}
     {decorations.error && <Button size="compact" variant="secondary" accessibilityLabel="장식 배치 다시 불러오기"
       onPress={decorations.reload}>{decorations.error} 다시 시도</Button>}
     {mode === 'management' && careReminder && <GardenCareReminder api={careReminder} />}
