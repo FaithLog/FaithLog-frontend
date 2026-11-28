@@ -3,10 +3,14 @@ import type {GardenDecorationLayout} from './GardenDecorations';
 import {constrainGardenPoint, GARDEN_ANIMAL_SIZE, type GardenAgent, type GardenBounds, type GardenPoint} from './gardenMotion';
 
 const facilities = {
-  FEED: {ids: ['hay-feeder', 'seed-dish'], icon: 'action-feed'},
-  PLAY: {ids: ['cloud-swing'], icon: 'action-play'},
-  SLEEP: {ids: ['lamb-shelter', 'crescent-bed', 'blanket-basket'], icon: 'action-sleep'},
+  FEED: {ids: ['hay-feeder', 'seed-dish'], icon: 'action-feed', label: '먹이 시설'},
+  PLAY: {ids: ['cloud-swing'], icon: 'action-play', label: '놀이 시설'},
+  SLEEP: {ids: ['lamb-shelter', 'crescent-bed', 'blanket-basket'], icon: 'action-sleep', label: '수면 시설'},
 } as const;
+
+export function getCareFacilityLabel(id: string): string | undefined {
+  return Object.values(facilities).find(facility => facility.ids.some(value => value === id))?.label;
+}
 
 export type FacilityApproach = {
   slot: number;
