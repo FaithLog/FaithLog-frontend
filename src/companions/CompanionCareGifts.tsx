@@ -49,7 +49,7 @@ export function CompanionCareGifts({id, careDays, load, claim}: Props) {
   }, [id, careDays, load, reload]);
 
   async function receive(milestone: number) {
-    if (claimLock.current) return;
+    if (claimLock.current || error) return;
     claimLock.current = true;
     request.current++;
     setClaiming(true);
@@ -72,17 +72,21 @@ export function CompanionCareGifts({id, careDays, load, claim}: Props) {
       <FarmHudIcon name="care-gift" size={28}/>
       <Text style={styles.name}>돌봄 선물</Text>
     </View>
-    {gifts.map(gift => <View key={gift.milestone} style={styles.between}>
+    {gifts.map(gift => {
+      const remaining = Math.max(0, gift.milestone - careDays);
+      return <View key={gift.milestone} style={styles.between}>
       <View style={styles.row}>
         <FarmHudIcon name="growth-shard" size={20}/>
         <Text style={styles.caption}>{gift.milestone}일 · 성장 조각 {gift.shards}개</Text>
       </View>
       {gift.status === 'READY'
-        ? <Button size="compact" disabled={claiming} onPress={() => void receive(gift.milestone)}
+        ? <Button size="compact" disabled={claiming || !!error} onPress={() => void receive(gift.milestone)}
             accessibilityLabel={`${gift.milestone}일 돌봄 선물 받기`}>받기</Button>
         : <Text style={styles.caption}>{gift.status === 'CLAIMED' ? '수령 완료'
-          : gift.status === 'TOMORROW' ? '내일 받기' : '돌봄 일수 필요'}</Text>}
-    </View>)}
+          : gift.status === 'TOMORROW' ? '내일 받기'
+          : remaining > 0 ? `${remaining}일 더 돌보면 받을 수 있어요` : '선물 상태 확인 필요'}</Text>}
+      </View>;
+    })}
     {error ? <Text accessibilityRole="alert" style={styles.caption}>{error}</Text> : null}
     {error || gifts.some(gift => gift.status === 'TOMORROW')
       ? <Button size="compact" variant="ghost" accessibilityLabel="선물 상태 다시 확인" onPress={() => setReload(value => value + 1)}>선물 상태 다시 확인</Button>
