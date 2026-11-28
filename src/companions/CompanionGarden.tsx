@@ -4,7 +4,7 @@ import {GardenPhotoPanel} from './GardenPhotoPanel';
 import {GardenPhotoFrame, gardenPhotoRuntime, type GardenPhotoCapture} from './gardenPhotoFrame';
 import {FriendGardenPanel} from './FriendGardenPanel';
 import {GardenDecorationShop} from './GardenDecorationShop';
-import {advanceFacilityApproach, findCareFacility, type FacilityApproach} from './gardenFacilityCare';
+import {advanceFacilityApproach, findCareFacility, getCareFacilityAction, getCareFacilityLabel, type FacilityApproach} from './gardenFacilityCare';
 import {GardenDecorationEditor, GardenDecorationLayer, useGardenDecorations, type GardenDecorationLayout} from './GardenDecorations';
 import type {DecorationId} from './gardenDecorationCatalog';
 import type {GardenShopSnapshot} from './companionServerContract';
@@ -143,7 +143,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
     const animal = instances?.find(item => item.instanceId === farmAnimation.instanceId);
     const facility = agent && agent.motion !== 'held' && animal && animal.stats.health > 0 &&
       !animal.designId.startsWith('jesus:') && !decorationPanel
-      ? findCareFacility(decorations.layout, farmAnimation.action, agent.position, bounds, elapsed)
+      ? findCareFacility(decorations.layout, farmAnimation.action, agent.position, bounds, elapsed, farmAnimation.facilitySlot)
       : null;
     setRunningAnimation({
       ...farmAnimation,
@@ -197,6 +197,17 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
   const facility = runningAnimation?.facility;
   const facilityInUse = !reduceMotion && !decorationPanel && facility && runningAnimation &&
     isFacilityAnimationActive(runningAnimation.action, elapsed - facility.arrivalAt);
+  const facilityControl = mode === 'management' && !decorationPanel && selected && careInstance && !busy && !error
+    && !selected.designId.startsWith('jesus:')
+    ? (id: DecorationId, slot: number) => {
+      const action = getCareFacilityAction(id);
+      if (!action || (selected.dormant && action !== 'FEED') || (selected.stats.health === 0 && action === 'PLAY')) return;
+      return {
+        label: `${['왼쪽', '가운데', '오른쪽'][slot]} ${getCareFacilityLabel(id)} 이용하기`,
+        press: () => {void careInstance(selected.instanceId, action, slot);},
+      };
+    }
+    : undefined;
   return <View style={styles.section}>
     <GardenPhotoFrame enabled={mode === "management"} captureRef={photoRef}>
     <View onLayout={event => {
@@ -210,7 +221,7 @@ export function CompanionGarden({onOpen, onDragStateChange, decorationScope, mod
       setBounds(next);
     }} style={styles.space} testID="companion-garden-space">
       <GardenBackground id={state.backgroundId} />
-      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} {...(facilityInUse ? {activeFacility: {slot: facility.slot, cue: <FarmHudIcon name={facility.icon} size={20} />}} : {})} />
+      <GardenDecorationLayer layout={decorationPreview ?? decorations.layout} {...(facilityControl ? {facilityControl} : {})} {...(facilityInUse ? {activeFacility: {slot: facility.slot, cue: <FarmHudIcon name={facility.icon} size={20} />}} : {})} />
       {slots.map(slot => {
         const id=slot.designId;
         const key=slot.instanceId??id;

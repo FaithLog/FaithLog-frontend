@@ -29,7 +29,7 @@ type Context = {
   farmAnimation?: CompanionFarmAnimationEvent | null;
   instances?: CompanionInstance[] | null;
   careError?: string;
-  careInstance?: (instanceId:string,action:CompanionCareAction)=>Promise<void>;
+  careInstance?: (instanceId:string,action:CompanionCareAction,facilitySlot?:number)=>Promise<void>;
   evolveInstance?: (instanceId:string)=>Promise<void>;
   instancesByDesign?: (designId:BibleFriendDesignId,page:number)=>Promise<CompanionInstance[]>;
   saleAvailability?: (designId:BibleFriendDesignId)=>Promise<CompanionSaleAvailability>;
@@ -281,7 +281,7 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
  },[api,operate,error,flushGarden]);
  const claimDaily=useCallback(async(ids:readonly DailyMissionId[])=>{for(const id of ids)if(!await perform({type:'claim',missionId:id,periodKey:'server',status:'ready'}))break;},[perform]);
  const executeDraw=useCallback(async(count:1|10)=>{const result=await operate(()=>api.draw(count));return result.designIds;},[api,operate]);
- const careInstance=useCallback(async(id:string,action:CompanionCareAction)=>{
+ const careInstance=useCallback(async(id:string,action:CompanionCareAction,facilitySlot?:number)=>{
   if(!api.careInstance || !instances || instanceBusy.current || lock.current || error) return;
   const found=instances.find(item=>item.instanceId===id);
   if(!found)return;
@@ -298,7 +298,7 @@ function ServerProvider({children,api,appearanceStorage}:PropsWithChildren<{api:
    if(alive.current){
     setInstances(items=>items?.map(item=>item.instanceId!==id?item:
       item.version>updated.version?item:updated)??null);
-    if(updated.version>found.version)setFarmAnimation({instanceId:id,action,sequence:++farmAnimationSequence.current});
+    if(updated.version>found.version)setFarmAnimation({instanceId:id,action,sequence:++farmAnimationSequence.current,...(facilitySlot === undefined ? {} : {facilitySlot})});
    }
    pendingOperation.current=null;
   }catch(e){
